@@ -11,7 +11,7 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { MAN } from "./block-shapes.js";
-import { DEFAULT_TINT, boxesOf, createJointRig, restOf, span } from "./parts.js";
+import { DEFAULT_TINT, createJointRig, restOf, solidsOf, span } from "./parts.js";
 
 // The Studio's blockout grey (GREY_BOX in src/object-colors.js), copied here: src/lowvis imports no Studio module.
 const GREY_BOX = "#c2c6c8";
@@ -239,5 +239,5 @@ function blockFigure(shape, { tint = DEFAULT_TINT, colour = null } = {}) {
 }
 
 export const block = options => blockFigure(MAN, options);
-/** The block look's solids as drawn (parts.js boxesOf). */
-export const blockSolids = () => boxesOf(layoutParts(MAN));
+/** The block look's solids as drawn (parts.js solidsOf). */
+export const blockSolids = () => solidsOf(layoutParts(MAN));

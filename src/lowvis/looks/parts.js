@@ -4,6 +4,7 @@
 // A clip joint's quaternion is its world rotation from rest, so a mesh built at its rest place and parented to a
 // group at the joint follows the joint rigidly: group.position = pos[j], group.quaternion = quat[j].
 import * as THREE from "three";
+import { ConvexHull } from "three/examples/jsm/math/ConvexHull.js";
 import { INDEX, JOINT_COUNT, REST, TIPS } from "../rig17.js";
 
 export const DEFAULT_TINT = "#c9b7a4";
@@ -47,20 +48,37 @@ export function createJointRig() {
 	return { object3D, joints, setPose, attach };
 }
 
-/** The solids of a look as drawn, for a measure that has no three.js scene: one box per part ({ joint, geometry },
- *  built in rest world space) that is not on a hand, the box around its vertices square to the rest axes, as
- *  { joint (rig index), c: its centre from the joint at rest, h: its half sizes } (metres, a body of scale 1). */
-export function boxesOf(parts) {
+/** The solids of a look as drawn, for a measure that has no three.js scene: per part ({ joint, geometry }, built in rest
+ *  world space) that is not on a hand, the convex solid around its vertices (every part is convex but a lofted chest,
+ *  which it encloses), as { joint (rig index), v: its corners from the joint at rest, t: its triangles (corner indices),
+ *  n: its face normals, e: its edges [corner, corner, normal of one face, normal of the other], c and h: the centre and
+ *  half sizes of the box around it square to the rest axes } (metres, a body of scale 1). */
+export function solidsOf(parts) {
+	const key = a => a.map(x => x.toFixed(6)).join();
 	return parts.filter(p => !/Hand$/.test(p.joint)).map(({ joint, geometry }) => {
-		const v = geometry.attributes.position.array, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-		for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[i + k]); hi[k] = Math.max(hi[k], v[i + k]); }
-		const j = INDEX[joint];
-		return { joint: j, c: lo.map((a, k) => (a + hi[k]) / 2 - REST[j][k]), h: lo.map((a, k) => (hi[k] - a) / 2) };
+		const j = INDEX[joint], a = geometry.attributes.position.array, pts = [];
+		for (let i = 0; i < a.length; i += 3) pts.push(new THREE.Vector3(a[i] - REST[j][0], a[i + 1] - REST[j][1], a[i + 2] - REST[j][2]));
+		const hull = new ConvexHull().setFromPoints(pts), at = new Map(), v = [], t = [], n = new Map(), e = new Map();
+		const corner = p => { const k = key(p.toArray()); if (!at.has(k)) { at.set(k, v.length); v.push(p.toArray()); } return at.get(k); };
+		for (const face of hull.faces) {
+			const normal = face.normal.toArray(), tri = [];
+			n.set(key(normal), normal);
+			let h = face.edge;
+			do {
+				const [p, q] = [corner(h.tail().point), corner(h.head().point)].sort((x, y) => x - y);
+				tri.push(corner(h.head().point));
+				e.set(`${p},${q}`, [p, q, normal, h.twin.face.normal.toArray()]);
+				h = h.next;
+			} while (h !== face.edge);
+			t.push(tri);
+		}
+		const lo = [0, 1, 2].map(k => Math.min(...v.map(p => p[k]))), hi = [0, 1, 2].map(k => Math.max(...v.map(p => p[k])));
+		return { joint: j, v, t, n: [...n.values()], e: [...e.values()], c: lo.map((x, k) => (x + hi[k]) / 2), h: lo.map((x, k) => (hi[k] - x) / 2) };
 	});
 }
 
 const J = name => REST[INDEX[name]];
-const Y =new THREE.Vector3(0, 1, 0);
+const Y = new THREE.Vector3(0, 1, 0);
 
 /** Midpoint, length and the rotation that turns +Y onto a -> b. */
 export function span(a, b) {
