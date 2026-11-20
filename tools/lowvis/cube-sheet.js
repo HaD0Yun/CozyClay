@@ -2,19 +2,18 @@
 // with the same orthographic camera, over a height ruler with a 2.0 x 0.9 m door and a 0.45 m box. Served by the dev
 // server and captured by tools/lowvis/cube-sheet.mjs.
 //   ?pose=stand|t   stand: the engine's idle (engine-simple), t: the rig's rest T-pose
-//   &cols=A:now:0.9,B:b:0.9,...   letter:shape:scale; shape "now" = CUBE_SHAPE, "b" = CUBE_SHAPE_B
-//   &b={"armTopX":0.15}   JSON fields laid over CUBE_SHAPE_B
+//   &cols=A:look:0.81,...   letter:shape:scale; shape "look" = the look's own CUBE_SHAPE, any other = a key of &shapes
+//   &shapes={"old":{"armTopX":0.177}}   named sets, each JSON fields laid over CUBE_SHAPE
 import * as THREE from "three";
-import { CUBE_SHAPE, CUBE_SHAPE_B, cube } from "../../src/lowvis/looks/cube.js";
+import { CUBE_SHAPE, cube } from "../../src/lowvis/looks/cube.js";
 import { sizedLook } from "../../src/lowvis/looks/index.js";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { INDEX, JOINT_COUNT, REST } from "../../src/lowvis/rig17.js";
 
 const q = new URLSearchParams(location.search);
 const T = q.get("pose") === "t";
-const B = { ...CUBE_SHAPE_B, ...JSON.parse(q.get("b") || "{}") };
-const SHAPES = { now: CUBE_SHAPE, b: B };
-const COLS = (q.get("cols") || "A:now:0.9,B:b:0.9,C:b:0.81,D:now:1").split(",").map(s => { const [id, shape, scale] = s.split(":"); return { id, shape, scale: +scale }; });
+const SHAPES = { look: CUBE_SHAPE, ...Object.fromEntries(Object.entries(JSON.parse(q.get("shapes") || "{}")).map(([k, v]) => [k, { ...CUBE_SHAPE, ...v }])) };
+const COLS = (q.get("cols") || "look:look:0.81,look:look:1").split(",").map(s => { const [id, shape, scale] = s.split(":"); return { id, shape, scale: +scale }; });
 
 const W = T ? 2.9 : 1.7, X0 = 2.3, TOTAL = X0 + COLS.length * W + 0.1, TOP = 2.15, FLOOR_PAD = 0.06;
 const PX = 2400, PXM = PX / TOTAL, LABEL_PX = 240, HEIGHT = Math.round((TOP + FLOOR_PAD) * PXM + LABEL_PX);

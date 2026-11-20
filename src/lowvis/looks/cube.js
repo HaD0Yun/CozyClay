@@ -1,12 +1,17 @@
-// The cube look: the figure of a quick marker sketch (the owner's reference drawing). A big cube head on a short neck
+// The cube look: the figure of a quick marker sketch (the owner's reference drawing). A cube head on a short neck
 // block; the torso as three stacked boxes with gaps between them (chest, belly, pelvis); thin straight arms and legs;
 // forearms and shins that widen toward the hand and the foot; the block look's two hands (a half-closed hand, and a fist
 // for a hand that holds something); a wedge foot on a dark sole; two upright black bar eyes on the face (the owner's
 // second reference). Parts do not touch: at every joint there is an empty gap between the two parts.
 //
-// Sizes come from the drawing, measured in pixels and turned into metres with one rule: the drawing's leg (top of
+// Most sizes come from the drawing, measured in pixels and turned into metres with one rule: the drawing's leg (top of
 // the thigh to the floor, 700 px) is the rig's leg (0.975 m), so 1 px = 1.39 mm. The joints stay the rig's (rig17.js),
 // so a part spans its rig joints even where the drawing's limb is shorter (the forearm).
+// Changed from the drawing on the owner's word (2026-11-20, "a smaller head, longer arms", picked from a comparison
+// sheet): the head is 0.85 of the drawing's in all three directions, on the same neck; the upper arm starts at the rig's
+// shoulder joint instead of at the chest's corner, with a narrower chest (0.28 m) to make room for it; the gaps at the
+// elbow and the wrist are 15 mm instead of 25. The joints did not move: the drawn arm is 34 mm longer from its shoulder
+// end to its wrist end, and the hand hangs no lower.
 //
 // Plain stock parts, as the block look: a matte white, a navy sole, black eyes and a navy line on every edge. How
 // they are shaded is the stage's business (the Studio's toon finish, src/stage-finish.js, shades stock materials).
@@ -24,27 +29,17 @@ const ORIGIN = [0, 0, 0], UP = [0, 1, 0], OUT = [1, 0, 0];
  * never move; these numbers only say where the parts sit about them.
  *   head: [w, h, d] of the head cube, its bottom at headBottom (on the neck); the eyes keep their shares of the face
  *   chest: [w, h, d] of the top torso box
- *   armTopX: how far from the middle the upper arm starts in the T-pose (0.177: the chest's corner, 0.152: the
- *     shoulder joint); armLift: how far over the joint its top end sits in the T-pose
+ *   armTopX: how far from the middle the upper arm starts in the T-pose (0.152: the shoulder joint); armLift: how far
+ *     over the joint its top end sits in the T-pose
  *   upperArm, foreArm: the slab's [w, d] at its two ends
  *   elbowGap, wristGap: metres from the elbow / wrist joint to each part it joins; gap: the same at every other joint
  */
 export const CUBE_SHAPE = Object.freeze({
-	head: [0.29, 0.31, 0.28], headBottom: 1.585,
-	chest: [0.33, 0.21, 0.2],
-	armTopX: 0.177, armLift: 0.04,
-	upperArm: [[0.07, 0.07], [0.062, 0.064]], foreArm: [[0.058, 0.06], [0.085, 0.082]],
-	elbowGap: 0.025, wristGap: 0.025, gap: 0.025,
-});
-
-/** A tuned set to compare (not the default yet): the head 0.85 of its size on the same neck; the upper arm starting
- * at the shoulder joint, with a chest narrow enough for that; smaller gaps at the elbow and the wrist. */
-export const CUBE_SHAPE_B = Object.freeze({
-	...CUBE_SHAPE,
-	head: CUBE_SHAPE.head.map(v => +(0.85 * v).toFixed(4)),
+	head: [0.2465, 0.2635, 0.238], headBottom: 1.585,
 	chest: [0.28, 0.21, 0.2],
-	armTopX: 0.152,
-	elbowGap: 0.015, wristGap: 0.015,
+	armTopX: 0.152, armLift: 0.04,
+	upperArm: [[0.07, 0.07], [0.062, 0.064]], foreArm: [[0.058, 0.06], [0.085, 0.082]],
+	elbowGap: 0.015, wristGap: 0.015, gap: 0.025,
 });
 
 const V = a => new THREE.Vector3().fromArray(a);
@@ -68,8 +63,8 @@ const block = (centre, size) => new THREE.BoxGeometry(...size).translate(...cent
 function layout(S) {
 	const parts = [], add = (joint, geometry, dark = false, hand = null) => parts.push({ joint, geometry, dark, hand });
 	const GAP = S.gap;
-	// Head, neck and torso, top down. Drawing (px): head 210 x 240 front face, neck 70 x 50, chest 240 x 150,
-	// belly 185 x 80, pelvis 160 x 70, a gap of about 15 between them.
+	// Head, neck and torso, top down. Drawing (px): head 210 x 240 front face (now 0.85 of it), neck 70 x 50,
+	// chest 240 x 150 (now narrower), belly 185 x 80, pelvis 160 x 70, a gap of about 15 between them.
 	const HEAD = S.head, HEAD_Y = S.headBottom + HEAD[1] / 2;
 	add("Head", block([0, HEAD_Y, 0], HEAD));
 	// The eyes (reference, as shares of the face): upright bars with round ends, 0.29 of the width out from the
@@ -89,9 +84,9 @@ function layout(S) {
 		const k = side === "Left" ? 1 : -1, J = name => restOf(`${side}${name}`), put = (joint, g, dark, hand) => add(`${side}${joint}`, g, dark, hand);
 		const along = (p, d) => [p[0] + k * d, p[1], p[2]]; // d metres further out along the T-pose arm
 		const elbow = J("ForeArm"), wrist = J("Hand"), knee = J("Leg"), ankle = J("Foot");
-		// Arm (px): upper arm 50 thick, as long as the chest is wide, from the chest's top corner; forearm widening from
-		// 45 to 80. The hands are the block look's own two shapes, starting S.wristGap clear of the wrist.
-		// The upper arm's top end starts S.armTopX out (the chest's corner in CUBE_SHAPE) and sits S.armLift over the
+		// Arm (px): upper arm 50 thick (in the drawing from the chest's top corner; here from the shoulder joint);
+		// forearm widening from 45 to 80. The hands are the block look's own two shapes, starting S.wristGap clear of the wrist.
+		// The upper arm's top end starts S.armTopX out (the shoulder joint) and sits S.armLift over the
 		// joint in the T-pose, so once the arm hangs it is outside the chest; it runs down to the elbow on the joint.
 		// The gaps at the elbow and the wrist are S.elbowGap and S.wristGap.
 		const armTop = [k * S.armTopX, elbow[1] + S.armLift, elbow[2]];

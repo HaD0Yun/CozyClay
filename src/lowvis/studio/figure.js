@@ -4,9 +4,10 @@
 // ?figure=<look> in the page's address only draws that look, at size 1. No figure: the block look at size 1, as before.
 // No three.js here: the Studio's commands and the sidecar import it.
 
-/** The size a new figure of each look starts at, as a character scale (1: the rig's own body, rig17.js). cube: its big
- *  head stands over the rig's head, so at 1 it is 1.90 m tall against the block look's 1.75 m; at 0.9 it is 1.71 m. */
-const STATURE = { cube: 0.9 };
+/** The size a new figure of each look starts at, as a character scale (1: the rig's own body, rig17.js). cube: its
+ *  head stands over the rig's head, so at 1 it is 1.85 m tall in the T-pose against the block look's 1.75 m; at 0.81
+ *  (the owner's pick, 2026-11-20) it is 1.50 m (1.49 m standing with the arms down). */
+const STATURE = { cube: 0.81 };
 
 const LAUNCHED = import.meta.env?.VITE_COZYCLAY_FIGURE || null;
 /** The look this page draws rig characters in, or null for the block look. */

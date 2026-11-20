@@ -2,7 +2,8 @@
 // Renders the cube look comparison sheet (tools/lowvis/cube-sheet.html) to PNG: starts the dev server, opens the page
 // in headless Chrome over CDP, saves a PNG of the sheet and the measured numbers as JSON next to it, stops both.
 //
-//   node tools/lowvis/cube-sheet.mjs --out <file.png> [--pose stand|t] [--cols A:now:0.9,B:b:0.9,...] [--b '{"armTopX":0.15}']
+//   node tools/lowvis/cube-sheet.mjs --out <file.png> [--pose stand|t] [--cols A:old:0.9,C:look:0.81,...]
+//                                    [--shapes '{"old":{"armTopX":0.177}}']   (named sets laid over the look's CUBE_SHAPE)
 //                                    [--port 5198] [--cdp 9344]
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-const { values: a } = parseArgs({ options: { out: { type: "string" }, pose: { type: "string", default: "stand" }, cols: { type: "string" }, b: { type: "string" }, port: { type: "string", default: "5198" }, cdp: { type: "string", default: "9344" } } });
+const { values: a } = parseArgs({ options: { out: { type: "string" }, pose: { type: "string", default: "stand" }, cols: { type: "string" }, shapes: { type: "string" }, port: { type: "string", default: "5198" }, cdp: { type: "string", default: "9344" } } });
 if (!a.out) throw new Error("--out <file.png> is required");
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const ROOT = resolve(import.meta.dirname, "../..");
@@ -38,7 +39,7 @@ try {
 	ws.onmessage = e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (!p) return; pending.delete(m.id); m.error ? p[1](new Error(m.error.message)) : p[0](m.result); };
 	const send = (method, params = {}) => new Promise((ok, fail) => { pending.set(++id, [ok, fail]); ws.send(JSON.stringify({ id, method, params })); });
 	const value = async expression => (await send("Runtime.evaluate", { expression, returnByValue: true })).result.value;
-	const query = new URLSearchParams({ pose: a.pose, ...(a.cols && { cols: a.cols }), ...(a.b && { b: a.b }) });
+	const query = new URLSearchParams({ pose: a.pose, ...(a.cols && { cols: a.cols }), ...(a.shapes && { shapes: a.shapes }) });
 	await send("Page.navigate", { url: `${base}/tools/lowvis/cube-sheet.html?${query}` });
 	await until("sheet", async () => (await value("document.title")) === "ready", 90000);
 	const { w, h } = await value("(() => { const c = document.getElementById('c'); return { w: c.width, h: c.height }; })()");

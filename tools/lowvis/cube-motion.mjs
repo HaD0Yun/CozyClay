@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 // Renders the cube look comparison video: one spec (tools/lowvis/cube-motion-spec.js, or --spec <file.js|json>)
 // built by engine-simple once per lane at that lane's body scale, drawn by tools/lowvis/cube-motion.html (the cube
-// look, one orthographic camera for every lane), stepped frame by frame in headless Chrome and piped to ffmpeg.
+// look, an orthographic camera of the same scale in every lane), stepped frame by frame in headless Chrome and piped to ffmpeg.
 //
-//   node tools/lowvis/cube-motion.mjs --out <file.mp4> [--view three|side] [--lanes A:now:0.9,B:b:0.9,C:b:0.81]
-//                                     [--b '{"armTopX":0.15}'] [--spec <module with SCENE and SPEC>] [--check]
-//                                     [--port 5198] [--cdp 9344] [--width 1920] [--height 800]
+//   node tools/lowvis/cube-motion.mjs --out <file.mp4> [--view three|side] [--lanes C:look:0.81,...]
+//                                     [--shapes '{"old":{"armTopX":0.177}}'] [--spec <module with SCENE and SPEC>] [--check]
+//                                     [--port 5198] [--cdp 9344] [--width 1920] [--height 800 | fit] [--ui 1]
+// --height fit: one px per metre in every lane (the largest at which each lane's content fits its width), the picture as
+// tall as the content (2.2 m and the label strip).
+// lanes: name:shape:scale[:view] (view: three|side, default --view); shape "look" = the look's own CUBE_SHAPE, any other = a key of --shapes (fields over CUBE_SHAPE).
+// --ui: the text and label strip in pixels times this (1 = sized for an 800 px tall picture).
 // --check: build and print the engine's check rows per lane, render nothing.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -18,13 +22,13 @@ import { serializeClip, validateClip } from "../../src/lowvis/clip.js";
 import { badness, isSpike, measure } from "../../src/lowvis/pi/measure.mjs";
 
 const { values: a } = parseArgs({ options: {
-	out: { type: "string" }, view: { type: "string", default: "three" }, lanes: { type: "string", default: "A:now:0.9,B:b:0.9,C:b:0.81" },
-	b: { type: "string" }, spec: { type: "string" }, check: { type: "boolean" }, port: { type: "string", default: "5198" }, cdp: { type: "string", default: "9344" },
-	width: { type: "string", default: "1920" }, height: { type: "string", default: "800" },
+	out: { type: "string" }, view: { type: "string", default: "three" }, lanes: { type: "string", default: "look:look:0.81" },
+	shapes: { type: "string" }, spec: { type: "string" }, check: { type: "boolean" }, port: { type: "string", default: "5198" }, cdp: { type: "string", default: "9344" },
+	width: { type: "string", default: "1920" }, height: { type: "string", default: "800" }, ui: { type: "string", default: "1" },
 } });
 const ROOT = resolve(import.meta.dirname, "../..");
 const { SCENE, SPEC } = await import(a.spec ? pathToFileURL(resolve(a.spec)).href : "./cube-motion-spec.js");
-const LANES = a.lanes.split(",").map(s => { const [name, shape, scale] = s.split(":"); return { name, shape, scale: +scale }; });
+const LANES = a.lanes.split(",").map(s => { const [name, shape, scale, view] = s.split(":"); return { name, shape, scale: +scale, view }; });
 
 // One clip per lane: the same spec and scene, the character at the lane's scale.
 for (const lane of LANES) {
@@ -50,7 +54,7 @@ const answers = async url => { try { return (await fetch(url)).ok; } catch { ret
 const until = async (what, test, ms = 60000) => { for (const t0 = Date.now(); !(await test());) { if (Date.now() - t0 > ms) throw new Error(`${what} did not come up`); await sleep(200); } };
 const stop = async child => { if (child.exitCode === null) { child.kill("SIGTERM"); await Promise.race([new Promise(r => child.once("exit", r)), sleep(3000)]); } if (child.exitCode === null) child.kill("SIGKILL"); };
 
-const base = `http://127.0.0.1:${a.port}`, W = +a.width, H = +a.height;
+const base = `http://127.0.0.1:${a.port}`, W = +a.width, H = a.height === "fit" ? 1600 : +a.height;
 if (await answers(base)) throw new Error(`port ${a.port} is in use`);
 if (await answers(`http://127.0.0.1:${a.cdp}/json/version`)) throw new Error(`port ${a.cdp} is in use`);
 const vite = spawn(process.execPath, [join(ROOT, "node_modules/vite/bin/vite.js"), "--port", a.port, "--strictPort", "--host", "127.0.0.1"], { cwd: ROOT, stdio: "ignore" });
@@ -73,8 +77,9 @@ try {
 	await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
 	await send("Page.navigate", { url: `${base}/tools/lowvis/cube-motion.html` });
 	await until("page", async () => (await value("typeof window.cubeMotion")) === "object", 90000);
-	const data = { view: a.view, b: a.b ? JSON.parse(a.b) : {}, width: W, height: H, props: SCENE.props, lanes: LANES.map(({ name, shape, scale, clip }) => ({ name, shape, scale, clip })) };
+	const data = { view: a.view, height: a.height === "fit" ? null : H, shapes: a.shapes ? JSON.parse(a.shapes) : {}, width: W, props: SCENE.props, ui: +a.ui, lanes: LANES.map(({ name, shape, scale, view, clip }) => ({ name, shape, scale, view, clip })) };
 	const info = await value(`window.cubeMotion.load(${JSON.stringify(data)})`);
+	await send("Emulation.setDeviceMetricsOverride", { width: W, height: info.height, deviceScaleFactor: 1, mobile: false });
 	mkdirSync(dirname(resolve(a.out)), { recursive: true });
 	ffmpeg = spawn(FFMPEG, ["-y", "-loglevel", "error", "-f", "image2pipe", "-c:v", "png", "-framerate", "24", "-i", "-",
 		"-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", "-movflags", "+faststart", a.out], { stdio: ["pipe", "ignore", "inherit"] });
@@ -87,7 +92,7 @@ try {
 	ffmpeg.stdin.end();
 	if ((await done) !== 0) throw new Error("ffmpeg failed");
 	ffmpeg = null;
-	console.log(`${a.out}: ${info.frames} frames, ${(info.frames / 24).toFixed(2)} s, ${W}x${H}; heights ${info.heights.map(h => h.toFixed(3)).join(", ")} m`);
+	console.log(`${a.out}: ${info.frames} frames, ${(info.frames / 24).toFixed(2)} s, ${W}x${info.height}, ${info.pxPerM.toFixed(1)} px per metre; heights ${info.heights.map(h => h.toFixed(3)).join(", ")} m`);
 	ws.close();
 } finally {
 	if (ffmpeg) await stop(ffmpeg);
