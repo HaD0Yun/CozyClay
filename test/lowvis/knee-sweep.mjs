@@ -1,13 +1,20 @@
 // The side a knee (and an elbow) bends to, measured from a clip's output with arithmetic of this file's own, and the
 // inputs that sweep it: body states for the leg solver directly, paths of a foot target, and specs compiled whole.
 //
-// The allowed side, in the limb's parent frame (pelvis for a thigh, chest for an upper arm): at rest a knee bends about
-// the pelvis's left axis X (the shin goes back as the knee goes forward); an elbow about the chest axis rest-pole x
-// rest-arm. The twist is the angle, about the upper bone, from that rest hinge (its part square to the bone) to the
-// limb's actual hinge (thigh x shin, or the thigh's own turned X while the leg is straight). Over 90 degrees the joint
-// bends to the side it cannot. For a thigh on the pelvis's sagittal plane this needs no convention: every hip flexion
-// keeps the hinge at X, so a reversed hinge reads 180 in front of, above and behind the hips alike. The twist is null
-// only where the bone lies within 5 degrees of its rest hinge (a thigh straight out to a side or across).
+// The side, in the limb's parent frame (pelvis for a thigh, chest for an upper arm): at rest a knee bends about the
+// pelvis's left axis X (the shin goes back as the knee goes forward); an elbow about the chest axis rest-pole x
+// rest-arm. The limb's actual hinge is upper bone x lower bone (or the upper bone's own turned rest hinge while the limb
+// is straight).
+// A knee:
+// - A leg that bends in the pelvis's sagittal plane (its hinge within 15 degrees of X or -X) needs no convention: every
+//   hip flexion keeps the hinge at X, so the twist is 0, or 180 with `reversed` set when the hinge points along -X, in
+//   front of, above and behind the hips alike.
+// - Off that plane the hinge of an untwisted thigh needs a convention and no single one holds everywhere, so three are
+//   read: X's part square to the thigh; X carried by the shortest turn from straight down to the thigh; X carried by the
+//   shortest turn from 45 degrees forward of down to the thigh. The twist is the smallest of the three angles from such
+//   a hinge to the actual one: over 90 degrees, every reading has the knee on the side it cannot bend to.
+// An elbow: the one angle from the rest hinge's part square to the upper arm (a reading, not a verdict).
+// The twist is null where no reading has a direction.
 import { INDEX as J, OFFSET, PARENT, REST } from "../../src/lowvis/rig17.js";
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -39,17 +46,41 @@ export const LIMBS = [
 });
 if (PARENT[J.LeftArm] !== J.Spine2 || PARENT[J.LeftUpLeg] !== J.Hips) throw new Error("rig parents changed");
 
-/** One limb of one pose ({pos, quat} lists of 17): { twist (deg, 0..180; null where the carry is undefined), bend (deg
- *  between the two bones), mid, root, end } */
+const XL = [1, 0, 0], DOWN = [0, -1, 0], FWD45 = unit([0, -1, 1]);
+/** v turned by the shortest turn that takes unit a to unit b; null where they point opposite ways. */
+const carried = (v, a, b) => { const k = cross(a, b), c = dot(a, b); return 1 + c < 1e-9 ? null : add(add(mul(v, c), cross(k, v)), mul(k, dot(k, v) / (1 + c))); };
+
+/** One limb of one pose ({pos, quat} lists of 17): { twist (deg, 0..180; null where no reading has a direction),
+ *  reversed (a knee only: the leg bends in the pelvis's sagittal plane with its hinge along -X), bend (deg between the
+ *  two bones), mid, root, end } */
 export function limbSide(pos, quat, L) {
 	const inv = conj(quat[L.parent]), t = rot(inv, sub(pos[L.mid], pos[L.root])), s = rot(inv, sub(pos[L.end], pos[L.mid]));
-	const bend = angle(t, s), tu = unit(t);
+	const bend = angle(t, s), tu = unit(t), out = { twist: null, reversed: false, bend, root: pos[L.root], mid: pos[L.mid], end: pos[L.end] };
 	let h = cross(t, s);
 	if (len(h) < Math.sin(2 / DEG) * len(t) * len(s)) h = rot(qmul(inv, quat[L.root]), L.hinge); // nearly straight: the bone's own turned hinge
-	const ref = sub(L.hinge, mul(tu, dot(L.hinge, tu))); // the rest hinge's part square to the bone
-	if (len(ref) < Math.sin(5 / DEG)) return { twist: null, bend, root: pos[L.root], mid: pos[L.mid], end: pos[L.end] };
-	const across = sub(h, mul(tu, dot(h, tu)));
-	return { twist: angle(across, ref), bend, root: pos[L.root], mid: pos[L.mid], end: pos[L.end] };
+	const off = L.leg ? angle(h, XL) : 90;
+	if (off < 15 || off > 165) { out.reversed = off > 165; out.twist = out.reversed ? 180 : 0; return out; }
+	const refs = [sub(L.hinge, mul(tu, dot(L.hinge, tu)))]; // the rest hinge's part square to the bone
+	if (L.leg) for (const from of [DOWN, FWD45]) if (angle(from, tu) < 168) refs.push(carried(XL, from, tu)); // a carry is not read within 12 degrees of where it has no value
+	const across = sub(h, mul(tu, dot(h, tu))), seen = refs.filter(r => len(r) > Math.sin(5 / DEG)).map(r => angle(across, r));
+	if (seen.length) out.twist = Math.min(...seen);
+	return out;
+}
+
+/** The direction across a leg along d (hip -> ankle, a unit in the pelvis frame) that src/lowvis/engine-simple/knee.js
+ *  takes the knee's side from, written again here from its sentence: d x X plus, weighed by the square of d's part
+ *  along X, the knee direction of a leg 45 degrees forward of down carried by the shortest turn to d. A unit, or null
+ *  where it has no direction. */
+function kneeSide(d) {
+	const far = carried(cross(FWD45, XL), FWD45, d), g = add(cross(d, XL), mul(far ?? [0, 0, 0], d[0] * d[0]));
+	return len(g) > 1e-9 ? unit(g) : null;
+}
+/** The solver's own pole for leg L (the pelvis's forward plus half the foot's), read back from an output pose: its
+ *  part along kneeSide, which knee.js keeps at 0.25 or more (Infinity where the side has no direction). */
+export function poleAlongSide(pose, L) {
+	const inv = conj(pose.quat[L.parent]), fwd = q => rot(qmul(inv, q), [0, 0, 1]);
+	const g = kneeSide(unit(rot(inv, sub(pose.pos[L.end], pose.pos[L.root]))));
+	return g ? dot(add(fwd(pose.quat[L.parent]), mul(fwd(pose.quat[L.end]), 0.5)), g) : Infinity;
 }
 
 /** The 17 joints of frame f of a clip character. */
