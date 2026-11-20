@@ -1,0 +1,51 @@
+// Scenes and specs made for the inside rows (verify-inside.mjs) and for comparing the motion tool's text against an
+// older tree. Each case: { name, scene, spec, figure?, off?, told: the "<body or moving prop>><prop>" pairs the
+// inside rows must name, exactly; endsBy?: { <pair>: frame } its last frame inside comes before that frame; skip?:
+// { <pair>: [[from, to, joints?], ...] } frames [from, to) on which the spec's words make that pair touch (only those
+// joints' solids when joints is given) }.
+import { REST, INDEX } from "../../src/lowvis/rig17.js";
+
+const ANKLE = REST[INDEX.RightFoot][1]; // the ankle joint over the sole at scale 1
+const prop = (id, size, at, more = {}) => ({ id, size, at, ...more });
+const one = (props, extra = {}) => ({ frames: 120, characters: [{ id: "a", at: [0, 0], heading: 0, ...extra }], props });
+const walk = to => ({ a: [[5, "walk", { to }]] });
+
+const base = [
+	{ name: "a box around the head", scene: one([prop("crate", [0.4, 0.4, 0.4], [0, 1.7, 0])]), spec: { a: [[0, "idle"]] }, told: ["a>crate"] },
+	{ name: "walk through a tall wall", scene: one([prop("wall", [2, 2, 0.2], [0, 1, 1.5])]), spec: walk([0, 3]), told: ["a>wall"] },
+	{ name: "walk through a turned wall", scene: one([prop("wall", [2, 2, 0.2], [0, 1, 1.5], { turn: 30 })]), spec: walk([0, 3]), told: ["a>wall"] },
+	{ name: "walk through a thin plate", scene: one([prop("plate", [2, 2, 0.012], [0, 1, 1.5])]), spec: walk([0, 3]), told: ["a>plate"] },
+	{ name: "walk beside a box", scene: one([prop("crate", [0.5, 1, 0.5], [0.8, 0.5, 1.5])]), spec: walk([0, 3]), told: [] },
+	// the engine keeps walking feet on the floor (ground y = 0), so they pass through a low step; a foot the spec lifts onto
+	// its top, or a body the spec shifts up onto it, stands on it
+	{ name: "walk across a low step at floor level", scene: one([prop("step", [1.2, 0.12, 0.8], [0, 0.06, 1.5])]), spec: walk([0, 3]), told: ["a>step"] },
+	{ name: "stand on a low step, shifted up onto it", scene: one([prop("step", [1.2, 0.12, 0.8], [0, 0.06, 0])]), spec: { a: [[0, "pose", { tilt: [0, 0], shift: [0, 0.12, 0], over: 0 }]] }, told: [] },
+	{ name: "a foot put on a box top", scene: one([prop("crate", [0.3, 0.15, 0.3], [-0.1, 0.075, 0.5])]), spec: { a: [[5, "pose", { footR: { world: [-0.1, 0.15 + ANKLE, 0.5] }, over: 20 }]] }, told: ["a>crate"], endsBy: { "a>crate": 25 } }, // the foot swings low through the box's side; standing on its top from f25 is not inside
+	{ name: "walk into a box", scene: one([prop("crate", [1, 1, 1], [0, 0.5, 2.2])]), spec: walk([0, 2.2]), told: ["a>crate"] },
+	{ name: "sit on a seat", scene: { frames: 120, characters: [{ id: "a", at: [0, 0], heading: 180 }], props: [prop("seat", [0.45, 0.45, 0.45], [0, 0.225, 0.45])] }, spec: { a: [[10, "sit", { on: "seat" }], [60, "idle"]] }, told: [], skip: { "a>seat": [[10, 120]] } },
+	{ name: "sit, stand up and walk through the seat", scene: { frames: 160, characters: [{ id: "a", at: [0, 0], heading: 180 }], props: [prop("seat", [0.45, 0.45, 0.45], [0, 0.225, 0.45])] }, spec: { a: [[10, "sit", { on: "seat" }], [50, "idle"], [70, "stand"], [100, "walk", { to: [0, 1.4], heading: 0 }]] }, told: ["a>seat"], skip: { "a>seat": [[10, 100]] } },
+	{ name: "kneel and lie on a mat", scene: { frames: 120, characters: [{ id: "a", at: [0, 0], heading: 0 }], props: [prop("mat", [0.9, 0.1, 2], [0, 0.05, 1.4])] }, spec: { a: [[10, "kneel"], [40, "lie", { on: "mat", head: 0 }], [80, "idle"]] }, told: [], skip: { "a>mat": [[40, 120]] } },
+	{ name: "a ball keyed along a lane", scene: one([prop("lane", [0.8, 0.02, 4], [1.5, 0.01, 2]), prop("ball", [0.2, 0.2, 0.2], [1.5, 0.12, 0.4], { shape: "sphere", moves: true })]), spec: { ball: [[10, "move", { to: [1.5, 0.12, 3.5], over: 80 }]] }, told: [] },
+	{ name: "a box keyed through a wall", scene: one([prop("wall", [0.2, 1, 1], [1.5, 0.5, 1.5]), prop("crate", [0.4, 0.4, 0.4], [0.6, 0.2, 1.5], { moves: true })]), spec: { crate: [[10, "move", { to: [2.4, 0.2, 1.5], over: 60 }]] }, told: ["crate>wall"] },
+	{ name: "two keyed boxes pass through each other", scene: one([prop("big", [0.8, 0.8, 0.8], [2.4, 0.4, 1.5], { moves: true }), prop("small", [0.2, 0.2, 0.2], [0.6, 0.1, 1.5], { moves: true })]), spec: { small: [[10, "move", { to: [2.4, 0.1, 1.5], over: 60 }]], big: [[10, "move", { to: [0.6, 0.4, 1.5], over: 60 }]] }, told: ["small>big"] },
+	{ name: "a box keyed through a hollow wall", scene: one([prop("wall", [0.2, 1, 1], [1.5, 0.5, 1.5], { hollow: true }), prop("crate", [0.4, 0.4, 0.4], [0.6, 0.2, 1.5], { moves: true })]), spec: { crate: [[10, "move", { to: [2.4, 0.2, 1.5], over: 60 }]] }, told: [] },
+	{ name: "a ball launched at a wall", scene: one([prop("wall", [2, 1, 0.2], [1.5, 0.5, 2.5]), prop("ball", [0.22, 0.22, 0.22], [1.5, 0.11, 1], { shape: "sphere", moves: true })]), spec: { ball: [[10, "launch", { vel: [0, 0, 4] }]] }, told: [] },
+	{ name: "a stick in one hand poked into a wall", scene: one([prop("wall", [2, 2, 0.2], [0, 1, 1.25]), prop("stick", [0.04, 0.04, 1.4], [-0.25, 0.85, 0.3], { moves: true })]), spec: { a: [[0, "hold", { prop: "stick", hand: "R" }], [10, "walk", { to: [0, 0.75] }]] }, told: ["stick>wall"] },
+	{ name: "a box carried and placed on a table", scene: one([prop("table", [0.8, 0.75, 0.6], [0, 0.375, 1.1]), prop("crate", [0.3, 0.3, 0.3], [0, 0.9, 0.95], { moves: true }), prop("shelf", [0.6, 0.75, 0.6], [0.85, 0.375, 0.45])]), spec: { a: [[0, "walk", { to: [0, 0.45] }], [30, "carry", { prop: "crate", at: [0, 1.1, 0.42], over: 20 }], [60, "turn", { heading: 90 }], [80, "place", { prop: "crate", at: [0.75, 0.9, 0.45], over: 20 }]] }, told: [], skip: { "a>crate": [[30, 100, ["LeftForeArm", "RightForeArm"]]] } },
+	{ name: "a crate riding on a keyed cart", scene: one([prop("cart", [0.6, 0.3, 0.8], [1.2, 0.15, 1], { moves: true }), prop("crate", [0.3, 0.3, 0.3], [1.2, 0.45, 1], { moves: true })]), spec: { crate: [[0, "ride", { on: "cart" }]], cart: [[10, "move", { to: [1.2, 0.15, 2.6], over: 60 }]] }, told: [], skip: { "crate>cart": [[0, 120]] } },
+	{ name: "a hat riding on the head", scene: one([prop("hat", [0.3, 0.1, 0.3], [0, 1.8, 0], { moves: true })]), spec: { hat: [[0, "ride", { joint: "Head", of: "a", at: [0, 0.12, 0] }]], a: [[10, "walk", { to: [0, 1.5] }]] }, told: [], skip: { "a>hat": [[0, 120, ["Head"]]] } },
+	// after a ride a pair stays untold only while it has been past the limit on every frame since the ride's last one: a
+	// tray that rests on its lift is told from the frame its own key stops it and the lift rises on through it; a peg
+	// seated 80 mm in a rack is untold while its own key lifts it out (clear from f32) and told when it is pushed back in
+	{ name: "a tray rides a lift, stops, and the lift rises through it", scene: one([prop("lift", [1, 0.2, 1], [1.5, 0.4, 1], { moves: true }), prop("tray", [0.4, 0.1, 0.4], [1.5, 0.55, 1], { moves: true })]), spec: { lift: [[20, "move", { to: [1.5, 1.6, 1], over: 40, ease: "linear" }]], tray: [[0, "ride", { on: "lift" }], [35, "move", { to: [1.5, 1, 1], over: 1 }]] }, told: ["tray>lift"], skip: { "tray>lift": [[0, 35]] } },
+	{ name: "a peg seated in a rack is lifted out and pushed back in", scene: one([prop("rack", [0.4, 0.2, 0.3], [1.2, 0.9, 0.6]), prop("peg", [0.06, 0.3, 0.06], [1.2, 1.07, 0.6], { moves: true })]), spec: { peg: [[0, "ride", { on: "rack" }], [30, "move", { to: [1.2, 1.4, 0.6], over: 10, ease: "linear" }], [60, "move", { to: [1.2, 1.05, 0.6], over: 10, ease: "linear" }]] }, told: ["peg>rack"], skip: { "peg>rack": [[0, 32]] } },
+	// a hand's target on a prop holds until that hand's next key, from any field that keys it (here L and R after hands)
+	{ name: "hands on a box, to rest, then the right hand into it", scene: one([prop("box", [0.5, 0.5, 0.5], [0, 1.05, 0.62])]), spec: { a: [[5, "pose", { hands: { prop: "box" }, over: 15 }], [40, "pose", { L: "rest", R: "rest", over: 15 }], [70, "pose", { R: [-0.1, 0.25, 0.7], over: 15 }]] }, told: ["a>box"], skip: { "a>box": [[5, 40, ["LeftForeArm", "RightForeArm"]]] } },
+	// a hold with at keys the hands to their places on the prop from its own frame; they hold it from the take
+	{ name: "hold a box on a table by its sides, then lift it", scene: { ...one([prop("table", [0.8, 0.8, 0.5], [0, 0.4, 0.7]), prop("box", [0.4, 0.3, 0.3], [0, 0.95, 0.6], { moves: true })]), frames: 90 }, spec: { a: [[0, "hold", { prop: "box", hand: "both", at: { L: [0.2, 0, 0], R: [-0.2, 0, 0] }, over: 12 }], [30, "pose", { L: [0.2, 0.2, 0.4], R: [-0.2, 0.2, 0.4], over: 15 }]] }, told: [], skip: { "a>box": [[0, 90, ["LeftForeArm", "RightForeArm"]]] } },
+	{ name: "two walk through one wall", scene: { frames: 120, characters: [{ id: "a", at: [0, 0], heading: 0 }, { id: "b", at: [1, 0], heading: 0 }], props: [prop("wall", [3, 2, 0.2], [0.5, 1, 1.5])] }, spec: { a: [[5, "walk", { to: [0, 3] }]], b: [[5, "walk", { to: [1, 3] }]] }, told: ["a>wall", "b>wall"] },
+];
+// the same cases with every scale of body (and the box around the body kept at its hips' height)
+const scaled = [0.5, 2].map(s => ({ name: `a box around the hips at scale ${s}`, scene: one([prop("crate", [0.3, 0.3, 0.3], [0, 1.0 * s, 0])], { scale: s }), spec: { a: [[0, "idle"]] }, told: ["a>crate"] }));
+const reversed = base.filter(c => c.scene.props.length > 1 || c.scene.characters.length > 1).map(c => ({ ...c, name: `${c.name}, listed the other way`, scene: { ...c.scene, characters: c.scene.characters.slice().reverse(), props: c.scene.props.slice().reverse() } }));
+export const CASES = [...base, ...scaled, ...reversed, ...base.map(c => ({ ...c, name: `${c.name} (cube look)`, figure: "cube" }))];

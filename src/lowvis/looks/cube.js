@@ -13,7 +13,7 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { fist, mitten } from "./block.js";
-import { createJointRig, restOf } from "./parts.js";
+import { createJointRig, restOf, solidsOf } from "./parts.js";
 
 // The navy of the sole and the lines is read off the drawing.
 const WHITE = "#f4f4f2", NAVY = "#0b1c52", INK = "#0a1a50", EYE = "#050508";
@@ -84,6 +84,9 @@ function layout() {
 	}
 	return parts;
 }
+
+/** The cube look's solids as drawn (parts.js solidsOf). */
+export const cubeSolids = () => solidsOf(layout());
 
 /** The figure is white (the owner's pick, 2026-11-19): a character's tint and colour are not used. */
 export function cube() {
