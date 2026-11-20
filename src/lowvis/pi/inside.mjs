@@ -202,11 +202,13 @@ export function insideRows(clip, aux, { def, spec, look }) {
 				const key = `${c.id}|${p.id}`, list = touch[key], held = holdersAt(p.id, f).includes(c.id);
 				if (list?.some(e => f >= e.a && f < e.b && !e.joints)) return; // the whole body touches it
 				for (const o of parts) {
-					const edge = rideEdge(list, f, o.o.joint), contact = () => touching(list, f, o.o.joint) || (held && FOREARMS.has(o.o.joint));
-					const up = apart(o.c, o.reach, b) || (!edge && contact()) ? 0 : depthOf(o, b);
+					if (apart(o.c, o.reach, b)) continue;
+					// a contact of the spec's words covers the part; on the two frames a ride's end is read on it is measured all the same
+					const contact = touching(list, f, o.o.joint) || (held && FOREARMS.has(o.o.joint)), edge = list && rideEdge(list, f, o.o.joint);
+					const up = contact && !edge ? 0 : depthOf(o, b);
 					if (up <= lim) continue; // the box around the part is not past the limit
 					const iq = qConj(o.q), own = { c: qRotate(iq, sub(b.c, o.P)), r: b.r, ax: b.ax?.map(a => qRotate(iq, a)), h: b.h };
-					if (edge && (rideKeeps(edge, f, partDepth(o.o, s, own, lim) > lim) || contact())) continue;
+					if (edge && (rideKeeps(edge, f, partDepth(o.o, s, own, lim) > lim) || contact)) continue;
 					// the part's depth lies between that of the ball inside it and that of the box around it; it is worked out
 					// only as far as it can count this frame or raise the case's worst
 					const e = cases.get(key), counted = e?.last === f, worst = e?.value ?? 0;
