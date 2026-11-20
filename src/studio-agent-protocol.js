@@ -122,7 +122,7 @@ const cameraKey = object({ frame: integer(), framing: object({ pos: vec3, yaw: {
 // there (degrees, +-90). The route normaliser (src/object-path.js) owns the
 // rules; this only carries the shape through untouched.
 const routeMark = union(number(0, 1), object({ t: number(0, 1) }, { bank: number(-90, 90), pitch: number(-90, 90) }));
-const objectRoute = nullable(object({ points: array(vec3, 64, 2) }, { speed: number(0, 50), faceTravel: bool, loop: bool, extend: bool, marks: array(routeMark, 6) }));
+const routeTiming = nullable(object({ cuts: array(object({ t: number(0, 1), d: number(0, 1) }), 64) }, { envelopes: array(array(number(0, 100), 64, 2), 65) })), objectRoute = nullable(object({ points: array(vec3, 64, 2) }, { speed: number(0, 50), faceTravel: bool, loop: bool, extend: bool, marks: array(routeMark, 6), timing: routeTiming }));
 // A practical light and a glow (src/object-look.js owns the defaults and the repair); grasp sockets (src/object-grasp.js).
 const objectLight = object({}, { type: choices(["point", "spot"]), color: { ...text(32), pattern: "^#[0-9a-fA-F]{6}$" }, intensity: number(0, 1000), range: number(0, 100), angle: number(1, 89), softness: number(0, 1), shadow: bool, flicker: number(0, 1), aim: nullable(vec3) });
 const objectGlow = nullable(object({}, { color: { ...text(32), pattern: "^#[0-9a-fA-F]{6}$" }, intensity: number(0, 20), halo: number(0, 4) })), objectGrasp = nullable(openObject);
