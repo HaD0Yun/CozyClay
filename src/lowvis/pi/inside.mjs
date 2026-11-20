@@ -95,7 +95,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 		const i = p.pos.length === 3 ? 0 : f, c = Array.from(p.pos.slice(i * 3, i * 3 + 3)), q = Array.from(p.quat.slice(i * 4, i * 4 + 4));
 		return p.shape === "sphere" ? { c, r: p.size[0] / 2 } : { c, ax: AXES.map(a => qRotate(q, a)), h: p.size.map(v => v / 2) };
 	};
-	const least = p => p.shape === "sphere" ? p.size[0] : Math.min(...p.size);
+	const least = p => p.shape === "sphere" ? p.size[0] : Math.min(...p.size), volume = p => p.size[0] * p.size[1] * p.size[2];
 	const note = (key, who, prop, part, d, f, limit) => {
 		if (d <= limit) return;
 		const e = cases.get(key) ?? cases.set(key, { key, who, prop, part, value: 0, frame: f, frames: 0, first: f, last: -1, limit }).get(key);
@@ -125,7 +125,8 @@ export function insideRows(clip, aux, { def, spec, look }) {
 			for (const [p, b] of boxes) {
 				if (p === m || (p.pos.length > 3 && movers.indexOf(p) < movers.indexOf(m)) || apart(a, b)) continue; // a pair of movers once
 				if (touching(touch[`${m.id}|${p.id}`], f, null)) continue;
-				note(`${m.id}|${p.id}`, null, p.id, m.id, depthOf(a, b), f, Math.min(LIMIT, least(m) / 2, least(p) / 2));
+				const [x, y] = p.pos.length > 3 && volume(p) < volume(m) ? [p, m] : [m, p]; // of two moving props, the smaller is named inside the larger
+				note(`${x.id}|${y.id}`, null, y.id, x.id, depthOf(a, b), f, Math.min(LIMIT, least(m) / 2, least(p) / 2));
 			}
 		}
 	}

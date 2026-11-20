@@ -54,7 +54,7 @@ const bodySolids = (ch, f, look) => SOLIDS[look].filter(o => !HANDS.has(o.joint)
 	return { joint: o.joint, c, q, h, pts: corners(c, q, h), ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(v => rot(q, v)) };
 });
 const least = p => p.shape === "sphere" ? p.size[0] : Math.min(...p.size);
-const skipped = (c, pair, f, joint) => (c.skip?.[pair] ?? []).some(([a, b, joints]) => f >= a && f < b && (!joints || joints.some(n => J[n] === joint)));
+const skipped = (c, pair, f, joint) => [...(c.skip?.[pair] ?? []), ...(c.skip?.[pair.split(">").reverse().join(">")] ?? [])].some(([a, b, joints]) => f >= a && f < b && (!joints || joints.some(n => J[n] === joint)));
 
 let n = 0, lines = 0, pairs = 0;
 for (const c of CASES) {
@@ -66,7 +66,7 @@ for (const c of CASES) {
 	assert.deepEqual(rows.map(x => x.key.slice(7)).sort(), c.told.slice().sort(), `${c.name}: the pairs told`);
 	const hollow = new Set(c.scene.props.filter(p => p.hollow).map(p => p.id));
 	// every body with every prop, every moving prop with every other prop
-	const all = [...clip.characters.flatMap(ch => clip.props.map(p => ({ pair: `${ch.id}>${p.id}`, ch, p }))), ...clip.props.filter(m => m.pos.length > 3).flatMap(m => clip.props.filter(p => p !== m).map(p => ({ pair: `${m.id}>${p.id}`, m, p })))];
+	const all = [...clip.characters.flatMap(ch => clip.props.map(p => ({ pair: `${ch.id}>${p.id}`, ch, p }))), ...clip.props.filter(m => m.pos.length > 3).flatMap((m, i, movers) => clip.props.filter(p => p !== m && !movers.slice(0, i).includes(p)).map(p => ({ pair: `${m.id}>${p.id}`, m, p })))]; // two moving props once, either named first
 	for (const e of all) {
 		if (hollow.has(e.p.id) || (e.m && hollow.has(e.m.id))) continue;
 		const lim = 1000 * Math.min(e.ch ? 0.02 * (e.ch.scale ?? 1) : 0.02, least(e.p) / 2, e.m ? least(e.m) / 2 : Infinity);
@@ -78,11 +78,11 @@ for (const c of CASES) {
 			if (d > lim) { frames++; first ??= f; last = f; }
 			if (d > worst.d) worst = { d, f };
 		}
-		const row = rows.find(x => x.key === `inside:${e.pair}`);
+		const flip = e.m && `${e.p.id}>${e.m.id}`, row = rows.find(x => x.key === `inside:${e.pair}` || x.key === `inside:${flip}`);
 		if (!row) { assert.ok(worst.d <= lim + 0.01, `${c.name}: ${e.pair} not told but ${worst.d.toFixed(1)} mm deep at f${worst.f} (limit ${lim})`); continue; }
 		pairs++;
 		// the line as the writer reads it
-		const line = r.text.split("\n").find(l => l.startsWith(`- ${e.ch ? `${e.ch.id}'s body` : e.m.id} inside ${e.p.id}:`));
+		const [x, y] = row.key.slice(7).split(">"), line = r.text.split("\n").find(l => l.startsWith(`- ${e.ch ? `${e.ch.id}'s body` : x} inside ${y}:`));
 		assert.ok(line, `${c.name}: no line for ${e.pair}`);
 		const m = /: ([\d.]+) mm @f(\d+).*deeper than ([\d.]+) mm on (\d+) frames?, from f(\d+) to f(\d+)\)/.exec(line);
 		assert.ok(m, `${c.name}: line not read: ${line}`);
