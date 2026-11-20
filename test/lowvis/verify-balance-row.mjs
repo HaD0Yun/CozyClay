@@ -73,6 +73,16 @@ function expected(clip, aux, spec, def) {
 				const a = centre(f), b = centre(g); if (Math.hypot(a[0] - b[0], a[1] - b[1]) > DRIFT * Math.sqrt(s)) return false;
 			}
 			if (moved[f] || moved[f + 1]) return false; // a step or a change of posture on this frame or a neighbouring one
+			for (let i = 0; i < 6; i++) { // a limb on its way to a target that holds it up or that cannot be vouched for: an action began by f, its entries start after f
+				if (aux.reach[c.id][f]?.[i]) continue;
+				const g = aux.reach[c.id].findIndex((r, k) => k > f && r?.[i]), e = g > 0 ? aux.reach[c.id][g][i] : null;
+				if (!e || e.key > f) continue;
+				const names = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]][i], key = acts.findLast(a => a[0] === e.key && a[1] === "pose" && names.some(n => a[2][n] !== undefined)), t = key && names.map(n => key[2][n]).find(v => v !== undefined);
+				if (!t || typeof t !== "object") continue;
+				const id = Array.isArray(t) ? null : t.on ?? t.prop ?? t.meet ?? t.chest ?? t.of;
+				if (id != null && (moving.includes(id) || (ids.includes(id) && id !== c.id))) return false;
+				if (!(!Array.isArray(t) && t.joint && (!t.of || t.of === c.id)) && surf(e.t, s)) return false;
+			}
 			return !tiltAt(f);
 		};
 		const quiet = Array.from({ length: F }, (_, f) => quietAt(f)), rest = [];
@@ -201,6 +211,8 @@ try {
 	check("leaning back over the heels", ...solo([[0, "pose", { bow: -40, over: 0 }]]), { expectTold: false });
 	check("a gait of 200 frames a step", ...solo([[0, "walk", { to: [0.4, 0.7], steps: 2, stepFrames: 200 }]], [], 1, 460), { expectTold: false });
 	for (const tilt of [30, { pitch: 30 }, "30"]) check(`tilt of another form: ${JSON.stringify(tilt)}`, ...solo([[0, "pose", { tilt, over: 0 }]], [], 1, 60));
+	// the hand reaches the table on the blend's last frames, slowly, while the hips lean past the feet: the hand counts there
+	check("a hand arriving on a table", ...solo([[0, "pose", { R: { on: "table", at: [0.2, 0.375, -0.25] }, bow: 50, hip: [0, 0, 0.15], over: 20 }]], [table], 1, 80), { expectTold: false });
 	check("elbow on a table",...solo([[0, "pose", { elbowR: { on: "table", at: [-0.2, 0.4, -0.2] }, bow: 70, over: 20 }]], [table]));
 	const two = order => { const cs = [{ id: "a", at: [0, 0], heading: 0 }, { id: "b", at: [0, 0.7], heading: 180, scale: 1.3 }]; return [{ frames: 100, characters: order ? cs : cs.slice().reverse(), props: [] }, { a: [[0, "pose", { hip: [0.3, 0, 0], over: 0 }]], b: [[0, "pose", { R: { joint: "Spine2", of: "a" }, bow: 50, hip: [0, 0, 0.25], over: 20 }]] }]; };
 	check("two bodies", ...two(true)); check("two bodies listed the other way", ...two(false));
