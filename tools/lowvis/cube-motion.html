@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cube look motion</title>
+    <style>
+      html, body { margin: 0; overflow: hidden; background: #f2f1ee; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #222; }
+      canvas { display: block; position: fixed; left: 0; top: 0; }
+      .t { position: fixed; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .label { font-size: 24px; line-height: 1.35; transform: translateX(-50%); text-align: center; }
+      .label b { font-size: 34px; }
+      .tick { font-size: 15px; color: #888; }
+      .frame { left: 16px; top: 10px; font-size: 18px; color: #777; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script type="module" src="./cube-motion.js"></script>
+  </body>
+</html>
