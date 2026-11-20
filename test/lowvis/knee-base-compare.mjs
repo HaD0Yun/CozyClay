@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // By hand, not in the suite: the leg solver of a base commit against this tree's, on the inputs of knee-sweep.mjs and
-// every demo spec. Prints, for each side, how many knees bend the wrong way, the largest wrong-way twist, the largest
-// knee jump on a path whose target moves a little each step, and which inputs differ between the two with the reason.
+// every demo spec. Prints, for each side, how many knees every reading of knee-sweep.mjs puts on the wrong side, the
+// largest such twist, the largest knee jump on a path whose target moves a little each step, and which inputs differ
+// between the two with the reason.
 //   node test/lowvis/knee-base-compare.mjs <base-sha> [--quick]
 // The base tree is this tree's src/lowvis with solve.js and size.js taken from the base commit (the only files the
 // knee change touches), copied to a temporary folder.

@@ -11,8 +11,10 @@
 //   front of, above and behind the hips alike.
 // - Off that plane the hinge of an untwisted thigh needs a convention and no single one holds everywhere, so three are
 //   read: X's part square to the thigh; X carried by the shortest turn from straight down to the thigh; X carried by the
-//   shortest turn from 45 degrees forward of down to the thigh. The twist is the smallest of the three angles from such
-//   a hinge to the actual one: over 90 degrees, every reading has the knee on the side it cannot bend to.
+//   shortest turn from 45 degrees forward of down to the thigh. A reading is left out where it has no direction (the
+//   first within 5 degrees of the thigh along X, a carry within 12 degrees of the thigh opposite its start). The twist
+//   is the smallest of the angles from such a hinge to the actual one: over 90 degrees, every reading that is read has
+//   the knee on the side it cannot bend to.
 // An elbow: the one angle from the rest hinge's part square to the upper arm (a reading, not a verdict).
 // The twist is null where no reading has a direction.
 import { INDEX as J, OFFSET, PARENT, REST } from "../../src/lowvis/rig17.js";

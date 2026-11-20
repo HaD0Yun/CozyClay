@@ -9,13 +9,13 @@
 // - FRONT carried by the shortest turn that takes MID to d, weighed by the square of d's part along X: the same on the
 //   sagittal plane, and in front of the leg and above it where the leg points out to a side.
 // The solver's own pole (the pelvis's forward plus half the foot's) is kept wherever its part along that direction is at
-// least BAND; below it that part is mirrored and held at BAND, so the pole never comes onto the leg's line. The sum has
-// no direction at two places, both up, behind the hips and out to a side (about [+-0.79, 0.44, -0.44]): there, and only
-// there, the knee is not continuous in d.
+// least BAND; below it that part is mirrored and held at BAND or more, so the pole never comes onto the leg's line. The
+// sum has no direction at two places, both up, behind the hips and out to a side (about [+-0.79, 0.44, -0.44]): there,
+// and only there, the knee is not continuous in d, and near them it turns fast.
 import { X, add, cross, dot, len, mul, norm, qConj, qRotate, sub } from "./math.js";
 
 const BAND = 0.25; // the least part of the pole (length 0.5..1.5) along the knee's side
-const MID = norm([0, -1, 1]); // a leg in the middle of a hip's range from back to front: 45 degrees forward of down
+const MID = norm([0, -1, 1]); // the leg direction the carried part starts from: 45 degrees forward of down
 const FRONT = cross(MID, X); // where the knee of a leg along MID stands off it
 
 /** The pole that bends a knee on a leg from `hip` to `ankle` under the pelvis turn qP, given the solver's `pole`. */
