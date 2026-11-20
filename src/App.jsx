@@ -263,7 +263,7 @@ import {
 	TIMELINE_FPS,
 	ViewportLayoutInvalidator,
 	WORKSPACE_LAYOUT_KEY,
-	attachFrameMatrix,
+	characterFrameMatrix, reportProxyFrame,
 	captureMcpFrame,
 	characterModelUrl,
 	defaultCharacterTint,
@@ -1952,7 +1952,7 @@ export default function App() {
 	// rendered frame; the App keeps it pointed at the mounted rigs. A ref, not a
 	// prop value, so a fresh rig map never re-renders the set.
 	const attachFrameRef = useRef(null);
-	attachFrameRef.current = (characterId, bone, out) => attachFrameMatrix(rigs[characterId] ?? null, bone, out);
+	attachFrameRef.current = (characterId, bone, out) => characterFrameMatrix(rigs[characterId] ?? null, characterId, bone, out);
 	// The recorder renders through gl.render() directly, which never runs the
 	// r3f frame loop — so it asks the set for one placement pass itself, right
 	// after it has written that frame's bones.
@@ -2516,7 +2516,7 @@ export default function App() {
 			// The stature the entry's take was extracted at. It rides with the
 			// clip, never separately — see Character for why.
 			scale: entry.scale ?? 1,
-			...(isProxyFigure(entry) ? {} : { onRig: reportRig(entry.id) }),
+			...(isProxyFigure(entry) ? { onFrame: reportProxyFrame(entry.id) } : { onRig: reportRig(entry.id) }),
 			pickId,
 			parent: entry.parent ?? null,
 		}];
@@ -4680,7 +4680,7 @@ export default function App() {
 										partColoursMode={view.partColoursMode}
 										pose={view.pose}
 										scale={view.scale}
-										onRig={view.onRig} pickId={view.pickId}
+										onRig={view.onRig} onFrame={view.onFrame} pickId={view.pickId}
 									/>
 								</ObjectCarrier>
 							))}
