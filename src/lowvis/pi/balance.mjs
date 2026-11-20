@@ -7,15 +7,18 @@
 // Masses: the shares of an adult human body's segments (a standard table of body segment parameters), each at a point of
 // its segment between two places of the clip, so they follow the character's scale. What a body holds or carries is not
 // weighed, nor a support (the row's note names it).
-// At rest: both ankle joints move at most BALANCE.still x scale metres and the centre of mass, dropped to the floor, at
-// most BALANCE.drift x sqrt(scale) metres to each neighbouring frame, on at least BALANCE.frames frames in a row, on none
-// of which the body is tilted (or a tilt blends back), a hand, a foot or an elbow is on its way to a target that would be
-// a support or that the row cannot vouch for (below), or the body layer moves the pelvis or a foot to a neighbouring
-// frame (a step, a turn, a change of posture; not the breath of an idle). So a body whose feet and posture stay while the
-// rest of it moves slowly (a breath, a look, a pose that repeats) is at rest as a still one is. Why that speed: a centre
-// of mass of height h moving at v over a support that stops it travels v x sqrt(h / g) further (the inverted pendulum's
-// capture point); with h the standing figure's (1.057 m x scale), 3.8 mm x sqrt(scale) a frame at 24 fps carries it at
-// most 29.9 mm x scale, under BALANCE.outside: what the row tells is the posture, not momentum.
+// At rest: a frame that lies in at least BALANCE.frames frames in a row on each of which both ankle joints move at most
+// BALANCE.still x scale metres to each neighbouring frame, the centre of mass is within BALANCE.outside x scale metres
+// (in space) of where it is on that frame, the body is not tilted (nor a tilt blends back), no hand, foot or elbow is in
+// the blend toward a target that would be a support or that the row cannot vouch for (below) or in the blend away from
+// one, and the body layer does not move the pelvis or a foot to a neighbouring frame (a step, a turn, a change of
+// posture; not the breath of an idle). So a body whose feet and posture stay while the rest of it moves where it is (a
+// breath, a look, a pose that repeats) is at rest as a still one is, and one that carries its centre of mass away is not.
+// Why that distance: it is the row's own limit, so a centre of mass told on a frame lay outside the same supports on
+// every one of those frames (half a second or more). No body does that under gravity: one whose centre of mass is d
+// outside supports that stay gains speed away from them at g / h x d or more (h: its height; the inverted pendulum), so
+// it falls or steps, it does not stay; what the row tells is a posture kept there, not a move through it. How fast the
+// centre of mass moves inside that distance is not counted.
 // The posture: a sit, kneel or lie counts on a frame when it is the body action under which the body layer last moved
 // the pelvis or a foot (so until the next step or change of posture, whatever verb the spec wrote after it).
 // Supports, each dropped to the floor plane:
@@ -36,11 +39,11 @@ import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildBodySized } from "../engine-simple/size.js";
 
 // metres at scale 1 (frames: a count). heel: a human heel reaches behind the ankle joint; the block look draws it 60 mm behind, the cube look further
-export const BALANCE = Object.freeze({ still: 0.002, drift: 0.0038, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
+export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
 const SIDE = ["L", "R"], LR = ["Left", "Right"], MM = 1000, SAME = 1e-9;
 const POSE_SLOT = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]];
 const LIMB = [["L hand", J.LeftHand], ["R hand", J.RightHand], null, null, ["L elbow", J.LeftForeArm], ["R elbow", J.RightForeArm]]; // a foot is counted by its sole
-const POSTURE = new Set(["sit", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+const POSTURE = new Set(["sit", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]), HANDS = new Set(["carry", "hold", "place"]); // HANDS: the other verbs that key the hands
 const tipOf = name => TIPS[name].map((v, k) => v - REST[J[name]][k]); // a tip from its joint, in the joint's rest frame
 // [share, from, to, along]: a place is a joint index, [joint, tip offset] or ["mid", a, b]
 const SEGMENTS = [
@@ -105,14 +108,23 @@ export function balanceRows(clip, aux, spec, scene) {
 			if (id != null && (moving.has(id) || (chars.has(id) && id !== c.id))) return "vouch";
 			return !Array.isArray(t) && t.joint && (!t.of || t.of === c.id) ? null : surface(e.t, BALANCE.near * s);
 		};
-		// a limb on its way to such a target: an action of it began on or before f and its reach entries (which start when
-		// its blend ends) have not; the body is then putting weight on a support or taking it off, not at rest
-		const next = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = F - 1; f >= 0; f--) n[f] = aux.reach[c.id]?.[f]?.[slot] ?? n[f + 1] ?? null; return n; });
-		const landing = f => next.some((n, slot) => !aux.reach[c.id]?.[f]?.[slot] && n[f] && n[f].key <= f && role(slot, n[f]));
-		const coms = Array.from({ length: F }, (_, f) => com(f)), drift = BALANCE.drift * Math.sqrt(s);
-		const still = f => [f - 1, f + 1].every(g => g < 0 || g >= F || ([J.LeftFoot, J.RightFoot].every(j => Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s) && Math.hypot(coms[f][0] - coms[g][0], coms[f][2] - coms[g][2]) <= drift));
-		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !landing(f)), rest = quiet.map(() => false);
-		for (let f = 0; f < F;) { let g = f; while (g < F && quiet[g]) g++; if (g - f >= BALANCE.frames) for (let k = f; k < g; k++) rest[k] = true; f = g + 1; }
+		// a limb in the blend toward such a target (an action of it began on or before f; its reach entries, which start when
+		// the blend ends, have not) or away from one (within the over frames of the action that ended its entries there): the
+		// body is then putting weight on a support or taking it off, not at rest
+		const entry = (f, slot) => aux.reach[c.id]?.[f]?.[slot] ?? null;
+		const next = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = F - 1; f >= 0; f--) n[f] = entry(f, slot) ?? n[f + 1] ?? null; return n; });
+		const last = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = 0; f < F; f++) n[f] = entry(f, slot) ? f : n[f - 1] ?? -1; return n; }); // the last frame up to f with an entry
+		const shifting = f => next.some((n, slot) => {
+			if (entry(f, slot)) return false;
+			if (n[f] && n[f].key <= f && role(slot, n[f])) return true;
+			const g = last[slot][f], took = g >= 0 && role(slot, entry(g, slot)) && acts.findLast(a => a[0] === g + 1 && (a[1] === "pose" ? POSE_SLOT[slot].some(k => a[2]?.[k] !== undefined) : slot < 2 && HANDS.has(a[1])));
+			return !!took && f <= g + (took[2]?.over ?? 12);
+		});
+		const coms = Array.from({ length: F }, (_, f) => com(f)), by = (f, g) => Math.hypot(...coms[f].map((v, k) => v - coms[g][k])) <= BALANCE.outside * s;
+		const still = f => [f - 1, f + 1].every(g => g < 0 || g >= F || [J.LeftFoot, J.RightFoot].every(j => Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));
+		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !shifting(f));
+		// the frames in a row about f that are quiet with the centre of mass by where it is on f
+		const rest = quiet.map((ok, f) => { if (!ok) return false; let a = f, b = f; while (quiet[a - 1] && by(f, a - 1)) a--; while (quiet[b + 1] && by(f, b + 1)) b++; return b - a + 1 >= BALANCE.frames; });
 		// what holds the body up on frame f: { pts, names } or null when a support the engine cannot vouch for is in use
 		const supports = f => {
 			const pts = [], names = [], tol = BALANCE.on * s;
