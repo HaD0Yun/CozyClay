@@ -9,8 +9,10 @@
 //    the overlap of their projections over the face normals of both, the crosses of their edges, 26 more directions and,
 //    with a ball, the directions to the corners (a ball by its centre and radius). The depth on the worst frame, the
 //    frame, the frames over the limit, the first and the last, and the limit (25 mm times the scale; two props 25 mm)
-//    agree with the line the writer reads.
-// 3. A pair not told is no deeper than its limit on every frame the case does not name as a touch.
+//    agree with the line the writer reads. A body is left out with a prop on the frames the engine's own state (the
+//    build's aux.holders, built again here) names it among that prop's holders.
+// 3. A pair not told is no deeper than its limit on every frame the case does not name as a touch, or is deeper on
+//    fewer frames in a row than last a tenth of a second at the clip's rate; a told pair is deeper on that many at least.
 // 4. The flag switched off by name tells no inside line; the rows are still measured. A hollow attribute that is not
 //    true or false is refused.
 import assert from "node:assert/strict";
@@ -21,6 +23,8 @@ import { join } from "node:path";
 import * as THREE from "../../node_modules/three/build/three.module.js";
 import { ConvexHull } from "../../node_modules/three/examples/jsm/math/ConvexHull.js";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
+import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
+import { serializeClip } from "../../src/lowvis/clip.js";
 import { block } from "../../src/lowvis/looks/block.js";
 import { cube } from "../../src/lowvis/looks/cube.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
@@ -84,7 +88,7 @@ const bodySolids = (ch, f, look) => SOLIDS[look].map(o => {
 const far = (o, b) => Math.hypot(...o.c.map((v, k) => v - b.c[k])) > o.r2 + (b.r ?? Math.hypot(...b.h));
 const skipped = (c, pair, f, joint) => [...(c.skip?.[pair] ?? []), ...(c.skip?.[pair.split(">").reverse().join(">")] ?? [])].some(([a, b, joints]) => f >= a && f < b && (!joints || joints.some(n => J[n] === joint)));
 
-let n = 0, lines = 0, pairs = 0;
+let n = 0, lines = 0, pairs = 0, brief = 0, handled = 0;
 for (const c of CASES) {
 	const look = c.figure ?? "block", dir = join(tmpdir(), `lowvis-inside-${process.pid}-${n++}`);
 	const tool = createCompileTool({ name: `inside-${n}`, outDir: dir, clipFile: join(dir, "clip.json"), variant: "studio", figure: look });
@@ -92,22 +96,35 @@ for (const c of CASES) {
 	assert.equal(r.status, "ok", `${c.name}: ${r.error}`);
 	const clip = JSON.parse(readFileSync(tool.clipFile, "utf8")), F = clip.frameCount, rows = r.rows.filter(x => x.key.startsWith("inside:"));
 	assert.deepEqual(rows.map(x => x.key.slice(7)).sort(), c.told.slice().sort(), `${c.name}: the pairs told`);
+	// the engine's own state, built again from the scene the tool built (with moves set): who holds each prop on each frame
+	const { clip: again, aux } = buildClip(structuredClone({ ...c.spec, demo: "x" }), tool.state.last.scene);
+	assert.deepEqual(JSON.parse(serializeClip(again)).characters.map(x => x.pos), clip.characters.map(x => x.pos), `${c.name}: built again the same`);
+	const holds = (who, prop, f) => String(aux.holders[prop]?.[f] ?? "").split("+").some(h => h.replace(/:[LR]$/, "") === who);
+	// the fewest whole frames that last a tenth of a second at the clip's rate
+	let seen = 1; while (seen / clip.fps < 0.1 - 1e-9) seen++;
 	const hollow = new Set(c.scene.props.filter(p => p.hollow).map(p => p.id));
 	// every body with every prop, every moving prop with every other prop
 	const all = [...clip.characters.flatMap(ch => clip.props.map(p => ({ pair: `${ch.id}>${p.id}`, ch, p }))), ...clip.props.filter(m => m.pos.length > 3).flatMap((m, i, movers) => clip.props.filter(p => p !== m && !movers.slice(0, i).includes(p)).map(p => ({ pair: `${m.id}>${p.id}`, m, p })))]; // two moving props once, either named first
 	for (const e of all) {
 		if (hollow.has(e.p.id) || (e.m && hollow.has(e.m.id))) continue;
 		const lim = 1000 * (e.ch ? 0.025 * (e.ch.scale ?? 1) : 0.025);
-		let worst = { d: -Infinity }, frames = 0, first = null, last = null;
+		let worst = { d: -Infinity }, frames = 0, first = null, last = null, run = 0, longest = 0, held = 0;
 		for (let f = 0; f < F; f++) {
 			const b = propSolid(e.p, f);
+			if (e.ch && holds(e.ch.id, e.p.id, f)) { held++; run = 0; continue; } // it handles the prop on this frame
 			const ds = e.ch ? bodySolids(e.ch, f, look).filter(o => !skipped(c, e.pair, f, o.joint) && !far(o, b)).map(o => 1000 * depth(o, b)) : skipped(c, e.pair, f, null) ? [] : [1000 * depth(propSolid(e.m, f), b)];
 			const d = Math.max(-Infinity, ...ds);
-			if (d > lim) { frames++; first ??= f; last = f; }
+			if (d > lim) { frames++; first ??= f; last = f; run++; longest = Math.max(longest, run); } else run = 0;
 			if (d > worst.d) worst = { d, f };
 		}
+		handled += held > 0;
 		const flip = e.m && `${e.p.id}>${e.m.id}`, row = rows.find(x => x.key === `inside:${e.pair}` || x.key === `inside:${flip}`);
-		if (!row) { assert.ok(worst.d <= lim + 0.01, `${c.name}: ${e.pair} not told but ${worst.d.toFixed(1)} mm deep at f${worst.f} (limit ${lim})`); continue; }
+		if (!row) {
+			assert.ok(worst.d <= lim + 0.01 || longest < seen, `${c.name}: ${e.pair} not told but ${worst.d.toFixed(1)} mm deep at f${worst.f} (limit ${lim}) on ${longest} frames in a row`);
+			brief += worst.d > lim + 0.01; // past the limit, but on fewer frames in a row than are seen
+			continue;
+		}
+		assert.ok(longest >= seen, `${c.name}: ${e.pair} told, past its limit on ${longest} frames in a row at most`);
 		pairs++;
 		// the line as the writer reads it
 		const [x, y] = row.key.slice(7).split(">"), line = r.text.split("\n").find(l => l.startsWith(`- ${e.ch ? `${e.ch.id}'s body` : x} inside ${y}:`));
@@ -132,4 +149,5 @@ for (const c of CASES) {
 	assert.equal(bad.status, "rejected");
 	assert.match(bad.text, /hollow: want true or false/);
 }
-console.log(`verify-inside: ${CASES.length} cases, ${pairs} told pairs, ${lines} lines recomputed, every other pair under its limit`);
+assert.ok(brief >= 4 && handled >= 4, `the cases have pairs past the limit for too few frames (${brief}) and bodies that handle a prop (${handled})`);
+console.log(`verify-inside: ${CASES.length} cases, ${pairs} told pairs, ${lines} lines recomputed, ${brief} pairs past the limit on too few frames in a row and not told, ${handled} body and prop pairs with frames it handles the prop; every other pair under its limit`);

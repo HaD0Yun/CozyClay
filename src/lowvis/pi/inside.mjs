@@ -2,21 +2,26 @@
 // drawn, taken as the convex solid around it, at the character's scale; the hands are left out) and each moving prop
 // is inside every other prop. The depth of two solids is the least distance one would have to move to be clear of the
 // other (separating axes; a ball by its centre's distance). A case is a body or a moving prop with one prop; it is told
-// when its depth passes the limit on any frame. Nothing is moved by it.
+// when its depth passes the limit on a tenth of a second's worth of frames in a row (prompt.mjs seenFrames, which says
+// why). Nothing is moved by it.
 //
-// Not told, from what the spec says is a contact: a body with the prop it sits or lies on (from that action through
-// the idles after it and the change of posture that leaves it), an elbow's limb (upper arm and forearm) and a hand's
-// forearm with the prop of its target (the engine's own keys of that limb, spec-layers.js buildUpper: from a key that
-// names the prop up to the limb's next key), the forearms of a body with the prop its hands hold on that frame
-// (aux.holders; the drawn forearm's end can be wider than the pad a wrist keeps off what it holds), a prop with the
-// body joint or the prop it rides on (while it rides: up to its next key or a hand taking it off; and after the ride for
-// as long as the pair has been past the limit on every frame since the ride's last one: a prop that rides that deep
-// leaves the ride's place through those frames), and any pair with a prop the scene marks hollow (things may be inside it).
+// Not told, from the engine's own state: a body with a prop its own actions hold, carry, push or place, on the frames
+// aux.holders names that body among the prop's holders (the whole body: the engine moves the prop with the hands, so
+// where it lies against that body is the hold's, not a pass through it). Not told, from what the spec says is a
+// contact: a body with the prop it sits or lies on (from that action through the idles after it and the change of
+// posture that leaves it), an elbow's limb (upper arm and forearm) and a hand's forearm with the prop of its target
+// (the engine's own keys of that limb, spec-layers.js buildUpper: from a key that names the prop up to the limb's next
+// key), a prop with the body joint or the prop it rides on (while it rides: up to its next key or a hand taking it off;
+// and after the ride for as long as the pair has been past the limit on every frame since the ride's last one: a prop
+// that rides that deep leaves the ride's place through those frames), and any pair with a prop the scene marks hollow
+// (things may be inside it).
+import { CLIP_FPS } from "../clip.js";
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildUpper } from "../engine-simple/spec-layers.js";
 import { blockSolids } from "../looks/block.js";
 import { cubeSolids } from "../looks/cube.js";
+import { seenFrames } from "./prompt.mjs";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -50,7 +55,7 @@ const solidsOf = name => (cache[solidsLook(name)] ??= prepared(LOOKS[solidsLook(
 const LIMIT = 0.025;
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", ...POSTURE]);
 const LIMB = { L: ["LeftForeArm"], R: ["RightForeArm"], elbowL: ["LeftArm", "LeftForeArm"], elbowR: ["RightArm", "RightForeArm"] };
-const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FOREARMS = new Set([J.LeftForeArm, J.RightForeArm]);
+const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
 /** Depth of two oriented boxes { c, ax: [3 unit axes], h: [3 half sizes] } by separating axes; <= 0 when apart. */
 function boxBox(a, b) {
@@ -181,8 +186,8 @@ export function insideRows(clip, aux, { def, spec, look }) {
 	const volume = p => p.size[0] * p.size[1] * p.size[2], inner = (p, m) => volume(p) < volume(m) || (volume(p) === volume(m) && p.id < m.id);
 	const note = (key, who, prop, part, d, f, limit) => {
 		if (d <= limit) return;
-		const e = cases.get(key) ?? cases.set(key, { key, who, prop, part, value: 0, frame: f, frames: 0, first: f, last: -1, limit }).get(key);
-		if (e.last !== f) e.frames++;
+		const e = cases.get(key) ?? cases.set(key, { key, who, prop, part, value: 0, frame: f, frames: 0, first: f, last: -1, limit, run: 0, longest: 0 }).get(key);
+		if (e.last !== f) { e.frames++; e.run = e.last === f - 1 ? e.run + 1 : 1; e.longest = Math.max(e.longest, e.run); }
 		e.last = f; e.limit = Math.min(e.limit, limit);
 		if (d > e.value) Object.assign(e, { value: d, frame: f, part });
 	};
@@ -199,12 +204,12 @@ export function insideRows(clip, aux, { def, spec, look }) {
 			props.forEach((p, n) => {
 				const b = boxes[n];
 				if (apart(at, all, b)) return;
-				const key = `${c.id}|${p.id}`, list = touch[key], held = holdersAt(p.id, f).includes(c.id);
-				if (list?.some(e => f >= e.a && f < e.b && !e.joints)) return; // the whole body touches it
+				const key = `${c.id}|${p.id}`, list = touch[key];
+				if (holdersAt(p.id, f).includes(c.id) || list?.some(e => f >= e.a && f < e.b && !e.joints)) return; // it handles the prop, or the whole body touches it
 				for (const o of parts) {
 					if (apart(o.c, o.reach, b)) continue;
 					// a contact of the spec's words covers the part; on the two frames a ride's end is read on it is measured all the same
-					const contact = touching(list, f, o.o.joint) || (held && FOREARMS.has(o.o.joint)), edge = list && rideEdge(list, f, o.o.joint);
+					const contact = touching(list, f, o.o.joint), edge = list && rideEdge(list, f, o.o.joint);
 					const up = contact && !edge ? 0 : depthOf(o, b);
 					if (up <= lim) continue; // the box around the part is not past the limit
 					const iq = qConj(o.q), own = { c: qRotate(iq, sub(b.c, o.P)), r: b.r, ax: b.ax?.map(a => qRotate(iq, a)), h: b.h };
@@ -231,5 +236,10 @@ export function insideRows(clip, aux, { def, spec, look }) {
 			}
 		}
 	}
-	return [...cases.values()].map(e => ({ ...e, key: `inside:${e.who ?? e.part}>${e.prop}`, value: e.value * 1000, limit: e.limit * 1000 }));
+	const seen = seenFrames(clip.fps); // a pair past the limit on fewer frames in a row than that is not told; its line counts every frame past it
+	return [...cases.values()].filter(e => e.longest >= seen).map(({ run, longest, ...e }) => ({ ...e, key: `inside:${e.who ?? e.part}>${e.prop}`, value: e.value * 1000, limit: e.limit * 1000 }));
 }
+
+/** What the inside lines measure and leave out, said once in a session (compile-tool.mjs): look, the look whose solids
+ *  are measured (solidsLook); fps, the clip's rate. */
+export const insideText = (look, fps = CLIP_FPS) => `inside lines (said once): on every frame, how deep each body (each part as the ${solidsLook(look)} look draws it, taken as the convex solid around it, at the body's scale; the hands left out) and each prop with moves: true is inside every other prop: the least distance it would have to move to be clear of it. A pair is told when it is deeper than the limit on ${seenFrames(fps)} frames in a row or more (at ${fps} fps the fewest that last a tenth of a second); its line counts every frame it is deeper. Not told: a body with a prop it holds, carries, pushes or places, on the frames the engine has it in that body's hands; a body with the prop it sits or lies on, up to the end of its next change of posture or the start of its next walk, run, push or turn; an elbow's limb with the prop of its target, and the forearm with the prop of its hand's target, until that limb's next key; a prop with the joint or the prop it rides on, while it rides, and after the ride while it has been deeper than the limit on every frame since the ride's last one; anything with a hollow prop. The engine moves nothing because of it.`;
