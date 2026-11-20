@@ -13,6 +13,7 @@
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
 //       assist: the previous frame's { bend, drop } of the reach assist }
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS, qAxisAngle } from "../rig17.js";
+import { kneePole } from "./knee.js";
 import { X, Y, Z, add, clamp, cross, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
 
 export const SIDES = [
@@ -187,7 +188,7 @@ export function solve(B, U = {}) {
 		place(S.fore); place(S.hand);
 		place(S.up);
 		const pole = add(qRotate(T.qP, Z), mul(qRotate(feet[i].q, Z), 0.5));
-		const L = limb(pos[S.up], feet[i].a, pole, S.leg, S.foot, Z);
+		const L = limb(pos[S.up], feet[i].a, kneePole(T.qP, pos[S.up], feet[i].a, pole), S.leg, S.foot, Z);
 		quat[S.up] = L.qU; quat[S.leg] = L.qL; quat[S.foot] = feet[i].q;
 		place(S.leg); place(S.foot);
 	});
