@@ -2,6 +2,91 @@
 
 ## Unreleased
 
+## 3.2.3 - 2026-11-20
+
+Install without a terminal on Windows and macOS, a dark Studio with a guided first visit, Auto Pose, camera roll and per-part motion keys, plus cast and stability fixes.
+
+Install
+
+- On Windows the Install dialog leads with one download, `CozyClay-Setup.exe`;
+  the Node.js and terminal steps stay one click away. (#1188)
+- On macOS the Install dialog leads with one download, `CozyClay.dmg`: a
+  signed, notarized app that opens the Studio in its own window, with no
+  Terminal. `cozyclay.org/install.sh` stays for a one-line install. (#1190)
+- The landing page has one Install action; its dialog asks which computer the
+  Studio goes on. Phones are not offered Install. (#1281, #1189)
+- An install that starts in the hosted Studio says `--via playground`, and an
+  installer start keeps its `installer` label on first launch. (#1183, #1258)
+
+Studio
+
+- The Studio starts in the dark theme. A theme already chosen in Preferences
+  is kept. (#1163)
+- A first visit to the hosted Studio opens on a ready stage with a character
+  on it, then the eight-step camera tutorial in English, 한국어 or 简体中文.
+  `npx cozyclay` keeps the project chooser. (#1159, #1161)
+- Sample motions in the Motion tab: one click installs a walk or a flip on the
+  selected character and plays it, with no agent. (#1156)
+- Fix and tell, Annotate, pose keys, lying poses and a more compact shell.
+  (#1131)
+- The Auto Pose tool. (#1257)
+- Import a character file on another rig and play it on its own bones. (#1150)
+- A large world scale for full-size exterior scenes. (#1143)
+- A smaller gizmo, a repaired Add menu, and a narrow Studio, HUD and install
+  commands that stay usable. (#1182, #1264)
+
+Camera
+
+- Roll the shot camera about its lens axis. (#1144)
+- Record mouse aim while the rail plays. (#1262)
+- Rail readouts stay in sync with the rendered camera. (#1265)
+
+Motion
+
+- Keys are fixed per body part and merge, the Plan card folds, and the beat
+  board is gone. (#1219)
+- The v4 motion engine, on CozyClay's agent loop and on Claude Code, as
+  opt-in Studio Agent models; body motion runs as a motion task designed
+  first. (#1134, #1138)
+- Rig templates compile specs on non-Mixamo rigs; flight physics with FLOAT,
+  DROP and SPIN checks; `fix.self` repairs arms through the body. (#1148,
+  #1149, #1154)
+- QA measures fingers, palms, knees and torso against the floor and objects,
+  and stops at the first take a viewer would accept; trivial spec slips are
+  corrected instead of refusing the spec. (#1113, #1114, #1126)
+
+Agent
+
+- A task card names the model it runs on. (#1165)
+- A visible thing is built as one detailed sculpt, looked at and copied.
+  (#1169)
+- On the hosted Studio the Agent panel shows four ready-made requests and an
+  Install button instead of a server error. (#1156)
+- The generation prompt describes every visible character, keeps the real
+  aspect ratio, and no longer invents a location or look. (#1213, #1238)
+- Tool descriptions and prompts match the code. (#1228, #1239)
+
+Export
+
+- Choose the video export's pixel size. (#1145)
+
+Cast and shots
+
+- Every cast member keeps a stable identity; shots persist and follow the
+  named cast and frame groups. (#1244)
+- A character whose model fails to load falls back to the proxy figure, and
+  aborted model loads recover. (#1197, #1284)
+
+Fixes
+
+- Opening a project normalizes stored objects instead of throwing; save
+  records a written file as saved. (#1196, #1207)
+- A task that touched more than 100 objects finishes normally; an edit no
+  longer rebuilds every sculpt. (#1167, #1168)
+- Fixed a Pin-tool scrub update loop and uncaught pointer and sculpt errors.
+  (#1195, #1186)
+- The unfinished Workflow entry points are hidden. (#1211)
+
 Site
 
 - The hosted Studio (`cozyclay.org/app/`) records masked PostHog session
@@ -9,44 +94,11 @@ Site
   sampled at 2 fps, and no console logs or network contents are kept. The
   landing page and the npm package never record. The privacy page says so.
   (#1321)
-- The hosted Studio's Install button opens the landing page with
-  `?from=studio`, and the command the page then shows and copies ends in
-  `--via playground` instead of `--via site`, so an install that began in the
-  Studio is counted apart from one that began on the landing page. (#1183)
-- On macOS the Install dialog leads with one download, `CozyClay.dmg`: a
-  signed, notarized app that opens the Studio in its own window, with no
-  Terminal. `cozyclay.org/install.sh` stays for a one-line install. (#1190)
-- On a phone the landing page no longer offers Install. (#1189)
-- On Windows the Install dialog leads with one download, `CozyClay-Setup.exe`;
-  the Node.js and terminal steps stay one click away. (#1188)
 
-Motion
+Other
 
-- Sample motions in the Motion tab: one click installs a walk or a flip on the
-  selected character and plays it, with no agent. On the hosted Studio, where
-  no agent server runs, the Agent panel shows four ready-made requests to
-  press (a walk, a street of buildings around the character, a chair to sit
-  on, a back flip) and an Install button, instead of a server error.
-
-Site
-
-- The landing page has an Install button named for the visitor's system. It
-  opens three steps: the official Node.js installer, how to open a terminal,
-  and the command to paste. The bare command stays in Quick start.
-
-Studio
-
-- The Studio starts in the dark theme. A theme already chosen in Preferences
-  is kept. (#1163)
-- A first visit to the hosted Studio opens on a ready stage with a character
-  on it. The project chooser no longer comes first there; File > New and Open
-  still reach it, and `npx cozyclay` keeps it.
-- That first visit opens with the camera tutorial from 2.x: eight steps done in
-  the Studio itself, controls first (look, walk, dolly, orbit), then a shot,
-  its length, a rail, and playing it through the shot camera. The character
-  walks, so the camera has something to follow. (#1161)
-- Before it starts, that visit asks for a language: English, 한국어 or 简体中文.
-  The tutorial's steps are written in all three. (#1161)
+- Vite 8.3.8 and patched dependency resolutions; MCP validation on Zod 4.
+  (#1176, #1266, #1291)
 
 ## 3.2.2 - 2026-11-07
 
