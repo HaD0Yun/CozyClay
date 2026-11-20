@@ -12,13 +12,14 @@ import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
 import { badness, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
+import { balanceRows } from "./balance.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:)/; // the rows that are a difference between what the spec asked and what came out
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -191,9 +192,8 @@ function travelLines(clip, aux, spec) {
 
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
- *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look
- *  the Studio draws characters in, given at launch as the start size of a new figure is (src/lowvis/studio/figure.js);
- *  the inside rows measure the bodies by its solids (inside.mjs; the block look's when it states none). */
+ *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look the Studio
+ *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's). */
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null }) {
 	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", last: null };
 	mkdirSync(outDir, { recursive: true });
@@ -220,7 +220,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, def, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const rows = measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: expandRepeats(state.spec, F).spec, look: figure } });
+		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: asBuilt, look: figure } }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, def) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });
@@ -264,7 +264,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			bodiesText(def) !== state.bodiesSaid ? bodiesText(def) || "bodies: every character at scale 1, none with a tint" : "",
 			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
-			...(feature.pace ? travelLines(parsed, aux, expandRepeats(state.spec, F).spec) : []),
+			...(feature.pace ? travelLines(parsed, aux, asBuilt) : []),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,
