@@ -4,7 +4,7 @@
 // height, hands and an elbow on a static prop; scales 0.5 to 2; blends and holds of every length), random bodies that
 // stay in place while a pose of theirs repeats (every repeatable pose word, sizes and periods, on two feet, one foot,
 // kneeling, sitting, lying, a hand on a prop that does or does not move, a prop held), bodies that really move (gaits,
-// a lunge, back and side steps, a change of posture, a fast swing, a fast drop, a tilt in progress) and fixed cases (a
+// a lunge, back and side steps, a change of posture, a fast swing, a quick carry, a drop, a tilt in progress) and fixed cases (a
 // hand on a prop that moves, on another body, a hand coming to a support and leaving it, a held prop, tilts, two bodies
 // listed both ways), every told line is read as the writer reads it and each of its numbers is computed again here from
 // the clip and the build's aux, by this file's own arithmetic: the centre of mass from the segment shares, the rest
@@ -88,9 +88,12 @@ function expected(clip, aux, spec, def) {
 			}
 			return !tiltAt(f);
 		};
-		// at rest: the frame lies in FRAMES quiet frames in a row on each of which the centre of mass is within OUT (times the scale) of where it is on that frame
-		const quiet = Array.from({ length: F }, (_, f) => quietAt(f)), rest = [], C = quiet.map((_, f) => centre(f)), by = (f, g) => Math.hypot(...C[f].map((v, k) => v - C[g][k])) <= OUT * s;
-		for (let f = 0; f < F; f++) { let a = f; while (a > 0 && quiet[a - 1] && by(f, a - 1)) a--; let b = f; while (b < F - 1 && quiet[b + 1] && by(f, b + 1)) b++; rest.push(quiet[f] && b - a + 1 >= FRAMES); }
+		// at rest: the frame lies in FRAMES quiet frames in a row over which the centre of mass's places lie within OUT (times the scale) of one another
+		const quiet = Array.from({ length: F }, (_, f) => quietAt(f)), C = quiet.map((_, f) => centre(f)), rest = quiet.map(() => false);
+		for (let a = 0; a + FRAMES <= F; a++) {
+			const span = Array.from({ length: FRAMES }, (_, k) => a + k);
+			if (span.every(f => quiet[f]) && Math.max(...span.flatMap(f => span.map(g => Math.hypot(...C[f].map((v, k) => v - C[g][k]))))) <= OUT * s) for (const f of span) rest[f] = true;
+		}
 		let best = null; const frames = [], byFrame = {};
 		for (let f = 0; f < F; f++) {
 			if (!rest[f]) continue;
@@ -193,13 +196,15 @@ try {
 	for (const k of [11, 12, 13]) check(`in place for ${k} frames`, ...solo([[0, "pose", { hip: [0.3, 0, 0], over: 0 }], [k, "pose", { hip: [0, 0, 0], over: 0 }]]), { expectTold: k >= 12 });
 	// a slow move of the hips that keeps them outside: at rest all along (it was not while the pose blended, before)
 	check("hips drifting slowly outside", ...solo([[0, "pose", { hip: [0.3, 0, 0], over: 0 }], [11, "pose", { hip: [0.3, 0, 0.05], over: 100 }]]), { expectTold: true });
-	// in place while it moves: a small bow every 8 frames with the hips past the feet is told while it repeats; a drop of the
-	// hips by 0.4 m in half a second is told before and after it, not on the frames in its middle
+	// in place while it moves: a small bow every 8 frames with the hips past the feet is told while it repeats; hips that
+	// go from past the toes to past the left foot, or 0.4 m down, in half a second are told before and after, not on the frames in the middle
 	const frames = (name, spec) => check(name, ...solo(spec), { expectTold: true })[0].frames;
 	const bows = frames("a small quick bow that repeats, leaning", [[0, "pose", { hip: [0, 0, 0.3], over: 0 }], [20, "pose", { bow: 10, over: 4 }], [24, "pose", { bow: 0, over: 4 }], [20, "repeat", { len: 8, times: 12 }]]);
-	assert.ok(bows.filter(f => f >= 28 && f < 116).length === 88, `a small quick bow: told on every frame while it repeats: ${bows}`);
-	const drop = frames("a fast drop of the hips, leaning", [[0, "pose", { hip: [0, 0, 0.25], over: 0 }], [40, "pose", { hip: [0, -0.4, 0.25], over: 12 }]]);
-	assert.ok(drop.includes(20) && drop.includes(80) && [44, 45, 46, 47, 48].every(f => !drop.includes(f)), `a fast drop: told before and after, not while it drops: ${drop}`);
+	assert.equal(bows.filter(f => f >= 28 && f < 116).length, 88, `a small quick bow: told on every frame while it repeats: ${bows}`);
+	for (const [name, to] of [["the weight carried across the floor in half a second", [0.3, 0, 0]], ["a drop of the hips in half a second, leaning", [0, -0.4, 0.3]]]) {
+		const told = frames(name, [[0, "pose", { hip: [0, 0, 0.3], over: 0 }], [40, "pose", { hip: to, over: 12 }]]);
+		assert.ok(told.includes(20) && told.includes(80) && [44, 45, 46, 47, 48].every(f => !told.includes(f)), `${name}: told before and after, not in the middle: ${told}`);
+	}
 	check("hands on a cart that moves", ...solo([[0, "pose", { hands: { on: "cart", at: [0.2, 0.4, -0.2] }, bow: 70, hip: [0, 0, 0.2], over: 20 }]], [cart]), { expectTold: false });
 	check("a bag held, leaning", ...solo([[0, "hold", { prop: "bag", hand: "R" }], [10, "pose", { hip: [0, 0, 0.3], over: 20 }]], [bag]), { expectTold: true });
 	check("sit on a cart that moves", ...solo([[0, "sit", { on: "cart", over: 20 }]], [{ ...cart, at: [0, 0.4, -0.5] }]), { expectTold: false });

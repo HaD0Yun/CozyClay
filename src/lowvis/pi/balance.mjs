@@ -7,18 +7,18 @@
 // Masses: the shares of an adult human body's segments (a standard table of body segment parameters), each at a point of
 // its segment between two places of the clip, so they follow the character's scale. What a body holds or carries is not
 // weighed, nor a support (the row's note names it).
-// At rest: a frame that lies in at least BALANCE.frames frames in a row on each of which both ankle joints move at most
-// BALANCE.still x scale metres to each neighbouring frame, the centre of mass is within BALANCE.outside x scale metres
-// (in space) of where it is on that frame, the body is not tilted (nor a tilt blends back), no hand, foot or elbow is in
-// the blend toward a target that would be a support or that the row cannot vouch for (below) or in the blend away from
-// one, and the body layer does not move the pelvis or a foot to a neighbouring frame (a step, a turn, a change of
-// posture; not the breath of an idle). So a body whose feet and posture stay while the rest of it moves where it is (a
-// breath, a look, a pose that repeats) is at rest as a still one is, and one that carries its centre of mass away is not.
-// Why that distance: it is the row's own limit, so a centre of mass told on a frame lay outside the same supports on
-// every one of those frames (half a second or more). No body does that under gravity: one whose centre of mass is d
-// outside supports that stay gains speed away from them at g / h x d or more (h: its height; the inverted pendulum), so
-// it falls or steps, it does not stay; what the row tells is a posture kept there, not a move through it. How fast the
-// centre of mass moves inside that distance is not counted.
+// At rest: a frame that lies in BALANCE.frames frames in a row over which the places of the centre of mass (in space)
+// lie within BALANCE.outside x scale metres of one another, and on each of which both ankle joints move at most
+// BALANCE.still x scale metres to each neighbouring frame, the body is not tilted (nor a tilt blends back), no hand, foot
+// or elbow is in the blend toward a target that would be a support or that the row cannot vouch for (below) or in the
+// blend away from one, and the body layer does not move the pelvis or a foot to a neighbouring frame (a step, a turn, a
+// change of posture; not the breath of an idle). So a body whose feet and posture stay while the rest of it moves where
+// it is (a breath, a look, a pose that repeats) is at rest as a still one is, and one that carries its centre of mass
+// away, across the floor or up or down, is not. Why that distance: it is the row's own limit, so a centre of mass told
+// on a frame lay outside the same supports on every one of those frames (half a second). No body does that under
+// gravity: one whose centre of mass is d outside supports that stay gains speed away from them at g / h x d or more (h:
+// its height; the inverted pendulum), so it falls or steps, it does not stay; what the row tells is a posture kept
+// there, not a move through it. How fast the centre of mass moves inside that distance is not counted.
 // The posture: a sit, kneel or lie counts on a frame when it is the body action under which the body layer last moved
 // the pelvis or a foot (so until the next step or change of posture, whatever verb the spec wrote after it).
 // Supports, each dropped to the floor plane:
@@ -120,11 +120,12 @@ export function balanceRows(clip, aux, spec, scene) {
 			const g = last[slot][f], took = g >= 0 && role(slot, entry(g, slot)) && acts.findLast(a => a[0] === g + 1 && (a[1] === "pose" ? POSE_SLOT[slot].some(k => a[2]?.[k] !== undefined) : slot < 2 && HANDS.has(a[1])));
 			return !!took && f <= g + (took[2]?.over ?? 12);
 		});
-		const coms = Array.from({ length: F }, (_, f) => com(f)), by = (f, g) => Math.hypot(...coms[f].map((v, k) => v - coms[g][k])) <= BALANCE.outside * s;
+		const coms = Array.from({ length: F }, (_, f) => com(f)), N = BALANCE.frames;
 		const still = f => [f - 1, f + 1].every(g => g < 0 || g >= F || [J.LeftFoot, J.RightFoot].every(j => Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));
-		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !shifting(f));
-		// the frames in a row about f that are quiet with the centre of mass by where it is on f
-		const rest = quiet.map((ok, f) => { if (!ok) return false; let a = f, b = f; while (quiet[a - 1] && by(f, a - 1)) a--; while (quiet[b + 1] && by(f, b + 1)) b++; return b - a + 1 >= BALANCE.frames; });
+		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !shifting(f)), rest = quiet.map(() => false);
+		// in place over the N frames from a: no two places of the centre of mass further apart than the row's limit
+		const inPlace = a => { for (let i = a; i < a + N; i++) for (let j = i + 1; j < a + N; j++) if (Math.hypot(...coms[i].map((v, k) => v - coms[j][k])) > BALANCE.outside * s) return false; return true; };
+		for (let f = 0, run = 0; f < F; f++) { run = quiet[f] ? run + 1 : 0; if (run >= N && inPlace(f - N + 1)) rest.fill(true, f - N + 1, f + 1); }
 		// what holds the body up on frame f: { pts, names } or null when a support the engine cannot vouch for is in use
 		const supports = f => {
 			const pts = [], names = [], tol = BALANCE.on * s;
