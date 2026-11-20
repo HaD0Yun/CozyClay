@@ -170,6 +170,16 @@ function registerTests() {
 			assert.equal(descriptor.note, STUDIO_ELEMENTS.find(row => row.path === path).note);
 		}
 	});
+	test("object.path patch carries the speed curve (timing) the context already reads back", () => {
+		const schema = protocol.patchValueSchema(STUDIO_ELEMENTS.find(row => row.path === "object.path"));
+		const route = { points: [{ x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }], speed: 1 };
+		const timing = { cuts: [{ t: 0.3, d: 0.5 }], envelopes: [[0, 0, 1, 2], [1, 1]] };
+		assert.deepEqual(protocol.validateStudioSchema(schema, { ...route, timing }).timing, timing);
+		assert.equal(protocol.validateStudioSchema(schema, { ...route, timing: null }).timing, null);
+		for (const bad of [{ cuts: [{ t: 2, d: 0.5 }] }, { cuts: [], extra: 1 }, { cuts: [], envelopes: [[1]] }]) {
+			rejects(() => protocol.validateStudioSchema(schema, { ...route, timing: bad }), "INVALID_ARGUMENT");
+		}
+	});
 	test("D3 finite limits, mutually exclusive fields and avoid constraints", () => {
 		const invalid = [
 			{ name: "inspect_studio", args: { scope: "entities", ids: ["a"], query: "A" } },
