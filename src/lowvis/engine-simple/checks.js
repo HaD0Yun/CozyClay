@@ -8,7 +8,7 @@ import { SOLE, TOE } from "./solve.js";
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand];
 
 export function checkClip(clip, aux) {
-	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [], headTurn: 0, elbow: 0, wrist: 0, releases: [], launches: [] };
+	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, gripDrift: null, gripTurn: null, cuts: [], headTurn: 0, elbow: 0, wrist: 0, releases: [], launches: [] };
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
 	// a world point over (or under) a static prop's footprint, in the prop's own frame
 	const over = (pt, s) => { const l = qRotate(qConj(s.quat.slice(0, 4)), [pt[0] - s.pos[0], 0, pt[2] - s.pos[2]]); return Math.abs(l[0]) <= s.size[0] / 2 && Math.abs(l[2]) <= s.size[2] / 2; };
@@ -90,8 +90,6 @@ export function checkClip(clip, aux) {
 		if (p.pos.length === 3) continue;
 		// travel of a prop that nothing holds and no key moves: must be 0
 		for (let f = 1; f < F; f++) if (!aux.holders[p.id][f] && !aux.holders[p.id][f - 1] && !aux.keyed[p.id][f]) r.freeTravel += Math.hypot(p.pos[f * 3] - p.pos[f * 3 - 3], p.pos[f * 3 + 1] - p.pos[f * 3 - 2], p.pos[f * 3 + 2] - p.pos[f * 3 - 1]);
-		// a pushed prop: clearance of every joint but the hands, over the whole clip
-		if (aux.slid[p.id]) for (const c of clip.characters) for (let f = 0; f < F; f++) for (let j = 0; j < JOINT_COUNT; j++) if (!HANDS.includes(j)) r.bodyToBox = Math.min(r.bodyToBox ?? Infinity, toBox(at(c, f, j), p, f));
 		// a prop fixed in one hand: drift of its centre and of its rotation in the hand's frame
 		let ref = null;
 		for (let f = 0; f < F; f++) {

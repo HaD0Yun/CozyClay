@@ -22,12 +22,13 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // plus the edit argument of motion: single actions are changed without sending the whole spec again. "reach" is patch
 // plus the rows that say how far a hand, a foot or an elbow is from the target its action gave it. "noassist" is patch with the
 // engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target. "studio" is tilt
-// plus the reach rows and four engine steps, each of which can be switched off by name (OFF): pace, turn, tops, body, and it is told the
+// plus the reach rows and four engine steps, each of which can be switched off by name (OFF): pace, turn, tops, body, and the
+// inside rows (inside, also in base: a body or a moving prop inside another prop, compile-tool.mjs and inside.mjs), and it is told the
 // parts of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs). body: a
 // character of the scene may have a scale and a tint (engine-simple/size.js, clip.js).
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, reach: true, pace: true, turn: true, tops: true, body: true, words: true } };
+const FEATURES = { base: { text: "base", inside: true }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, reach: true, pace: true, turn: true, tops: true, body: true, words: true, inside: true } };
 /** The flags that can be switched off by name. */
-export const OFF = Object.freeze(["pace", "turn", "tops", "body"]);
+export const OFF = Object.freeze(["pace", "turn", "tops", "body", "inside"]);
 /** What a variant turns on: { text: "base" | "lean", edit?: true, ... }, without the flags listed in off. Throws on an unknown name. */
 export function features(variant = "base", off = []) {
 	if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`);
@@ -43,6 +44,8 @@ const TURN = ` turn: degrees about Y; at 0 its d side lies along Z, at 90 along 
 export const BODY_SCALE = Object.freeze({ min: elementByPath("character.scale").min, max: elementByPath("character.scale").max });
 const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.min} to ${BODY_SCALE.max}; at 1 it is the figure of CONVENTIONS. The engine multiplies every length that belongs to that body by it: its joints and feet, its steps, where it sits and lies, the space between a wrist and what the hand holds, the most a hand moves per frame, every length the SPEC text gives as the engine's own. Lengths you write stay metres of the world, in the body frame too. tint is its colour, "#rrggbb". Left out, a character keeps the scale and tint it has; a new one has the scale new figures start at in the Studio (1 unless the tool's bodies line says otherwise) and the default grey. The sheets draw each body at its scale, and in its tint when it has one (else in a colour of the sheet's own); the tool's bodies line says both.`;
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
+const INSIDE = `\n- inside: on every frame, how deep each body (its solids as the Studio draws them, at its scale; the hands left out) and each prop that moves is inside every other prop: the least distance it would have to move to be clear of it. A body or a moving prop with a prop is told when it is deeper than 20 mm (times the body's scale) on any frame, or than half that prop's thinnest side (of either prop for two props) when that is less; the note names the deepest part of a body, on how many frames it is deeper, and the first and the last. Not told: a body with the prop it sits or lies on, until it leaves that posture; a foot's or an elbow's limb with the prop of its target, and the forearm with the prop of its hand's target, until that limb's next key; the forearms of a body with a prop its hands hold; a prop with the joint or the prop it rides on; anything with a hollow prop. Nothing is moved apart: where it is told, the spec put it there.`;
+const HOLLOW = ` hollow: true marks a prop that things may be inside: nothing inside it is told.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
@@ -51,7 +54,6 @@ const NUMBERS = {
 - foot slide: how far a planted foot drifts; near 0 is right.
 - lowest foot point, lowest joint: below 0 is under the floor.
 - carry: wrist to the surface of a carried or pushed prop; about 30 mm is a hand on it, more is a gap, below 0 is inside.
-- body to the pushed prop, nearest joint to a prop: below 0 is inside it; the engine has no collision.
 - prop in one hand: how much it slips in the grip. cut: blade to target at the frame a keyed prop starts to move. release: speed and jumps when a prop is let go into a roll.
 - fastest head turn, elbow, wrist: a high value is a snap; right for a strike, wrong in a calm move.`,
 	lean: `Only where the result differs from what you asked; a call with no such difference has no numbers. Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse; a spike (a value past the check's own limit) that was a spike before also says for how many compiles in a row it has been one (a call that only looks, with the scene and spec unchanged, does not count). Numbers and pictures are information, not a gate.
@@ -76,8 +78,8 @@ Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90
 In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X and a blue one along +Z; the face has a dark visor; the figure's right arm and leg are darker than its left. The three-quarter camera of the sheet and of the final video looks down from the +X, +Z side, so a figure that faces +Z or +X shows its face.
 
 SCENE (you define it)
-{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape? }] }
-A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.turn ? TURN : ""}${f.body ? BODY : ""}
+{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""} }] }
+A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
 ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}
@@ -87,7 +89,7 @@ THE TOOL
 motion({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${f.edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone. Only the images of your latest call stay visible to you; the text of every call stays.
 
 THE NUMBERS
-${NUMBERS[f.text]}${f.reach ? REACH : ""}${f.pace ? PACE : ""}
+${NUMBERS[f.text]}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.pace ? PACE : ""}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.

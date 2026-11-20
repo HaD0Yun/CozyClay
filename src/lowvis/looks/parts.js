@@ -47,8 +47,20 @@ export function createJointRig() {
 	return { object3D, joints, setPose, attach };
 }
 
+/** The solids of a look as drawn, for a measure that has no three.js scene: one box per part ({ joint, geometry },
+ *  built in rest world space) that is not on a hand, the box around its vertices square to the rest axes, as
+ *  { joint (rig index), c: its centre from the joint at rest, h: its half sizes } (metres, a body of scale 1). */
+export function boxesOf(parts) {
+	return parts.filter(p => !/Hand$/.test(p.joint)).map(({ joint, geometry }) => {
+		const v = geometry.attributes.position.array, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+		for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[i + k]); hi[k] = Math.max(hi[k], v[i + k]); }
+		const j = INDEX[joint];
+		return { joint: j, c: lo.map((a, k) => (a + hi[k]) / 2 - REST[j][k]), h: lo.map((a, k) => (hi[k] - a) / 2) };
+	});
+}
+
 const J = name => REST[INDEX[name]];
-const Y = new THREE.Vector3(0, 1, 0);
+const Y =new THREE.Vector3(0, 1, 0);
 
 /** Midpoint, length and the rotation that turns +Y onto a -> b. */
 export function span(a, b) {

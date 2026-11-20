@@ -24,8 +24,8 @@ const fromText = v => { if (typeof v !== "string") return v; try { return JSON.p
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
 
 /** Reasons a scene or spec cannot go to the engine, in plain words; empty when it can. turn: props may stand turned.
- *  body: a character may have a scale (within the sizes a Studio character can have) and a tint. */
-function problems(scene, spec, { turn = false, body = false } = {}) {
+ *  body: a character may have a scale (within the sizes a Studio character can have) and a tint. hollow: a prop may say hollow. */
+function problems(scene, spec, { turn = false, body = false, hollow = false } = {}) {
 	const out = [];
 	if (!isObject(scene)) return ["scene: missing. Send scene: { frames, characters: [{ id, at: [x, z], heading }], props: [...] }"];
 	if (!isObject(spec)) return ["spec: missing. Send spec: { <characterId>: [[frame, verb, options], ...] }"];
@@ -49,6 +49,7 @@ function problems(scene, spec, { turn = false, body = false } = {}) {
 				if (!pair(e.at, 3)) out.push(`${where}.at: want the centre [x, y, z], got ${JSON.stringify(e.at)}`);
 				if (e.turn !== undefined && !turn && e.turn !== 0) out.push(`${where}.turn: a prop stands square to the axes here; give the box around it with turn left out`);
 				else if (e.turn !== undefined && !Number.isFinite(e.turn)) out.push(`${where}.turn: want degrees about Y, got ${JSON.stringify(e.turn)}`);
+				if (hollow && e.hollow !== undefined && typeof e.hollow !== "boolean") out.push(`${where}.hollow: want true or false, got ${JSON.stringify(e.hollow)}`);
 			}
 		});
 	}
@@ -190,8 +191,10 @@ function travelLines(clip, aux, spec) {
 
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
- *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). */
-export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {} }) {
+ *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look
+ *  the Studio draws characters in, given at launch as the start size of a new figure is (src/lowvis/studio/figure.js);
+ *  the inside rows measure the bodies by its solids (inside.mjs; the block look's when it states none). */
+export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null }) {
 	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", last: null };
 	mkdirSync(outDir, { recursive: true });
 
@@ -205,8 +208,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did };
 		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
 		if (edited?.error) return reject(edited.error, [edited.error]);
-		const bad = problems(state.scene, state.spec, { turn: !!feature.turn, body: !!feature.body });
-		if (bad.length) return reject(bad[0], bad.slice(0, 8));
+		const bad = problems(state.scene, state.spec, { turn: !!feature.turn, body: !!feature.body, hollow: !!feature.inside }); if (bad.length) return reject(bad[0], bad.slice(0, 8));
 		const look = isObject(sent.look) ? sent.look : null;
 		if (look?.view !== undefined && !VIEWS[look.view]) return reject(`look.view "${look.view}"`, [`look.view: want one of ${Object.keys(VIEWS).join(", ")}, got ${JSON.stringify(look.view)}`]);
 		if (look?.frames !== undefined && (!Array.isArray(look.frames) || !look.frames.length || look.frames.length > MAX_LOOK || !look.frames.every(Number.isInteger))) return reject("look.frames", [`look.frames: want 1 to ${MAX_LOOK} whole frame numbers, got ${JSON.stringify(look.frames)}`]);
@@ -218,7 +220,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, def, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const rows = measure(parsed, aux, { stretch: valid.stretch });
+		const rows = measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: expandRepeats(state.spec, F).spec, look: figure } });
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });
@@ -239,7 +241,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
 		}
 		const isReach = r => r.key.startsWith("reach:"); // measured for every variant (the run record keeps them), told only where the variant has them and over 10 mm
-		const told = rows.filter(r => feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && isReach(r) && r.value > 10) : !isReach(r));
+		const told = rows.filter(r => r.key.startsWith("inside:") ? !!feature.inside : feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && isReach(r) && r.value > 10) : !isReach(r));
 		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));
