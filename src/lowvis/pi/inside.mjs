@@ -9,9 +9,9 @@
 // forearm with the prop of its target (the engine's own keys of that limb, spec-layers.js buildUpper: from a key that
 // names the prop up to the limb's next key), the forearms of a body with the prop its hands hold on that frame
 // (aux.holders; the drawn forearm's end can be wider than the pad a wrist keeps off what it holds), a prop with the
-// body joint or the prop it rides on (while it rides: up to its next key or a hand taking it off, and then as long as the pair stays past the limit as it
-// leaves the ride's place), and any pair with a
-// prop the scene marks hollow (things may be inside it).
+// body joint or the prop it rides on (while it rides: up to its next key or a hand taking it off; and after the ride for
+// as long as the pair has been past the limit on every frame since the ride's last one: a prop that rides that deep
+// leaves the ride's place through those frames), and any pair with a prop the scene marks hollow (things may be inside it).
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildUpper } from "../engine-simple/spec-layers.js";
@@ -137,9 +137,9 @@ function contacts(spec, aux, F, def, chars) {
 		});
 	}
 	for (const r of aux.rides ?? []) if (r.began != null) {
-		let b = r.next ?? F; // the ride ends at the prop's next key or on the first frame a hand holds it; from there the
-		for (let f = r.began; f < b; f++) if (aux.holders?.[r.prop]?.[f]) { b = f; break; } // prop leaves the ride's place
-		const span = { a: r.began, b, leave: true }; // and the span grows while the pair is still past the limit (leaving)
+		let b = r.next ?? F; // the ride ends at the prop's next key or on the first frame a hand holds it
+		for (let f = r.began; f < b; f++) if (aux.holders?.[r.prop]?.[f]) { b = f; break; }
+		const span = { a: r.began, b, ride: true }; // a ride's span can grow past its end (rideKeeps)
 		if (r.joint) put(`${r.of}|${r.prop}`, { ...span, joints: new Set([J[r.joint]]) });
 		else { put(`${r.prop}|${r.on}`, span); put(`${r.on}|${r.prop}`, span); }
 	}
@@ -147,8 +147,17 @@ function contacts(spec, aux, F, def, chars) {
 }
 /** Whether a span of list covers frame f (and the joint, for a span of some joints only; joint null: any span). */
 const touching = (list, f, joint) => list?.some(e => f >= e.a && f < e.b && (!e.joints || joint == null || e.joints.has(joint)));
-/** The ride's span of list that ends on frame f, the pair still past the limit there: it grows by that frame. */
-const leaving = (list, f, joint) => { const e = list?.find(e => e.leave && e.b === f && (!e.joints || joint == null || e.joints.has(joint))); if (e) e.b++; return !!e; };
+/** The ride's span of list (for the joint) whose last frame is f or that ended on f: the two frames its end is read on. */
+const rideEdge = (list, f, joint) => list?.find(e => e.ride && e.a <= f && (e.b === f || e.b === f + 1) && (!e.joints || joint == null || e.joints.has(joint)));
+/** Whether frame f is of ride span e, read on the frames rideEdge gives. past: the pair is past the limit on f. The
+ *  span keeps the last of its frames on which the pair was past the limit (deep); on the frame after its end it grows
+ *  by that frame when the pair was past the limit on the frame before and still is. So after a ride a pair is not told
+ *  only while it has been past the limit on every frame since the ride's last one. */
+function rideKeeps(e, f, past) {
+	if (past && f === e.b && e.deep === f - 1) e.b++;
+	if (past && f === e.b - 1) e.deep = f;
+	return f < e.b;
+}
 
 /**
  * The inside rows of a clip. def: the scene as built (props with hollow); spec: as built (repeats written out);
@@ -193,10 +202,11 @@ export function insideRows(clip, aux, { def, spec, look }) {
 				const key = `${c.id}|${p.id}`, list = touch[key], held = holdersAt(p.id, f).includes(c.id);
 				if (list?.some(e => f >= e.a && f < e.b && !e.joints)) return; // the whole body touches it
 				for (const o of parts) {
-					const up = apart(o.c, o.reach, b) || touching(list, f, o.o.joint) || (held && FOREARMS.has(o.o.joint)) ? 0 : depthOf(o, b);
+					const edge = rideEdge(list, f, o.o.joint), contact = () => touching(list, f, o.o.joint) || (held && FOREARMS.has(o.o.joint));
+					const up = apart(o.c, o.reach, b) || (!edge && contact()) ? 0 : depthOf(o, b);
 					if (up <= lim) continue; // the box around the part is not past the limit
 					const iq = qConj(o.q), own = { c: qRotate(iq, sub(b.c, o.P)), r: b.r, ax: b.ax?.map(a => qRotate(iq, a)), h: b.h };
-					if (list?.some(e => e.leave && e.b === f)) { if (partDepth(o.o, s, own, lim) > lim && leaving(list, f, o.o.joint)) continue; }
+					if (edge && (rideKeeps(edge, f, partDepth(o.o, s, own, lim) > lim) || contact())) continue;
 					// the part's depth lies between that of the ball inside it and that of the box around it; it is worked out
 					// only as far as it can count this frame or raise the case's worst
 					const e = cases.get(key), counted = e?.last === f, worst = e?.value ?? 0;
@@ -212,8 +222,8 @@ export function insideRows(clip, aux, { def, spec, look }) {
 			for (let n = 0; n < props.length; n++) {
 				const p = props[n], b = boxes[n];
 				if (n === i || (moving[n] && n < i) || apart(a.c, a.reach, b)) continue; // a pair of movers once
-				const list = touch[`${m.id}|${p.id}`], d = touching(list, f, null) ? 0 : depthOf(a, b);
-				if (d <= LIMIT || leaving(list, f, null)) continue;
+				const list = touch[`${m.id}|${p.id}`], edge = rideEdge(list, f, null), d = !edge && touching(list, f, null) ? 0 : depthOf(a, b);
+				if (d <= LIMIT || (edge && (rideKeeps(edge, f, true) || touching(list, f, null)))) continue;
 				const [x, y] = moving[n] && inner(p, m) ? [p, m] : [m, p];
 				note(`${x.id}|${y.id}`, null, y.id, x.id, d, f, LIMIT);
 			}
