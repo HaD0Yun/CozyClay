@@ -4,7 +4,7 @@ This is the full disclosure behind the short version on [cozyclay.org/privacy](h
 
 ## The hosted site
 
-[cozyclay.org](https://cozyclay.org/) collects anonymous usage analytics via [PostHog](https://posthog.com/) (US Cloud). There are no cookies and no session recording. A random pseudonymous identifier is kept in your browser's localStorage so that returning visits and retention can be counted; it is never linked to an account or project content and is removed by clearing site data or opting out.
+[cozyclay.org](https://cozyclay.org/) collects anonymous usage analytics via [PostHog](https://posthog.com/) (US Cloud). There are no cookies. The hosted studio (`/app/`) records an anonymous [session replay](https://posthog.com/docs/session-replay) of what is on screen, with the 3D viewport sampled at 2 frames per second; all input text and the agent transcript (`.agent-transcript`) are masked, and console logs, network headers and bodies are not recorded. The landing page and the npm package never record replays (`src/analytics-values.js`). A random pseudonymous identifier is kept in your browser's localStorage so that returning visits and retention can be counted; it is never linked to an account or project content and is removed by clearing site data or opting out.
 
 ## Events collected
 

@@ -4,6 +4,11 @@
 
 Site
 
+- The hosted Studio (`cozyclay.org/app/`) records masked PostHog session
+  replays: inputs and the agent transcript are masked, the 3D viewport is
+  sampled at 2 fps, and no console logs or network contents are kept. The
+  landing page and the npm package never record. The privacy page says so.
+  (#1321)
 - The hosted Studio's Install button opens the landing page with
   `?from=studio`, and the command the page then shows and copies ends in
   `--via playground` instead of `--via site`, so an install that began in the

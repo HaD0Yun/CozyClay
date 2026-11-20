@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores." />
+    <meta name="description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores." />
     <meta name="theme-color" content="#232323" />
     <link rel="canonical" href="https://cozyclay.org/privacy/" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
@@ -14,14 +14,14 @@
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="CozyClay" />
     <meta property="og:title" content="CozyClay privacy: analytics and telemetry disclosure" />
-    <meta property="og:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores." />
+    <meta property="og:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores." />
     <meta property="og:url" content="https://cozyclay.org/privacy/" />
     <meta property="og:image" content="https://cozyclay.org/media/cozyclay-demo-poster.jpg" />
     <meta property="og:image:width" content="1920" />
     <meta property="og:image:height" content="1080" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CozyClay privacy: analytics and telemetry disclosure" />
-    <meta name="twitter:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores." />
+    <meta name="twitter:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores." />
     <meta name="twitter:image" content="https://cozyclay.org/media/cozyclay-demo-poster.jpg" />
 
     <title>Privacy — CozyClay</title>
@@ -30,7 +30,7 @@
 {
       "@context": "https://schema.org",
       "@type": "WebPage",
-      "description": "What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores.",
+      "description": "What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores.",
       "image": "https://cozyclay.org/media/cozyclay-demo-poster.jpg",
       "mainEntityOfPage": "https://cozyclay.org/privacy/",
       "datePublished": "2026-10-25",
@@ -56,23 +56,27 @@
     <main class="wrap article">
       <div class="hero">
         <h1>Privacy</h1>
-        <p class="lede">Short version: anonymous usage counts, no cookies, no recordings, never your project content. Every part of it can be turned off.</p>
-        <p class="meta">Effective October 25, 2026</p>
+        <p class="lede">Short version: anonymous usage counts, no cookies, never your project files. The hosted studio records masked session replays; the landing page and the npm app never do. Every part of it can be turned off.</p>
+        <p class="meta">Effective November 18, 2026</p>
       </div>
 
       <section>
         <h2>The website (cozyclay.org)</h2>
         <p>
           The site uses <a href="https://posthog.com/">PostHog</a> (US Cloud) for anonymous usage analytics and
-          Cloudflare Web Analytics for page counts. There are no cookies and no session recording, and
-          Do-Not-Track is respected. PostHog keeps a random pseudonymous identifier in your browser's
+          Cloudflare Web Analytics for page counts. There are no cookies, and
+          Do-Not-Track is respected. The hosted studio (<code>/app/</code>) records an anonymous session replay
+          (what is on screen, with the 3D viewport sampled at a low frame rate) so we can see where the studio
+          is confusing. Everything typed into inputs and the agent conversation are masked, and console logs and
+          network contents are not recorded. The landing page and the npm package never record replays. PostHog keeps a random pseudonymous identifier in your browser's
           localStorage so returning visits can be counted; it is never linked to an account or to anything you
           make, and clearing site data removes it. Country comes from ingest-time GeoIP only; no precise
           location is collected.
         </p>
         <p>
           The in-browser playground on the home page runs the studio inside the page. It does not read or
-          write your saved scenes, and nothing you build there leaves your browser unless you download it.
+          write your saved scenes, and your scene is never uploaded as a file; the session replay above shows what
+          was on screen.
         </p>
       </section>
 

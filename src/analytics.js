@@ -1,6 +1,6 @@
 import { appVersion } from "./app-version.js";
 import { FIRST_EDIT_KINDS, FIRST_EDIT_VERSION } from "./semantic-edit.js";
-import { ERROR_TYPE_VALUES, EXPORT_FAILURE_CODES, UI_LOCALE_VALUES, exportPropAllowed, uiLocale } from "./analytics-values.js";
+import { ERROR_TYPE_VALUES, EXPORT_FAILURE_CODES, NO_REPLAY, REPLAY_INIT, UI_LOCALE_VALUES, exportPropAllowed, recordsReplay, uiLocale } from "./analytics-values.js";
 import { bump as bumpFriction, observeLongTasks, snapshot as frictionSnapshot } from "./analytics-friction.js";
 import { STRICT_EVENT_KEYS, strictPropValidator, turnOriginAllowed } from "./analytics-strict.js";
 export const MCP_TOOL_CATEGORIES = Object.freeze(["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]);
@@ -789,7 +789,9 @@ export async function initAnalytics({ lite = false } = {}) {
 				// Browser DNT is set by extensions and OS defaults, not by a deliberate
 				// per-site choice; the preference toggle remains the explicit signal.
 				respect_dnt: false,
-				disable_session_recording: true,
+				// Replay: hosted studio only (#1321). External script loading stays off,
+				// so the recorder is bundled and loaded here before init.
+				...(recordsReplay(resolved, lite) ? (await import("posthog-js/dist/posthog-recorder"), REPLAY_INIT) : NO_REPLAY),
 				capture_dead_clicks: false,
 				capture_performance: false,
 				disable_capture_url_hashes: true,
