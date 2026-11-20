@@ -30,6 +30,7 @@ import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, REST, TIPS } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildBodySized } from "../engine-simple/size.js";
 
+// metres at scale 1 (frames: a count). heel: a human heel reaches behind the ankle joint; the block look draws it 60 mm behind, the cube look further
 export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
 const SIDE = ["L", "R"], LR = ["Left", "Right"], MM = 1000, SAME = 1e-9;
 const POSE_SLOT = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]];
