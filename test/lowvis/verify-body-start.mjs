@@ -34,8 +34,9 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// as any walk does and a backward move rolls its feet in reverse (was duo 7161b3b6dec47653, chop 0a274e59fda21b52, bowl 4667a47117f935bb);
 	// again with its repairs: the last plant of a backward move lands flat, a counted walk's hips arrive when its last foot
 	// lands (was duo 7aa86333d97a5ab1, chop 2d258b2a5d03117e, bowl 660c2527df5ed7d7); duo again when its burst was fitted
-	// to how far its feet trail the hips (was 166268fe9a9621fe)
-	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "c856198951e663f2", push: "ff755b870529e06d", chop: "6577f662ae05285a", bowl: "d85e95275202dc36" };
+	// to how far its feet trail the hips (was 166268fe9a9621fe); bowl again when the knee went on from the frame before
+	// (knee.js; its left knee on frames 80 and 81 moves up to 12 mm; was d85e95275202dc36)
+	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "c856198951e663f2", push: "ff755b870529e06d", chop: "6577f662ae05285a", bowl: "87234ad46d51b454" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);

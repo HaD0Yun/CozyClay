@@ -1,9 +1,9 @@
 // By hand, not in the suite: `KNEE_BASE=<sha> KNEE_HOOK_OUT=<file> node --import ./test/lowvis/knee-test-hook.mjs <test>`
 // runs a test with every solve() call also run through the base commit's solve.js on a copy of the same input; the
 // test goes on with this tree's result. At exit one JSON line goes to KNEE_HOOK_OUT: calls, calls whose output differs
-// to the last bit, and why each differing call differs (whether every reading of knee-sweep.mjs has the base's knee on
-// the wrong side, whether the base's pole has under 0.25 along the knee's side, and whether anything but the legs
-// differs).
+// to the last bit, and why each differing call differs (whether it was given the frame before's knee (U.knee), else
+// whether every reading of knee-sweep.mjs has the base's knee on the wrong side, whether the base's pole has under 0.25
+// along the knee's side, and whether anything but the legs differs), and the largest ankle difference (ankle, m).
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
@@ -13,8 +13,11 @@ import { pathToFileURL } from "node:url";
 
 const root = new URL("../../", import.meta.url), es = new URL("src/lowvis/engine-simple/", root);
 const tmp = mkdtempSync(join(tmpdir(), "knee-hook-"));
-const baseSrc = execFileSync("git", ["show", `${process.env.KNEE_BASE}:src/lowvis/engine-simple/solve.js`], { cwd: root.pathname, encoding: "utf8" })
+const show = f => execFileSync("git", ["show", `${process.env.KNEE_BASE}:src/lowvis/engine-simple/${f}`], { cwd: root.pathname, encoding: "utf8" })
 	.replace('"../rig17.js"', JSON.stringify(new URL("../rig17.js", es).href)).replace('"./math.js"', JSON.stringify(new URL("math.js", es).href));
+const baseSrc = show("solve.js");
+// a base that has its own knee.js: the base solve.js takes that one (copied beside it), not this tree's
+if (baseSrc.includes('"./knee.js"')) writeFileSync(join(tmp, "knee.js"), show("knee.js"));
 writeFileSync(join(tmp, "solve-base.js"), baseSrc);
 globalThis.__knee = { test: process.argv[1], calls: 0, differ: 0, why: {} };
 writeFileSync(join(tmp, "solve-wrap.mjs"), `
@@ -30,7 +33,8 @@ export function solve(B, U = {}) {
 	S.differ++;
 	const knees = LIMBS.filter(l => l.leg), wrong = knees.some(L => !(limbSide(b.pos, b.quat, L).twist <= 90));
 	const legsOnly = [...Array(11).keys()].every(j => [0, 1, 2].every(k => Object.is(b.pos[j][k], r.pos[j][k])) && [0, 1, 2, 3].every(k => Object.is(b.quat[j][k], r.quat[j][k])));
-	const key = (wrong ? "base knee on the wrong side by every reading, or unread" : knees.some(L => poleAlongSide(b, L) < 0.25) ? "the base pole's part along the knee's side under 0.25" : "OTHER") + (legsOnly ? "" : ", NOT legs only");
+	const key = (U.knee ? "given the frame before's knee" : wrong ? "base knee on the wrong side by every reading, or unread" : knees.some(L => poleAlongSide(b, L) < 0.25) ? "the base pole's part along the knee's side under 0.25" : "OTHER") + (legsOnly ? "" : ", NOT legs only");
+	S.ankle = Math.max(S.ankle ?? 0, ...knees.map(L => Math.hypot(...[0, 1, 2].map(k => b.pos[L.end][k] - r.pos[L.end][k]))));
 	S.why[key] = (S.why[key] ?? 0) + 1;
 	return r;
 }`);

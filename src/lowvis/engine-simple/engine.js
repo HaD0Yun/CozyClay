@@ -215,7 +215,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	// a hand target in the space the pose is solved in: a body-frame or own-body target as it is, any other brought in from the world
 	const target = (c, i, to, f) => Array.isArray(to) || (to.joint && !to.of) ? handTarget(c, i, to, f) : toBody(c.tilt, handTarget(c, i, to, f));
 	const upper = (c, f, first) => {
-		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, noAssist: def.assist === false };
+		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, knee: c.pose?.knee, noAssist: def.assist === false };
 		[c.keys.L, c.keys.R].forEach((list, i) => {
 			const k = active(list, f);
 			let h = { from: null, to: null, w: 1 }, upTo = 0;
