@@ -78,9 +78,10 @@ function withMovers(scene, spec) {
 }
 
 /** The scene as the engine builds its bodies. on (feature body): a scale or tint the scene leaves out is the one the
- *  character already has (known: { <id>: { scale?, tint? } }), else scale 1 and no tint. Off: neither is read. */
+ *  character already has (known: { <id>: { scale?, tint? } }), else, for a new character, the scale new figures start at
+ *  (known["*"].scale, 1 when not given) and no tint. Off: neither is read. */
 const withBodies = (scene, known, on) => ({ ...scene, characters: scene.characters.map(({ scale, tint, ...c }) => {
-	const s = on ? scale ?? known[c.id]?.scale ?? 1 : 1, t = on ? tint ?? known[c.id]?.tint : null;
+	const s = on ? scale ?? known[c.id]?.scale ?? known["*"]?.scale ?? 1 : 1, t = on ? tint ?? known[c.id]?.tint : null;
 	return { ...c, ...(s === 1 ? {} : { scale: s }), ...(t ? { tint: t } : {}) };
 }) });
 /** The bodies line: every character that has a scale or a tint, as the engine built and drew it; "" when none has. */

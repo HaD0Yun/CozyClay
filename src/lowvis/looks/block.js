@@ -76,7 +76,7 @@ const PALM = 0.019, KNUCKLE = 0.1, BREADTH = 0.043; // the hand: half the palm's
  * (the two blocks share the knuckle face, cut on the bisector, so the bend has no gap); a thumb along the palm's front
  * edge. `at(u, t, z)` places a point of the hand, `start` is where it leaves the wrist box.
  */
-function mitten(at, start) {
+export function mitten(at, start) {
 	const curl = (55 * Math.PI) / 180, fingers = 0.06;
 	/** The four corners of a section at (u, t): half thickness `h` along the direction (du, dt), half breadth `b`. */
 	const section = (u, t, du, dt, h, b) => [-1, 1].flatMap(i => [-1, 1].map(j => at(u + i * h * du, t + i * h * dt, j * b)));
@@ -93,7 +93,7 @@ function mitten(at, start) {
  * corner, the curled fingers filling the palm side, a cut where the finger tips tuck in), and the thumb laid across
  * the curled fingers from the front edge.
  */
-function fist(at, start) {
+export function fist(at, start) {
 	const side = [[start, PALM], [KNUCKLE, PALM + 0.003], [KNUCKLE + 0.008, 0.004], [KNUCKLE + 0.004, -0.034], [0.084, -0.052], [0.048, -0.05], [start + 0.008, -0.026], [start, -PALM]];
 	return [
 		hull(side.flatMap(([u, t]) => [at(u, t, BREADTH), at(u, t, -BREADTH)])),

@@ -10,6 +10,7 @@ import { importedRigOf, isImportedModel } from '../character-rig.js';
 import { KIND_FIXED_REFUSAL } from '../character-kind.js';
 import { track } from '../analytics.js';
 import { createStableItemId } from '../stable-items.js';
+import { figureStature } from '../lowvis/studio/figure.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas } from '../studio-agent-protocol.js';
 import { characterName } from '../character-name.js';
 
@@ -74,6 +75,8 @@ export function register(registry, ports) {
 			const model = !value.model || value.model === 'y-bot-tpose' ? NEW_CHARACTER_MODEL : value.model;
 			const imported = isImportedModel(model) ? importedRigOf(owner().read().find(row => row.model === model)) : null;
 			if (model !== NEW_CHARACTER_MODEL && model !== PROXY_FIGURE_MODEL && !imported) fail('INVALID_ARGUMENT', `A new character's model is ${NEW_CHARACTER_MODEL}, ${PROXY_FIGURE_MODEL} or the model id of a rig imported into this scene; ${model} is none of these.`);
+			// a new rig figure without a size starts at its look's size (lowvis/studio/figure.js; 1 for the block figure)
+			if (value.scale === undefined && model === NEW_CHARACTER_MODEL) value.scale = figureStature();
 			const row = createCharacterEntry({ ...value, ...imported, model, id: value.id ?? createStableItemId('character') }, owner().read().length);
 			if (owner().read().some(entry => entry.id === row.id)) fail('INVALID_ARGUMENT', 'Character id already exists.');
 			owner().write(rows => [...rows, row]);

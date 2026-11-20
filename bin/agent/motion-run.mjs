@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { draftOf, travelOf } from "./motion-draft.mjs";
+import { figureStature } from "../../src/lowvis/studio/figure.js";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { propsSetOf } from "./motion-props.mjs";
 
@@ -92,6 +93,10 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body }), start = byId(read?.objects);
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
 	const has = Object.fromEntries(studio.scene.characters.filter(c => c.scale !== undefined || c.tint !== undefined).map(c => [c.id, { scale: c.scale, tint: c.tint }]));
+	// new figures start at the size of the look the Studio draws them in (src/lowvis/studio/figure.js): every listed
+	// character keeps its own scale, so the start size reaches only a character the motion makes
+	const stature = figureStature(env.COZYCLAY_FIGURE ?? null);
+	if (body && stature !== 1) { for (const c of studio.scene.characters) has[c.id] = { ...has[c.id], scale: c.scale ?? 1 }; has["*"] = { scale: stature }; studio.ids.start = stature; }
 	onScene(studio.ids);
 	let refused = null;
 	// A scene that changed while the motion was written (a build task finished, the user moved something) answers

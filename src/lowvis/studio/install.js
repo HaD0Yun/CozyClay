@@ -87,6 +87,7 @@ function moves(prop) {
  * cast member loses its root path before its take goes in (the take holds the whole motion), and one listed in
  * existing.switch is changed to the clip's rig first. Characters the clip does not animate keep everything.
  * existing.bodies: { <Studio id>: { scale, tint } } as the Studio holds them (1 and none when it is not listed).
+ * existing.start: the scale the Studio gives a new character it is not told one for (src/lowvis/studio/figure.js; 1). 
  * turn: the clip was written over studioScene(describe, { turn: true }), so a listed object's box stands turned as the
  * object does and the clip's rotation already holds that turn (it is not added again; a turn the model changed is set).
  */
@@ -130,7 +131,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 	for (const [index, figure] of clip.characters.entries()) {
 		const known = existing?.characters?.[figure.id], characterId = known ?? `lowvis-${safe(figure.id ?? index)}`;
 		// the body the clip is of, against the one the Studio holds: only what differs is set
-		const has = (known && existing?.bodies?.[known]) || { scale: 1, tint: null }, scale = figure.scale ?? 1, body = {};
+		const has = (known && existing?.bodies?.[known]) || { scale: existing?.start ?? 1, tint: null }, scale = figure.scale ?? 1, body = {};
 		if (Math.abs(scale - (has.scale ?? 1)) > 1e-6) body.scale = scale;
 		if (figure.tint && figure.tint.toLowerCase() !== String(has.tint ?? "").toLowerCase()) body.tint = figure.tint;
 		const sized = Object.keys(body).length > 0;
