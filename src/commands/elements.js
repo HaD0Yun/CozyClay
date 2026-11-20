@@ -4,6 +4,7 @@ import { patchValueSchema, validateStudioSchema, StudioProtocolError, StudioSche
 
 import { isSettableElement } from '../studio-elements.js';
 import { withLiveTakes } from './elements/take-read.js';
+import { sizesInWarning } from '../receipt-sizes.js';
 
 const kinds = new Map();
 // Each kind registers its declared elements and persistence normalizer once.
@@ -159,21 +160,16 @@ export function elementPatchReceipt(receipt, request, projection) {
   // the revision further stays "completed", and its ops name the dropped paths.
   const partial = receipt.authored && ops.some(op => op.status === 'partial') && receipt.revision.after === receipt.revision.before + 1 && !receipt.nextHost;
   // The protocol's partial variant is a patch receipt, not an action or composite receipt.
-  // It carries no output either, so the world box sizes (receipt-sizes.js) move into one warning: whole when they fit its 120
-  // characters, else how many there are and where to read them.
-  const { action, summary, kind: composite, output, ...rest } = receipt, sizes = output?.worldBoxSizeM ?? {}, sized = Object.keys(sizes).length;
-  const inline = `worldBoxSizeM ${JSON.stringify(sizes)}`, note = inline.length <= 120 ? { code: 'SIZES_INLINE', count: sized, message: inline }
-    : { code: 'SIZES_OMITTED', count: sized, message: `A partial receipt has no worldBoxSizeM: inspect_studio scope entities with ids has the ${sized} sizes.` };
-  const warnings = sized ? [note, ...rest.warnings] : rest.warnings;
-  const dropped = warnings.slice(11).reduce((n, w) => n + (w.code === 'WARNINGS_TRUNCATED' ? w.count : 1), 0);
-  const base = { ...rest, warnings: warnings.length > 12 ? [...warnings.slice(0, 11), { code: 'WARNINGS_TRUNCATED', count: dropped, message: `${dropped} more warnings omitted.` }] : warnings };
+  // It carries no output either: the object sizes the bus stated there ride in one warning (receipt-sizes.js).
+  const { action, summary, kind: composite, output, ...base } = receipt;
   // A row the edit carried along (a moved group's part) reads back where it went: its vec3 transform paths.
   const targets = new Set(request.args.ops.map(({ target }) => target.id));
   const moved = patchElements(kind).filter(element => element.type === 'vec3').map(element => element.path);
   const carried = receipt.affectedIds.filter(id => !targets.has(id) && elementTarget(kind, value, id, receipt.host.sceneId)).map(id => ({ id, paths: moved }));
-  return { ...(partial ? base : receipt), ops, status: partial ? 'partial' : receipt.status,
+  const answer = { ...(partial ? base : receipt), ops, status: partial ? 'partial' : receipt.status,
     delta: !receipt.authored ? [] : [...request.args.ops.map(({ target, set }) => ({ id: target.id, paths: Object.keys(set).map(key => `${kind}.${key}`) })), ...carried]
       .slice(0, 8).map(({ id, paths }) => ({ id, after: { patched: elementReadback(kind, elementTarget(kind, value, id, receipt.host.sceneId), paths, value) } })) };
+  return partial ? sizesInWarning(answer, output?.sizeM) : answer;
 }
 export function registerElementSet(registry, ports, declaration) {
   const kind = declaration.id.slice(0, declaration.id.indexOf('.'));

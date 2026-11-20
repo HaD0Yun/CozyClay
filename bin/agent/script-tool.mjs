@@ -12,12 +12,12 @@ const MAX_AFFECTED_IDS = 8;
 const publicData = value => value === undefined ? null : JSON.parse(JSON.stringify(value, (key, entry) => key === "dataUrl" ? undefined : entry) ?? "null");
 
 // The object sizes a call's receipt states (src/receipt-sizes.js), every entry: a mixed patch_elements answers one receipt per domain.
-// With them, the warning that says some were left out (a bare one: its code and count).
+// With them, the text of its SIZES_ warning (sizes left out, or a partial receipt's sizes).
 function sizesOf(result) {
-	const receipts = Array.isArray(result?.commands) ? result.commands.map(row => row.receipt).filter(Boolean) : [result];
-	const sizes = Object.assign({}, ...receipts.map(receipt => receipt?.output?.worldBoxSizeM ?? {}));
-	const notes = receipts.flatMap(receipt => receipt?.warnings ?? []).filter(warning => /^SIZES_/.test(warning.code)).map(warning => warning.message ?? `${warning.code} ${warning.count}`);
-	return { ...(Object.keys(sizes).length ? { worldBoxSizeM: sizes } : {}), ...(notes.length ? { sizesNote: notes.join(" ") } : {}) };
+	const receipts = Array.isArray(result?.commands) ? result.commands.map(row => row?.receipt).filter(Boolean) : [result];
+	const sizes = Object.assign({}, ...receipts.map(receipt => receipt?.output?.sizeM ?? {}));
+	const notes = receipts.flatMap(receipt => Array.isArray(receipt?.warnings) ? receipt.warnings : []).filter(warning => /^SIZES_/.test(warning?.code)).map(warning => warning.message);
+	return { ...(Object.keys(sizes).length ? { sizeM: sizes } : {}), ...(notes.length ? { sizesNote: notes.join(" ") } : {}) };
 }
 
 function callSummary(name, result, error) {
@@ -35,7 +35,7 @@ function description(names) {
 		"Run a JavaScript body that calls Studio tools in code. Use script whenever a request needs 3 or more commands or any computed placement (circles, rows, symmetric coverage, repeated objects): one script replaces many tool calls.",
 		`Inside the script, \`await tools.<name>(args)\` calls a Studio tool with the same arguments as the direct tool and returns its parsed JSON result; a refused command throws an Error whose message starts with its code. Available: ${names.map(name => `tools.${name}`).join(", ")}.`,
 		"Compute coordinates in code: metres, +Y up, yaw in degrees, floor at y=0 (Math works; there are no timers, fetch or modules).",
-		"You see only what the script passes to text(value) or returns, plus a calls summary (name, ok, receiptId, status, revision, affectedIds, code, message per call, and worldBoxSizeM when a \"completed\" call added or resized objects). Nested results are not shown to you, so return what you need.",
+		"You see only what the script passes to text(value) or returns, plus a calls summary (name, ok, receiptId, status, revision, affectedIds, code, message per call; sizeM when its receipt states object sizes, sizesNote when it has a SIZES_ warning). Nested results are not shown to you, so return what you need.",
 		"Images never come back from a script: call verify_result OUTSIDE the script when you need to see the frame.",
 		"If the script fails after editing, the script's own edits are rolled back (edits made before the script stay) and the result says so; fix the script and run it again.",
 	].join("\n");
