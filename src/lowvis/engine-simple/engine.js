@@ -67,7 +67,7 @@
 //       (a place on a body as for a hand) | "plant". The point is the ankle
 //       joint; `at` is in the body frame from the floor point under the Hips joint (y = height over the floor);
 //       pitch > 0 points the toes down. The other foot keeps the body; nothing moves a body to keep its balance (where
-//       the tool has a balance row, it tells a body at rest whose centre of mass lies outside its supports).
+//       the tool has a balance row, that row says what it measures of a body at rest).
 //     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast
 //     (a wrist an elbow key turns: unless that key or its hand's key says fast).
 //     look: a character id, a prop id (its top), a world point or "fwd"; with no target the gaze stays level.

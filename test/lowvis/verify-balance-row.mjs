@@ -4,9 +4,10 @@
 // height, hands and an elbow on a static prop; scales 0.5 to 2; blends and holds of every length) and fixed cases (a
 // hand on a prop that moves, on another body, a held prop, tilts, two bodies listed both ways), every told line is read
 // as the writer reads it and each of its numbers is computed again here from the clip and the build's aux, by this
-// file's own arithmetic: the centre of mass from the segment shares, the rest frames from the joints' steps and the
-// spec's blends, the supports from the planted feet and the spec's words, the distance outside them by the support
-// function of the points (the most p lies past them over 720 directions, then 400 about the best), the side from the pelvis's axes. A body this
+// file's own arithmetic: the centre of mass from the segment shares, the rest frames from the joints' steps, the spec's
+// blends and the frames on which the engine's body layer moves the pelvis or a foot, the supports from the planted feet,
+// the soles that are down and the spec's words, the distance outside them by the support function of the points (the
+// most p lies past them over 720 directions, then 400 about the best), the side from the pelvis's axes. A body this
 // file finds over the limit on a frame at rest is told; one it does not, is not. Scenes and specs are made here.
 // LOWVIS_BALANCE_N=<random cases> runs more (default 40), LOWVIS_BALANCE_SEED=<n> other ones.
 import assert from "node:assert/strict";
@@ -25,7 +26,7 @@ let seed = +(process.env.LOWVIS_BALANCE_SEED ?? 20261120);
 const rnd = () => { seed = (seed + 0x6D2B79F5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const pick = a => a[Math.floor(rnd() * a.length)], range = (a, b) => a + (b - a) * rnd();
 // the limits the manual states (mm at scale 1, frames)
-const STILL = 0.002, FRAMES = 12, OUT = 0.03, FOOT = 0.09, NEAR = 0.1, ON = 0.01;
+const STILL = 0.002, FRAMES = 12, OUT = 0.03, FOOT = 0.09, HEEL = 0.06, NEAR = 0.1, ON = 0.01;
 // shares of the body's mass: [share, a, b, t] with a point a + (b - a) t; "tip:<joint>" is that joint's tip, "mid" the hip joints' middle
 const SHARE = [[0.081, "Head", "tip:Head", 0.5], [0.216, "Spine2", "Neck", 0.5], [0.139, "Spine", "Spine2", 0.5], [0.142, "Hips", "mid", 0.5]];
 for (const s of ["Left", "Right"]) SHARE.push([0.028, `${s}Arm`, `${s}ForeArm`, 0.436], [0.016, `${s}ForeArm`, `${s}Hand`, 0.43], [0.006, `${s}Hand`, `tip:${s}Hand`, 0.4], [0.1, `${s}UpLeg`, `${s}Leg`, 0.433], [0.0465, `${s}Leg`, `${s}Foot`, 0.433], [0.0145, `${s}Foot`, `tip:${s}Foot`, 0.5]);
@@ -34,38 +35,38 @@ assert.ok(Math.abs(SHARE.reduce((n, x) => n + x[0], 0) - 1) < 1e-9, "the shares 
 /** Everything this file recomputes for one body: [{ who, d, f, frames: [..], side, names, held }] of the bodies over the limit. */
 function expected(clip, aux, spec, def) {
 	const F = clip.frameCount, out = [];
-	const statics = clip.props.filter(p => p.pos.length === 3), moving = clip.props.filter(p => p.pos.length > 3).map(p => p.id), ids = clip.characters.map(c => c.id);
+	const statics = clip.props.filter(p => p.pos.length === 3), movers = clip.props.filter(p => p.pos.length > 3), moving = movers.map(p => p.id), ids = clip.characters.map(c => c.id);
 	const inv = (q, v) => qRotate([-q[0], -q[1], -q[2], q[3]], v);
-	const boxGap = (p, x) => { const l = inv(p.quat, [x[0] - p.pos[0], x[1] - p.pos[1], x[2] - p.pos[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2), o = l.map(v => Math.max(v, 0)); return Math.sqrt(o[0] ** 2 + o[1] ** 2 + o[2] ** 2) + Math.min(0, Math.max(...l)); };
+	const boxGap = (p, x, f = 0) => { const i = p.pos.length === 3 ? 0 : f, l = inv(p.quat.slice(i * 4, i * 4 + 4), [0, 1, 2].map(k => x[k] - p.pos[i * 3 + k])).map((v, k) => Math.abs(v) - p.size[k] / 2), o = l.map(v => Math.max(v, 0)); return Math.sqrt(o[0] ** 2 + o[1] ** 2 + o[2] ** 2) + Math.min(0, Math.max(...l)); };
 	const over = (p, x) => { const l = inv(p.quat, [x[0] - p.pos[0], 0, x[2] - p.pos[2]]); return Math.abs(l[0]) <= p.size[0] / 2 && Math.abs(l[2]) <= p.size[2] / 2; };
 	const surf = (x, s) => x[1] <= NEAR * s ? "the floor" : statics.find(p => boxGap(p, x) <= NEAR * s)?.id ?? null;
 	for (const c of clip.characters) {
 		const s = c.scale ?? 1, P = (f, j) => [0, 1, 2].map(k => c.pos[(f * JOINT_COUNT + j) * 3 + k]), Q = (f, j) => [0, 1, 2, 3].map(k => c.quat[(f * JOINT_COUNT + j) * 4 + k]);
 		const pt = (f, n) => { if (n === "mid") { const a = P(f, J.LeftUpLeg), b = P(f, J.RightUpLeg); return [0, 1, 2].map(k => (a[k] + b[k]) / 2); } if (n.startsWith("tip:")) { const j = n.slice(4), o = qRotate(Q(f, J[j]), TIPS[j].map((v, k) => (v - REST[J[j]][k]) * s)); return P(f, J[j]).map((v, k) => v + o[k]); } return P(f, J[n]); };
 		const centre = f => { let x = 0, z = 0; for (const [w, a, b, t] of SHARE) { const A = pt(f, a), B = pt(f, b); x += w * (A[0] * (1 - t) + B[0] * t); z += w * (A[2] * (1 - t) + B[2] * t); } return [x, z]; };
-		const soles = (f, i) => { const j = i ? J.RightFoot : J.LeftFoot, tip = TIPS[i ? "RightFoot" : "LeftFoot"].map((v, k) => v - REST[j][k]), heel = [0, -REST[J.LeftFoot][1], 0], all = [];
+		// the sole: from HEEL behind the point under the ankle to the toe tip, FOOT wide; the corners that are down, the lowest first
+		const soles = (f, i) => { const j = i ? J.RightFoot : J.LeftFoot, tip = TIPS[i ? "RightFoot" : "LeftFoot"].map((v, k) => v - REST[j][k]), heel = [0, -REST[J.LeftFoot][1], -HEEL], all = [];
 			for (const o of [tip, heel]) for (const w of [-FOOT / 2, FOOT / 2]) { const d = qRotate(Q(f, j), [(o[0] + w) * s, o[1] * s, o[2] * s]); all.push(P(f, j).map((v, k) => v + d[k])); }
-			const low = Math.min(...all.map(p => p[1])); return all.filter(p => p[1] - low <= 0.02 * s); };
+			const low = Math.min(...all.map(p => p[1])); return all.filter(p => p[1] - low <= 0.02 * s).sort((a, b) => a[1] - b[1]); };
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), body = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 		const tiltAt = f => { const tk = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined).findLast(a => a[0] <= f); if (!tk) return false; const t = tk[2].tilt ?? []; return [t[0] ?? 0, t[1] ?? 0, ...(tk[2].shift ?? [])].some(v => Number(v) !== 0 && !Number.isNaN(Number(v))) || f < tk[0] + (tk[2].over ?? 12); };
-		// the engine's posture (spec-layers.js): a sit, kneel or lie holds through a stand of a body that never sat and through a
-		// walk, run, push or turn on which the engine's stepper takes no step (no foot of its body layer, before poses and
-		// tilt, lifts or lands); a stand after a sit, or a step, ends it
+		// the engine's body layer (before poses and tilt): `moved[f]` when it moves the pelvis's place or turn or a foot from
+		// frame f - 1 to f (a step, a turn, a change of posture). A sit, kneel or lie counts on a frame when it is the body
+		// action that was running at the last such move before it
 		const one = def.characters.find(x => x.id === c.id), props = Object.fromEntries(def.props.map(p => [p.id, { id: p.id, size: p.size, c: p.at, turn: 0 }]));
 		const layer = buildBodySized(one, acts, F, { props, ground: () => 0 }, s);
-		const bodyActs = acts.filter(a => body.has(a[1])), postureOf = [], changeSpans = [];
-		for (let i = 0, cur = null, sat = false; i < bodyActs.length; i++) {
-			const [a, verb, o = {}] = bodyActs[i], end = Math.min(F, bodyActs[i + 1]?.[0] ?? F), up = verb === "stand" && sat;
-			let stepped = false;
-			for (let g = Math.max(0, a) + 1; g < end && !stepped; g++) for (const k of [0, 1]) if (!!layer[g].feet[k].planted !== !!layer[g - 1].feet[k].planted) stepped = true;
-			if (["sit", "kneel", "lie"].includes(verb)) { cur = bodyActs[i]; if (verb === "sit") sat = true; } else if (up || (["walk", "run", "push", "turn"].includes(verb) && stepped)) { cur = null; sat = false; }
-			if (["sit", "kneel", "lie"].includes(verb) || up) changeSpans.push([a, o.over != null ? a + Math.round(o.over) : end]);
-			for (let f = Math.max(0, a); f < end; f++) postureOf[f] = cur;
+		const where = B => [B.p[0], B.p[2], ...B.q, ...B.feet.flatMap(ft => [ft.a[0], ft.a[2], ...ft.q])];
+		const moved = layer.map((B, f) => f > 0 && where(B).some((v, k) => Math.abs(v - where(layer[f - 1])[k]) > 1e-9));
+		const bodyActs = acts.filter(a => body.has(a[1])), postureOf = [];
+		for (let f = 0, last = 0; f < F; f++) {
+			if (moved[f]) last = f;
+			const running = bodyActs.filter(a => a[0] <= last).at(-1);
+			postureOf[f] = running && ["sit", "kneel", "lie"].includes(running[1]) ? running : null;
 		}
 		const quietAt = f => {
 			for (const j of [J.Hips, J.LeftFoot, J.RightFoot]) for (const g of [f - 1, f + 1]) if (g >= 0 && g < F && Math.hypot(...P(f, j).map((v, k) => v - P(g, j)[k])) > STILL * s) return false; // to each neighbouring frame
 			for (const [a, verb, o = {}] of acts) if (["pose", "carry", "hold", "place"].includes(verb) && f >= a && f < a + (o.over ?? 12)) return false;
-			if (changeSpans.some(([a, b]) => f >= a && f < b)) return false;
+			if (moved[f] || moved[f + 1]) return false; // a step or a change of posture on this frame or a neighbouring one
 			return !tiltAt(f);
 		};
 		const quiet = Array.from({ length: F }, (_, f) => quietAt(f)), rest = [];
@@ -75,7 +76,13 @@ function expected(clip, aux, spec, def) {
 			if (!rest[f]) continue;
 			const posture = postureOf[f] ?? null;
 			const pts = [], names = []; let vouch = true;
-			[0, 1].forEach(i => { if (aux.contacts[c.id][f][i]) { pts.push(...soles(f, i)); names.push(`${"LR"[i]} foot planted`); } });
+			// a foot the engine holds planted, or whose sole's lowest corner is within ON of the floor or of a prop that does not move
+			[0, 1].forEach(i => {
+				const down = soles(f, i), low = down[0], on = low[1] <= ON * s ? "the floor" : statics.find(p => boxGap(p, low) <= ON * s)?.id;
+				if (aux.contacts[c.id][f][i]) { pts.push(...down); names.push(`${"LR"[i]} foot planted`); }
+				else if (on) { pts.push(...down); names.push(`${"LR"[i]} foot on ${on}`); }
+				else if (movers.some(p => boxGap(p, low, f) <= ON * s)) vouch = false;
+			});
 			const seat = posture?.[2]?.on && clip.props.find(p => p.id === posture[2].on);
 			if (seat && moving.includes(seat.id)) vouch = false;
 			if (posture?.[1] === "sit") { const l = []; for (const j of [J.LeftUpLeg, J.RightUpLeg]) { const h = P(f, j), k = P(f, j + 1); l.push(h, h.map((v, n) => (v + k[n]) / 2)); } const on = l.filter(x => !seat || over(seat, x)); if (on.length) { pts.push(...on); names.push(seat ? `the seat on ${seat.id}` : "the seat"); } }
@@ -83,15 +90,15 @@ function expected(clip, aux, spec, def) {
 			if (posture?.[1] === "lie") { const on = Array.from({ length: JOINT_COUNT }, (_, j) => P(f, j)).filter(x => !seat || over(seat, x)); if (on.length) { pts.push(...on); names.push(seat ? `lying on ${seat.id}` : "lying"); } }
 			const FIELD = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]], NAME = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], JOINT = [J.LeftHand, J.RightHand, null, null, J.LeftForeArm, J.RightForeArm];
 			for (let i = 0; i < 6; i++) {
-				const e = aux.reach[c.id][f]?.[i], raised = e?.floor > 0 && Math.hypot(...P(f, i === 2 ? J.LeftFoot : J.RightFoot).map((v, k) => v - e.t[k] - (k === 1 ? e.floor : 0)));
-				if (!e || (raised === false ? e.d : raised) > ON) continue; // a foot the floor stops: how far its ankle is from the target raised to there
+				const e = aux.reach[c.id][f]?.[i];
+				if (!e || e.d > ON) continue;
 				const key = acts.findLast(a => a[0] === e.key && a[1] === "pose" && FIELD[i].some(n => a[2][n] !== undefined)); if (!key) continue;
 				const t = FIELD[i].map(n => key[2][n]).find(v => v !== undefined); if (!t || typeof t !== "object") continue;
 				const id = Array.isArray(t) ? null : t.on ?? t.prop ?? t.meet ?? t.chest ?? t.of;
 				if (id != null && (moving.includes(id) || (ids.includes(id) && id !== c.id))) vouch = false;
-				if (!vouch || (!Array.isArray(t) && t.joint && (!t.of || t.of === c.id))) continue;
+				if (!vouch || JOINT[i] == null || (!Array.isArray(t) && t.joint && (!t.of || t.of === c.id))) continue; // a foot is counted by its sole, above
 				const on = surf(e.t, s); if (!on) continue;
-				pts.push(...(JOINT[i] == null ? soles(f, i - 2) : [P(f, JOINT[i])])); names.push(`${NAME[i]} on its target on ${on}`);
+				pts.push(P(f, JOINT[i])); names.push(`${NAME[i]} on its target on ${on}`);
 			}
 			if (!vouch || !pts.length) continue;
 			// the distance outside the points' hull: the largest u.p - max(u.q) over directions u (the support function)
@@ -179,6 +186,10 @@ try {
 	check("a foot aimed at the floor past the leg's reach", ...solo([[0, "pose", { footR: [-0.1, -0.1, 0.8], hip: [0.25, 0, 0], over: 0 }]], [], 1.2), { expectTold: true });
 	check("sit, a turn that takes no step, a foot lifted", ...solo([[0, "sit", { on: "bench", over: 20 }], [40, "turn", { heading: 30 }], [55, "pose", { footR: [-0.1, 0.3, 0.4], over: 10 }]], [bench], 1, 130), { expectTold: false });
 	check("kneel, then a walk under a tilt, tilt back, hips left", ...solo([[0, "kneel", { over: 20 }], [25, "pose", { tilt: [8, 0], over: 6 }], [35, "walk", { to: [1, 1.5] }], [110, "idle"], [115, "pose", { tilt: [0, 0], over: 6 }], [125, "pose", { hip: [0.3, 0, 0], over: 10 }]], [], 1, 190), { expectTold: true });
+	check("a foot down on its toe tip", ...solo([[0, "pose", { footL: { at: [0.1, 0, 0.3], pitch: 35 }, over: 0 }]]), { expectTold: false });
+	check("a sit, two walks one frame apart, hips left", ...solo([[0, "sit", { height: 0.45, over: 20 }], [30, "walk", { to: [0, 0.6] }], [31, "walk", { to: [0, 1.2] }], [32, "idle"], [50, "pose", { hip: [0.3, 0, 0], over: 10 }]]), { expectTold: true });
+	check("leaning back over the heels", ...solo([[0, "pose", { bow: -40, over: 0 }]]), { expectTold: false });
+	check("a gait of 200 frames a step", ...solo([[0, "walk", { to: [0.4, 0.7], steps: 2, stepFrames: 200 }]], [], 1, 460), { expectTold: false });
 	for (const tilt of [30, { pitch: 30 }, "30"]) check(`tilt of another form: ${JSON.stringify(tilt)}`, ...solo([[0, "pose", { tilt, over: 0 }]], [], 1, 60));
 	check("elbow on a table",...solo([[0, "pose", { elbowR: { on: "table", at: [-0.2, 0.4, -0.2] }, bow: 70, over: 20 }]], [table]));
 	const two = order => { const cs = [{ id: "a", at: [0, 0], heading: 0 }, { id: "b", at: [0, 0.7], heading: 180, scale: 1.3 }]; return [{ frames: 100, characters: order ? cs : cs.slice().reverse(), props: [] }, { a: [[0, "pose", { hip: [0.3, 0, 0], over: 0 }]], b: [[0, "pose", { R: { joint: "Spine2", of: "a" }, bow: 50, hip: [0, 0, 0.25], over: 20 }]] }]; };
