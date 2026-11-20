@@ -6,7 +6,8 @@
 //     a knee the wrong way
 //  2. every foot target of the spec sweep (in front, high, above the hips, behind, across, to the side, low, out of
 //     reach; four pitches; standing, kneeling, sitting, lying on the back and on the side; a target moving on): at most
-//     the 74 frames measured when this was written bend the wrong way (a ratchet)
+//     the 4 frames measured when this was written bend the wrong way (a ratchet; a knee the measure cannot read counts
+//     as wrong)
 //  3. on direct solver inputs (pelvis turned every way, foot targets around and past the leg's reach, foot pitch, three
 //     scales) the bones keep their lengths and the ankle lands (within 10 micrometres, the rounding the solver had before) where the hip-ankle line and the leg's reach put it,
 //     whatever side the knee takes
@@ -25,15 +26,15 @@ for (const inp of specInputs()) {
 		const pose = frameOf(c, f);
 		for (const L of KNEES) {
 			const tw = limbSide(pose.pos, pose.quat, L).twist;
-			if (isPlain) { plain++; if (tw > 90) plainWrong.push(`${inp.tag} f${f} ${L.name} ${tw.toFixed(1)}`); }
-			else { targeted++; if (tw > 90) { targetedWrong++; worst = Math.max(worst, tw); } }
+			if (isPlain) { plain++; if (!(tw <= 90)) plainWrong.push(`${inp.tag} f${f} ${L.name} ${tw?.toFixed(1)}`); }
+			else { targeted++; if (!(tw <= 90)) { targetedWrong++; worst = Math.max(worst, tw ?? 180); } }
 		}
 	}
 }
 assert.ok(plain > 40000, `plain postures measured: ${plain}`);
 assert.deepEqual(plainWrong.slice(0, 5), [], `${plainWrong.length} wrong-way knees with no foot target or with the lying, tilted, feet-up figure`);
 console.log(`1. no foot target, and lying tilted with the feet above the hips: 0 of ${plain} knee frames bend the wrong way`);
-assert.ok(targetedWrong <= 74, `foot-target frames bending the wrong way: ${targetedWrong} of ${targeted} (largest twist ${worst.toFixed(1)} deg)`);
+assert.ok(targetedWrong <= 4, `foot-target frames bending the wrong way: ${targetedWrong} of ${targeted} (largest twist ${worst.toFixed(1)} deg)`);
 console.log(`2. foot targets: ${targetedWrong} of ${targeted} knee frames past 90 degrees of twist (largest ${worst.toFixed(1)})`);
 
 const L1 = len(OFFSET[J.LeftLeg]), L2 = len(OFFSET[J.LeftFoot]);

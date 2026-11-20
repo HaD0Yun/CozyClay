@@ -1,15 +1,13 @@
 // The side a knee (and an elbow) bends to, measured from a clip's output with arithmetic of this file's own, and the
 // inputs that sweep it: body states for the leg solver directly, paths of a foot target, and specs compiled whole.
 //
-// The allowed side, in the limb's own frame from the rig's rest pose: at rest a knee bends about the pelvis's left
-// axis X (the shin goes back as the knee goes forward); an elbow about the chest axis rest-pole x rest-arm. That rest
-// hinge is carried with the upper bone by the shortest turn from a reference direction of the bone to where the bone
-// points in its parent's frame (pelvis for a thigh, chest for an upper arm), so it keeps the bone's own twist at zero.
-// The twist is the angle between the limb's actual hinge (thigh x shin, or the thigh's own turned X while the leg is
-// straight) and that carried hinge, about the bone. Over 90 degrees the joint bends to the side it cannot: the shin
-// swings forward of the thigh, the knee points behind the leg. The reference direction of a thigh is 45 degrees forward
-// of its rest direction, so the one direction where the carry is undefined points up and back (a hip extended past
-// 135 degrees, which no hip reaches); an upper arm's is its rest direction (undefined pointing into the chest).
+// The allowed side, in the limb's parent frame (pelvis for a thigh, chest for an upper arm): at rest a knee bends about
+// the pelvis's left axis X (the shin goes back as the knee goes forward); an elbow about the chest axis rest-pole x
+// rest-arm. The twist is the angle, about the upper bone, from that rest hinge (its part square to the bone) to the
+// limb's actual hinge (thigh x shin, or the thigh's own turned X while the leg is straight). Over 90 degrees the joint
+// bends to the side it cannot. For a thigh on the pelvis's sagittal plane this needs no convention: every hip flexion
+// keeps the hinge at X, so a reversed hinge reads 180 in front of, above and behind the hips alike. The twist is null
+// only where the bone lies within 5 degrees of its rest hinge (a thigh straight out to a side or across).
 import { INDEX as J, OFFSET, PARENT, REST } from "../../src/lowvis/rig17.js";
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -28,13 +26,6 @@ const rot = (q, v) => { const t = mul(cross(q, v), 2); return add(add(v, mul(t, 
 const axisAngle = (ax, deg) => { const h = deg * Math.PI / 360, s = Math.sin(h), u = unit(ax); return [u[0] * s, u[1] * s, u[2] * s, Math.cos(h)]; };
 const DEG = 180 / Math.PI;
 const angle = (a, b) => Math.atan2(len(cross(a, b)), dot(a, b)) * DEG;
-/** v turned by the shortest turn that takes unit a to unit b (Rodrigues); null where a and b nearly oppose. */
-function carry(v, a, b) {
-	const k = cross(a, b), c = dot(a, b);
-	if (1 + c < 1e-9) return null;
-	return add(add(mul(v, c), cross(k, v)), mul(k, dot(k, v) / (1 + c)));
-}
-const rotX = (v, deg) => { const a = deg / DEG, c = Math.cos(a), s = Math.sin(a); return [v[0], v[1] * c - v[2] * s, v[1] * s + v[2] * c]; };
 
 export const LIMBS = [
 	{ name: "knee L", parent: J.Hips, root: J.LeftUpLeg, mid: J.LeftLeg, end: J.LeftFoot },
@@ -44,7 +35,7 @@ export const LIMBS = [
 ].map(l => {
 	const leg = l.name.startsWith("knee"), rest = unit(OFFSET[l.mid]);
 	const hinge = leg ? [1, 0, 0] : unit(cross([0, 0, -1], rest)); // rest pole x rest bone, the bend's axis at rest
-	return { ...l, leg, hinge, ref: leg ? unit(rotX(rest, -45)) : rest };
+	return { ...l, leg, hinge };
 });
 if (PARENT[J.LeftArm] !== J.Spine2 || PARENT[J.LeftUpLeg] !== J.Hips) throw new Error("rig parents changed");
 
@@ -55,8 +46,8 @@ export function limbSide(pos, quat, L) {
 	const bend = angle(t, s), tu = unit(t);
 	let h = cross(t, s);
 	if (len(h) < Math.sin(2 / DEG) * len(t) * len(s)) h = rot(qmul(inv, quat[L.root]), L.hinge); // nearly straight: the bone's own turned hinge
-	const ref = carry(L.hinge, L.ref, tu); // the rest hinge is square to the reference direction (a turn about it from rest)
-	if (!ref || angle(tu, mul(L.ref, -1)) < 5) return { twist: null, bend, root: pos[L.root], mid: pos[L.mid], end: pos[L.end] };
+	const ref = sub(L.hinge, mul(tu, dot(L.hinge, tu))); // the rest hinge's part square to the bone
+	if (len(ref) < Math.sin(5 / DEG)) return { twist: null, bend, root: pos[L.root], mid: pos[L.mid], end: pos[L.end] };
 	const across = sub(h, mul(tu, dot(h, tu)));
 	return { twist: angle(across, ref), bend, root: pos[L.root], mid: pos[L.mid], end: pos[L.end] };
 }

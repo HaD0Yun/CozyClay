@@ -33,18 +33,19 @@ const flat = r => [...r.pos.flat(), ...r.quat.flat(), r.assist.bend, r.assist.dr
 const diffs = { direct: { equal: 0, n: 0, list: [] }, spec: { equal: 0, n: 0, list: [] } };
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = a => Math.hypot(a[0], a[1], a[2]);
-// the base's pole for one leg (pelvis forward plus half the foot's forward), read from an output pose: how much of it
-// lies across the hip-ankle line, the reason a bend direction is undetermined
+// the base's pole for one leg (pelvis forward plus half the foot's forward), read from an output pose: its part along
+// the hip-ankle direction x the pelvis's left (made a unit), which knee.js keeps at 0.25 or more
 const rotZ = q => [2 * (q[0] * q[2] + q[3] * q[1]), 2 * (q[1] * q[2] - q[3] * q[0]), 1 - 2 * (q[0] * q[0] + q[1] * q[1])];
+const rotX = q => [1 - 2 * (q[1] * q[1] + q[2] * q[2]), 2 * (q[0] * q[1] + q[3] * q[2]), 2 * (q[0] * q[2] - q[3] * q[1])];
 function poleAcross(pose, L) {
-	const p = rotZ(pose.quat[0]).map((v, i) => v + 0.5 * rotZ(pose.quat[L.end])[i]), d = sub(pose.pos[L.end], pose.pos[L.root]), u = d.map(v => v / len(d));
-	const k = p[0] * u[0] + p[1] * u[1] + p[2] * u[2];
-	return len(sub(p, u.map(v => v * k)));
+	const p = rotZ(pose.quat[0]).map((v, i) => v + 0.5 * rotZ(pose.quat[L.end])[i]), d = sub(pose.pos[L.end], pose.pos[L.root]), x = rotX(pose.quat[0]);
+	const g = [d[1] * x[2] - d[2] * x[1], d[2] * x[0] - d[0] * x[2], d[0] * x[1] - d[1] * x[0]];
+	return (p[0] * g[0] + p[1] * g[1] + p[2] * g[2]) / len(g);
 }
 const reasonOf = (pose, s) => {
 	const tw = KNEES.map(L => limbSide(pose.pos, pose.quat, L).twist), across = KNEES.map(L => poleAcross(pose, L));
-	if (tw.some(t => t > 90)) return `base knee wrong-way (twist ${tw.map(t => t?.toFixed(1)).join(", ")} deg)`;
-	if (across.some(a => a < 0.25)) return `bend direction undetermined on the base (pole across the leg ${across.map(a => a.toFixed(3)).join(", ")})`;
+	if (tw.some(t => !(t <= 90))) return `base knee wrong-way or unread (twist ${tw.map(t => t?.toFixed(1)).join(", ")} deg)`;
+	if (across.some(a => a < 0.25)) return `the base pole's part along leg x pelvis-left under 0.25 (${across.map(a => a.toFixed(3)).join(", ")})`;
 	return `OTHER (twist ${tw.map(t => t?.toFixed(1)).join(", ")}, across ${across.map(a => a.toFixed(3)).join(", ")}, s ${s})`;
 };
 
