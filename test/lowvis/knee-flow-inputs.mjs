@@ -50,6 +50,19 @@ function pathKeys(leg, z, off, phi, r, s, pitch) {
 	return keys;
 }
 
+/** A foot swung to a place given in the body frame, held there and set down again, then the other foot to the mirrored
+ *  place: in front, behind, across, out to the side, over the hips, and up, back and out (toward one of the two
+ *  directions). Scales 0.5, 1, 2. Each { tag, spec, def, s }. */
+export function swingInputs() {
+	const out = [], SPOTS = { front: [0.1, 0.9, 0.7], behind: [0.1, 0.5, -0.6], across: [-0.35, 0.5, 0.35], side: [0.75, 0.55, 0.05], over: [0.15, 1.5, 0.2], upBack: [0.55, 1.25, -0.3], upBackFar: [0.7, 1.1, -0.45] };
+	for (const s of [0.5, 1, 2]) for (const [name, at] of Object.entries(SPOTS)) {
+		const k = v => v.map(x => x * s);
+		const a = [[5, "pose", { footL: { at: k(at), pitch: -30 }, over: 14 }], [34, "pose", { footL: { at: k([0.1, 0.2, 0.15]), pitch: 0 }, over: 14 }], [52, "pose", { footR: { at: k([-at[0], at[1], at[2]]), pitch: 30 }, over: 20 }], [80, "pose", { footR: { at: k([-0.1, 0.15, 0]), pitch: 0 }, over: 12 }]];
+		out.push({ tag: `swing ${name} s${s}`, s, def: { frames: 96, characters: [{ id: "a", at: [0, 0], heading: 0, ...(s === 1 ? {} : { scale: s }) }], props: [] }, spec: { a } });
+	}
+	return out;
+}
+
 /** Every input: { tag, spec, def, s, two }. */
 export function nearInputs() {
 	const out = [];

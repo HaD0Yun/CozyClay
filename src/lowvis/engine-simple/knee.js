@@ -13,20 +13,23 @@
 // sum has no direction at two places, both up, behind the hips and out to a side (about [+-0.79, 0.44, -0.44]): there
 // the side chosen from one frame alone is not continuous in d, and near them it turns fast.
 //
-// So the knee also goes on from the frame before (`prev`: the leg's d and the knee's side across it there, as solve.js
-// returns them; none on a clip's first frame or in a pose solved on its own, which take the side chosen above). That
-// side, carried by the shortest turn that takes the old d to the new one, turns toward the side chosen above, about the
-// hip-ankle line, by at most as far as moves the knee SWING further than the ankle went round the hip since the frame
-// before: the short way round, or the other way where the short way passes the side opposite the middle of the two
-// sides the sum is made of. Where the knee gets there within that, or the leg's direction itself turned more than LEAP
-// since the frame before, the side chosen above is taken as it is, to the last bit.
+// So the knee also goes on from the frame before (`prev`: the leg's d, the knee's side across it there, and whether
+// that knee was off the side chosen, as solve.js returns them; none on a clip's first frame or in a pose solved on its
+// own, which take the side chosen above). A knee that was on the side chosen stays on it, to the last bit, unless that
+// side has turned about the hip-ankle line by more than moves the knee twice SWING further than the ankle went round the
+// hip since the frame before; so does every knee where the leg's direction itself turned more than LEAP. A knee that
+// has left the side chosen, carried by the shortest turn that takes the old d to the new one, turns back toward it by
+// as far as moves the knee SWING further than the ankle went (the short way round, or the other way where the short
+// way passes the side opposite the middle of the two sides the sum is made of), and is on it again once that reaches
+// it. Two things change that turn (kneePole): under the foot's floor it turns less, and off a side every hinge reading
+// forbids it turns more, in one frame; that one frame can move the knee further than SWING.
 import { INDEX as J, OFFSET } from "../rig17.js";
 import { X, add, cross, dot, len, mul, norm, qConj, qRotate, sub } from "./math.js";
 
 const BAND = 0.25; // the least part of the pole (length 0.5..1.5) along the knee's side
 const MID = norm([0, -1, 1]); // the leg direction the carried part starts from: 45 degrees forward of down
 const FRONT = cross(MID, X); // where the knee of a leg along MID stands off it
-const SWING = 0.015; // m (at scale 1): how much further than the ankle went round the hip a knee may turn about the line in a frame
+const SWING = 0.015; // m (at scale 1): how much further than the ankle went round the hip a knee off the side chosen turns back about the line in a frame; a knee on that side leaves it for a turn of over twice this
 const LEAP = 0.2; // rad: a leg that turned more than this in one frame starts from the side chosen on that frame
 const L1 = len(OFFSET[J.LeftLeg]), L2 = len(OFFSET[J.LeftFoot]);
 
@@ -38,8 +41,8 @@ function carry(v, a, b) {
 const across = (v, d) => norm(sub(v, mul(d, dot(v, d))), [0, 0, 0]);
 
 /** The pole that bends a knee on a leg from `hip` to `ankle` under the pelvis turn qP, given the solver's `pole` and
- *  the frame before's { d, side } (pelvis frame) or nothing. -> { pole, d, side }: d and the side the pole puts the
- *  knee on, in the pelvis frame, for the next frame. */
+ *  the frame before's { d, side, off } (pelvis frame) or nothing. -> { pole, d, side, off }: d and the side the pole
+ *  puts the knee on, in the pelvis frame, and whether that is off the side chosen, for the next frame. */
 export function kneePole(qP, hip, ankle, pole, prev, floor) {
 	const inv = qConj(qP), v = sub(ankle, hip), d = qRotate(inv, norm(v, [0, -1, 0])), out = chosen(inv, qP, d, pole);
 	const side = across(qRotate(inv, out), d), was = prev && dot(prev.d, d) > Math.cos(LEAP) && carry(prev.side, prev.d, d);
@@ -53,7 +56,8 @@ export function kneePole(qP, hip, ankle, pole, prev, floor) {
 	const dist = Math.min(Math.max(len(v), Math.abs(L1 - L2) + 1e-4), (L1 + L2) * 0.9995), a = (L1 * L1 - L2 * L2 + dist * dist) / (2 * dist);
 	const h = Math.sqrt(Math.max(0, L1 * L1 - a * a)); // the knee's distance from the hip-ankle line
 	const most = (SWING + dist * Math.acos(Math.min(1, dot(prev.d, d)))) / Math.max(h, 1e-9); // plus as far as the ankle went round the hip
-	if (Math.abs(turn) <= most) return { pole: out, d, side };
+	// a knee on the side chosen leaves it only for a turn of over twice SWING past the ankle's; one that has left comes back SWING a frame
+	if (Math.abs(turn) <= most + (prev.off ? 0 : SWING / Math.max(h, 1e-9))) return { pole: out, d, side };
 	// It goes no nearer than where its hinge is neither over 89 degrees from every untwisted one (twist) where the side
 	// chosen is not over 90, nor under the floor further than both the knee carried and the knee on the side chosen.
 	const sideAt = k => add(mul(from, Math.cos(s * k)), mul(cross(d, from), Math.sin(s * k))), high = w => hip[1] + qRotate(qP, add(mul(d, a), mul(w, h)))[1];
@@ -75,7 +79,7 @@ export function kneePole(qP, hip, ankle, pole, prev, floor) {
 	}
 	if (k === Math.abs(turn)) return { pole: out, d, side };
 	const now = sideAt(k);
-	return { pole: qRotate(qP, now), d, side: now };
+	return { pole: qRotate(qP, now), d, side: now, off: true };
 }
 
 /** How far (degrees) the hinge of a knee on `side` of a leg along d (the knee a along d and h off it, the ankle dist

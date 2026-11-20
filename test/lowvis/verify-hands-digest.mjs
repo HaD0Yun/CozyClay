@@ -32,7 +32,7 @@ const BEFORE = {
 	duo: "45330261743f3cff00c318d14a504f84c3cb255f42c03be94b2c3bda5e0e76b6", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
 	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
 	chop: "a773f58421c01f745482f0621de9289d00c3f73e82f9f4eb9b61fc9bde7ec7fd", // was 623cc406..., then 3b131397...
-	bowl: "9cfe5196e5f48da6d1e17538541c3307b287fb13e28ae3ae390362ad3ab6ef90", // was 9cda1765..., then 8b1243fc..., then 75232c8f... (before the knee went on from the frame before, knee.js: the left knee on frames 80 and 81)
+	bowl: "75232c8f0335c7fa4237ac482398d56413dd326ae89300910988e4a49fe9a0e5", // was 9cda1765..., then 8b1243fc...
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};

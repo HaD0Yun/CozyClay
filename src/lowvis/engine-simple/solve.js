@@ -192,5 +192,5 @@ export function solve(B, U = {}) {
 		quat[S.up] = L.qU; quat[S.leg] = L.qL; quat[S.foot] = feet[i].q;
 		place(S.leg); place(S.foot);
 	});
-	return { pos, quat, assist: { bend, drop }, slow: T.slow, late, lift: feet.map(f => f.lift), knee: knee.map(({ d, side }) => ({ d, side })) };
+	return { pos, quat, assist: { bend, drop }, slow: T.slow, late, lift: feet.map(f => f.lift), knee: knee.map(({ d, side, off }) => ({ d, side, off })) };
 }

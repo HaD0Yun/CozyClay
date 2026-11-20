@@ -137,9 +137,9 @@ function compareSpec(name, tag, spec, def) {
 		});
 		if (diff) {
 			// why: on the base, at or before the first differing frame, some knee moved by turning about its hip-ankle line in
-			// one frame more than 15 mm (at scale 1) further than its ankle went round the hip, while the leg turned under
-			// 0.2 rad (the case knee.js holds back)
-			const why = pb.frames.slice(0, first + 1).some(fb => fb.turn.some((t, i) => t !== null && t > 0.015 && fb.legTurn[i] < 0.2)) ? "base knee turned > 15 mm past its ankle in a frame" : "OTHER";
+			// one frame more than 30 mm (at scale 1, twice knee.js's SWING) further than its ankle went round the hip, while
+			// the leg turned under 0.2 rad (the case in which knee.js takes a knee off the side chosen)
+			const why = pb.frames.slice(0, first + 1).some(fb => fb.turn.some((t, i) => t !== null && t > 0.03 && fb.legTurn[i] < 0.2)) ? "base knee turned > 30 mm past its ankle in a frame" : "OTHER";
 			C.differ.push({ tag, who: pb.c.id, frames: diff, first, why });
 		}
 	});
