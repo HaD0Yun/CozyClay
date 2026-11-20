@@ -14,7 +14,7 @@ import { VARIANTS } from "../../../src/lowvis/pi/prompt.mjs";
 const ROOT = resolve(import.meta.dirname, "../../.."), OUT = join(ROOT, "lowvis-out/replay");
 const load = f => JSON.parse(readFileSync(f, "utf8"));
 // prop: the deepest a body is inside a prop past the inside rows' limit (src/lowvis/pi/inside.mjs; 0 when no body row is
-// past it), read only from builds whose tree has that measure (_meta.json inside)
+// past it), compared only between builds known to have that measure (compare, below)
 const isBodyRow = (clip, k) => clip.characters.some(c => k.startsWith(`inside:${c.id}>`));
 const checksOf = clip => { const ch = clip.stats?.checks ?? {}, v = k => ch[k]?.value; return { reach: Math.max(0, ...Object.entries(ch).filter(([k]) => k.startsWith("reach:")).map(([, x]) => x.value)), floor: Math.max(0, -Math.min(v("jointLow") ?? 0, v("footLow") ?? 0)), prop: Math.max(0, ...Object.entries(ch).filter(([k]) => isBodyRow(clip, k)).map(([, x]) => x.value)), slide: v("slide") ?? 0 }; };
 const argv = process.argv.slice(2), opt = name => { const i = argv.indexOf(`--${name}`); return i === -1 ? undefined : argv[i + 1]; };
@@ -51,21 +51,26 @@ if (mode === "build" && a) {
 } else if (mode === "compare" && a && b) {
 	const A = join(OUT, a), B = join(OUT, b), ma = load(join(A, "_meta.json")), mb = load(join(B, "_meta.json"));
 	const fa = new Set(ma.failed.map(f => f.name)), fb = new Set(mb.failed.map(f => f.name)), inB = new Set(mb.runs), spec = n => load(join(ma.runsDir, n, "run.json"));
-	const noInside = [[a, ma], [b, mb]].filter(([, m]) => m.inside !== true).map(([tag]) => tag), columns = noInside.length ? ["reach", "floor", "slide"] : ["reach", "floor", "prop", "slide"];
-	if (noInside.length) console.log(`prop: not compared: ${noInside.join(" and ")} ${noInside.length > 1 ? "were" : "was"} built without the inside measure (its _meta.json has no inside: true)`);
-	const res = { runs: ma.runs.length, unchanged: 0, changed: 0, failedBefore: fa.size, failedAfter: fb.size, newlyFailed: [...fb].filter(n => !fa.has(n)), missingInB: ma.runs.filter(n => !inB.has(n)).length, worse: [], better: Object.fromEntries(columns.map(k => [k, 0])) };
+	// a build is known to have the inside measure when its _meta.json says so (build, above; an older replay wrote none)
+	// or one of its clips holds an inside row
+	const measured = [ma.inside === true, mb.inside === true], rowsIn = clip => Object.keys(clip.stats?.checks ?? {}).some(k => k.startsWith("inside:")), changed = [];
+	const res = { runs: ma.runs.length, unchanged: 0, changed: 0, failedBefore: fa.size, failedAfter: fb.size, newlyFailed: [...fb].filter(n => !fa.has(n)), missingInB: ma.runs.filter(n => !inB.has(n)).length, worse: [], better: {} };
 	for (const n of ma.runs) {
 		if (fa.has(n) || fb.has(n) || !inB.has(n)) continue;
 		const ca = load(join(A, `${n}.json`)), cb = load(join(B, `${n}.json`));
+		measured[0] ||= rowsIn(ca); measured[1] ||= rowsIn(cb);
 		let d = ca.characters.length === cb.characters.length ? 0 : Infinity;
 		ca.characters.forEach((c, i) => { const p = cb.characters[i]?.pos ?? []; if (p.length !== c.pos.length) d = Infinity; for (let k = 0; k < c.pos.length; k++) d = Math.max(d, Math.abs(c.pos[k] - p[k])); });
 		if ((ca.props ?? []).length !== (cb.props ?? []).length) d = Infinity; // and every prop: centre and rotation
 		(ca.props ?? []).forEach((p, i) => { for (const f of ["pos", "quat"]) { const o = cb.props[i]?.[f] ?? []; if (o.length !== p[f].length) d = Infinity; for (let k = 0; k < p[f].length; k++) d = Math.max(d, Math.abs(p[f][k] - o[k])); } });
 		if (d < 1e-6) { res.unchanged++; continue; }
 		res.changed++; console.log("changed:", n, "|", String(spec(n).request ?? "").slice(0, 50));
-		const x = checksOf(ca), y = checksOf(cb);
-		for (const k of columns) { if (y[k] - x[k] > 10) res.worse.push(`${n} ${k} ${x[k].toFixed(0)} -> ${y[k].toFixed(0)} mm`); if (x[k] - y[k] > 10) res.better[k]++; }
+		changed.push({ n, x: checksOf(ca), y: checksOf(cb) });
 	}
+	const unknown = [a, b].filter((tag, i) => !measured[i]), columns = unknown.length ? ["reach", "floor", "slide"] : ["reach", "floor", "prop", "slide"];
+	if (unknown.length) console.log(`prop: not compared: nothing says that ${unknown.join(" or ")} was built with the inside measure (no inside: true in its _meta.json, no inside row in its clips)`);
+	res.better = Object.fromEntries(columns.map(k => [k, 0]));
+	for (const { n, x, y } of changed) for (const k of columns) { if (y[k] - x[k] > 10) res.worse.push(`${n} ${k} ${x[k].toFixed(0)} -> ${y[k].toFixed(0)} mm`); if (x[k] - y[k] > 10) res.better[k]++; }
 	console.log(JSON.stringify({ ...res, worse: res.worse.length }));
 	if (res.worse.length) console.log(res.worse.join("\n"));
 } else {
