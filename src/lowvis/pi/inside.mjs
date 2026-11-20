@@ -4,10 +4,12 @@
 // centre's distance). A case is a body or a moving prop with one prop; it is told when its depth passes the limit on
 // any frame. Nothing is moved by it.
 //
-// Not told, from what the spec says is a contact: a body with the prop it sits or lies on (from that action up to the
-// next body action that is not a change of posture), a foot's or an elbow's limb with the prop of its target (up to
-// that limb's next key), a prop with the body joint or the prop it rides on (while it rides), and any pair with a prop
-// the scene marks hollow (things may be inside it).
+// Not told, from what the spec says is a contact: a body with the prop it sits or lies on (from that action through
+// the idles after it and one change of posture), a foot's limb (shin and foot), an elbow's limb (upper arm and forearm)
+// and a hand's forearm with the prop of its target (up to that limb's next key), the forearms of a body with the prop
+// its hands hold on that frame (aux.holders; the drawn forearm's end can be wider than the pad a wrist keeps off what it
+// holds), a prop with the body joint or the prop it rides on (while it rides), and any pair with a prop the scene marks
+// hollow (things may be inside it).
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qRotate } from "../engine-simple/math.js";
 import { blockSolids } from "../looks/block.js";
@@ -15,12 +17,12 @@ import { cubeSolids } from "../looks/cube.js";
 
 const LOOKS = { block: blockSolids, cube: cubeSolids }, cache = {};
 /** The look the solids are taken from: the one named (the Studio's launch look) when it states solids, else block. */
-export const solidsLook = name => LOOKS[name] ? name : "block";
+const solidsLook = name => LOOKS[name] ? name : "block";
 const solidsOf = name => (cache[solidsLook(name)] ??= LOOKS[solidsLook(name)]());
 
 /** The depth limit, metres: 20 mm times the body's scale (a prop: 20 mm), and never more than half the thinner
  *  prop's least size, so a body through a thin plate is still told; a solid resting on a surface is about 0 deep. */
-export const LIMIT = 0.02;
+const LIMIT = 0.02;
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", ...POSTURE]);
 const LIMB = { hands: ["LeftForeArm", "RightForeArm"], L: ["LeftForeArm"], R: ["RightForeArm"], footL:["LeftLeg", "LeftFoot"], footR: ["RightLeg", "RightFoot"], elbowL: ["LeftArm", "LeftForeArm"], elbowR: ["RightArm", "RightForeArm"] };
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FOREARMS = new Set([J.LeftForeArm, J.RightForeArm]);
