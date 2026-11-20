@@ -21,7 +21,8 @@ try {
 	const ids = { key: "place:box", prop: "box", value: 900, spike: 30, worse: 1 };
 	assert.deepEqual(inARow([ids, { key: "carryGap", who: "a", prop: "box", value: 30, spike: 80, worse: 1 }], { [rowId(ids)]: 2 }), { [rowId(ids)]: 3 }, "only rows past their spike are counted, one more than before");
 
-	const tool = createCompileTool({ name: "repeat", outDir: join(dir, "out"), clipFile: join(dir, "clip.json"), variant: "studio" });
+	// the balance row is off: the body bent toward a target out of reach is off balance on every compile (verify-balance-row.mjs)
+	const tool = createCompileTool({ name: "repeat", outDir: join(dir, "out"), clipFile: join(dir, "clip.json"), variant: "studio", off: ["balance"] });
 	const first = tool.call({ scene, spec: spec(2.5) });
 	assert.equal(first.status, "ok", first.text);
 	assert.doesNotMatch(first.text, /in a row/, "the first compile has no count");

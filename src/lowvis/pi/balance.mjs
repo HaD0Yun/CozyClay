@@ -4,10 +4,12 @@
 // built (repeats written out); nothing knows a motion.
 //
 // Masses: the shares of an adult human body's segments (a standard table of body segment parameters), each at a point of
-// its segment between two places of the clip, so they follow the character's scale. What a body holds or carries is not weighed.
+// its segment between two places of the clip, so they follow the character's scale. What a body holds or carries is not weighed, nor a
+// support (the row's note names it).
 // At rest: the Hips joint and both ankle joints move at most BALANCE.still x scale metres to each neighbouring frame, on
 // at least BALANCE.frames frames in a row, with no tilt (and no tilt blending back) and no pose, carry, hold or place of
-// its own within its first `over` frames (12 when not given).
+// its own within its first `over` frames (12 when not given), and no sit, stand, kneel or lie of its own within its `over`
+// frames (when not given: up to its next body action).
 // Supports, each dropped to the floor plane:
 //   a foot the engine holds planted (aux.contacts): its sole from under the ankle to the toe tip, BALANCE.foot x scale
 //     wide, the corners within 20 mm x scale of its lowest corner;
@@ -25,7 +27,7 @@ import { SOLE } from "../engine-simple/solve.js";
 export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, foot: 0.09, near: 0.1, on: 0.01 });
 const SIDE = ["L", "R"], LR = ["Left", "Right"], MM = 1000;
 const POSE_SLOT = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]], SLOT_NAME = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"];
-const BLENDS = new Set(["pose", "carry", "hold", "place"]);
+const BLENDS = new Set(["pose", "carry", "hold", "place"]), POSTURES = new Set(["sit", "stand", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 const tipOf = name => TIPS[name].map((v, k) => v - REST[J[name]][k]); // a tip from its joint, in the joint's rest frame
 // [share, from, to, along]: a place is a joint index, [joint, tip offset] or ["mid", a, b]
 const SEGMENTS = [
@@ -64,7 +66,8 @@ export function balanceRows(clip, aux, spec) {
 		const acts = (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => Array.isArray(a) && Number.isInteger(a[0])).slice().sort((a, b) => a[0] - b[0]);
 		const tilts = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined);
 		const tilted = f => { const k = tilts.findLast(a => a[0] <= f); return !!k && ((k[2].tilt ?? []).some(v => v) || (k[2].shift ?? []).some(v => v) || f < k[0] + (k[2].over ?? 12)); };
-		const blending = f => acts.some(a => BLENDS.has(a[1]) && a[0] <= f && f < a[0] + (a[2]?.over ?? 12));
+		const changes = acts.filter(a => POSTURES.has(a[1])).map(a => [a[0], a[2]?.over != null ? a[0] + Math.round(a[2].over) : acts.find(b => b[0] > a[0] && BODY.has(b[1]))?.[0] ?? F]); // a posture change: until its over ends, else the next body action
+		const blending = f => acts.some(a => BLENDS.has(a[1]) && a[0] <= f && f < a[0] + (a[2]?.over ?? 12)) || changes.some(([a, b]) => a <= f && f < b);
 		const posture = f => { let p = null; for (const a of acts) { if (a[0] > f) break; if (a[1] === "sit" || a[1] === "kneel" || a[1] === "lie") p = a; else if (a[1] === "stand" ? p?.[1] === "sit" : ["walk", "run", "push", "turn"].includes(a[1])) p = null; } return p; };
 		const still = f => [J.Hips, J.LeftFoot, J.RightFoot].every(j => [f - 1, f + 1].every(g => g < 0 || g >= F || Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));
 		const quiet = Array.from({ length: F }, (_, f) => still(f) && !tilted(f) && !blending(f)), rest = quiet.map(() => false);
@@ -105,10 +108,11 @@ export function balanceRows(clip, aux, spec) {
 			if (!worst || o.d > worst.d) worst = { f, d: o.d, v: [m[0] - o.near[0], m[2] - o.near[1]], names: sup.names };
 		}
 		if (!worst) continue;
+		const held = clip.props.filter(p => String(aux.holders?.[p.id]?.[worst.f] ?? "").split("+").some(h => h.split(":")[0] === c.id)).map(p => p.id);
 		const l = at(worst.f, J.LeftUpLeg), r = at(worst.f, J.RightUpLeg), lx = l[0] - r[0], lz = l[2] - r[2], n = Math.hypot(lx, lz) || 1; // the body's left, from its hip joints
 		const side = way((worst.v[0] * -lz + worst.v[1] * lx) / n, (worst.v[0] * lx + worst.v[1] * lz) / n);
 		rows.push({ key: `balance:${c.id}`, label: "at rest: centre of mass outside its supports", short: "off balance", value: worst.d * MM, unit: "mm", frame: worst.f, who: c.id, worse: 1, spike: BALANCE.outside * s * MM,
-			note: `toward its ${side}; over ${Math.round(BALANCE.outside * s * MM)} mm on ${off.length} frame${off.length === 1 ? "" : "s"} at rest (${spans(off).slice(0, 4).join(", ")}${spans(off).length > 4 ? ", ..." : ""}); supports at f${worst.f}: ${worst.names.join(", ")}` });
+			note: `toward its ${side}; over ${Math.round(BALANCE.outside * s * MM)} mm on ${off.length} frame${off.length === 1 ? "" : "s"} at rest (${spans(off).slice(0, 4).join(", ")}${spans(off).length > 4 ? ", ..." : ""}); supports at f${worst.f}: ${worst.names.join(", ")}${held.length ? `; it holds ${held.join(" and ")}, not weighed and not a support` : ""}` });
 	}
 	return rows;
 }
