@@ -102,9 +102,10 @@ Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent 
   entries in the model picker and its motion tasks. Unset or anything else: the lowvis engine.
 - `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
   straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`).
-- `COZYCLAY_MOTION_OFF=pace,turn,tops,body`: engine steps of the lowvis engine switched off by name
+- `COZYCLAY_MOTION_OFF=pace,turn,tops,body,balance,inside`: engine steps of the lowvis engine switched off by name
   (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, flat heights, a body's scale
-  and tint (off: a character at another scale than 1 is not animated, as before).
+  and tint (off: a character at another scale than 1 is not animated, as before), the row of a body at rest whose
+  centre of mass lies outside its supports, the rows of a body or a moving prop inside another prop.
 
 `node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs [--viewer <port>] [--live <port>] [--no-direct]` starts the dev
 Studio with the agent sidecar (live hub on its own port, sidecar files in `lowvis-out/studio-config`) and sets

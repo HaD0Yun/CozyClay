@@ -19,7 +19,7 @@ export const motionWriter = (env = process.env) => ({ model: env?.COZYCLAY_MOTIO
 /** Whether COZYCLAY_MOTION_DIRECT is "on". */
 export const motionDirect = (env = process.env) => env?.COZYCLAY_MOTION_DIRECT === "on";
 
-/** The engine steps listed in COZYCLAY_MOTION_OFF (comma separated, of pace, turn, tops, body). Throws on any other name. */
+/** The engine steps listed in COZYCLAY_MOTION_OFF (comma separated, of pace, turn, tops, body, balance, inside). Throws on any other name. */
 export function motionOff(env = process.env) {
 	const list = String(env?.COZYCLAY_MOTION_OFF ?? "").split(",").map(s => s.trim()).filter(Boolean);
 	const bad = list.filter(s => !STEPS.includes(s));

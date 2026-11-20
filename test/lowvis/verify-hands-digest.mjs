@@ -16,7 +16,8 @@ import { DEMO_IDS } from "../../src/lowvis/demos.js";
 import { NOTES } from "../../src/lowvis/engine-simple/notes.js";
 
 const OLD_NOTE = "elbow and knee directions come from one fixed pole hint; there is no hands-on-hips or crossed-arms pose";
-const NEW_NOTE = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
+// (the knee half of it was said again when a knee's side came from knee.js: was "knee directions come from one fixed pole hint; ...")
+const NEW_NOTE = "the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target";
 assert.ok(NOTES.includes(NEW_NOTE), "the clip's notes say that an elbow can be given a target");
 // the note that changed with a prop held by several hands (share.js) goes back to its old text too
 const OLD_HELD = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
