@@ -8,7 +8,7 @@
 //    each drawn solid (the look's boxes moved by the clip's joints) and of each prop, and the overlap of their
 //    projections over the face normals and edge crosses of the two boxes and 26 more directions (a ball by its centre
 //    and radius). The depth on the worst frame, the frame, the frames over the limit, the first and the last, and the
-//    limit (20 mm times the scale, or half the prop's least size) agree with the line the writer reads.
+//    limit (20 mm times the scale; two props 20 mm) agree with the line the writer reads.
 // 3. A pair not told is no deeper than its limit on every frame the case does not name as a touch.
 // 4. The flag switched off by name tells no inside line; the rows are still measured. A hollow attribute that is not
 //    true or false is refused.
@@ -53,7 +53,6 @@ const bodySolids = (ch, f, look) => SOLIDS[look].filter(o => !HANDS.has(o.joint)
 	const s = ch.scale ?? 1, i = f * JOINT_COUNT + o.joint, q = ch.quat.slice(i * 4, i * 4 + 4), d = rot(q, o.c), c = [0, 1, 2].map(k => ch.pos[i * 3 + k] + d[k] * s), h = o.h.map(v => v * s);
 	return { joint: o.joint, c, q, h, pts: corners(c, q, h), ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(v => rot(q, v)) };
 });
-const least = p => p.shape === "sphere" ? p.size[0] : Math.min(...p.size);
 const skipped = (c, pair, f, joint) => [...(c.skip?.[pair] ?? []), ...(c.skip?.[pair.split(">").reverse().join(">")] ?? [])].some(([a, b, joints]) => f >= a && f < b && (!joints || joints.some(n => J[n] === joint)));
 
 let n = 0, lines = 0, pairs = 0;
@@ -69,7 +68,7 @@ for (const c of CASES) {
 	const all = [...clip.characters.flatMap(ch => clip.props.map(p => ({ pair: `${ch.id}>${p.id}`, ch, p }))), ...clip.props.filter(m => m.pos.length > 3).flatMap((m, i, movers) => clip.props.filter(p => p !== m && !movers.slice(0, i).includes(p)).map(p => ({ pair: `${m.id}>${p.id}`, m, p })))]; // two moving props once, either named first
 	for (const e of all) {
 		if (hollow.has(e.p.id) || (e.m && hollow.has(e.m.id))) continue;
-		const lim = 1000 * Math.min(e.ch ? 0.02 * (e.ch.scale ?? 1) : 0.02, least(e.p) / 2, e.m ? least(e.m) / 2 : Infinity);
+		const lim = 1000 * (e.ch ? 0.02 * (e.ch.scale ?? 1) : 0.02);
 		let worst = { d: -Infinity }, frames = 0, first = null, last = null;
 		for (let f = 0; f < F; f++) {
 			const b = propSolid(e.p, f);

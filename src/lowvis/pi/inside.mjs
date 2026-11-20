@@ -20,8 +20,10 @@ const LOOKS = { block: blockSolids, cube: cubeSolids }, cache = {};
 const solidsLook = name => LOOKS[name] ? name : "block";
 const solidsOf = name => (cache[solidsLook(name)] ??= LOOKS[solidsLook(name)]());
 
-/** The depth limit, metres: 20 mm times the body's scale (a prop: 20 mm), and never more than half the thinner
- *  prop's least size, so a body through a thin plate is still told; a solid resting on a surface is about 0 deep. */
+/** The depth limit, metres: 20 mm times the body's scale (two props: 20 mm). The thinnest drawn limb is 50 mm (the block
+ *  look's forearm at the wrist; the cube look's 58 mm), so a told part is inside by more than 40% of it; a solid resting on
+ *  a surface is 0 deep (the soles of both looks lie on the ankle's floor point). A body through a thin plate is as deep
+ *  as it would have to move to be clear of it, not the plate's thickness. */
 const LIMIT = 0.02;
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", ...POSTURE]);
 const LIMB = { hands: ["LeftForeArm", "RightForeArm"], L: ["LeftForeArm"], R: ["RightForeArm"], footL:["LeftLeg", "LeftFoot"], footR: ["RightLeg", "RightFoot"], elbowL: ["LeftArm", "LeftForeArm"], elbowR: ["RightArm", "RightForeArm"] };
@@ -95,7 +97,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 		const i = p.pos.length === 3 ? 0 : f, c = Array.from(p.pos.slice(i * 3, i * 3 + 3)), q = Array.from(p.quat.slice(i * 4, i * 4 + 4));
 		return p.shape === "sphere" ? { c, r: p.size[0] / 2 } : { c, ax: AXES.map(a => qRotate(q, a)), h: p.size.map(v => v / 2) };
 	};
-	const least = p => p.shape === "sphere" ? p.size[0] : Math.min(...p.size), volume = p => p.size[0] * p.size[1] * p.size[2];
+	const volume = p => p.size[0] * p.size[1] * p.size[2];
 	const note = (key, who, prop, part, d, f, limit) => {
 		if (d <= limit) return;
 		const e = cases.get(key) ?? cases.set(key, { key, who, prop, part, value: 0, frame: f, frames: 0, first: f, last: -1, limit }).get(key);
@@ -117,7 +119,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 				if (apart(all, b)) continue;
 				const key = `${c.id}|${p.id}`, list = touch[key], held = holdersAt(p.id, f).includes(c.id);
 				if (list?.some(e => f >= e.a && f < e.b && !e.joints)) continue; // the whole body touches it
-				for (const o of parts) if (!apart(o, b) && !touching(list, f, o.joint) && !(held && FOREARMS.has(o.joint))) note(key, c.id, p.id, JOINTS[o.joint], depthOf(o, b), f, Math.min(lim, least(p) / 2));
+				for (const o of parts) if (!apart(o, b) && !touching(list, f, o.joint) && !(held && FOREARMS.has(o.joint))) note(key, c.id, p.id, JOINTS[o.joint], depthOf(o, b), f, lim);
 			}
 		}
 		for (const m of movers) {
@@ -126,7 +128,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 				if (p === m || (p.pos.length > 3 && movers.indexOf(p) < movers.indexOf(m)) || apart(a, b)) continue; // a pair of movers once
 				if (touching(touch[`${m.id}|${p.id}`], f, null)) continue;
 				const [x, y] = p.pos.length > 3 && volume(p) < volume(m) ? [p, m] : [m, p]; // of two moving props, the smaller is named inside the larger
-				note(`${x.id}|${y.id}`, null, y.id, x.id, depthOf(a, b), f, Math.min(LIMIT, least(m) / 2, least(p) / 2));
+				note(`${x.id}|${y.id}`, null, y.id, x.id, depthOf(a, b), f, LIMIT);
 			}
 		}
 	}
