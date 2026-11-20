@@ -7,10 +7,19 @@
 // Masses: the shares of an adult human body's segments (a standard table of body segment parameters), each at a point of
 // its segment between two places of the clip, so they follow the character's scale. What a body holds or carries is not
 // weighed, nor a support (the row's note names it).
-// At rest: the Hips joint and both ankle joints move at most BALANCE.still x scale metres to each neighbouring frame, on
-// at least BALANCE.frames frames in a row, on none of which the body is tilted (or a tilt blends back), a pose, carry,
-// hold or place of its own is within its first `over` frames (12 when not given), or the body layer moves the pelvis or
-// a foot to a neighbouring frame (a step, a turn, a change of posture; not the breath of an idle).
+// At rest: a frame that lies in BALANCE.frames frames in a row over which the places of the centre of mass (in space)
+// lie within BALANCE.outside x scale metres of one another, and on each of which both ankle joints move at most
+// BALANCE.still x scale metres to each neighbouring frame, the body is not tilted (nor a tilt blends back), no hand, foot
+// or elbow is in a blend that ends on a target that would be a support or that the row cannot vouch for (below) or within
+// the over frames of the action that takes it away from one, and the body layer does not move the pelvis or a foot to a
+// neighbouring frame (a step, a turn, a change of posture; not the breath of an idle). So a body whose feet and posture
+// stay while the rest of it moves where it is (a breath, a look, a pose that repeats) is at rest as a still one is, and
+// one that carries its centre of mass away, across the floor or up or down, is not. Why that distance: it is the row's
+// own limit, so a centre of mass told on a frame lay outside that frame's supports on every one of those frames (half
+// a second). No body does that under gravity: one whose centre of mass is d outside supports that stay gains speed
+// away from them at g / h x d or more (h: its height; the inverted pendulum), so it falls or steps, it does not stay;
+// what the row tells is a posture kept there, not a move through it. How fast the centre of mass moves inside that
+// distance is not counted.
 // The posture: a sit, kneel or lie counts on a frame when it is the body action under which the body layer last moved
 // the pelvis or a foot (so until the next step or change of posture, whatever verb the spec wrote after it).
 // Supports, each dropped to the floor plane:
@@ -35,7 +44,7 @@ export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, 
 const SIDE = ["L", "R"], LR = ["Left", "Right"], MM = 1000, SAME = 1e-9;
 const POSE_SLOT = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]];
 const LIMB = [["L hand", J.LeftHand], ["R hand", J.RightHand], null, null, ["L elbow", J.LeftForeArm], ["R elbow", J.RightForeArm]]; // a foot is counted by its sole
-const BLENDS = new Set(["pose", "carry", "hold", "place"]), POSTURE = new Set(["sit", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+const POSTURE = new Set(["sit", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]), HANDS = new Set(["carry", "hold", "place"]); // HANDS: the other verbs that key the hands
 const tipOf = name => TIPS[name].map((v, k) => v - REST[J[name]][k]); // a tip from its joint, in the joint's rest frame
 // [share, from, to, along]: a place is a joint index, [joint, tip offset] or ["mid", a, b]
 const SEGMENTS = [
@@ -81,7 +90,6 @@ export function balanceRows(clip, aux, spec, scene) {
 		const acts = (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => Array.isArray(a) && Number.isInteger(a[0])).slice().sort((a, b) => a[0] - b[0]);
 		const tilts = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined);
 		const tilted = f => { const k = tilts.findLast(a => a[0] <= f); if (!k) return false; const t = k[2].tilt ?? []; return [t[0], t[1], ...(k[2].shift ?? [])].some(v => Number(v ?? 0)) || f < k[0] + (k[2].over ?? 12); }; // read as the engine reads it (spec-layers.js buildUpper)
-		const blending = f => acts.some(a => BLENDS.has(a[1]) && a[0] <= f && f < a[0] + (a[2]?.over ?? 12));
 		// the body layer: where its pelvis stands and turns and where its feet are, frame by frame (not the pelvis's height
 		// and lean, which the engine smooths over action boundaries and an idle breathes with)
 		const layer = buildBodySized(scene.characters.find(x => x.id === c.id), (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), F, { props: layerProps, ground: () => 0 }, s);
@@ -91,9 +99,34 @@ export function balanceRows(clip, aux, spec, scene) {
 		for (let f = 0; f < F; f++) since.push(f && same(f, f - 1) ? since[f - 1] : f);
 		const body = acts.filter(a => BODY.has(a[1]));
 		const posture = f => { const a = body.findLast(a => a[0] <= since[f]); return a && POSTURE.has(a[1]) ? a : null; };
-		const still = f => [J.Hips, J.LeftFoot, J.RightFoot].every(j => [f - 1, f + 1].every(g => g < 0 || g >= F || Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));
-		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !blending(f)), rest = quiet.map(() => false);
-		for (let f = 0; f < F;) { let g = f; while (g < F && quiet[g]) g++; if (g - f >= BALANCE.frames) for (let k = f; k < g; k++) rest[k] = true; f = g + 1; }
+		// what the target of a reach entry is to the balance: "vouch" on a prop that moves or on another body, else the
+		// floor or the prop that does not move it lies near (a hand or an elbow there is a support), else null (none: the rest
+		// pose, a hold, a carry, a place, a place on its own body, a target in the air)
+		const role = (slot, e) => {
+			const key = acts.findLast(a => a[0] === e.key && a[1] === "pose" && POSE_SLOT[slot].some(n => a[2]?.[n] !== undefined)), t = key && POSE_SLOT[slot].map(n => key[2][n]).find(v => v !== undefined);
+			if (!t || typeof t !== "object") return null;
+			const id = Array.isArray(t) ? null : t.on ?? t.prop ?? t.meet ?? t.chest ?? t.of;
+			if (id != null && (moving.has(id) || (chars.has(id) && id !== c.id))) return "vouch";
+			return !Array.isArray(t) && t.joint && (!t.of || t.of === c.id) ? null : surface(e.t, BALANCE.near * s);
+		};
+		// a limb in a blend that ends on such a target (an action of it began on or before f; its reach entries, which start
+		// when the blend ends, have not) or within the over frames of the action that takes it away from one (the action on
+		// the frame after its last entry there): the body is then putting weight on a support or taking it off, not at rest
+		const entry = (f, slot) => aux.reach[c.id]?.[f]?.[slot] ?? null;
+		const next = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = F - 1; f >= 0; f--) n[f] = entry(f, slot) ?? n[f + 1] ?? null; return n; });
+		const last = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = 0; f < F; f++) n[f] = entry(f, slot) ? f : n[f - 1] ?? -1; return n; }); // the last frame up to f with an entry
+		const shifting = f => next.some((n, slot) => {
+			if (entry(f, slot)) return false;
+			if (n[f] && n[f].key <= f && role(slot, n[f])) return true;
+			const g = last[slot][f], took = g >= 0 && role(slot, entry(g, slot)) && acts.findLast(a => a[0] === g + 1 && (a[1] === "pose" ? POSE_SLOT[slot].some(k => a[2]?.[k] !== undefined) : slot < 2 && HANDS.has(a[1])));
+			return !!took && f <= g + (took[2]?.over ?? 12);
+		});
+		const coms = Array.from({ length: F }, (_, f) => com(f)), N = BALANCE.frames;
+		const still = f => [f - 1, f + 1].every(g => g < 0 || g >= F || [J.LeftFoot, J.RightFoot].every(j => Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));
+		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !shifting(f)), rest = quiet.map(() => false);
+		// in place over the N frames from a: no two places of the centre of mass further apart than the row's limit
+		const inPlace = a => { for (let i = a; i < a + N; i++) for (let j = i + 1; j < a + N; j++) if (Math.hypot(...coms[i].map((v, k) => v - coms[j][k])) > BALANCE.outside * s) return false; return true; };
+		for (let f = 0, run = 0; f < F; f++) { run = quiet[f] ? run + 1 : 0; if (run >= N && inPlace(f - N + 1)) rest.fill(true, f - N + 1, f + 1); }
 		// what holds the body up on frame f: { pts, names } or null when a support the engine cannot vouch for is in use
 		const supports = f => {
 			const pts = [], names = [], tol = BALANCE.on * s;
@@ -109,13 +142,9 @@ export function balanceRows(clip, aux, spec, scene) {
 			for (let slot = 0; slot < 6; slot++) {
 				const e = aux.reach[c.id]?.[f]?.[slot];
 				if (!e || e.d > BALANCE.on) continue;
-				const key = acts.findLast(a => a[0] === e.key && a[1] === "pose" && POSE_SLOT[slot].some(n => a[2]?.[n] !== undefined)), t = key && POSE_SLOT[slot].map(n => key[2][n]).find(v => v !== undefined);
-				if (!t || typeof t !== "object") continue; // the rest pose, a hold, a carry or a place: no support
-				const id = Array.isArray(t) ? null : t.on ?? t.prop ?? t.meet ?? t.chest ?? t.of;
-				if (id != null && (moving.has(id) || (chars.has(id) && id !== c.id))) return null;
-				if (!LIMB[slot] || (!Array.isArray(t) && t.joint && (!t.of || t.of === c.id))) continue; // a foot (its sole, above); a place on its own body
-				const on = surface(e.t, BALANCE.near * s);
-				if (!on) continue;
+				const on = role(slot, e);
+				if (on === "vouch") return null;
+				if (!LIMB[slot] || !on) continue; // a foot (its sole, above)
 				pts.push(at(f, LIMB[slot][1]));
 				names.push(`${LIMB[slot][0]} on its target on ${on}`);
 			}
@@ -127,7 +156,7 @@ export function balanceRows(clip, aux, spec, scene) {
 			if (!rest[f]) continue;
 			const sup = supports(f);
 			if (!sup) continue;
-			const m = com(f), o = outsideHull([m[0], m[2]], sup.pts.map(q => [q[0], q[2]]));
+			const m = coms[f], o = outsideHull([m[0], m[2]], sup.pts.map(q => [q[0], q[2]]));
 			if (o.d <= BALANCE.outside * s) continue;
 			off.push(f);
 			if (!worst || o.d > worst.d) worst = { f, d: o.d, v: [m[0] - o.near[0], m[2] - o.near[1]], names: sup.names };
