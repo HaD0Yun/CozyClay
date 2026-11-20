@@ -85,7 +85,8 @@ function markCache(payload) {
  * variant: one of VARIANTS (default "base"): the system prompt and the numbers the model is told (prompt.mjs, compile-tool.mjs).
  * off: the feature flags of the variant switched off by name (prompt.mjs OFF).
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
- * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs).
+ * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs); "*":
+ * the scale a new character starts at, which the system prompt also states (prompt.mjs systemPrompt start).
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
  */
@@ -94,7 +95,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
 	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
-	const SYSTEM_PROMPT = systemPrompt(variant, off), PARAMETERS = motionParameters(variant, off);
+	const SYSTEM_PROMPT = systemPrompt(variant, off, bodies?.["*"]?.scale), PARAMETERS = motionParameters(variant, off);
 	const record = { name, request, images: images.length, variant, off, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
