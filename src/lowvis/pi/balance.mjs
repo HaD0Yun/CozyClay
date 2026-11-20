@@ -7,10 +7,14 @@
 // Masses: the shares of an adult human body's segments (a standard table of body segment parameters), each at a point of
 // its segment between two places of the clip, so they follow the character's scale. What a body holds or carries is not
 // weighed, nor a support (the row's note names it).
-// At rest: the Hips joint and both ankle joints move at most BALANCE.still x scale metres to each neighbouring frame, on
-// at least BALANCE.frames frames in a row, on none of which the body is tilted (or a tilt blends back), a pose, carry,
-// hold or place of its own is within its first `over` frames (12 when not given), or the body layer moves the pelvis or
-// a foot to a neighbouring frame (a step, a turn, a change of posture; not the breath of an idle).
+// At rest: both ankle joints move at most BALANCE.still x scale metres and the centre of mass, dropped to the floor, at
+// most BALANCE.drift x sqrt(scale) metres to each neighbouring frame, on at least BALANCE.frames frames in a row, on none
+// of which the body is tilted (or a tilt blends back) or the body layer moves the pelvis or a foot to a neighbouring
+// frame (a step, a turn, a change of posture; not the breath of an idle). So a body whose feet and posture stay while the
+// rest of it moves slowly (a breath, a look, a pose that repeats) is at rest as a still one is. Why that speed: a centre
+// of mass of height h moving at v over a support that stops it travels v x sqrt(h / g) further (the inverted pendulum's
+// capture point); with h the standing figure's (1.057 m x scale), 3.8 mm x sqrt(scale) a frame at 24 fps carries it at
+// most 29.9 mm x scale, under BALANCE.outside: what the row tells is the posture, not momentum.
 // The posture: a sit, kneel or lie counts on a frame when it is the body action under which the body layer last moved
 // the pelvis or a foot (so until the next step or change of posture, whatever verb the spec wrote after it).
 // Supports, each dropped to the floor plane:
@@ -31,11 +35,11 @@ import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildBodySized } from "../engine-simple/size.js";
 
 // metres at scale 1 (frames: a count). heel: a human heel reaches behind the ankle joint; the block look draws it 60 mm behind, the cube look further
-export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
+export const BALANCE = Object.freeze({ still: 0.002, drift: 0.0038, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
 const SIDE = ["L", "R"], LR = ["Left", "Right"], MM = 1000, SAME = 1e-9;
 const POSE_SLOT = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]];
 const LIMB = [["L hand", J.LeftHand], ["R hand", J.RightHand], null, null, ["L elbow", J.LeftForeArm], ["R elbow", J.RightForeArm]]; // a foot is counted by its sole
-const BLENDS = new Set(["pose", "carry", "hold", "place"]), POSTURE = new Set(["sit", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+const POSTURE = new Set(["sit", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 const tipOf = name => TIPS[name].map((v, k) => v - REST[J[name]][k]); // a tip from its joint, in the joint's rest frame
 // [share, from, to, along]: a place is a joint index, [joint, tip offset] or ["mid", a, b]
 const SEGMENTS = [
@@ -81,7 +85,6 @@ export function balanceRows(clip, aux, spec, scene) {
 		const acts = (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => Array.isArray(a) && Number.isInteger(a[0])).slice().sort((a, b) => a[0] - b[0]);
 		const tilts = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined);
 		const tilted = f => { const k = tilts.findLast(a => a[0] <= f); if (!k) return false; const t = k[2].tilt ?? []; return [t[0], t[1], ...(k[2].shift ?? [])].some(v => Number(v ?? 0)) || f < k[0] + (k[2].over ?? 12); }; // read as the engine reads it (spec-layers.js buildUpper)
-		const blending = f => acts.some(a => BLENDS.has(a[1]) && a[0] <= f && f < a[0] + (a[2]?.over ?? 12));
 		// the body layer: where its pelvis stands and turns and where its feet are, frame by frame (not the pelvis's height
 		// and lean, which the engine smooths over action boundaries and an idle breathes with)
 		const layer = buildBodySized(scene.characters.find(x => x.id === c.id), (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), F, { props: layerProps, ground: () => 0 }, s);
@@ -91,8 +94,9 @@ export function balanceRows(clip, aux, spec, scene) {
 		for (let f = 0; f < F; f++) since.push(f && same(f, f - 1) ? since[f - 1] : f);
 		const body = acts.filter(a => BODY.has(a[1]));
 		const posture = f => { const a = body.findLast(a => a[0] <= since[f]); return a && POSTURE.has(a[1]) ? a : null; };
-		const still = f => [J.Hips, J.LeftFoot, J.RightFoot].every(j => [f - 1, f + 1].every(g => g < 0 || g >= F || Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));
-		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f) && !blending(f)), rest = quiet.map(() => false);
+		const coms = Array.from({ length: F }, (_, f) => com(f)), drift = BALANCE.drift * Math.sqrt(s);
+		const still = f => [f - 1, f + 1].every(g => g < 0 || g >= F || ([J.LeftFoot, J.RightFoot].every(j => Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s) && Math.hypot(coms[f][0] - coms[g][0], coms[f][2] - coms[g][2]) <= drift));
+		const quiet = Array.from({ length: F }, (_, f) => still(f) && same(f, f - 1) && same(f, f + 1) && !tilted(f)), rest = quiet.map(() => false);
 		for (let f = 0; f < F;) { let g = f; while (g < F && quiet[g]) g++; if (g - f >= BALANCE.frames) for (let k = f; k < g; k++) rest[k] = true; f = g + 1; }
 		// what holds the body up on frame f: { pts, names } or null when a support the engine cannot vouch for is in use
 		const supports = f => {
@@ -127,7 +131,7 @@ export function balanceRows(clip, aux, spec, scene) {
 			if (!rest[f]) continue;
 			const sup = supports(f);
 			if (!sup) continue;
-			const m = com(f), o = outsideHull([m[0], m[2]], sup.pts.map(q => [q[0], q[2]]));
+			const m = coms[f], o = outsideHull([m[0], m[2]], sup.pts.map(q => [q[0], q[2]]));
 			if (o.d <= BALANCE.outside * s) continue;
 			off.push(f);
 			if (!worst || o.d > worst.d) worst = { f, d: o.d, v: [m[0] - o.near[0], m[2] - o.near[1]], names: sup.names };
