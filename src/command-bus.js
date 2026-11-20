@@ -5,7 +5,7 @@ import { StudioProtocolError, StudioSchemas, validateStudioSchema, validateRecei
 import { agentTurnControls, markAgentTurn, turnEditPoint, recordTurnEdit, undoTurnEdit } from './agent-turn-mark.js';
 import { createBusTasks, GESTURE_FREE_TASK_CONTROLS } from './bus-tasks.js'; import { uiTransactionOpen } from './studio-busy.js'; import { holdRefusal } from './agent-turn-hold.js';
 import { createHistoryReceipts, noteRefusal, noteUndone } from './command-bus-telemetry.js'; import { checkNoteRange } from './note-range-guard.js';
-import { fitReceipt } from './receipt-fit.js';
+import { fitSized, receiptSizes } from './receipt-sizes.js';
 
 export { withCommandHistory } from './command-history.js';
 
@@ -207,7 +207,8 @@ export function createCommandBus({ registry, ports }) {
       undo: retainedHistoryEntryId ? { historyEntryId: retainedHistoryEntryId, entries: 1, canUndoDirect: !turn } : null, ...(ids.length > 8 ? { detailCursor: request.commandId } : {}) });
     // Full readback, warnings and a long output list are richer than the 8 KiB receipt always allows; shed the
     // extras (box and children, all but the first warnings, then the list's end) rather than fail a command that ran.
-    return fitReceipt(build, result.output);
+    // A completed receipt (output allowed) also states the world box size of every object it created or resized (receipt-sizes.js).
+    return fitSized(build, result.output, completed && changed && same(before.host, after.host) ? receiptSizes(before, after, ports.readback) : null);
   }
   function run(id, args = {}, options = {}) {
     const request = { origin: 'ui', commandId: crypto.randomUUID(), ...options };
