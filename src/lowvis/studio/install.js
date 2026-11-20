@@ -37,6 +37,29 @@ const STAND_IN_MIN_HEIGHT = 0.05;
 /** The recipe of a stand-in box [w, h, d]: one sharp box standing on the object's base, centred on it. */
 const standInRecipe = size => ({ version: 1, parts: [{ id: "box", shape: "box", size: [...size], position: [0, size[1] / 2, 0], roundness: 0 }] });
 
+/** The stand-in of a clip prop at frame 0: { kind: "sculpt" | "sphere" | "cube", size: [w, h, d], placement, upright }. */
+export function standInOf(prop) {
+	const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS;
+	const size = prop.shape === "sphere" ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
+	const kind = prop.shape === "sphere" ? "sphere" : size[1] >= STAND_IN_MIN_HEIGHT ? "sculpt" : "cube";
+	return { kind, size, placement: { x: at.pos[0], y: at.pos[1], z: at.pos[2], rot: upright ? yawOf(at.quat) : 0 }, upright };
+}
+const scaled = size => ({ scaleX: size[0], scaleY: size[1], scaleZ: size[2] });
+
+/**
+ * Adds the stand-in of one clip prop, named by its id: a box is a sculpt of that one box at scale 1, so object.sculpt
+ * { id, recipe } can give it a look in place; a sphere or a box under 0.05 m tall is a sphere or a cube scaled to it.
+ * -> its Studio id, or null when the Studio refused a step.
+ */
+export async function addStandIn(prop, run) {
+	const { kind, size, placement } = standInOf(prop);
+	const added = kind === "sculpt" ? await run("object.sculpt", { name: String(prop.id), placement, recipe: standInRecipe(size) })
+		: await run("object.add", { kind, name: String(prop.id), placement });
+	const id = added?.affectedIds?.[0];
+	if (!id || (kind !== "sculpt" && !await run("object.update", { id, patch: scaled(size) }))) return null;
+	return id;
+}
+
 /** True when the prop changes place or turns during the clip. */
 function moves(prop) {
 	const n = prop.pos.length / 3;
@@ -48,10 +71,15 @@ function moves(prop) {
 }
 
 /**
- * installClip(clip, run, { label, remove, existing }) -> { characterIds, objectIds, switched, placed, ok, bodies? }: what
- * it made, the Studio ids of the cast members whose model it changed and placed: { <clip prop id>: <Studio object id> }
- * for every prop, made or known; ok false when the Studio refused a step. bodies (only when there is one):
- * [{ id, scale?, tint? }], the cast members whose scale or tint it set, with the fields it set.
+ * installClip(clip, run, { label, remove, existing, drafted }) -> { characterIds, objectIds, switched, placed, ok, bodies?,
+ * moved?, moving? }: what it made, the Studio ids of the cast members whose model it changed and placed:
+ * { <clip prop id>: <Studio object id> } for every prop, made, known or drafted; ok false when the Studio refused a step.
+ * bodies (only when there is one): [{ id, scale?, tint? }], the cast members whose scale or tint it set, with the fields
+ * it set. moved: the listed objects it moved or turned; moving: the objects a track moves (each only when there is one).
+ * drafted: { <clip prop id>: { id, untouched, size, place? } }, the stand-in an earlier compile of the same motion added
+ * for that prop (addStandIn, of the kind this prop's stand-in has): it is set to the prop's place and turn, and to its
+ * size when untouched (its record is still what the draft made); place { x, y, z, rot }: where it stands now (no step
+ * when that is the prop's and the size stays).
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
  * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
@@ -62,31 +90,33 @@ function moves(prop) {
  * turn: the clip was written over studioScene(describe, { turn: true }), so a listed object's box stands turned as the
  * object does and the clip's rotation already holds that turn (it is not added again; a turn the model changed is set).
  */
-export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false } = {}) {
+export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false, drafted = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], switched = [], bodies = [], placed = {}, tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
+	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
 	for (const prop of clip.props ?? []) {
 		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
 		const own = turned && prop.shape !== "sphere"; // the clip box is the object's own, turned as it is
-		let id = known?.id, turn = null;
+		const draft = known ? null : drafted?.[prop.id];
+		let id = known?.id ?? draft?.id, turn = null;
 		if (known) {
 			// the scene the model wrote is where the motion happens: an object it stood elsewhere (or turned otherwise) goes there
 			const patch = Math.hypot(at.pos[0] - known.x, at.pos[1] - known.y, at.pos[2] - known.z) > 0.005 ? { x: at.pos[0], y: at.pos[1], z: at.pos[2] } : {};
 			if (own && upright) { const rot = yawOf(at.quat); if (Math.abs(((rot - known.rot) % 360 + 540) % 360 - 180) > 0.05) patch.rot = rot; }
 			if (Object.keys(patch).length && !await run("object.update", { id, patch })) return stop();
+			if (Object.keys(patch).length) moved.push(id);
 			if (known.rot && !own) turn = [0, Math.sin(known.rot / DEG / 2), 0, Math.cos(known.rot / DEG / 2)]; // the object's own turn about Y, which the clip's box does not have
+		} else if (draft) {
+			// the draft's stand-in of this prop: the final place and turn, and the final size while it is as the draft made it
+			const { kind, size, placement } = standInOf(prop), resize = draft.untouched && size.some((v, k) => Math.abs(v - draft.size[k]) > 1e-6);
+			const still = !resize && draft.place && ["x", "y", "z"].every(k => Math.abs(placement[k] - draft.place[k]) < EPS) && Math.abs(((placement.rot - draft.place.rot) % 360 + 540) % 360 - 180) < 0.05;
+			const done = still || (resize && kind === "sculpt" ? await run("object.sculpt", { id, placement, recipe: standInRecipe(size) })
+				: await run("object.update", { id, patch: { ...placement, ...(resize ? scaled(size) : {}) } }));
+			if (!done) return stop();
 		} else {
-			const size = prop.shape === "sphere" ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
-			const placement = { x: at.pos[0], y: at.pos[1], z: at.pos[2], rot: upright ? yawOf(at.quat) : 0 };
-			// a box is a sculpt of that one box at scale 1, so object.sculpt { id, recipe } can give it a look in place
-			const sculpt = prop.shape !== "sphere" && size[1] >= STAND_IN_MIN_HEIGHT;
-			const added = sculpt ? await run("object.sculpt", { name: String(prop.id), placement, recipe: standInRecipe(size) })
-				: await run("object.add", { kind: prop.shape === "sphere" ? "sphere" : "cube", name: String(prop.id), placement });
-			id = added?.affectedIds?.[0];
+			id = await addStandIn(prop, run);
 			if (!id) return stop();
 			objectIds.push(id);
-			if (!sculpt && !await run("object.update", { id, patch: { scaleX: size[0], scaleY: size[1], scaleZ: size[2] } })) return stop();
 		}
 		placed[prop.id] = id;
 		// a prop that moves, or a new one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
@@ -120,5 +150,6 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		if (index === 0) raw.objects = tracks; // one take draws the props that move
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
-	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}) };
+	const moving = Object.keys(tracks);
+	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}) };
 }

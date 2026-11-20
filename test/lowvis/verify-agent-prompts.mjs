@@ -43,15 +43,22 @@ for (const gone of ["In a task the motion tool adds nothing", "When other tasks 
 assert.ok(MAIN_SYSTEM_PROMPT.includes("\"make a cup, then have her pick it up\" is one task") && MAIN_SYSTEM_PROMPT.includes("still needs one scope key"), "the old coordinator keeps its text");
 // the Studio agent: motion first, dress in place, the report is the check of the motion
 assert.match(MOTION_TOOL_PARAGRAPH, /When the user asks for body motion, call motion \{ request \} first, before you build or change the set\./);
-assert.match(MOTION_TOOL_PARAGRAPH, /give a stand-in its look in place with object\.sculpt \{ id, recipe \}/);
+// the draft: the stand-ins of the writer's first clip enter the scene and motion_result answers them before the install
+// (motion-draft.mjs); the install keeps a stand-in's look and sets the final place and turn (install.js drafted)
+assert.match(MOTION_TOOL_PARAGRAPH, /Once the motion writer has built its first clip, the stand-ins of that clip are added to the scene and motion_result answers a draft/);
+assert.match(MOTION_TOOL_PARAGRAPH, /the motion is still being rewritten and is not installed, and the next motion_result answers the installed result/);
+assert.match(MOTION_TOOL_PARAGRAPH, /At the install a stand-in keeps the look you gave it and is set to the final motion's place and turn, unless you tilted it or attached it to a body; the result's propsSet says per object what the install changed since the draft/);
+for (const gone of ["building", "took a prop", "keeps the size you made it", "top the Studio could not measure", "waits for its result"]) assert.equal(MOTION_TOOL_PARAGRAPH.includes(gone), false, gone);
+for (const motion of [true, false]) assert.ok((await studioSystemPrompt({ engine: "lowvis", motion })).includes(" receipt. Make independent calls in the same turn. People are block figures"), "the general sentence on calls stays for the lowvis agent");
+assert.match(MOTION_TOOL_PARAGRAPH, /Give a stand-in its look in place with object\.sculpt \{ id, recipe \}/);
 assert.match(MOTION_TOOL_PARAGRAPH, /An edit of such an object answers motionFit/);
 assert.match(MOTION_TOOL_PARAGRAPH, /do not check the body motion again with verify_result\./);
 assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /once the set and the characters the motion needs exist|outside a task/);
-// only what depends on where the body goes is put after the motion's result; used is in the result (a plain turn's call answers started)
+// what depends on where the body goes is placed from the result; used is in the result (a plain turn's call answers started)
 {
-	const after = MOTION_TOOL_PARAGRAPH.slice(MOTION_TOOL_PARAGRAPH.indexOf("waits for its result"), MOTION_TOOL_PARAGRAPH.indexOf("Do not move, resize"));
+	const after = MOTION_TOOL_PARAGRAPH.slice(MOTION_TOOL_PARAGRAPH.indexOf("answers a draft"), MOTION_TOOL_PARAGRAPH.indexOf("Do not move, resize"));
 	assert.ok(after.length > 0 && /object\.sculpt/.test(after) && /camera/.test(after), after);
-	assert.doesNotMatch(after, /light|does not touch/, "light and what the body does not touch do not wait for the result");
+	assert.doesNotMatch(after, /light|does not touch/, "light and what the body does not touch are not named there");
 	assert.match(MOTION_TOOL_PARAGRAPH, /its result names in used/);
 	assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /its answer names in used/);
 }

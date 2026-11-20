@@ -7,21 +7,21 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
+import { draftOf, travelOf } from "./motion-draft.mjs";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
+import { propsSetOf } from "./motion-props.mjs";
 
 const MOTION_VARIANT = "studio";
 const cast = (figure, index) => `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`;
-/** The Studio ids a compiled scene (and so its clip, which keeps its ids and order) is written against: the scene's
- *  characters and objects it names, and the cast members it adds. */
-const namedOf = (scene, ids) => [...(scene.characters ?? []).map((figure, index) => ids.characters[figure.id] ?? cast(figure, index)), ...(scene.props ?? []).map(prop => ids.props[prop.id]?.id).filter(Boolean)];
+const byId = rows => new Map((Array.isArray(rows) ? rows : []).map(row => [row?.id, row]));
 const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
 const failure = (code, message) => Object.assign(new Error(message), { code });
 // loaded on a call only: they read src/
 async function realDeps() {
-	const [{ runScene }, { installClip }, { studioScene }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js")]);
-	return { runScene, installClip, studioScene, readClip: file => JSON.parse(readFileSync(file, "utf8")) };
+	const [{ runScene }, { installClip, addStandIn, standInOf }, { studioScene }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js")]);
+	return { runScene, installClip, addStandIn, standInOf, studioScene, readClip: file => JSON.parse(readFileSync(file, "utf8")) };
 }
 
 // The labels of the two texts of a request. The user's words come as typed; the Studio agent's note is its own text.
@@ -35,16 +35,6 @@ const ADDED = "What your scene adds becomes Studio content: a new character a bl
 // said while the body step is on (motion-engine.mjs motionOff): what a character's scale and tint are in the Studio
 const BODIES = "A character's scale and tint are the Studio character's own scale and tint: the ones your scene gives are set on it, one it leaves out stays as the Studio has it.";
 const DRESSED = "After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
-
-/** The floor region every joint of every body crosses during the clip: { x: [min, max], z: [min, max] } (metres), or null. */
-function travelOf(clip) {
-	const x = [Infinity, -Infinity], z = [Infinity, -Infinity];
-	for (const figure of clip.characters ?? []) for (let k = 0; k + 2 < (figure.pos?.length ?? 0); k += 3) {
-		x[0] = Math.min(x[0], figure.pos[k]); x[1] = Math.max(x[1], figure.pos[k]); z[0] = Math.min(z[0], figure.pos[k + 2]); z[1] = Math.max(z[1], figure.pos[k + 2]);
-	}
-	const r = v => Math.round(v * 100) / 100;
-	return Number.isFinite(x[0]) ? { x: x.map(r), z: z.map(r) } : null;
-}
 
 /** The request the motion writer reads: the user's words, the agent's note, the pictures' count, the Studio's scene and the last motion. */
 function requestOf({ words, wordsOf, note }, pictures, studio, before, body = false) {
@@ -68,7 +58,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 
 /**
  * runMotion({ words, wordsOf, note, images, memoryKey, hub, workspaceHandle, invoke, signal, env, onCompile })
- *   -> { name, report, missing, frames, clipSeconds, tookSeconds, compiles, characterIds, objectIds, switched, used, bodies?, bodiesSet? }
+ *   -> { name, report, missing, frames, clipSeconds, tookSeconds, compiles, characterIds, objectIds, switched, used, propsSet?, bodies?, bodiesSet? }
  * words: the user's message exactly as typed; wordsOf: "turn" (this turn's message, the default) or "task" (the
  * message the coordinator's task came from). note: the Studio agent's own text (the motion tool's request), or none
  * when the words go alone (the direct key). images: [{ data: <base64>, mimeType }] (at most 4). hub.command("describe") reads the scene.
@@ -85,35 +75,24 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
  * "aborted".
  * onScene(ids): once the Studio scene is read, with the ids of the characters and objects the motion is written against
- * (scene.js studioScene ids). onNamed(ids): after each compile, the Studio ids its clip is written against (the scene's
- * characters and objects it names, and the "lowvis-" cast members it adds). exclusive(install): runs the install (the
- * editor steps, up to the "studio" failure) and answers what it answers; the motion door holds the scene for it there
- * while other work goes on (motion-door.mjs). changed(): the ids other calls changed while the motion was written; the
- * objects among them that differ where the body goes are the answer's motionFit (motion-fit.mjs changedFit).
- * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
+ * (scene.js studioScene ids). exclusive(install): runs the install (the editor steps, up to the "studio" failure) and
+ * answers what it answers; the motion door holds the scene for it there while other work goes on (motion-door.mjs).
+ * changed(): the ids other calls changed while the motion was written; the objects among them that differ where the
+ * body goes are the answer's motionFit (motion-fit.mjs changedFit).
+ * drafting(steps), onDraft(answer): the draft (motion-draft.mjs), made only when drafting is given (the motion door's
+ * plain turn): the stand-ins of the writer's first compile enter the scene then, the install takes them as the props,
+ * and propsSet says per object what the install changed since the draft (motion-props.mjs). The writer is told nothing of it.
+ * deps: { runScene, installClip, addStandIn, standInOf, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, onNamed = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), deps = null }) {
-	const { runScene, installClip, studioScene, readClip } = deps ?? await realDeps();
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, deps = null }) {
+	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
-	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
+	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body");
-	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops, body });
+	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body }), start = byId(read?.objects);
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
 	const has = Object.fromEntries(studio.scene.characters.filter(c => c.scale !== undefined || c.tint !== undefined).map(c => [c.id, { scale: c.scale, tint: c.tint }]));
 	onScene(studio.ids);
-	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body);
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
-		const call = /^\s*motion (\d+): (\w+)/.exec(line);
-		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
-	}, onCompiled: ({ scene }) => onNamed(namedOf(scene, studio.ids)) }); // the clip of a compile keeps its scene's ids and order
-	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
-	if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
-	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles };
-	if (!record.final) {
-		if (record.report) return { ...base, frames: 0, clipSeconds: 0, characterIds: [], objectIds: [], switched: [] };
-		throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
-	}
-	const clip = readClip(record.final.clip);
 	let refused = null;
 	// A scene that changed while the motion was written (a build task finished, the user moved something) answers
 	// STALE_SCENE once: the tools re-admit at the live revision, and the same step is sent again.
@@ -126,26 +105,57 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			}
 		}
 	};
-	const result = await exclusive(async () => {
+	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
+	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body);
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
+		const call = /^\s*motion (\d+): (\w+)/.exec(line);
+		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
+	}, onCompiled: draft.onCompiled });
+	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles };
+	let clip, result;
+	try {
 		if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
-		const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn });
-		if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
-		return done;
-	});
+		if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
+		if (!record.final) {
+			if (record.report) return { ...base, frames: 0, clipSeconds: 0, characterIds: [], objectIds: [], switched: [] };
+			throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
+		}
+		clip = readClip(record.final.clip);
+		result = await exclusive(async () => {
+			if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
+			const plan = await draft.plan(clip.props ?? []);
+			const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn, ...(plan ? { drafted: plan.drafted } : {}) });
+			if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
+			// an untouched draft stand-in the final motion does not use goes once the install is in (a removal the Studio refuses is told)
+			if (plan?.remove.length) await run("object.remove", { ids: plan.remove.map(entry => entry.id) });
+			// what the install itself left, read before any other call holds the scene (propsSet)
+			let after = null;
+			if (plan) try { after = byId((await hub.command("describe", {}, workspaceHandle))?.objects); } catch { /* no propsSet */ }
+			return { ...done, plan, after };
+		});
+	} catch (error) { throw await draft.failed(error); }
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
-	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
-	// what other calls changed or added while the motion was written, against the boxes and the floor it used
-	const meanwhile = [...new Set(changed())];
-	let motionFit = null;
-	if (meanwhile.length) try { motionFit = changedFit(meanwhile, (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? [], boxesOf(memoryKey ?? name), floorCells(clip)); } catch (error) { motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
+	rememberBoxes(key, record.final.scene, result.placed ?? {}, floorCells(clip));
+	// what other calls changed or added while the motion was written (and the draft's stand-ins changed meanwhile, read
+	// from the scene), against the boxes and the floor it used; with a draft, what the install changed since it
+	const plan = result.plan;
+	let motionFit = null, propsSet = null, now = null, unread = null;
+	const readTops = async () => { try { now = (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? []; } catch (error) { unread = error; } };
+	// with a draft, the calls that waited for the install (edits of its stand-ins) run first: the ids they changed and
+	// the scene after them are motionFit's
+	if (plan) await drafting(readTops).catch(error => { unread = error; });
+	const meanwhile = [...new Set([...changed(), ...(plan?.touched ?? [])])];
+	if (meanwhile.length && !now && !unread) await readTops();
+	if (meanwhile.length) motionFit = now ? changedFit(meanwhile, now, boxesOf(key), floorCells(clip)) : { status: "unavailable", reason: unread?.message ?? String(unread) };
+	if (result.after) propsSet = propsSetOf({ props: clip.props ?? [], placed: result.placed ?? {}, done: result, plan, start, at: plan.at, now: result.after });
 	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
 	const animated = clip.characters.map(studioId).filter(Boolean);
-	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id).filter(Boolean);
+	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id ?? plan?.drafted[prop.id]?.id).filter(Boolean);
 	const switched = result.switched ?? [];
 	// the body each animated character now has; the next edit of one is measured against it (motion-fit.mjs)
 	const got = clip.characters.map((figure, k) => ({ id: studioId(figure, k), scale: figure.scale ?? 1, tint: figure.tint ?? null })).filter(b => b.id);
-	rememberBodies(memoryKey ?? name, got);
+	rememberBodies(key, got);
 	if (result.bodies?.length) try { onBodies(result.bodies); } catch { /* a failing view never fails the run */ }
 	const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;
-	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(memoryKey ?? name), travelOf(clip)), ...(motionFit ? { motionFit } : {}), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}) };
+	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(key), travelOf(clip)), ...(motionFit ? { motionFit } : {}), ...(propsSet ? { propsSet } : {}), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}) };
 }

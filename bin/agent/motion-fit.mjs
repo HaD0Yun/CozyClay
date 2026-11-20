@@ -36,10 +36,11 @@ const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
 /**
  * Keeps the boxes of a motion's scene ({ props: [{ id, size, at, turn?, shape?, moves? }] }) under key; placed:
  * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch.
+ * -> undo(): keeps again what was kept under key before (a draft of a motion that then failed: motion-draft.mjs).
  */
 export function rememberBoxes(key, scene, placed = {}, floor = []) {
-	if (key == null) return;
-	const next = new Map();
+	if (key == null) return () => {};
+	const was = [boxes.get(key), floors.get(key)], next = new Map();
 	for (const prop of scene?.props ?? []) {
 		const id = placed[prop.id];
 		if (!id || !Array.isArray(prop.size) || !Array.isArray(prop.at)) continue;
@@ -48,6 +49,7 @@ export function rememberBoxes(key, scene, placed = {}, floor = []) {
 	}
 	boxes.set(key, next);
 	floors.set(key, floor);
+	return () => { for (const [map, value] of [[boxes, was[0]], [floors, was[1]]]) if (value === undefined) map.delete(key); else map.set(key, value); };
 }
 
 /** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key. */
