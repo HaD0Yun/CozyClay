@@ -69,7 +69,7 @@ function attachBoneOf(rig, mixamoName) {
  * carried at the character's own yaw, so a prop dropped on
  * the character walks with the body instead of rolling with the hips.
  */
-export function attachFrameMatrix(rig, bone, out = new THREE.Matrix4()) {
+function attachFrameMatrix(rig, bone, out = new THREE.Matrix4()) {
 	if (!rig) return null;
 	const name = ATTACH_BONE_NAMES[bone ?? "hips"];
 	if (!name) return null;
@@ -86,6 +86,30 @@ export function attachFrameMatrix(rig, bone, out = new THREE.Matrix4()) {
 	group.updateWorldMatrix(true, false);
 	group.matrixWorld.decompose(attachRootPos, attachRootQuat, attachScale);
 	return out.compose(attachPos, attachRootQuat, ATTACH_UNIT_SCALE);
+}
+
+/** A proxy figure's ROOT frame: its placed group, unscaled — it has no bones, so a bone gets null. */
+function proxyFrameMatrix(group, bone, out = new THREE.Matrix4()) {
+	if (!group || bone != null) return null;
+	group.updateWorldMatrix(true, false);
+	group.matrixWorld.decompose(attachPos, attachQuat, attachScale);
+	return out.compose(attachPos, attachQuat, ATTACH_UNIT_SCALE);
+}
+
+// Proxy figures report their placed group here (one stable reporter per id, so a memoized figure keeps its effect).
+const proxyGroups = new Map(), proxyReporters = new Map();
+export function reportProxyFrame(characterId) {
+	let report = proxyReporters.get(characterId);
+	if (!report) {
+		report = (group) => { if (group) proxyGroups.set(characterId, group); else proxyGroups.delete(characterId); };
+		proxyReporters.set(characterId, report);
+	}
+	return report;
+}
+
+/** A character's attach frame: its rig when one is mounted, else its proxy figure's root. */
+export function characterFrameMatrix(rig, characterId, bone, out = new THREE.Matrix4()) {
+	return rig ? attachFrameMatrix(rig, bone, out) : proxyFrameMatrix(proxyGroups.get(characterId) ?? null, bone, out);
 }
 
 /** A prop's placement as a matrix — the same compose props.jsx renders from

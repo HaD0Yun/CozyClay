@@ -677,7 +677,7 @@ export function useObjects(appContext) {
 		// old frame's numbers in the new frame, which is the jump itself.
 		if (!placement) {
 			throw new StudioProtocolError("TARGET_NOT_READY", attach
-				? `The ${attach.bone ?? "root"} frame of character ${attach.characterId} is not on stage (its rig has not loaded).`
+				? `The ${attach.bone ?? "root"} frame of character ${attach.characterId} is not on stage (its rig has not loaded; a proxy figure has no bones, so props ride its root only).`
 				: `${object.name || id} is not on stage, so where it is now cannot be read.`);
 		}
 		// ONE atomic: a single undo puts back both the field and the numbers.

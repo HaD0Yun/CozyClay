@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { defaultCharacterTint } from "./app-stage.jsx";
 import {
@@ -28,6 +28,7 @@ export const ProxyFigure = memo(function ProxyFigure({
 	posture = "stand",
 	pickId,
 	selected,
+	onFrame,
 }) {
 	const seated = posture === "sit";
 	const bodyHeight = seated ? PROXY_SIT_TORSO_HEIGHT : BODY_HEIGHT;
@@ -60,8 +61,16 @@ export const ProxyFigure = memo(function ProxyFigure({
 		for (const material of materials) material.dispose();
 	}, [model]);
 
+	// The placed group is the figure's root frame: props attached to it ride it (stage-attach-frames.js).
+	const rootRef = useRef(null);
+	useEffect(() => {
+		onFrame?.(rootRef.current);
+		return () => onFrame?.(null);
+	}, [onFrame]);
+
 	return (
 		<group
+			ref={rootRef}
 			position={position}
 			rotation={[0, proxyYaw(rot, posture), 0]}
 			scale={scale}
