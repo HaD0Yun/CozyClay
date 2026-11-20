@@ -76,8 +76,9 @@ const WORK = {
 export const VARIANTS = Object.keys(FEATURES);
 
 /** The system prompt of a variant (VARIANTS), without the flags listed in off. start: the scale a new character starts
- *  at (the compile tool's bodies["*"].scale; said only where the variant has the body flag and it is not 1). */
-export const systemPrompt = (variant = "base", off = [], start = 1) => { const f = features(variant, off), s = Number.isFinite(start) ? start : 1; return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
+ *  at (the compile tool's bodies["*"].scale; said only where the variant has the body flag and it is a size a body may
+ *  have (BODY_SCALE) other than 1: any other start leaves the text as it is at 1). */
+export const systemPrompt = (variant = "base", off = [], start = 1) => { const f = features(variant, off), s = Number.isFinite(start) && start >= BODY_SCALE.min && start <= BODY_SCALE.max ? start : 1; return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
 
 Make the action read at a glance. Weight, anticipation and contacts matter more than detail: where the weight is, what winds up before a fast move, what touches what and when, how the body settles after.${f.words ? WORDS : ""}
 

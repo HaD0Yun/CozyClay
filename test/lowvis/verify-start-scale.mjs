@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // The scale a new character starts at (the compile tool's bodies["*"], src/lowvis/studio/figure.js through
 // bin/agent/motion-run.mjs) in what the motion writer reads before its first spec.
-//  1. start 1, not given or not a number: the manual of every variant and every set of switched-off names is the one of
-//     before, byte for byte
+//  1. start 1, not given, not a number or no size a body may have: the manual of every variant and every set of
+//     switched-off names is the one of before, byte for byte
 //  2. another start: only a variant with the body step says more, in two places: the sizes at that scale after the
 //     sizes at scale 1 (CONVENTIONS), and the start in place of "1 unless the tool's bodies line says otherwise"
 //  3. the numbers of that sentence: each is the start times the number at scale 1 (to the rounding), and the engine's
@@ -26,6 +26,7 @@ import { TRACK_RIG } from "../../src/lowvis/studio/take.js";
 import { runMotion } from "../../bin/agent/motion-run.mjs";
 
 const STARTS = [0.2, 0.5, 0.81, 0.9, 1.25, 2, 3];
+const NO_SIZE = [0, -0.5, 0.19, 3.01, 5, Infinity]; // not a size a body may have (BODY_SCALE): the manual says nothing of such a start
 const subsets = list => list.reduce((all, x) => [...all, ...all.map(s => [...s, x])], [[]]);
 const SAID = / It stands ([\d.]+) m tall, Hips joint ([\d.]+) m and shoulders ([\d.]+) m over the floor, ([\d.]+) m from shoulder to wrist\.(.*)$/m;
 const START = / That is the figure at scale 1\. A new character starts at scale ([\d.]+) here, every length of its figure ([\d.]+) times that: Hips joint ([\d.]+) m and shoulders ([\d.]+) m over the floor, ([\d.]+) m from shoulder to wrist\./;
@@ -36,7 +37,7 @@ const tmp = mkdtempSync(join(tmpdir(), "start-scale-"));
 	let same = 0, more = 0;
 	for (const variant of VARIANTS) for (const off of subsets(OFF)) {
 		const plain = systemPrompt(variant, off);
-		for (const start of [1, undefined, Number.NaN, "0.81", null]) assert.equal(systemPrompt(variant, off, start), plain, `${variant} -${off.join(",")} start ${start}: the manual of before`);
+		for (const start of [1, undefined, Number.NaN, "0.81", null, ...NO_SIZE]) assert.equal(systemPrompt(variant, off, start), plain, `${variant} -${off.join(",")} start ${start}: the manual of before`);
 		for (const s of STARTS) {
 			const text = systemPrompt(variant, off, s);
 			if (!features(variant, off).body) { assert.equal(text, plain, `${variant} -${off.join(",")}: no body step, no word of the start`); same++; continue; }
@@ -65,9 +66,11 @@ const tmp = mkdtempSync(join(tmpdir(), "start-scale-"));
 		[one[1], one[2], one[3]].forEach((v, k) => assert.ok(Math.abs(said[k] - v * s) <= 0.005 + 0.005 * s + 1e-9, `start ${s}: ${said[k]} is ${s} x ${v} to the rounding`));
 		const got = sizes(idle(s));
 		got.forEach((v, k) => assert.ok(Math.abs(v - unit[k] * s) < 1e-6, `start ${s}: the engine's length ${k} is ${s} times the one at scale 1 (${v.toFixed(4)} = ${s} x ${unit[k].toFixed(4)})`));
-		assert.ok(Math.abs(said[2] - got[2]) <= 0.005 + 1e-9 + Math.abs(one[3] - unit[2]) * s, `start ${s}: the arm said (${said[2]}) is the engine's (${got[2].toFixed(4)})`);
+		// each size said at the start against the standing body the engine builds at it: no further off than the sentence
+		// at scale 1 is from the body at scale 1, times the start, plus the rounding of both
+		["hips", "shoulders", "arm"].forEach((what, k) => assert.ok(Math.abs(said[k] - got[k]) <= 0.005 + (Math.abs(one[k + 1] - unit[k]) + 0.005) * s + 1e-9, `start ${s}: the ${what} said (${said[k]}) against the engine's (${got[k].toFixed(4)})`));
 	}
-	console.log(`ok numbers: at ${STARTS.length} starts each size said is the start times the size at scale 1, and the engine's hips, shoulders, arm, head and leg are that many times the ones at scale 1`);
+	console.log(`ok numbers: at ${STARTS.length} starts each size said is the start times the size at scale 1 and as near the built body as the sizes at scale 1 are, and the engine's hips, shoulders, arm, head and leg are that many times the ones at scale 1`);
 }
 
 // --- 4: the compile tool and runScene ---
@@ -82,7 +85,16 @@ const tmp = mkdtempSync(join(tmpdir(), "start-scale-"));
 		const tall = Number(new RegExp(`n: scale ${s} = ([\\d.]+) m tall`).exec(r.text)?.[1]), one = Number(SAID.exec(systemPrompt("studio"))[1]);
 		assert.ok(Math.abs(tall - one * s) <= 0.005 + 0.005 * s + 1e-9, `start ${s}: the bodies line says the start too (${tall} m)`);
 	}
-	for (const [bodies, start] of [[{ "*": { scale: 0.81 } }, 0.81], [{ "*": { scale: 2 }, a: { scale: 0.5 } }, 2], [{ a: { scale: 0.5 } }, 1], [{}, 1]]) {
+	// a start that is no size a body may have: the manual is the one of start 1, whose "1 unless the tool's bodies line
+	// says otherwise" holds, the first answer's bodies line naming the scale the tool built
+	{
+		const tool = createCompileTool({ name: "start-5", outDir: join(tmp, "sheets-5"), clipFile: join(tmp, "clip-5.json"), variant: "studio", bodies: { "*": { scale: 5 } } });
+		const r = tool.call({ scene, spec });
+		assert.equal(r.status, "ok");
+		assert.ok(systemPrompt("studio", [], 5).includes("(1 unless the tool's bodies line says otherwise)"), "start 5: the manual of start 1");
+		assert.match(r.text, /^bodies \(as built and drawn\): n: scale 5 = [\d.]+ m tall; w: scale 1\.1 = [\d.]+ m tall; k: scale 5 = /m, "start 5: the bodies line says otherwise");
+	}
+	for (const [bodies, start] of [[{ "*": { scale: 0.81 } }, 0.81], [{ "*": { scale: 2 }, a: { scale: 0.5 } }, 2], [{ a: { scale: 0.5 } }, 1], [{}, 1], [{ "*": { scale: 5 } }, 1]]) {
 		const record = await runScene({ name: "start-scale", request: "x", variant: "studio", bodies, env: {}, outDir: join(tmp, "run") });
 		assert.equal(record.infraError?.at, "setup", "no proxy in this test: the run stops before a model call");
 		assert.equal(record.prompt.systemChars, systemPrompt("studio", [], start).length, `bodies ${JSON.stringify(bodies)}: the manual of start ${start}`);
