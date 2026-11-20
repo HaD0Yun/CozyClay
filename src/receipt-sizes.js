@@ -5,7 +5,6 @@
 import { fitReceipt } from './receipt-fit.js';
 import { objectSize } from './object-size.js';
 
-const tooBig = error => error?.code === 'INVALID_RECEIPT' && /8 KiB/.test(error.message);
 const bytes = value => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 // Sizes never take a receipt's last 160 bytes: receipt-fit.js keeps them for the jobId a background job's receipt gains.
 const BUDGET = 8192 - 160;
@@ -32,11 +31,12 @@ export function fitSized(build, output, sizes) {
 	if (!entries.length || (output !== undefined && (output === null || typeof output !== 'object' || Array.isArray(output)))) return fitReceipt(build, output);
 	const made = new Map(), plain = fitReceipt((...args) => { const r = build(...args); made.set(r, args); return r; }, output);
 	const [level, value = output, cut = []] = made.get(plain);
+	// A receipt the validation refuses with the sizes in it (too large, or anything else) is not built: the plain one stands.
 	const fits = (n, at) => {
 		try {
 			const r = build(at, n ? { ...value, sizeM: Object.fromEntries(entries.slice(0, n)) } : value, cut, n < entries.length ? [cutLine(n, entries.length)] : []);
 			return bytes(r) <= BUDGET ? r : null;
-		} catch (error) { if (!tooBig(error)) throw error; return null; }
+		} catch { return null; }
 	};
 	const all = fits(entries.length, level) ?? (level < 1 ? fits(entries.length, 1) : null);
 	if (all || plain.warnings.length >= 12) return all ?? plain;
