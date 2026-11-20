@@ -52,7 +52,7 @@ if (mode === "build" && a) {
 	const A = join(OUT, a), B = join(OUT, b), ma = load(join(A, "_meta.json")), mb = load(join(B, "_meta.json"));
 	const fa = new Set(ma.failed.map(f => f.name)), fb = new Set(mb.failed.map(f => f.name)), inB = new Set(mb.runs), spec = n => load(join(ma.runsDir, n, "run.json"));
 	// a build is known to have the inside measure when its _meta.json says so (build, above; an older replay wrote none)
-	// or one of its clips holds an inside row
+	// or one of its clips compared here holds an inside row
 	const measured = [ma.inside === true, mb.inside === true], rowsIn = clip => Object.keys(clip.stats?.checks ?? {}).some(k => k.startsWith("inside:")), changed = [];
 	const res = { runs: ma.runs.length, unchanged: 0, changed: 0, failedBefore: fa.size, failedAfter: fb.size, newlyFailed: [...fb].filter(n => !fa.has(n)), missingInB: ma.runs.filter(n => !inB.has(n)).length, worse: [], better: {} };
 	for (const n of ma.runs) {
@@ -68,7 +68,7 @@ if (mode === "build" && a) {
 		changed.push({ n, x: checksOf(ca), y: checksOf(cb) });
 	}
 	const unknown = [a, b].filter((tag, i) => !measured[i]), columns = unknown.length ? ["reach", "floor", "slide"] : ["reach", "floor", "prop", "slide"];
-	if (unknown.length) console.log(`prop: not compared: nothing says that ${unknown.join(" or ")} was built with the inside measure (no inside: true in its _meta.json, no inside row in its clips)`);
+	if (unknown.length) console.log(`prop: not compared: nothing says that ${unknown.join(" or ")} was built with the inside measure (no inside: true in its _meta.json, no inside row in a clip compared)`);
 	res.better = Object.fromEntries(columns.map(k => [k, 0]));
 	for (const { n, x, y } of changed) for (const k of columns) { if (y[k] - x[k] > 10) res.worse.push(`${n} ${k} ${x[k].toFixed(0)} -> ${y[k].toFixed(0)} mm`); if (x[k] - y[k] > 10) res.better[k]++; }
 	console.log(JSON.stringify({ ...res, worse: res.worse.length }));
