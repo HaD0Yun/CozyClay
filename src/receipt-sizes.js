@@ -26,19 +26,26 @@ export function receiptSizes(before, after, readback) {
 const note = (kept, of) => ({ code: 'SIZES_TRUNCATED', count: of - kept,
 	message: `worldBoxSizeM lists ${kept} of ${of} objects (8 KiB receipt); inspect_studio scope entities with ids has the rest.` });
 
-/** fitReceipt(build, output) with output.worldBoxSizeM = sizes, keeping as many entries as the receipt holds. */
+/** fitReceipt(build, output) with output.worldBoxSizeM = sizes, keeping as many entries as the receipt holds. The
+ * sizes give way before the warnings do: first the readback's box and children (level 1) go, then sizes are cut,
+ * and only when no size fits are the warnings cut to four (level 2) as fitReceipt does. */
 export function fitSized(build, output, sizes) {
 	const entries = Object.entries(sizes ?? {});
 	if (!entries.length || (output !== undefined && (output === null || typeof output !== 'object' || Array.isArray(output)))) return fitReceipt(build, output);
-	const attempt = n => {
+	const attempt = (n, cap) => {
 		const sized = { ...output, worldBoxSizeM: Object.fromEntries(entries.slice(0, n)) }, cut = n < entries.length ? [note(n, entries.length)] : [];
-		return fitReceipt((level, value = sized, more = []) => build(level, value, [...cut, ...more]), sized);
+		return fitReceipt((level, value = sized, more = []) => {
+			if (level > cap) throw Object.assign(new Error('Receipt exceeds 8 KiB at this level.'), { code: 'INVALID_RECEIPT' });
+			return build(level, value, [...cut, ...more]);
+		}, sized);
 	};
-	try { return attempt(entries.length); } catch (error) { if (!tooBig(error)) throw error; }
-	let lo = 0, hi = entries.length - 1, best = null;
-	while (lo <= hi) {
-		const mid = Math.floor((lo + hi) / 2);
-		try { best = attempt(mid); lo = mid + 1; } catch (error) { if (!tooBig(error)) throw error; hi = mid - 1; }
+	for (const cap of [1, 2]) {
+		let lo = 0, hi = entries.length, best = null;
+		while (lo <= hi) {
+			const mid = hi === entries.length && !best && lo === 0 ? hi : Math.floor((lo + hi) / 2);
+			try { best = attempt(mid, cap); lo = mid + 1; } catch (error) { if (!tooBig(error)) throw error; hi = mid - 1; }
+		}
+		if (best) return best;
 	}
-	return best ?? fitReceipt(build, output);
+	return fitReceipt(build, output);
 }
