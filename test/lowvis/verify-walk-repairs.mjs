@@ -43,7 +43,9 @@ for (const [name, acts, way, a, b, heading] of [
 	console.log(`ok W1 ${name}: r ${k.toFixed(2)}`);
 }
 
-// --- W2: a backward move ends without a snap after the hips stop ---
+// --- W2: a backward move ends without a snap after the hips stop and its last foot lands ---
+// (from the later of the two: since autorl 010 the hips no longer jump as the last foot lands, so they come to rest a
+// frame or two before it, while that foot still swings in at up to 31 mm a frame as it did before)
 for (const [name, o, opts] of [
 	["1.6 m back, facing, steps 4", { to: [0, -1.6], facing: 0, steps: 4 }, {}],
 	["2.4 m back, steps 3, stepFrames 16", { to: [0, -2.4], facing: 0, steps: 3, stepFrames: 16 }, {}],
@@ -51,8 +53,8 @@ for (const [name, o, opts] of [
 	["0.35 m back, no count", { to: [0, -0.35] }, {}],
 ]) {
 	const r = run([I, [10, "walk", o]], { frames: 200, ...opts });
-	let worst = 0; for (let f = r.last + 1; f < r.frames; f++) for (let j = 0; j < JOINT_COUNT; j++) { const p = r.at(f - 1, j), q = r.at(f, j); worst = Math.max(worst, Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2])); }
-	assert.ok(worst < 0.03 * (opts.scale ?? 1), `${name}: after the hips stop no joint moves 30 mm in a frame (${(worst * 1000).toFixed(0)} mm)`);
+	let worst = 0; for (let f = Math.max(r.last, r.plants.at(-1)?.f ?? 0) + 1; f < r.frames; f++) for (let j = 0; j < JOINT_COUNT; j++) { const p = r.at(f - 1, j), q = r.at(f, j); worst = Math.max(worst, Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2])); }
+	assert.ok(worst < 0.03 * (opts.scale ?? 1), `${name}: after the hips stop and the last foot lands no joint moves 30 mm in a frame (${(worst * 1000).toFixed(0)} mm)`);
 	console.log(`ok W2 ${name}: ${(worst * 1000).toFixed(0)} mm`);
 }
 

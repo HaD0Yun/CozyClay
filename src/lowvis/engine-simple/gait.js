@@ -111,7 +111,9 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 	// gait-cycle phase from the heel strikes of the plan (0 = left strike, 0.5 = right strike), run back in a backward move
 	const strikes = plan.map(s => ({ t: s.t0 + s.dur, side: s.side, stepT: s.stepT }));
 	const phaseAt = t => { const s = strikes[Math.max(0, strikes.findLastIndex(x => x.t <= t))], ph = s ? ((s.side ? 0.5 : 0) + 0.5 * (t - s.t) / s.stepT + 2) % 1 : 0; return back ? (2 - GAIT.walk.sw / 2 - ph) % 1 : ph; };
-	for (let t = 0; t < T; t++) {
+	// grown: the sway follows the walking share; a move that begins the clip (st.full) sways at full size from its first
+	// frame, which has no frame before it to jump from, until its walking share is whole
+	for (let t = 0, grown = !st.full; t < T; t++) {
 		const [r, pw] = mixAt(t), P = blend([r, pw]), yaw = yawAt(t), c = posAt(t), [sn, cs] = dir2(yaw);
 		const feet = swings.map((list, side) => {
 			const sw = list.find(s => t >= s.t0 && t < s.t1);
@@ -142,7 +144,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 		const w = clamp(((feet[0].a[0] - feet[1].a[0]) * sn + (feet[0].a[2] - feet[1].a[2]) * cs) / 0.35, -1, 1) * act;
 		const lean = act * P.lean + clamp(0.05 * acc, -0.12, 0.12) * (1 - pw);
 		// the walking share of this frame follows the captured curves; arms swing with the speed
-		const gw = act * clamp(1 - r - pw), ga = gw * clamp(v / WALK_SPEED, 0.4, 1.4), cy = strikes.length ? phaseAt(t) : 0, C = n => gw ? curve(WALK_CURVES[n], cy) : 0;
+		const gw = act * clamp(1 - r - pw), ga = gw * clamp(v / WALK_SPEED, 0.4, 1.4), cy = strikes.length ? phaseAt(t) : 0, C = n => (grown ? gw : gw ? 1 : 0) * curve(WALK_CURVES[n], cy); if (gw >= 1) grown = true; // by the walking share, so the sway grows from a stand and dies into one
 		const side = C("side"), surge = C("surge");
 		frames.push({
 			p: [c[0] + sn * (HIP_FWD + surge) + cs * side, STAND_Y - P.drop + act * (P.base + P.bobA * Math.cos(2 * Math.PI * (ph - P.bobPh))) + C("height"), c[1] + cs * (HIP_FWD + surge) - sn * side],

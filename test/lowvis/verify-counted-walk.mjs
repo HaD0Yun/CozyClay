@@ -38,14 +38,19 @@ const WAYS = { ahead: d => ({ to: [0, d] }), back: d => ({ to: [0, -d], facing: 
 // the other foot, so it holds the hips' width (2 x 0.082 m) besides the side step's longest (0.44 m); 0.05 m for the
 // speed-up and slow-down
 const MOST = { ahead: 0.8, back: 0.8, side: 0.65 };
+// the margins over the walk without a count: 25 mm of rise and fall and 0.25 m/s of speed change between two frames
+// (were 20 mm and 0.1 m/s while every walk after a stand began with a one-frame jump of the pelvis, 0.47 to 0.53 m/s, as
+// its sway switched on at full size; with that gone the walk without a count lost it, and a count of 10-frame steps (its
+// own largest change fell from 0.47-0.52 to 0.06-0.43 m/s) now shows its quicker steps against it: autorl 010)
+const BOB = 25, JERK = 0.25;
 let n = 0, worst = { bob: -Infinity, jerk: -Infinity };
 for (const [way, to] of Object.entries(WAYS)) for (const d of [1, 1.6, 2.4, 3.4, 5]) for (const steps of [2, 3, 4, 6, 8]) for (const stepFrames of [undefined, 10, 16]) {
 	const name = `${way} ${d} m, steps ${steps}${stepFrames ? `, stepFrames ${stepFrames}` : ""}`;
 	const c = walk([[0, "idle", {}], [10, "walk", { ...to(d), steps, ...(stepFrames ? { stepFrames } : {}) }]]);
 	const plain = walk([[0, "idle", {}], [10, "walk", { to: [0, d] }], [c.last + 3, "idle", {}]]);
-	assert.ok(c.bob <= plain.bob + 20, `${name}: the pelvis rises and falls ${c.bob.toFixed(0)} mm, the walk without a count ${plain.bob.toFixed(0)} mm`);
+	assert.ok(c.bob <= plain.bob + BOB, `${name}: the pelvis rises and falls ${c.bob.toFixed(0)} mm, the walk without a count ${plain.bob.toFixed(0)} mm`);
 	assert.ok(c.low <= plain.low + 20, `${name}: the pelvis goes ${c.low.toFixed(0)} mm under standing, the walk without a count ${plain.low.toFixed(0)} mm`);
-	assert.ok(c.jerk <= plain.jerk + 0.1, `${name}: the speed changes at most ${c.jerk.toFixed(2)} m/s between two frames, the walk without a count ${plain.jerk.toFixed(2)}`);
+	assert.ok(c.jerk <= plain.jerk + JERK, `${name}: the speed changes at most ${c.jerk.toFixed(2)} m/s between two frames, the walk without a count ${plain.jerk.toFixed(2)}`);
 	assert.ok(c.slide < 1, `${name}: a planted foot slides ${c.slide.toFixed(1)} mm`);
 	assert.ok(c.step <= MOST[way], `${name}: the longest step is ${c.step.toFixed(3)} m`);
 	const told = c.told[0];

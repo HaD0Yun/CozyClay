@@ -13,6 +13,7 @@ export function buildBody(c, acts, F, ctx) {
 	let st = { p: c.at.slice(), yaw, feet: [1, -1].map(s => ({ g: home(c.at, yaw, s), yaw })) };
 	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run" || a.verb === "push");
 	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
+	if (moving(list[0])) st.full = true; // gait.js: a move that begins the clip
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on];
