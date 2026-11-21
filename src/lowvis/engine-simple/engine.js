@@ -25,9 +25,8 @@
 //     before it in that field ends, the field is at the earlier key's target on that frame and passes it without
 //     stopping, at the speed the targets before and after give (per coordinate, a hand's in the body frame; none in a
 //     coordinate that turns back there); such a key that starts while the key before it still blends goes on with the
-//     part of the field's speed that goes toward its own target. A field that reaches its target before its next key
-//     starts stands still on it until then. Blends of hold, carry and place and blends to "rest" stop on their targets; a
-//     blend from "rest" starts at rest.
+//     part of the field's speed that goes toward its own target. Blends of hold, carry and place and blends to "rest"
+//     stop on their targets; a blend from "rest" starts at rest.
 //     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
 //           aim:[x,y,z]|{x?,y?,z?:[x,y,z], world?:true}|"off", elbowL|elbowR: target, fast:true, over, ease}
 //       aim: the hand that holds a prop turns so the prop's long z axis points that way, body frame; the object form
