@@ -3,12 +3,13 @@
 // tint): the character's own colour; the block look then has that colour.
 import { block } from "./block.js";
 import { box } from "./box.js";
+import { cube } from "./cube.js";
 import { capsuleLook as capsule } from "./capsule.js";
 import { man, woman } from "./mannequin.js";
 import { stick } from "./stick.js";
 import { JOINT_COUNT } from "../rig17.js";
 
-export const LOOKS = { box, capsule, stick, man, woman, block };
+export const LOOKS = { box, capsule, stick, man, woman, block, cube };
 export { DEFAULT_TINT } from "./parts.js";
 
 /** `look` for a clip character of `scale` (clip.js): drawn that large about its joints; setPose takes the clip's arrays as before. */

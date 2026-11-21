@@ -1,8 +1,8 @@
 // The check numbers of a clip as rows, each with the frame of its worst value.
 // checks.js (frozen) returns the numbers without frames, so this repeats its formulas and keeps the frame; compile-tool.mjs
-// prints checkClip's own value and drops the frame of a row whose value here differs from it. One row is not in
-// checks.js: `clear`, the nearest joint to any prop (hands excluded), because the engine has no collision.
+// prints checkClip's own value and drops the frame of a row whose value here differs from it.
 //
+// The `inside:` rows are not in checks.js: a body or a moving prop inside another prop past a limit (inside.mjs).
 // The `reach:` rows are not in checks.js either: a hand, a foot or an elbow that is not where its action put it (aux.reach).
 // Nor the `seat:` rows: a sit on a prop whose hips end off the prop's top or whose feet stand inside it (aux.seats).
 //
@@ -15,15 +15,18 @@ import { qConj, qMul, qRotate } from "../engine-simple/math.js";
 import { MAX_STEP, SOLE, TOE } from "../engine-simple/solve.js";
 import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
+import { insideRows } from "./inside.mjs";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
 const MM = 1000, DEG = 180 / Math.PI;
+const num1 = v => String(Math.round(v * 10) / 10);
 
 /** How bad a row's value is: its size when higher is worse, its depth below zero when lower is worse. */
 export const badness = row => row.worse > 0 ? row.value : row.worse < 0 ? Math.max(0, -row.value) : 0;
 export const isSpike = row => row.spike != null && row.frame != null && badness(row) > row.spike;
 
-export function measure(clip, aux, { stretch = 0 } = {}) {
+/** inside: { def, spec, look } for the inside rows (inside.mjs); none without it. */
+export function measure(clip, aux, { stretch = 0, inside = null } = {}) {
 	const F = clip.frameCount, rows = [];
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
 	// a world point over (or under) a static prop's footprint, in the prop's own frame
@@ -67,14 +70,8 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	row("footLow", "lowest foot point", footLow, "mm", MM, { short: "under floor", worse: -1, spike: 10 });
 	row("jointLow", "lowest joint", jointLow, "mm", MM, { short: "under floor", worse: -1, spike: 10 });
 
-	let carryMin, carryMax, body, drift, turn, clear, free = 0, freeAt;
+	let carryMin, carryMax, drift, turn, free = 0, freeAt;
 	for (const p of clip.props) {
-		for (const c of clip.characters) for (let f = 0; f < F; f++) for (let j = 0; j < JOINT_COUNT; j++) {
-			if (HANDS.includes(j)) continue;
-			const d = { v: toBox(at(c, f, j), p, f), f, who: c.id, prop: p.id, note: `${JOINTS[j]} to ${p.id}` };
-			clear = best(clear, d, -1);
-			if (aux.slid[p.id]) body = best(body, d, -1);
-		}
 		if (p.pos.length === 3) continue;
 		let ref = null;
 		for (let f = 0; f < F; f++) {
@@ -95,7 +92,6 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	}
 	row("carryGap", "carry: widest wrist gap to the prop", carryMax, "mm", MM, { short: "carry gap", worse: 1, spike: 80 });
 	row("carryIn", "carry: closest wrist to the prop", carryMin, "mm", MM, { short: "hand inside", worse: -1, spike: 50 });
-	row("bodyToBox", "body to the pushed prop", body, "mm", MM, { short: "inside prop", worse: -1, spike: 20 });
 	if (clip.props.some(p => p.pos.length > 3)) row("freeTravel", "travel of a prop nothing holds or keys", { v: free, f: freeAt?.f, prop: freeAt?.prop }, "mm", MM, { short: "prop drifts", worse: 1, spike: 1 });
 	row("gripDrift", "prop in one hand: drift", drift, "mm", MM, { short: "grip drift", worse: 1, spike: 5 });
 	row("gripTurn", "prop in one hand: turn", turn, "deg", DEG, { short: "grip turn", worse: 1, spike: 2 });
@@ -149,7 +145,8 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	}
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
-	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
+	// a body or a moving prop inside another prop past the limit: one row per pair, at its deepest frame
+	for (const e of inside ? insideRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who ? `${e.who}'s body` : e.part} inside ${e.prop}`, short: "inside", value: e.value, unit: "mm", frame: e.frame, who: e.who ?? undefined, prop: e.prop, note: `${e.who ? `deepest part: ${e.part}; ` : ""}deeper than ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1 });
 	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that
 	// frame; why (share.js): no place was asked (the prop's nearest point), the hands' top speed, a place past the arm's reach
 	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point of ${prop} nearest the hand, a wrist's pad off its surface`,
@@ -191,7 +188,7 @@ export function checkValue(key, c) {
 	const rel = /^release:(.+):(speed|posJump|speedJump)$/.exec(key), e = rel && c.releases.find(r => r.prop === rel[1]);
 	if (rel) return e && (rel[2] === "speed" ? e.speed * 24 : e[rel[2]] * MM);
 	return { slide: c.slide * MM, slideStep: c.slideStep * MM, footLow: c.footLow * MM, jointLow: c.jointLow * MM, carryGap: c.carryMax == null ? undefined : c.carryMax * MM, carryIn: c.carryMin == null ? undefined : c.carryMin * MM,
-		bodyToBox: c.bodyToBox == null ? undefined : c.bodyToBox * MM, freeTravel: c.freeTravel * MM, gripDrift: c.gripDrift == null ? undefined : c.gripDrift * MM, gripTurn: c.gripTurn == null ? undefined : c.gripTurn * DEG,
+		freeTravel: c.freeTravel * MM, gripDrift: c.gripDrift == null ? undefined : c.gripDrift * MM, gripTurn: c.gripTurn == null ? undefined : c.gripTurn * DEG,
 		headTurn: c.headTurn, elbow: c.elbow * 100, wrist: c.wrist * 100 }[key];
 }
 

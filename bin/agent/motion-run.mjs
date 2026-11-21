@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { draftOf, travelOf } from "./motion-draft.mjs";
+import { figureStature } from "../../src/lowvis/studio/figure.js";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { propsSetOf } from "./motion-props.mjs";
 
@@ -37,14 +38,16 @@ const BODIES = "A character's scale and tint are the Studio character's own scal
 const DRESSED = "After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
 
 /** The request the motion writer reads: the user's words, the agent's note, the pictures' count, the Studio's scene and the last motion. */
-function requestOf({ words, wordsOf, note }, pictures, studio, before, body = false) {
+function requestOf({ words, wordsOf, note }, pictures, studio, before, body = false, start = 1) {
 	const parts = [];
 	if (words) parts.push(`${WORDS[wordsOf] ?? WORDS.turn}\n${words}`);
 	if (note) parts.push(`${NOTE}\n${note}`);
 	if (pictures) parts.push(`The user attached ${pictures} picture${pictures === 1 ? "" : "s"}.`);
 	if (studio.characters.length || studio.props.length) {
-		// the scene JSON holds what a scene line holds; the flat heights go as lines of their own
-		const scene = { characters: studio.characters, props: studio.props.map(({ heights, ...prop }) => prop) };
+		// the scene JSON holds what a scene line holds; the flat heights go as lines of their own. A new character starts at
+		// another scale than 1 (start), so every listed one states its own, 1 too
+		const characters = start === 1 ? studio.characters : studio.characters.map(c => ({ id: c.id, at: c.at, heading: c.heading, scale: c.scale ?? 1, ...c }));
+		const scene = { characters, props: studio.props.map(({ heights, ...prop }) => prop) };
 		const heights = studio.props.filter(prop => prop.heights?.length).map(prop => `${prop.id} offers these flat heights (world): ${JSON.stringify(prop.heights)}`);
 		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.`, JSON.stringify(scene), ...heights].join("\n"));
 	}
@@ -92,6 +95,10 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body }), start = byId(read?.objects);
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
 	const has = Object.fromEntries(studio.scene.characters.filter(c => c.scale !== undefined || c.tint !== undefined).map(c => [c.id, { scale: c.scale, tint: c.tint }]));
+	// new figures start at the size of the look the Studio draws them in (src/lowvis/studio/figure.js): every listed
+	// character keeps its own scale, so the start size reaches only a character the motion makes
+	const stature = figureStature(env.COZYCLAY_FIGURE ?? null);
+	if (body && stature !== 1) { for (const c of studio.scene.characters) has[c.id] = { ...has[c.id], scale: c.scale ?? 1 }; has["*"] = { scale: stature }; studio.ids.start = stature; }
 	onScene(studio.ids);
 	let refused = null;
 	// A scene that changed while the motion was written (a build task finished, the user moved something) answers
@@ -106,7 +113,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		}
 	};
 	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
-	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body);
+	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body, has["*"]?.scale ?? 1);
 	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }

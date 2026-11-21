@@ -66,7 +66,8 @@
 //       foot target: [x,y,z] | {at:[x,y,z], pitch:deg} | {world:[x,y,z], pitch:deg} | {joint, at?, of?, pitch:deg}
 //       (a place on a body as for a hand) | "plant". The point is the ankle
 //       joint; `at` is in the body frame from the floor point under the Hips joint (y = height over the floor);
-//       pitch > 0 points the toes down. The other foot keeps the body; nothing checks the balance.
+//       pitch > 0 points the toes down. The other foot keeps the body; nothing moves a body to keep its balance (where
+//       the tool has a balance row, that row says what it measures of a body at rest).
 //     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast
 //     (a wrist an elbow key turns: unless that key or its hand's key says fast).
 //     look: a character id, a prop id (its top), a world point or "fwd"; with no target the gaze stays level.
@@ -214,7 +215,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	// a hand target in the space the pose is solved in: a body-frame or own-body target as it is, any other brought in from the world
 	const target = (c, i, to, f) => Array.isArray(to) || (to.joint && !to.of) ? handTarget(c, i, to, f) : toBody(c.tilt, handTarget(c, i, to, f));
 	const upper = (c, f, first) => {
-		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, noAssist: def.assist === false };
+		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, knee: c.pose?.knee, noAssist: def.assist === false };
 		[c.keys.L, c.keys.R].forEach((list, i) => {
 			const k = active(list, f);
 			let h = { from: null, to: null, w: 1 }, upTo = 0;

@@ -12,20 +12,22 @@ import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
 import { badness, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
+import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
+import { insideText } from "./inside.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:)/; // the rows that are a difference between what the spec asked and what came out
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
 
 /** Reasons a scene or spec cannot go to the engine, in plain words; empty when it can. turn: props may stand turned.
- *  body: a character may have a scale (within the sizes a Studio character can have) and a tint. */
-function problems(scene, spec, { turn = false, body = false } = {}) {
+ *  body: a character may have a scale (within the sizes a Studio character can have) and a tint. hollow: a prop may say hollow. */
+function problems(scene, spec, { turn = false, body = false, hollow = false } = {}) {
 	const out = [];
 	if (!isObject(scene)) return ["scene: missing. Send scene: { frames, characters: [{ id, at: [x, z], heading }], props: [...] }"];
 	if (!isObject(spec)) return ["spec: missing. Send spec: { <characterId>: [[frame, verb, options], ...] }"];
@@ -49,6 +51,7 @@ function problems(scene, spec, { turn = false, body = false } = {}) {
 				if (!pair(e.at, 3)) out.push(`${where}.at: want the centre [x, y, z], got ${JSON.stringify(e.at)}`);
 				if (e.turn !== undefined && !turn && e.turn !== 0) out.push(`${where}.turn: a prop stands square to the axes here; give the box around it with turn left out`);
 				else if (e.turn !== undefined && !Number.isFinite(e.turn)) out.push(`${where}.turn: want degrees about Y, got ${JSON.stringify(e.turn)}`);
+				if (hollow && e.hollow !== undefined && typeof e.hollow !== "boolean") out.push(`${where}.hollow: want true or false, got ${JSON.stringify(e.hollow)}`);
 			}
 		});
 	}
@@ -78,9 +81,10 @@ function withMovers(scene, spec) {
 }
 
 /** The scene as the engine builds its bodies. on (feature body): a scale or tint the scene leaves out is the one the
- *  character already has (known: { <id>: { scale?, tint? } }), else scale 1 and no tint. Off: neither is read. */
+ *  character already has (known: { <id>: { scale?, tint? } }), else, for a new character, the scale new figures start at
+ *  (known["*"].scale, 1 when not given) and no tint. Off: neither is read. */
 const withBodies = (scene, known, on) => ({ ...scene, characters: scene.characters.map(({ scale, tint, ...c }) => {
-	const s = on ? scale ?? known[c.id]?.scale ?? 1 : 1, t = on ? tint ?? known[c.id]?.tint : null;
+	const s = on ? scale ?? known[c.id]?.scale ?? known["*"]?.scale ?? 1 : 1, t = on ? tint ?? known[c.id]?.tint : null;
 	return { ...c, ...(s === 1 ? {} : { scale: s }), ...(t ? { tint: t } : {}) };
 }) });
 /** The bodies line: every character that has a scale or a tint, as the engine built and drew it; "" when none has. */
@@ -189,9 +193,11 @@ function travelLines(clip, aux, spec) {
 
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
- *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). */
-export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {} }) {
-	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", last: null };
+ *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look the Studio
+ *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's). */
+export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null }) {
+	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
+	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
@@ -204,8 +210,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did };
 		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
 		if (edited?.error) return reject(edited.error, [edited.error]);
-		const bad = problems(state.scene, state.spec, { turn: !!feature.turn, body: !!feature.body });
-		if (bad.length) return reject(bad[0], bad.slice(0, 8));
+		const bad = problems(state.scene, state.spec, { turn: !!feature.turn, body: !!feature.body, hollow: !!feature.inside }); if (bad.length) return reject(bad[0], bad.slice(0, 8));
 		const look = isObject(sent.look) ? sent.look : null;
 		if (look?.view !== undefined && !VIEWS[look.view]) return reject(`look.view "${look.view}"`, [`look.view: want one of ${Object.keys(VIEWS).join(", ")}, got ${JSON.stringify(look.view)}`]);
 		if (look?.frames !== undefined && (!Array.isArray(look.frames) || !look.frames.length || look.frames.length > MAX_LOOK || !look.frames.every(Number.isInteger))) return reject("look.frames", [`look.frames: want 1 to ${MAX_LOOK} whole frame numbers, got ${JSON.stringify(look.frames)}`]);
@@ -217,7 +222,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, def, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const rows = measure(parsed, aux, { stretch: valid.stretch });
+		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: asBuilt, look: figure } }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, def) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });
@@ -237,8 +242,8 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${focus.join(" and ")}` : "the whole scene in frame"}` });
 			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
 		}
-		const isReach = r => r.key.startsWith("reach:"); // measured for every variant (the run record keeps them), told only where the variant has them and over 10 mm
-		const told = rows.filter(r => feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && isReach(r) && r.value > 10) : !isReach(r));
+		// the reach rows: measured for every variant (the run record keeps them), told only where the variant has them and over 10 mm
+		const told = rows.filter(r => r.key.startsWith("inside:") ? !!feature.inside : feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && r.key.startsWith("reach:") && r.value > 10) : !r.key.startsWith("reach:"));
 		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));
@@ -251,7 +256,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		// in a row: compiles of a changed scene or spec in a row with the same difference past its spike value (a look alone does not count)
 		const streak = changed || !state.streak ? inARow(told, state.streak) : state.streak, row = told.map(r => streak[rowId(r)]), many = row.filter(k => k > 1);
 		const prev = state.prevRows && Object.fromEntries(state.prevRows.map(r => [r.key, r])), marks = told.map(r => prev ? against(r, prev[r.key]) : { text: "", worse: false });
-		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length;
+		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length, fresh = Object.keys(about).filter(k => !state.rowsSaid.has(k) && told.some(r => r.key.startsWith(k)));
 		marks.forEach((m, k) => { if (row[k] > 1) m.text = m.text.replace(/\]$/, `; spike ${row[k]} compiles in a row]`); });
 		const text = [
 			`motion ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
@@ -260,13 +265,13 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			bodiesText(def) !== state.bodiesSaid ? bodiesText(def) || "bodies: every character at scale 1, none with a tint" : "",
 			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
-			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
-			...(feature.pace ? travelLines(parsed, aux, expandRepeats(state.spec, F).spec) : []),
+			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)), ...fresh.map(k => about[k]),
+			...(feature.pace ? travelLines(parsed, aux, asBuilt) : []),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,
 		].filter(Boolean).join("\n");
-		state.notesSaid = true; state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def); state.prevRows = told; state.streak = streak; state.compiles++;
+		state.notesSaid = true; fresh.forEach(k => state.rowsSaid.add(k)); state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def); state.prevRows = told; state.streak = streak; state.compiles++;
 		state.last = { key, scene: def, spec: state.spec, rows, frames: F, buildMs };
 		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, shown, ms: performance.now() - t0 };
 	}

@@ -10,5 +10,5 @@ export const NOTES = [
 	"a pushed prop slides with the hands; friction and weight are in the gait's timing, not simulated",
 	"a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand",
 	"a released prop keeps the hand's velocity exactly, so a swing that is not straight sends it off line",
-	"knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target",
+	"the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target",
 ];

@@ -1,5 +1,5 @@
 // Effector-level pose solver: a body state B plus upper-body overrides U become the 17 world positions and
-// rotations of the clip convention. Arms and legs are analytic two-bone IK; nothing here knows about time.
+// rotations of the clip convention. Arms and legs are analytic two-bone IK; time comes in only as the frame before's values in U.
 //
 // B = { p: Hips world position, q: pelvis world quaternion, yaw: heading (rad), lean, twist: chest relative to the
 //       pelvis (rad), feet: [L, R] of { a: ankle world position, q: foot world quaternion, planted, floor },
@@ -11,8 +11,9 @@
 //                          prev: where the hand was last frame, carried with the body (limits its speed) },
 //       hipTurn: pelvis turn about Y over planted feet (rad), bow: forward hinge at the hips (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
-//       assist: the previous frame's { bend, drop } of the reach assist }
+//       assist: the previous frame's { bend, drop } of the reach assist, knee: the previous frame's knee [L, R] (knee.js) }
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS, qAxisAngle } from "../rig17.js";
+import { kneePole } from "./knee.js";
 import { X, Y, Z, add, clamp, cross, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
 
 export const SIDES = [
@@ -163,7 +164,7 @@ export function solve(B, U = {}) {
 	pos[0] = T.hips; quat[0] = T.qP; quat[1] = T.q1; quat[2] = T.q2;
 	quat[3] = qMul(T.q2, qMul(qY(0.5 * ly), qX(0.5 * lp))); quat[4] = qMul(T.q2, qMul(qY(ly), qX(lp)));
 	for (let j = 1; j <= 4; j++) place(j);
-	const late = [0, 0]; // metres the top speed held a turned arm's elbow from where its blend had it
+	const late = [0, 0], knee = [null, null]; // late: metres the top speed held a turned arm's elbow from where its blend had it
 	SIDES.forEach((S, i) => {
 		place(S.arm);
 		const e = H[i]?.elbow, sh = pos[S.arm];
@@ -187,9 +188,9 @@ export function solve(B, U = {}) {
 		place(S.fore); place(S.hand);
 		place(S.up);
 		const pole = add(qRotate(T.qP, Z), mul(qRotate(feet[i].q, Z), 0.5));
-		const L = limb(pos[S.up], feet[i].a, pole, S.leg, S.foot, Z);
+		const K = knee[i] = kneePole(T.qP, pos[S.up], feet[i].a, pole, U.knee?.[i], B.feet[i].floor ?? 0), L = limb(pos[S.up], feet[i].a, K.pole, S.leg, S.foot, Z);
 		quat[S.up] = L.qU; quat[S.leg] = L.qL; quat[S.foot] = feet[i].q;
 		place(S.leg); place(S.foot);
 	});
-	return { pos, quat, assist: { bend, drop }, slow: T.slow, late, lift: feet.map(f => f.lift) };
+	return { pos, quat, assist: { bend, drop }, slow: T.slow, late, lift: feet.map(f => f.lift), knee: knee.map(({ d, side, off }) => ({ d, side, off })) };
 }
