@@ -63,7 +63,7 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	// and the SPEC sentence on the balance, which later named the balance row (verify-balance-row.mjs), put back to the old one; the studio variant with that row off
 	const withoutBalance = text => text.replace("nothing moves a body to keep its balance (where\n      the tool has a balance row, that row says what it measures of a body at rest).", "nothing checks the balance.");
 	// and the SPEC lines on keys that flow on into the next (verify-smooth-flow.mjs), taken out
-	const withoutFlow = text => text.replace(/\n {4}Where a hands, L, R, lean, bow[^]*?a blend from "rest" starts at rest\./, "");
+	const withoutFlow = text => text.replace(/\n {4}Where a hands, L, R, lean, bow[^]*?a\s+blend from "rest" starts at rest\./, "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them
 	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance"] : variant === "base" ? ["inside"] : [])))))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");

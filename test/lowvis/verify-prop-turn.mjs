@@ -44,23 +44,23 @@ for (const [name, c] of Object.entries(CASES)) {
 }
 
 // fingerprints from the engine before turned props (tag plan-before), for scenes without `turn`
-// all pinned again with autorl 010 (walk sway by its walking share, a run's arms by the gait's phase, the pelvis lowered
-// for a planted foot over the frames around it, upper-layer keys that flow on); were demo locomotion sum 28131.24091937811 abs 28401.80087036852; demo sit sum 16988.58993812318 abs 17320.271679534184; demo object sum 55091.27338733278 abs 55316.25554604278; demo duo sum 33152.77082839731 abs 34324.063255972105; demo push sum 16378.90072069702 abs 16937.86911301625; demo chop sum 8219.455195052107 abs 8965.554830944; demo bowl sum 24537.662118600478 abs 35986.80608473104; carry it sum 1297.472180864108 abs 2676.4528935573157; push it sum 644.6375135840353 abs 1815.2169889187685
+// pinned again with autorl 010 (a walk's sway grows with its walking share, unless the walk begins the
+// clip; upper-layer keys that flow on into the next); were demo locomotion sum 28131.24091937811 abs 28401.80087036852; demo sit sum 16988.58993812318 abs 17320.271679534184; demo object sum 55091.27338733278 abs 55316.25554604278; demo duo sum 33152.77082839731 abs 34324.063255972105; demo push sum 16378.90072069702 abs 16937.86911301625; demo chop sum 8219.455195052107 abs 8965.554830944; demo bowl sum 24537.662118600478 abs 35986.80608473104; carry it sum 1297.472180864108 abs 2676.4528935573157; push it sum 644.6375135840353 abs 1815.2169889187685
 const BEFORE = {
-	"demo locomotion": { n: 17136, sum: 28132.438972487733, abs: 28401.537714777973 },
-	"demo sit": { n: 19590, sum: 16986.71986560651, abs: 17315.994713004082 },
-	"demo object": { n: 40323, sum: 55094.21117610567, abs: 55317.446003350895 },
+	"demo locomotion": { n: 17136, sum: 28130.083676914313, abs: 28399.302929434976 },
+	"demo sit": { n: 19590, sum: 16990.66750680106, abs: 17321.00111858535 },
+	"demo object": { n: 40323, sum: 55092.74944710477, abs: 55317.84371392813 },
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs); were sum 33296.306707722404,
 	// 8217.462717724167, 24537.719764461508 and abs 34465.81906765248, 8963.464780009705, 35987.17491706315; again with its
 	// repairs (were sum 33293.887403702, 8220.99382688072, 24526.158710004675); duo again when a burst was fitted to how
 	// far its feet trail the hips (was sum 33295.85354092025, abs 34465.521872106176)
-	"demo duo": { n: 36720, sum: 33149.90409054858, abs: 34317.9098856516 },
-	"demo push": { n: 18144, sum: 16377.475797721852, abs: 16934.300095248 },
-	"demo chop": { n: 17787, sum: 8216.724896786083, abs: 8961.12768588869 },
+	"demo duo": { n: 36720, sum: 33154.01938041875, abs: 34322.311784643236 },
+	"demo push": { n: 18144, sum: 16378.90072069702, abs: 16937.86911301625 },
+	"demo chop": { n: 17787, sum: 8220.211771645767, abs: 8964.167562102726 },
 	"demo bowl": { n: 22179, sum: 24536.379817133275, abs: 35988.71533513136 },
 	"sit on it": { n: 4899, sum: 1932.92509540655, abs: 2080.8489820194295 },
-	"carry it": { n: 5184, sum: 1298.6781354624952, abs: 2677.8896978023017 },
-	"push it": { n: 5184, sum: 641.8154764320207, abs: 1812.4515389953053 },
+	"carry it": { n: 5184, sum: 1299.1545993132574, abs: 2678.462190854703 },
+	"push it": { n: 5184, sum: 644.6375135840353, abs: 1815.2169889187685 },
 };
 const now = {};
 for (const demo of DEMO_IDS) {

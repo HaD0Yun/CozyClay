@@ -32,6 +32,9 @@ function passSpeed(a, b, c, t0, t1) {
 
 /** Whether key b of a field flows on from key a (the key before it): both inout, a over frames that end where b starts. */
 const flows = (a, b) => !!a && !!b && a.ease === "inout" && b.ease === "inout" && a.over > 0 && b.over > 0 && b.f === a.f + a.over;
+/** A start speed m kept only in the coordinates where it goes toward the target (from a to b over T frames), at most
+ *  3 times the blend's own mean slope there, so the blend does not pass its target. */
+const toward = (m, a, b, T) => { const one = (v, x, y) => v * (y - x) > 0 ? Math.sign(v) * Math.min(Math.abs(v), 3 * Math.abs(y - x) / T) : 0; return typeof m === "number" ? one(m, a, b) : m.map((v, k) => one(v, a[k], b[k])); };
 const minus = (a, b) => typeof a === "number" ? a - b : a.map((v, k) => v - b[k]);
 const plus = (a, b) => typeof a === "number" ? a + b : a.map((v, k) => v + b[k]);
 
@@ -41,7 +44,7 @@ export function startScalar(list, k, f, last, before, zero) {
 	const i = list.indexOf(k), prev = list[i - 1], next = list[i + 1], done = prev && f - prev.f >= prev.over;
 	k.from = done ? prev.to : last ?? zero;
 	if (done && flows(prev, k)) k.m0 = prev.m1;
-	else if (prev && !done && k.ease === "inout" && k.over > 0 && last !== undefined && before !== undefined) { k.m0 = minus(last, before); k.from = plus(last, k.m0); } // cut into: on at its speed
+	else if (prev && !done && k.ease === "inout" && k.over > 0 && last !== undefined && before !== undefined) { k.from = plus(last, minus(last, before)); k.m0 = toward(minus(last, before), k.from, k.to, k.over); } // cut into: on at its speed
 	if (flows(k, next)) k.m1 = passSpeed(k.from, k.to, next.to, k.over, next.over);
 }
 
@@ -53,8 +56,9 @@ export function startHand(list, k, prev, vel, cap, at, here) {
 	const i = list.indexOf(k), next = list[i + 1], pinned = q => !q || q.pair || q.to === "keep" || q.to === "rest";
 	if (pinned(k) || !(k.from ?? here)) return;
 	if (k.from && prev && flows(prev, k)) k.m0 = prev.m1;
-	else if (k.from && !prev && i > 0 && vel && k.ease === "inout" && k.over > 0) { const l = Math.hypot(...vel), m = l > cap ? vel.map(v => v * cap / l) : vel; k.m0 = m; k.from = plus(k.from, m); }
-	const b = at(k), c = !pinned(next) && flows(k, next) ? at(next) : null;
+	const b = at(k);
+	if (k.from && !prev && i > 0 && vel && k.ease === "inout" && k.over > 0 && b) { const l = Math.hypot(...vel), m = l > cap ? vel.map(v => v * cap / l) : vel; k.from = plus(k.from, m); k.m0 = toward(m, k.from, b, k.over); }
+	const c = !pinned(next) && flows(k, next) ? at(next) : null;
 	if (b && c) k.m1 = passSpeed(k.from ?? here, b, c, k.over, next.over);
 }
 

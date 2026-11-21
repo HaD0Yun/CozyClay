@@ -6,7 +6,7 @@ import { arc, solve } from "./solve.js";
 
 const by = (v, k) => v && v.map(x => x * k);
 /** A body state B (solve.js) with its lengths multiplied by k. */
-const sizedB = (B, k) => ({ ...B, p: by(B.p, k), feet: B.feet.map(f => ({ ...f, a: by(f.a, k), ...(f.floor == null ? {} : { floor: f.floor * k }) })), hands: B.hands.map(h => by(h, k)), ...(B.down ? { down: B.down * k } : {}) });
+const sizedB = (B, k) => ({ ...B, p: by(B.p, k), feet: B.feet.map(f => ({ ...f, a: by(f.a, k), ...(f.floor == null ? {} : { floor: f.floor * k }) })), hands: B.hands.map(h => by(h, k)) });
 /** The options of a body-layer action with their lengths multiplied by k: to, at, the end foot offsets, a seat height. */
 const sizedOptions = (o, k) => ({
 	...o, ...(Array.isArray(o.to) ? { to: by(o.to, k) } : {}), ...(Array.isArray(o.at) ? { at: by(o.at, k) } : {}), ...(Number.isFinite(o.height) ? { height: o.height * k } : {}),

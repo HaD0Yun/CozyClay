@@ -1,8 +1,6 @@
 // The spec read into layers (moved unchanged from engine.js): the body layer's frames, the upper layer's keys and prop
 // events, and the repeats written out. engine.js builds the clip from them.
-import { INDEX as J, OFFSET } from "../rig17.js";
-import { add, clamp, qMul, qRotate, qZ, rad } from "./math.js";
-import { LEG_LEN, SOLE, TOE } from "./solve.js";
+import { clamp, rad } from "./math.js";
 import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across, offBox } from "./prop-frame.js";
@@ -15,6 +13,7 @@ export function buildBody(c, acts, F, ctx) {
 	let st = { p: c.at.slice(), yaw, feet: [1, -1].map(s => ({ g: home(c.at, yaw, s), yaw })) };
 	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run" || a.verb === "push");
 	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
+	if (moving(list[0])) st.full = true; // gait.js: a move that begins the clip
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on];
@@ -46,23 +45,7 @@ export function buildBody(c, acts, F, ctx) {
 	};
 	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
 	blur(B => B.lean, (B, v) => { B.lean = v; });
-	// down: how far the solver lowers the pelvis so that a planted foot is within the leg's reach: the most over the frame
-	// before, this one and the one after, blurred, so that the pelvis comes down and back up over the frames around such a
-	// frame instead of on it alone; on a frame where the body layer stands still or stops, only its own. Less as far as an
-	// upper-layer hip key lowers the pelvis itself (solve.js). The body frame (B.p) stays where it is.
-	const need = out.map(legDrop), most = need.map((_, f) => Math.max(...need.slice(Math.max(0, f - 1), f + 2)));
-	const still = f => f > 0 && f < F && out[f].p[0] === out[f - 1].p[0] && out[f].p[2] === out[f - 1].p[2] && out[f].feet.every((ft, i) => ft.a.every((v, k) => v === out[f - 1].feet[i].a[k]));
-	out.forEach((B, f) => { const d = still(f) || still(f + 1) ? need[f] : (most[Math.max(0, f - 1)] + 2 * most[f] + most[Math.min(F - 1, f + 1)]) / 4; if (d > 0) B.down = d; });
 	return out;
-}
-/** Metres the pelvis of body state B must come down so that each planted foot is within the leg's reach (solve.js). */
-function legDrop(B) {
-	const qP = B.roll ? qMul(B.q, qZ(B.roll)) : B.q, R = 0.998 * LEG_LEN;
-	return Math.max(0, ...B.feet.map((ft, i) => {
-		if (!ft.planted) return 0;
-		const hj = add(B.p, qRotate(qP, OFFSET[i ? J.RightUpLeg : J.LeftUpLeg])), low = Math.min(0, qRotate(ft.q, TOE)[1], qRotate(ft.q, SOLE)[1]), ay = Math.max(ft.a[1], (ft.floor ?? 0) - low);
-		return hj[1] - ay - Math.sqrt(Math.max(0, R * R - (hj[0] - ft.a[0]) ** 2 - (hj[2] - ft.a[2]) ** 2));
-	}));
 }
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);

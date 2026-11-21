@@ -39,9 +39,9 @@ const WAYS = { ahead: d => ({ to: [0, d] }), back: d => ({ to: [0, -d], facing: 
 // speed-up and slow-down
 const MOST = { ahead: 0.8, back: 0.8, side: 0.65 };
 // the margins over the walk without a count: 25 mm of rise and fall and 0.25 m/s of speed change between two frames
-// (were 20 mm and 0.1 m/s while every walk began with a one-frame jump of the pelvis, 0.47 to 0.53 m/s, and lowered it
-// for a planted foot on that frame alone; with both gone the walk without a count lost them, and a count of 10-frame
-// steps (its own largest change fell from 0.47-0.52 to 0.06-0.43 m/s) now shows its quicker steps against it: autorl 010)
+// (were 20 mm and 0.1 m/s while every walk after a stand began with a one-frame jump of the pelvis, 0.47 to 0.53 m/s, as
+// its sway switched on at full size; with that gone the walk without a count lost it, and a count of 10-frame steps (its
+// own largest change fell from 0.47-0.52 to 0.06-0.43 m/s) now shows its quicker steps against it: autorl 010)
 const BOB = 25, JERK = 0.25;
 let n = 0, worst = { bob: -Infinity, jerk: -Infinity };
 for (const [way, to] of Object.entries(WAYS)) for (const d of [1, 1.6, 2.4, 3.4, 5]) for (const steps of [2, 3, 4, 6, 8]) for (const stepFrames of [undefined, 10, 16]) {

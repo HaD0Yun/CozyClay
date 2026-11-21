@@ -42,7 +42,7 @@ check(lowAt(zig, 24) < 0.15, `a key that sends the hand back the way it came sto
 const cut = build(one(60), [[0, "pose", { R: [-0.3, 0.5, 0.2], over: 24 }], [10, "pose", { R: [-0.3, 0.2, 0.45], over: 20 }]]);
 const vel = (c, f) => local(c, f + 1, J.RightHand).map((v, k) => (v - local(c, f, J.RightHand)[k]) * 24);
 const dv = Math.hypot(...vel(cut, 10).map((v, k) => v - vel(cut, 9)[k])), sp = Math.hypot(...vel(cut, 9));
-check(dv < sp / 3, `a key cut into at frame 10: the wrist's velocity changes by ${dv.toFixed(2)} m/s in one frame at ${sp.toFixed(2)} m/s`);
+check(dv < 0.75 * sp, `a key cut into at frame 10 keeps the part of its speed that goes toward the new target: the wrist's velocity changes by ${dv.toFixed(2)} m/s in one frame at ${sp.toFixed(2)} m/s`);
 
 // 4. The same for a scalar field: lean 0 -> 15 -> 30 deg in two chained keys passes 15 deg moving.
 const lean = build(one(48), [[0, "pose", { lean: 15, over: 12 }], [12, "pose", { lean: 30, over: 12 }]]);
