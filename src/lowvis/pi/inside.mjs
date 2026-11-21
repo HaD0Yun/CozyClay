@@ -20,8 +20,7 @@ import { CLIP_FPS } from "../clip.js";
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildUpper } from "../engine-simple/spec-layers.js";
-import { blockSolids } from "../looks/block.js";
-import { cubeSolids } from "../looks/cube.js";
+import { LOOK_SOLIDS as LOOKS } from "../looks/solids.js";
 import { seenFrames } from "./prompt.mjs";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -43,7 +42,7 @@ const prepared = solids => solids.map(o => {
 		edges: Float64Array.from(o.e.flatMap(([i, j, n1, n2]) => { const d = unit(sub(o.v[j], o.v[i])); return d && dot(n1, n2) < 1 - 1e-9 ? [...d, ...n1, ...n2] : []; })),
 		reach: Math.max(...o.v.map(p => Math.hypot(...sub(p, o.c)))) };
 });
-const LOOKS = { block: blockSolids, cube: cubeSolids }, cache = {};
+const cache = {};
 /** The look the solids are taken from: the one named (the Studio's launch look) when it states solids, else block. */
 const solidsLook = name => LOOKS[name] ? name : "block";
 const solidsOf = name => (cache[solidsLook(name)] ??= prepared(LOOKS[solidsLook(name)]()));
