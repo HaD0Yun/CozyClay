@@ -1,7 +1,8 @@
 // Rail shots that aim and carry a lens, and the camera-key stops the agent hears about.
 import assert from "node:assert/strict";
 import { createCameraBlock, updateCameraBlock, removeCameraRail } from "../src/camera-block.js";
-import { buildShotCameraTracks, cameraKeyStops, cameraKeyWarnings, castAimPoint, castBodyPoints, followSubjectTrack } from "../src/camera-direction.js";
+import { buildShotCameraTracks, cameraKeyStops, cameraKeyWarnings, castAimPoint, castBodyPoints, createShotSubjectBodies, followSubjectTrack, shotSubjectTrack } from "../src/camera-direction.js";
+import { createSceneObject } from "../src/scene-objects.js";
 import { screenBox } from "../src/camera-hold-body.js";
 import { skeletonFor } from "../src/motion3/rigs/index.js";
 import { restState, toLocal } from "../src/motion3/compiler/skeleton.js";
@@ -135,5 +136,28 @@ const railShot = { id: "shot-r", startFrame: 0, endFrame: F - 1, cameraKeys: [],
 const railKept = tracksOf(railShot), railPlain = tracksOf(railShot, false);
 assert(railKept.every((sample, frame) => Math.hypot(sample.pos.x - railPlain[frame].pos.x, sample.pos.z - railPlain[frame].pos.z) < 1e-9), "the rail keeps its dolly");
 assert.deepEqual(outside(railKept), [], "and its aim holds the body");
+
+// A subject that rides an object: its joints travel with it, as its point on the subject track does, so the follow
+// camera holds the body it follows. (Joints left where the character was placed sent the camera 1,587 m away by the
+// end of a 6 m ride.)
+const R = 48, stoodHips = new Float32Array(R * 3);
+for (let f = 0; f < R; f += 1) stoodHips.set(rest.hips, f * 3);
+const stood = { ...posed, frameCount: R, frames: R, rot: quats.subarray(0, R * rest.quats.length * 4), hips: stoodHips };
+const carrier = { ...createSceneObject("cube"), id: "carrier", x: 0, y: 0, z: 0, path: { points: [{ x: 0, y: 0, z: 0 }, { x: 6, y: 0, z: 0 }], faceTravel: false } };
+const rideShot = { id: "shot-ride", startFrame: 0, endFrame: R - 1, subjectIds: ["rider"], cameraKeys: [], camera: createCameraBlock({ mode: "follow" }) };
+const riding = { characters: [{ ...actor, id: "rider", parent: "carrier" }], objects: [carrier], shots: [rideShot], frameCount: R, fps: 24, activeId: "rider", clipOf: () => stood };
+const ridersAt = createShotSubjectBodies(riding), rideTrack = shotSubjectTrack(riding), middleX = (points) => points.reduce((sum, point) => sum + point[0], 0) / points.length;
+assert(rideTrack[R - 1].x - rideTrack[0].x > 5, "the subject rides the carrier");
+for (const f of [0, 24, R - 1]) assert(Math.abs((middleX(ridersAt(f)) - middleX(ridersAt(0))) - (rideTrack[f].x - rideTrack[0].x)) < 1e-6, `the joints ride with the subject, frame ${f}`);
+const afoot = { ...riding, characters: [{ ...actor, id: "rider" }] };
+assert.deepEqual(createShotSubjectBodies(afoot)(R - 1), castBodyPoints("rider", R - 1, afoot), "a subject that rides nothing keeps its joints where it stands");
+assert.equal(createShotSubjectBodies({ ...riding, clipOf: () => null })(0), null, "no take v3, no body to hold");
+const rideOf = (bodyAt) => buildShotCameraTracks({ shots: [rideShot], subjectTrack: rideTrack, fps: 24, filmback: { aspectRatio: lens.aspect }, fovDeg: lens.fovDeg, ...(bodyAt ? { bodyAt } : {}) });
+const ride = rideOf(ridersAt), ridePlain = rideOf(null);
+ride.forEach((sample, frame) => {
+	const box = screenBox(sample, ridersAt(frame), { tanV, aspect: lens.aspect });
+	assert(box && box.xMin >= -1 && box.xMax <= 1 && box.yMin >= -1 && box.yMax <= 1, `the carried body is in the picture, frame ${frame}`);
+	assert(Math.hypot(sample.pos.x - ridePlain[frame].pos.x, sample.pos.z - ridePlain[frame].pos.z) < 1e-6, `at 3 m the carried body fits by tilting: the camera keeps its place, frame ${frame}`);
+});
 
 console.log("camera direction: ok");

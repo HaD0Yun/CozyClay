@@ -16,7 +16,7 @@ import { skeletonFor } from "./motion3/rigs/index.js";
 import { fk } from "./motion3/compiler/skeleton.js";
 import { holdBody } from "./camera-hold-body.js";
 import { shotSubjects, subjectsCenter } from "./shot-subjects.js";
-import { carriedPointAt } from "./object-travel.js";
+import { carriedPointAt, sceneObjectCarryMatrixAt } from "./object-travel.js";
 
 const DEG = Math.PI / 180;
 /** where a character's aim sits on its body: chest height, as a share of its stature, or above a take's hips */
@@ -78,6 +78,19 @@ export function createShotSubjectSampler(cast) {
 		const carried = carriedPointAt(objects, entry.parent, { x: point.x, y: entry.y ?? 0, z: point.z }, frame, { frameCount: cast.frameCount, fps: cast.fps });
 		return { ...entry, ...placed, ...carried };
 	});
+}
+
+/** The posed joints of every named subject of the shot at a frame, or null when one of them has no take v3 body. A character
+ * that rides an object has its joints carried the way its point on the subject track is (createShotSubjectSampler). */
+export function createShotSubjectBodies(cast) {
+	const objects = new Map(cast.objects.map(object => [object.id, object])), take = { frameCount: cast.frameCount, fps: cast.fps };
+	return frame => {
+		const bodies = shotSubjects(shotAtFrame(cast.shots, frame), cast.characters, cast.activeId, cast.objects).map(entry => {
+			const points = castBodyPoints(entry.id, frame, cast), e = points && entry.parent ? sceneObjectCarryMatrixAt(objects, entry.parent, frame, take)?.elements : null;
+			return e ? points.map(([x, y, z]) => [e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]]) : points;
+		});
+		return bodies.length && bodies.every(Boolean) ? bodies.flat() : null;
+	};
 }
 
 /** A camera anchor for each absolute frame; null means no named visible target. */
