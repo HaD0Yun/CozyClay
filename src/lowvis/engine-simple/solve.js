@@ -96,7 +96,8 @@ function limb(root, target, pole, jm, je, restPole) {
 
 export function solve(B, U = {}) {
 	const yawQ = qY(B.yaw), fwd = qRotate(yawQ, Z), H = U.hands ?? [];
-	const hips0 = add(B.p, qRotate(yawQ, U.hip ?? [0, 0, 0]));
+	const hips0 = add(B.p, qRotate(yawQ, U.hip ?? [0, 0, 0])); // lowered by B.down (spec-layers.js) less what the hip key lowers it
+	if (B.down) hips0[1] -= B.down - (U.hip?.[1] < 0 ? Math.min(B.down, -U.hip[1]) : 0);
 	const lean0 = B.lean + (U.lean ?? 0), twist = B.twist + (U.twist ?? 0);
 	const active = H.map(h => !!h && (!!h.from || !!h.to));
 	const aimed = H.map(h => h ? (h.from ? 1 - h.w : 0) + (h.to ? h.w : 0) : 0); // how much of the hand target is not the rest pose

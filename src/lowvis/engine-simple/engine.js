@@ -21,6 +21,11 @@
 //     fitted to. A run with `facing` or of under 0.5 m times the body's scale steps as a walk. The travel line says
 //     what was walked.
 //   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
+//     Where a hands, L, R, lean, bow, twist, hipTurn, hip or tilt key with ease inout starts on the frame the inout key
+//     before it in that field ends, the field is at the earlier key's target on that frame and passes it without
+//     stopping, at the speed the targets before and after give (per coordinate, a hand's in the body frame; none in a
+//     coordinate that turns back there); such a key that starts while the key before it still blends goes on from the field's speed.
+//     Blends of hold, carry and place and blends to "rest" stop on their targets; a blend from "rest" starts at rest.
 //     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
 //           aim:[x,y,z]|{x?,y?,z?:[x,y,z], world?:true}|"off", elbowL|elbowR: target, fast:true, over, ease}
 //       aim: the hand that holds a prop turns so the prop's long z axis points that way, body frame; the object form
@@ -97,6 +102,7 @@ import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { moveRiders, propKey, ridesOf } from "./ride.js";
 import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shareEvent, startFrame } from "./share.js";
 import { reachEntry } from "./reach.js";
+import { flowAdd, handsMoved, startHand, startScalar } from "./flow.js";
 
 export { NOTES, expandRepeats };
 
@@ -193,9 +199,9 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	const scalar = (c, name, f, zero) => {
 		const k = active(c.keys[name], f);
 		if (!k) return zero;
-		k.from ??= ended(c.keys[name], k, f)?.to ?? c.last[name] ?? zero;
-		const w = EASE[k.ease](prog(k, f));
-		return (c.cur[name] = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w));
+		if (k.from === undefined) startScalar(c.keys[name], k, f, c.last[name], c.last2?.[name], zero); // flow.js
+		const w = EASE[k.ease](prog(k, f)), on = k.over > 0 && flowAdd(k.m0, k.m1, prog(k, f), k.over), v = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w);
+		return (c.cur[name] = !on ? v : Array.isArray(zero) ? v.map((x, n) => x + on[n]) : v + on);
 	};
 	// Tilt: the whole figure, as it is posed, turned about one point and then moved. The pose is solved untilted;
 	// targets given in the world are taken into that untilted space first, and the solved pose is turned at the end.
@@ -225,13 +231,13 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 					const at = q => (q.to === "rest" ? null : q.to === "keep" ? (q.place ? toLocal(target(c, i, q.place, f), B) : here) : toLocal(target(c, i, q.to, f), B)); // a keep that a later key of its frame hid: its place, else where the hand is
 					const local = prev ? at(prev) : here;
 					k.from = !prev && c.rest[i] ? null : local;
-					if (k.to === "keep") { k.to = k.place ? at(k) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
+					if (k.to === "keep") { k.to = k.place ? at(k) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; } startHand(list, k, prev, c.handVel?.[i], 0.12 * c.s, at, here ?? qRotate(qY(-B.yaw), qRotate(B.q, B.hands[i]))); // flow.js
 				}
-				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
+				const u = clamp(prog(k, f)), w = EASE[k.ease](u), on = k.over > 0 && u < 1 && flowAdd(k.m0, k.m1, u, k.over);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f, by: k.by ?? k.f, done: u >= 1 };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.to?.joint || k.to?.on) h.self = k.to; // a target that follows something: measured again as it ended (share.js)
-				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0];
+				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0]; if (on) h.offset = add(h.offset ?? [0, 0, 0], qRotate(qY(B.yaw), on)); // on: flow.js
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;
 				c.restNext[i] = k.to === "rest" && w >= 1;
@@ -337,7 +343,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		moveRiders(props, f, byId, true); // riders on a body: on its joint as it ended this frame
 		for (const c of chars) otherReach(c, aux.reach[c.id].at(-1), byId, props, f, p => toBody(c.tilt, p), reachEntry);
 		for (const c of chars) {
-			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
+			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last2 = c.last; c.last = { ...c.last, ...c.cur }; handsMoved(c);
 			setPose(c.out, f, c.world);
 			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted && !c.tilt)); // a tilted figure does not stand on its feet
 		}

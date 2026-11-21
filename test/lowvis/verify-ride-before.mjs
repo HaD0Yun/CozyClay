@@ -30,7 +30,7 @@ const CASES = {
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const BEFORE = {
-	rideCarry: "de27b72fcc147fb40959202ab51cdffda00443b75d63df8b749fb9770521fe2b",
+	rideCarry: "bcc1a541e0e9a29d326ed1f454aa9e36a7023d061ae44c4dce83b5f38170c2b5", // pinned again with autorl 010 (its walks: the sway by the walking share, the pelvis lowered for a planted foot over the frames around it); was de27b72fcc147fb4...
 	holdShare: "a301a50f6fdf636419fbc2940aed8f28029f0e0a6fa50063d850a1f312efbae6",
 	rollKey: "18b0abf907fcdfc7f0841505f841b12b9d3bb7d01c8403f81a1be98152791813",
 };

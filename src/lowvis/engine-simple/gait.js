@@ -138,11 +138,12 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 		});
 		const v = speed(t), act = clamp(v / 0.6), acc = (speed(t + 1) - speed(t - 1)) * 12;
 		const step = plan.findLast(s => s.t0 <= t), ph = step ? (t - step.t0) / step.stepT : 0;
-		// w: +1 left foot ahead, -1 right foot ahead; drives the arm swing and the pelvis / chest counter-twist
-		const w = clamp(((feet[0].a[0] - feet[1].a[0]) * sn + (feet[0].a[2] - feet[1].a[2]) * cs) / 0.35, -1, 1) * act;
+		// w: +1 left foot ahead, -1 right foot ahead; drives the arm swing and the pelvis / chest counter-twist. From the
+		// phase of the gait cycle (a cosine: +1 at the left heel strike), a backward move from where the feet are
+		const w = strikes.length && !back ? Math.cos(2 * Math.PI * phaseAt(t)) * act : clamp(((feet[0].a[0] - feet[1].a[0]) * sn + (feet[0].a[2] - feet[1].a[2]) * cs) / 0.35, -1, 1) * act;
 		const lean = act * P.lean + clamp(0.05 * acc, -0.12, 0.12) * (1 - pw);
 		// the walking share of this frame follows the captured curves; arms swing with the speed
-		const gw = act * clamp(1 - r - pw), ga = gw * clamp(v / WALK_SPEED, 0.4, 1.4), cy = strikes.length ? phaseAt(t) : 0, C = n => gw ? curve(WALK_CURVES[n], cy) : 0;
+		const gw = act * clamp(1 - r - pw), ga = gw * clamp(v / WALK_SPEED, 0.4, 1.4), cy = strikes.length ? phaseAt(t) : 0, C = n => gw * curve(WALK_CURVES[n], cy); // by the walking share, so the sway grows from a stand and dies into one
 		const side = C("side"), surge = C("surge");
 		frames.push({
 			p: [c[0] + sn * (HIP_FWD + surge) + cs * side, STAND_Y - P.drop + act * (P.base + P.bobA * Math.cos(2 * Math.PI * (ph - P.bobPh))) + C("height"), c[1] + cs * (HIP_FWD + surge) - sn * side],

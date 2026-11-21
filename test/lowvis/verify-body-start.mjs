@@ -35,7 +35,9 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// again with its repairs: the last plant of a backward move lands flat, a counted walk's hips arrive when its last foot
 	// lands (was duo 7aa86333d97a5ab1, chop 2d258b2a5d03117e, bowl 660c2527df5ed7d7); duo again when its burst was fitted
 	// to how far its feet trail the hips (was 166268fe9a9621fe)
-	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "c856198951e663f2", push: "ff755b870529e06d", chop: "6577f662ae05285a", bowl: "d85e95275202dc36" };
+	// all seven pinned again with autorl 010 (walk sway by its walking share, a run's arms by the gait's phase, the pelvis lowered
+	// for a planted foot over the frames around it, upper-layer keys that flow on); were locomotion 2d1a6d6afc122219, sit 69ae9ec17d853bb6, object 800f6742b10944e6, duo c856198951e663f2, push ff755b870529e06d, chop 6577f662ae05285a, bowl d85e95275202dc36)
+	const BEFORE = { locomotion: "49196f0f16f825a2", sit: "5a64fdc05af3f8be", object: "8997da5c11e10877", duo: "01672bd580423ce8", push: "d9a7e4d1af267f42", chop: "96af71766b5fafaf", bowl: "a0b912519da349db" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);

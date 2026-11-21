@@ -24,15 +24,18 @@ const OLD_HELD = "a prop in one hand is held by that hand only (no second hand o
 const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis";
 assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by several hands does");
 
+// all pinned again with autorl 010 (the walk's sway grows with its walking share, a run's arms swing by the gait's phase,
+// the pelvis comes down for a planted foot over the frames around it, upper-layer keys flow on into the next): was
+// locomotion 4b102ce7..., sit 1da2ec2b..., object 45d87982..., duo 45330261..., push 4f65ce12..., chop a773f584..., bowl 75232c8f...
 const BEFORE = {
-	locomotion: "4b102ce748c4e84499e261466067abbde83b27c9a4becd9f80d39b888f21a016",
-	sit: "1da2ec2bfab4cd8e9764ad743f8d1d145feff0fe01d2713dbf3da69e2c05f025",
-	object: "45d87982c3dba561fb7ac78ae3e28cc2f510bd2535ed4dd98922b1a7d9a6e4f4", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
+	locomotion: "0a3221b619f952ff8d180a81e98221f4467eaf6a9747399226c842db676c1449",
+	sit: "97e5846bc079c9e1ee660a31db97123729f575709d8f50ad4f9581b234fcbaa4",
+	object: "74c91abd46a891bb41c9cb9c1b9b9ea14c35aefcdd68d40b5e07f9b138057c69", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
-	duo: "45330261743f3cff00c318d14a504f84c3cb255f42c03be94b2c3bda5e0e76b6", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
-	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
-	chop: "a773f58421c01f745482f0621de9289d00c3f73e82f9f4eb9b61fc9bde7ec7fd", // was 623cc406..., then 3b131397...
-	bowl: "75232c8f0335c7fa4237ac482398d56413dd326ae89300910988e4a49fe9a0e5", // was 9cda1765..., then 8b1243fc...
+	duo: "8d44f3e526213d20d5c5b44a2d09b7e3ca9560748f8b1d6777b4732a518c1367", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
+	push: "9d6178c98ecd1ba4f082e4de40c8c2d7e9be436d8518d6933af473d17cae0796",
+	chop: "b8003b9e6c47d257e30dcc508ea04317eef440149fb568291f66e21e8aceb3ad", // was 623cc406..., then 3b131397...
+	bowl: "11ba09d13b9cd8faa988c795275b7f45f1df76ee95ecc3ffa7145398e3887e85", // was 9cda1765..., then 8b1243fc...
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};
