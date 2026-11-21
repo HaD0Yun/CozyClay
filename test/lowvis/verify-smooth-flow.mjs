@@ -2,6 +2,8 @@
 // engine-simple flow: keys of one upper-layer field that follow each other with no hold pass the shared target
 // without stopping (flow.js), a key cut into goes on at the field's speed, and the body layer has no one-frame snaps
 // of the pelvis where a walk starts or stops or where a planted foot needs the pelvis lower (gait.js, spec-layers.js).
+// The flow leaves the body and the key frames as they are without it: the reach assist does not follow it, a hand on a
+// held prop stays on its place, and a hand is on a shared target on its frame (solve.js, share.js, flow.js).
 // Every number is measured here from the clip's joint positions.
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
@@ -56,6 +58,37 @@ const walks = build(one(200, [{ id: "seat", size: [0.6, 0.45, 0.45], at: [0, 0.2
 check(snaps(walks).length === 0, `walk, stand, walk, sit, stand: pelvis snaps at frames [${snaps(walks).join(", ")}]`);
 const stands = [...Array(10)].map((_, f) => at(walks, f, J.Hips));
 check(stands.every(p => Math.hypot(p[0] - stands[0][0], p[2] - stands[0][2]) < 1e-6), "a body that stands before its walk keeps its pelvis still");
+
+// 6. The reach assist follows the blends without the flow: under chained hand keys the hips go no lower and move no
+// more in one frame than under the same keys held a frame apart (which do not flow), at scale 1 and at 0.81.
+for (const scale of [1, 0.81]) {
+	const keys = [[0.3, 0.1, 0.3], [0.35, 0.35, 0.3], [0.2, 0.55, 0.25], [0.45, 0.4, 0.1]];
+	const made = gap => buildClip({ demo: "t", a: keys.map((hands, k) => [k * (12 + gap), "pose", { hands, over: 12 }]) }, { frames: 60, characters: [{ id: "a", at: [0, 0], heading: 0, scale }], props: [] }).clip.characters[0];
+	const hips = c => [...Array(60)].map((_, f) => at(c, f, J.Hips)), low = c => Math.min(...hips(c).map(p => p[1])), step = c => Math.max(...hips(c).slice(1).map((p, f) => Math.hypot(...p.map((v, k) => v - hips(c)[f][k]))));
+	const flow = made(0), apart = made(1);
+	check(low(flow) > low(apart) - 0.003 * scale, `scale ${scale}: chained hand keys lower the hips to ${low(flow).toFixed(4)} m, the same keys a frame apart to ${low(apart).toFixed(4)} m`);
+	check(step(flow) < step(apart) + 0.003 * scale, `scale ${scale}: under chained hand keys the hips move at most ${(step(flow) * 1000).toFixed(1)} mm in a frame, a frame apart ${(step(apart) * 1000).toFixed(1)} mm`);
+}
+
+// 7. A hand that holds a prop at a place while its keys flow stays on that place: its reach entry of the hold is under
+// 1 mm on every frame of the hold after the other holder lets go (the second pass of the frame follows the same blend).
+{
+	const scene = { frames: 100, characters: [{ id: "a", at: [0, 0], heading: 90 }, { id: "b", at: [1.3, 0], heading: 270 }], props: [{ id: "pole", size: [0.05, 0.05, 0.9], at: [0.3, 1.0, 0.3], moves: true }] };
+	const { aux } = buildClip({ demo: "t",
+		a: [[0, "hold", { prop: "pole", hand: "R" }], [0, "pose", { R: [-0.25, 0.15, 0.3], aim: [0, 1, 0], over: 10 }], [10, "pose", { R: [-0.2, 0.3, 0.45], over: 10 }], [20, "pose", { R: [-0.15, 0.35, 0.55], over: 10 }], [60, "release", { prop: "pole", hand: "R" }], [60, "pose", { R: "rest", over: 14 }]],
+		b: [[20, "pose", { L: { on: "pole", at: [0, 0, 0.2] }, over: 12 }], [32, "hold", { prop: "pole", hand: "L", at: [0, 0, 0.2], over: 10 }], [62, "pose", { L: [0.2, 0.3, 0.35], over: 10 }], [72, "pose", { L: [0.25, 0.1, 0.25], over: 10 }]],
+	}, scene);
+	const off = Math.max(...aux.reach.b.slice(62, 90).map(row => (row[0]?.key === 32 ? row[0].d : 0)));
+	check(off < 0.001, `a hand on its place on a held prop while its keys flow: ${(off * 1000).toFixed(2)} mm off at most`);
+}
+
+// 8. A blend that runs at the most a hand moves per frame needs its slow end to arrive: chained after it, a key takes
+// no speed through the shared target, and the wrist is on that target on its frame as with the keys a frame apart.
+for (const scale of [1, 0.81]) {
+	const made = gap => buildClip({ demo: "t", a: [[0, "pose", { hands: [0.3, 0.4, 0.3], over: 8 }], [8 + gap, "pose", { hands: [0.2, 0.6, 0.2], over: 8 }]] }, { frames: 30, characters: [{ id: "a", at: [0, 0], heading: 0, scale }], props: [] }).clip.characters[0];
+	const d = Math.hypot(...at(made(0), 8, J.LeftHand).map((v, k) => v - at(made(1), 8, J.LeftHand)[k]));
+	check(d < 0.001, `scale ${scale}: after a blend at the hand's top speed the wrist is ${(d * 1000).toFixed(2)} mm from its target on the frame the next key starts`);
+}
 
 console.log(fails.length ? `FAIL verify-smooth-flow: ${fails.length}` : "PASS verify-smooth-flow");
 process.exit(fails.length ? 1 : 0);

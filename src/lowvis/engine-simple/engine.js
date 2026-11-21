@@ -23,10 +23,12 @@
 //   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
 //     Where a hands, L, R, lean, bow, twist, hipTurn, hip or tilt key with ease inout starts on the frame the inout key
 //     before it in that field ends, the field is at the earlier key's target on that frame and passes it without
-//     stopping, at the speed the targets before and after give (per coordinate, a hand's in the body frame; none in a
-//     coordinate that turns back there); such a key that starts while the key before it still blends goes on with the
-//     part of the field's speed that goes toward its own target. Blends of hold, carry and place and blends to "rest"
-//     stop on their targets; a blend from "rest" starts at rest.
+//     stopping, at the speed the targets before and after give (per coordinate, a hand's in the body frame and no more
+//     than lets it be on that target on that frame at the most a hand moves per frame; none in a coordinate that turns
+//     back there); such a key that starts while the key before it still blends starts where the field's move of the
+//     frame before takes it and goes on with the part of that speed that goes toward its own target. Not so: a blend
+//     to "rest" and the blends of carry and place start from a stop and stop on their targets, a blend from "rest"
+//     starts at rest, and a hold's blend of a hand to its place stops on it.
 //     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
 //           aim:[x,y,z]|{x?,y?,z?:[x,y,z], world?:true}|"off", elbowL|elbowR: target, fast:true, over, ease}
 //       aim: the hand that holds a prop turns so the prop's long z axis points that way, body frame; the object form
@@ -238,7 +240,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f, by: k.by ?? k.f, done: u >= 1 };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.to?.joint || k.to?.on) h.self = k.to; // a target that follows something: measured again as it ended (share.js)
-				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0]; if (on) h.offset = add(h.offset ?? [0, 0, 0], qRotate(qY(B.yaw), on)); // on: flow.js
+				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0]; if (on) h.flow = qRotate(qY(B.yaw), on); // flow.js
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;
 				c.restNext[i] = k.to === "rest" && w >= 1;

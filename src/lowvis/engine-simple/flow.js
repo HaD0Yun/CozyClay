@@ -4,7 +4,8 @@
 // editor's clamped automatic tangent gives, per component, from the target before, this one and the one after (0 in a
 // component that turns back there, and never more than keeps each blend from overshooting its target). A key that
 // starts while the key before it still blends starts at the speed the field has. The value at every key's start and
-// end frame is unchanged; only the frames between differ.
+// end frame is unchanged; only the frames between differ. What the flow adds to a hand goes to the solver apart from
+// the blend (h.flow): the reach assist follows the blend without it, so the body bends and lowers as the targets ask.
 import { INDEX as J } from "../rig17.js";
 import { clamp, qRotate, qY, sub } from "./math.js";
 
@@ -48,18 +49,27 @@ export function startScalar(list, k, f, last, before, zero) {
 	if (flows(k, next)) k.m1 = passSpeed(k.from, k.to, next.to, k.over, next.over);
 }
 
+/** A speed m (per frame, an array) made no longer than most. */
+const atMost = (m, most) => { const l = Math.hypot(...m); return l > Math.max(0, most) ? m.map(v => v * Math.max(0, most) / l) : m; };
+/** The longest a speed at one end of a blend from x to y over T frames may be for no step of the blend to pass cap:
+ *  what the blend's own fastest step (1.5 times its mean, the inout ease) leaves of it. A blend that is at the cap by
+ *  itself gets none: it needs its slow end to arrive on its frame. */
+const room = (cap, x, y, T) => cap - 1.5 * Math.hypot(...minus(y, x)) / T;
+
 /** The speeds of hand key k (list: that hand's keys) as it starts, in the body frame: k.m0 from the key before (prev:
- *  that key when it has ended, null when it is cut into) or from vel (the hand's own move on the frame before, at most
- *  cap metres), k.m1 toward the next key. k.from is where it starts (null: the rest pose, left with no speed; here is
- *  where the hand is then); at(key) is a key's target in the body frame on this frame. */
+ *  that key when it has ended, null when it is cut into) or from vel (the hand's own move on the frame before), k.m1
+ *  toward the next key. cap: the most a hand moves in a frame unless its key says fast; a speed stays within what
+ *  keeps the steps of the two blends that share the target under it, so the hand is on that target on its frame. k.from is
+ *  where it starts (null: the rest pose, left with no speed; here is where the hand is then); at(key) is a key's
+ *  target in the body frame on this frame. */
 export function startHand(list, k, prev, vel, cap, at, here) {
 	const i = list.indexOf(k), next = list[i + 1], pinned = q => !q || q.pair || q.to === "keep" || q.to === "rest";
 	if (pinned(k) || !(k.from ?? here)) return;
 	if (k.from && prev && flows(prev, k)) k.m0 = prev.m1;
 	const b = at(k);
-	if (k.from && !prev && i > 0 && vel && k.ease === "inout" && k.over > 0 && b) { const l = Math.hypot(...vel), m = l > cap ? vel.map(v => v * cap / l) : vel; k.from = plus(k.from, m); k.m0 = toward(m, k.from, b, k.over); }
-	const c = !pinned(next) && flows(k, next) ? at(next) : null;
-	if (b && c) k.m1 = passSpeed(k.from ?? here, b, c, k.over, next.over);
+	if (k.from && !prev && i > 0 && vel && k.ease === "inout" && k.over > 0 && b) { const m = k.fast ? vel : atMost(vel, cap); k.from = plus(k.from, m); k.m0 = toward(m, k.from, b, k.over); }
+	const c = !pinned(next) && flows(k, next) ? at(next) : null, a = k.from ?? here;
+	if (b && c) k.m1 = atMost(passSpeed(a, b, c, k.over, next.over), next.fast ? Infinity : Math.min(room(cap, a, b, k.over), room(cap, b, c, next.over)));
 }
 
 /** After a frame of character c (c.pose: its solved pose, c.prevB: its body state): where its hands are in its body

@@ -5,6 +5,8 @@
 //       pelvis (rad), feet: [L, R] of { a: ankle world position, q: foot world quaternion, planted, floor },
 //       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint }
 // U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
+//                          flow: what the flow between keys adds to the blend, lead: that blend's point without it
+//                          when the caller has it (else worked out here); the reach assist follows the lead,
 //                          aim: world direction of the hand's thumb side, aimW: 0..1, or axes: { a, b, w } two
 //                          lists of [hand axis, world direction] blended a to b by w (aimW still weighs them),
 //                          elbow: { from, to, w, fast } world points the elbow bends toward (null = its own direction),
@@ -108,6 +110,7 @@ export function solve(B, U = {}) {
 		return l > MAX_STEP ? [add(prev, mul(d, MAX_STEP / l)), Math.max(0, l - MAX_STEP - Math.max(0, len(sub(t, sh)) - ARM_LEN))] : [t, 0];
 	};
 	// Reach assist: when a hand target is out of arm's reach and not overhead, hinge at the hips and bend the knees.
+	// It follows a hand's blend without the flow between keys (h.flow, flow.js), so the body moves as the targets ask.
 	let bend = 0, drop = 0;
 	const torso = (extraDrop = 0) => {
 		const b = bend + (U.bow ?? 0); // bow: a hinge at the hips asked for by the spec; bend: the same hinge added by the reach assist
@@ -119,15 +122,17 @@ export function solve(B, U = {}) {
 		const q2 = qMul(roll || rollC ? qMul(qP, qZ(rollC - roll)) : qP, qMul(qY(twist), qX(lean)));
 		const p2 = add(add(hips, qRotate(qP, OFFSET[J.Spine])), qRotate(q1, OFFSET[J.Spine2]));
 		const sh = SIDES.map(S => add(p2, qRotate(q2, OFFSET[S.arm])));
-		const slow = [0, 0], hand = SIDES.map((S, i) => {
+		const slow = [0, 0], lead = [], hand = SIDES.map((S, i) => {
 			const rest = add(hips, qRotate(B.q, B.hands[i])), h = H[i];
-			if (!h) return rest;
+			if (!h) return (lead[i] = rest);
 			let t = h.line ? mixV(h.from ?? rest, h.to ?? rest, h.w) : arc(h.from ?? rest, h.to ?? rest, h.w, sh0?.[i] ?? sh[i]); // about the shoulder of the unbent body
 			if (h.offset) t = add(t, h.offset);
+			lead[i] = h.lead ?? (h.flow && h.prev && !turned[i] ? capped(t, h.prev, sh[i])[0] : t); // the blend without its flow: what the reach assist follows
+			if (h.flow) t = add(t, h.flow);
 			if (h.prev && !turned[i]) [t, slow[i]] = capped(t, h.prev, sh[i]); // a turned wrist is held to its speed where it ends
-			return t;
+			return h.flow || h.lead ? t : (lead[i] = t);
 		});
-		return { hips, qP, q1, q2, hand, sh, slow };
+		return { hips, qP, q1, q2, hand, lead, sh, slow };
 	};
 	let sh0 = null, T = torso();
 	sh0 = T.sh;
@@ -136,8 +141,8 @@ export function solve(B, U = {}) {
 	if (!U.noAssist && active.some(Boolean)) for (let it = 0; it < 14; it++) {
 		let d = 0, ahead = 0; // ahead: bending forward only helps a target in front of the hips
 		SIDES.forEach((S, i) => {
-			const di = active[i] && T.hand[i][1] < T.sh[i][1] + 0.1 ? (len(sub(T.hand[i], T.sh[i])) - 0.95 * ARM_LEN) * aimed[i] : 0;
-			if (di > d) { d = di; ahead = clamp((dot(sub(T.hand[i], T.hips), fwd) + 0.1) / 0.3); }
+			const di = active[i] && T.lead[i][1] < T.sh[i][1] + 0.1 ? (len(sub(T.lead[i], T.sh[i])) - 0.95 * ARM_LEN) * aimed[i] : 0;
+			if (di > d) { d = di; ahead = clamp((dot(sub(T.lead[i], T.hips), fwd) + 0.1) / 0.3); }
 		});
 		bend = Math.min(ASSIST_BEND, bend + 1.4 * d * ahead); drop = Math.min(0.58, Math.max(0, hips0[1] - 0.45), drop + 0.6 * d);
 		T = torso();
@@ -192,5 +197,5 @@ export function solve(B, U = {}) {
 		quat[S.up] = L.qU; quat[S.leg] = L.qL; quat[S.foot] = feet[i].q;
 		place(S.leg); place(S.foot);
 	});
-	return { pos, quat, assist: { bend, drop }, slow: T.slow, late, lift: feet.map(f => f.lift), knee: knee.map(({ d, side, off }) => ({ d, side, off })) };
+	return { pos, quat, assist: { bend, drop }, slow: T.slow, lead: T.lead, late, lift: feet.map(f => f.lift), knee: knee.map(({ d, side, off }) => ({ d, side, off })) };
 }

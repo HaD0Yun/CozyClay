@@ -26,9 +26,9 @@ export function buildBodySized(c, acts, F, ctx, s = 1) {
 /** solve (solve.js) for a body of scale s: B, the points of U and the result are in world metres. */
 export function solveSized(B, U = {}, s = 1) {
 	if (s === 1) return solve(B, U);
-	const k = 1 / s, hands = U.hands?.map(h => h && { ...h, from: by(h.from, k), to: by(h.to, k), prev: by(h.prev, k), offset: by(h.offset, k), ...(h.elbow ? { elbow: { ...h.elbow, from: by(h.elbow.from, k), to: by(h.elbow.to, k) } } : {}) });
+	const k = 1 / s, hands = U.hands?.map(h => h && { ...h, from: by(h.from, k), to: by(h.to, k), prev: by(h.prev, k), offset: by(h.offset, k), flow: by(h.flow, k), lead: by(h.lead, k), ...(h.elbow ? { elbow: { ...h.elbow, from: by(h.elbow.from, k), to: by(h.elbow.to, k) } } : {}) });
 	const r = solve(sizedB(B, k), { ...U, hip: by(U.hip, k), hands, assist: U.assist && { ...U.assist, drop: U.assist.drop * k } });
-	return { ...r, pos: r.pos.map(p => by(p, s)), assist: { ...r.assist, drop: r.assist.drop * s }, lift: by(r.lift, s), slow: by(r.slow, s), late: by(r.late, s) };
+	return { ...r, pos: r.pos.map(p => by(p, s)), assist: { ...r.assist, drop: r.assist.drop * s }, lift: by(r.lift, s), slow: by(r.slow, s), late: by(r.late, s), lead: r.lead.map(p => by(p, s)) };
 }
 
 /** arc (solve.js) for a limb of a body of scale s. */
