@@ -46,7 +46,7 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 		if (!neighbors) return;
 		try {
 			const id = characterId(), rig = activeRig;
-			if (!rig) throw new Error(ko("The character rig is not loaded.", "캐릭터 리그가 로드되지 않았어요.", "角色的骨骼尚未加载。"));
+			if (!rig) throw new Error(ko("The character rig is not loaded.", "인물 리그가 로드되지 않았어요.", "角色的骨骼尚未加载。"));
 			const keys = owner.layer(id).ikKeys, current = snapshotLocalRig(rig);
 			owner.poseRigAt(id, neighbors.before);
 			const before = snapshotLocalRig(rig);

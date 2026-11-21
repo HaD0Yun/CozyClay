@@ -1,0 +1,34 @@
+{
+  "app": "cozyclay",
+  "kind": "project",
+  "version": 2,
+  "name": "Legacy cast pair",
+  "scenes": {
+    "version": 2,
+    "activeSceneId": "legacy-pair",
+    "stage": {
+      "charA": {
+        "model": "y-bot-tpose",
+        "x": -2,
+        "z": 0,
+        "rot": 10,
+        "layer": { "waypoints": [{ "id": "first-route", "frame": 10, "x": -1, "z": 0 }] }
+      },
+      "charB": {
+        "model": "y-bot-tpose",
+        "x": 2,
+        "z": 0,
+        "rot": -10,
+        "layer": { "waypoints": [{ "id": "second-route", "frame": 20, "x": 3, "z": 0 }] }
+      },
+      "showB": true,
+      "poseA": { "id": "legacy-first-pose", "label": "First saved pose", "bones": {} },
+      "poseB": { "id": "legacy-second-pose", "label": "Second saved pose", "bones": {} },
+      "subject": "Legacy performer one",
+      "subject2": "Legacy performer two",
+      "shotAspect": "16:9"
+    },
+    "scenes": [{ "id": "legacy-pair", "name": "Legacy pair scene", "objects": [] }]
+  },
+  "assets": []
+}

@@ -69,6 +69,14 @@ borders; the surface value does the work.
 
 
 - Camera toolbar actions respond immediately.
+- A rail's Camera performance control records aim only: one press captures the
+  mouse and plays the authored rail. The record label changes to Discard
+  recording while active; Escape also discards the draft. The take finishes
+  at the rail end. Record again replaces only its aim; Discard take restores
+  the authored aim and leaves keys, position, lens and roll intact. Feedback
+  uses existing button active/disabled states with no stage hint or animation.
+  While mouse aim is live, the viewport uses the same transient fast render
+  as fly navigation; full-resolution ink and shadows return when it settles.
 - Crane editing exposes explicit Add point and Remove point actions beside the
   selected point height and count. Add point fills the largest un-authored
   interval and selects the new mark; Remove point is enabled only for a
@@ -203,6 +211,23 @@ Superseded by §6 (#570): the bottom dock holds only the Sequencer and the shot
 preview, `clamp(220px, 30vh, 300px)` tall by default, and every panel edge has
 a drag handle.
 
+At 1000 px and below, Outliner and Details are optional full-width panels
+above the dock, opened and closed by the Studio panels buttons. Only one
+opens at a time. Their existing bodies own scrolling; neither covers the
+stage or timeline. Opening the Agent reveals that same region and temporarily
+replaces Details; collapsing it restores the previous panel choice. At 600 px and below,
+the dock uses a separate tab row and puts shot controls below the timeline;
+Look through replaces the thumbnail while space is limited. The tool rail
+scrolls within the remaining stage height. Export status uses the full
+window width rather than the space between desktop side columns. Phase names
+keep their room while long detail messages truncate; Retry and Cancel keep
+their own widths.
+
+Shot-camera HUD labels and captions pair `--text-1` with the opaque
+`--surface-raised` in both themes; the exit hint has full opacity.
+Install commands stay on one line in their existing horizontal scroll
+region, preserving every flag and token for manual entry and copy.
+
 ### G12 — start and Preferences
 
 Screen 2b replaces the project browser/startup chooser with today's samples;
@@ -212,6 +237,10 @@ and Hotkeys (a read-only list).
 
 ### Reusable primitives
 
+- `.subject-box-head`: an intrinsic wrapping cluster for the character name,
+  model glyph and actions. Keep the numbered name readable; when the card is
+  narrow, actions wrap to a trailing-aligned second row instead of hiding the
+  character number. The Details pane remains the scroll owner.
 - `.tl-camera-tool`: compact camera-toolbar action.
 - `.tl-camera-tool.active`: active/engaged action.
 - `.tl-camera-tool.danger`: destructive camera-toolbar action.

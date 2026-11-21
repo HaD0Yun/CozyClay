@@ -46,8 +46,7 @@ export function readStudioSource() {
   return paths.map(path => read(path).replace(/export default /g, '')).join('\n');
 }
 
-export function readStudioFunction(name) {
-  const source = readStudioSource();
+export function readStudioFunction(name, source = readStudioSource()) {
   let found;
   walk(parseSync('studio.jsx', source).program, node => {
     if (node.type === 'FunctionDeclaration' && node.id.name === name) found = node;

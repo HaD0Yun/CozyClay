@@ -32,41 +32,11 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { SCENES_STORAGE_KEY } from "../src/scenes.js";
+import { cameraBrowser } from "./camera-browser-harness.mjs";
 
-const cdpPort = Number(process.env.CDP_PORT || 9472);
 const out = process.env.QA_OUT || "/tmp/coplanar-flicker-qa";
 const studioUrl = process.env.QA_URL ?? "http://127.0.0.1:5802/app/";
-const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
-const page = targets.find((target) => target.type === "page");
-assert.ok(page, "no page target on the QA browser");
-
-const ws = new WebSocket(page.webSocketDebuggerUrl);
-await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
-let seq = 0;
-const pending = new Map();
-ws.onmessage = (event) => {
-	const message = JSON.parse(event.data);
-	if (!message.id || !pending.has(message.id)) return;
-	const item = pending.get(message.id);
-	pending.delete(message.id);
-	if (message.error) item.reject(new Error(JSON.stringify(message.error)));
-	else item.resolve(message.result);
-};
-const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); });
-const evaluate = async (expression) => {
-	const result = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
-	if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || "browser evaluation failed");
-	return result.result?.value;
-};
-const waitFor = async (label, probe, timeoutMs = 60000) => {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		const value = await probe().catch(() => null);
-		if (value) return value;
-		await new Promise((resolve) => setTimeout(resolve, 150));
-	}
-	throw new Error(`Timed out waiting for ${label}`);
-};
+const b = await cameraBrowser(), { send, evaluate } = b;
 
 const START = 60;
 const FRAMES = 40;
@@ -80,7 +50,7 @@ const ROUTE = [{ x: 0, y: 0.4, z: 0 }, { x: 0, y: 0.4, z: 6 }, { x: 5, y: 0.4, z
 await send("Runtime.enable");
 await send("Page.enable");
 // Seed storage on a same-origin page that has no editor to autosave over it.
-await send("Page.navigate", { url: `${new URL(studioUrl).origin}/favicon.ico` });
+await b.navigate(`${new URL(studioUrl).origin}/favicon.ico`);
 await evaluate(`(() => {
 	const shot = {
 		id: "coplanar-flicker-qa", name: "Coplanar flicker QA", startFrame: 0, endFrame: 359,
@@ -100,8 +70,9 @@ await evaluate(`(() => {
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Coplanar flicker QA", updatedAt: Date.now() }));
 	localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, JSON.stringify(scene));
 })()`);
-await send("Page.navigate", { url: studioUrl });
-await waitFor("studio QA hook", () => evaluate("Boolean(window.__cozyclay?.scrub && window.__cozyclay.shotCam && window.__cozyclay.setLookThrough && window.__cozyclay.sceneObject)"));
+await b.navigate(studioUrl);
+await b.arm("Boolean(window.__cozyclay?.scrub && window.__cozyclay.shotCam && window.__cozyclay.setLookThrough && window.__cozyclay.sceneObject)", 60000);
+await b.settled();
 
 // The car, in the agent's shape: a chassis box and parts parented under it that
 // each share at least one face plane with it, in distinct colours.
@@ -120,27 +91,24 @@ const ids = await evaluate(`(() => {
 	const board = mk("Running Board", ${JSON.stringify(COLORS.board)}, 0.75, 0.4, 0.3, 0.2, 0.22, 2.0);
 	return { chassis, hood, cabin, fender, board };
 })()`);
-await waitFor("parts on stage", () => evaluate(`Object.values(${JSON.stringify(ids)}).every((id) => window.__cclayPropWorld?.[id])`));
-await waitFor("car row", () => evaluate(`(() => {
-	if (document.querySelector('[data-node-id="object:${ids.chassis}"]')) return true;
+await b.arm(`Object.values(${JSON.stringify(ids)}).every((id) => window.__cclayPropWorld?.[id])`);
+await b.settled();
+await b.change(`!!document.querySelector('[data-node-id="object:${ids.chassis}"]')`, () => evaluate(`(() => {
+	if (document.querySelector('[data-node-id="object:${ids.chassis}"]')) return;
 	const fold = document.querySelector('[data-node-id="props"] .hierarchy-toggle');
 	if (fold && fold.textContent.trim() === "▸") fold.click();
-	return null;
 })()`));
 // Group Character 1 under the car through the Outliner drag (#655): that is what
 // makes the Follow shot track the car.
-await evaluate(`(() => {
-	const source = document.querySelector('[data-node-id="characterA"]');
+await b.change(`window.__cozyclay.characters[0].parent===${JSON.stringify(ids.chassis)}`, () => evaluate(`(() => {
+	const source = document.querySelector('[data-node-id="character:char-a"]');
 	const target = document.querySelector('[data-node-id="object:${ids.chassis}"]');
 	const dataTransfer = new DataTransfer();
 	const fire = (node, type) => node.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
 	fire(source, "dragstart"); fire(target, "dragenter"); fire(target, "dragover"); fire(target, "drop"); fire(source, "dragend");
-})()`);
-await waitFor("character grouped under the car", () => evaluate(`window.__cozyclay.charA.parent === ${JSON.stringify(ids.chassis)} || null`));
+})()`));
 // View through the shot camera, the way the take is delivered.
-await evaluate(`window.__cozyclay.setLookThrough(true)`);
-await evaluate(`window.__cozyclay.scrub(0)`);
-await new Promise((r) => setTimeout(r, 800));
+await b.change(`window.__cozyclay.lookThroughShot&&window.__cozyclay.tlFrame===0&&window.__cclayPropWorld?.[${JSON.stringify(ids.chassis)}]?.frame===0`, () => evaluate("window.__cozyclay.setLookThrough(true);window.__cozyclay.scrub(0)"));
 
 // Scrub each frame, wait for it to be painted, read the canvas over the hood top.
 const run = await evaluate(`(async () => {
@@ -148,13 +116,18 @@ const run = await evaluate(`(async () => {
 	const cam = window.__cozyclay.shotCam;
 	const V = cam.position.constructor;
 	const canvas = document.querySelector("#stage canvas");
-	const paint = async (frame) => {
-		for (let i = 0; i < 400; i++) {
-			await new Promise((r) => requestAnimationFrame(r));
-			if (window.__cclayPropWorld[id.chassis].frame === frame && window.__cozyclay.tlFrame === frame) break;
-		}
-		await new Promise((r) => requestAnimationFrame(r)); await new Promise((r) => requestAnimationFrame(r)); await new Promise((r) => setTimeout(r, 30));
+	let scene=window.__cozyclay.rigA;
+	while(scene.parent)scene=scene.parent;
+	const afterRender=scene.onAfterRender;
+	let pendingPaint=null;
+	scene.onAfterRender=function(...args){
+		afterRender.apply(this,args);
+		if(pendingPaint&&args[2]===cam&&window.__cclayPropWorld[id.chassis].frame===pendingPaint.frame&&window.__cozyclay.tlFrame===pendingPaint.frame)pendingPaint.done();
 	};
+	const paint = frame => new Promise((resolve,reject) => {
+		const timer=setTimeout(()=>{pendingPaint=null;reject(new Error('Painted frame deadline '+frame));},60000);
+		pendingPaint={frame,done(){clearTimeout(timer);pendingPaint=null;resolve();}};
+	});
 	// canvas px of a world point as the main pane draws the shot camera (16:9, letterboxed)
 	const toPx = (v) => {
 		cam.updateMatrixWorld();
@@ -170,7 +143,7 @@ const run = await evaluate(`(async () => {
 	const inside = (poly, x, y) => { let r = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) r = !r; } return r; };
 	const rows = []; const crops = [];
 	for (let f = ${START}; f < ${START + FRAMES}; f++) {
-		window.__cozyclay.scrub(f); await paint(f);
+		const painted=paint(f);window.__cozyclay.scrub(f);await painted;
 		const hood = window.__cclayPropWorld[id.hood], chassis = window.__cclayPropWorld[id.chassis];
 		// a disc on the hood's top face: the origin is its centre, the top is HOOD_TOP above it
 		const poly = [];
@@ -201,6 +174,7 @@ const run = await evaluate(`(async () => {
 			crops.push({ f, url: crop.toDataURL("image/png") });
 		} else crops.push({ f, url: null });
 	}
+	scene.onAfterRender=afterRender;
 	return { rows, crops };
 })()`);
 
@@ -235,4 +209,4 @@ assert.ok(Math.abs(summary.car.x[1] - summary.car.x[0]) > 1 && Math.abs(summary.
 assert.equal(flips.length, 0, `the coplanar hood top must not flip between the chassis' red and the hood's blue from frame to frame (${flips.length} flips over ${FLIP}: ${summary.flipFrames.join(" ")}; redFrac stdev ${summary.redFrac.stdev}): ${JSON.stringify(summary.redFracPerFrame)}`);
 assert.equal(undecided.length, 0, `every frame paints the coplanar region as one face, not a blend (${undecided.length} blended frames: ${undecided.map((r) => `${r.f}=${r.redFrac}`).join(" ")})`);
 console.log("coplanar flicker browser QA: coplanar faces paint steadily along a curved route");
-ws.close();
+b.close();

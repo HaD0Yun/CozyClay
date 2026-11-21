@@ -1108,9 +1108,10 @@
 	.v2-sequencer .tl-shot-block .tl-shot-actions:not(#_) { top: 36px; bottom: auto; left: 6px; background: none; padding: 0; }
 }
 
-/* Subjects: one row per subject, stacked (side by side, four of them overflowed the inspector and hid the names):
-   name, its body letter (X / Y), then colour, pose and remove at the row's end. */
+/* Characters stack as cards; a narrow header wraps actions instead of hiding the numbered name. */
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subjects-row:not(#_) { flex-direction: column; gap: 4px; }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subject-box:not(#_) { flex: none; padding: 4px 4px 4px 10px; }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subject-box-head:not(#_) { justify-content: flex-start; gap: 8px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subject-box-head:not(#_) { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .sb-name { flex: none; max-inline-size: 100%; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .sb-actions { margin-inline-start: auto; }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .sb-model { flex: none; margin-right: auto; min-width: 16px; padding: 1px 4px; border-radius: 5px; background: var(--chip-fill); color: var(--text-2); font-size: 10px; font-weight: 600; text-align: center; }

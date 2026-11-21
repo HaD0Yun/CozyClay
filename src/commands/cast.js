@@ -36,7 +36,6 @@ const semantic = [
 	// An empty cast is a legal stage (character.remove may empty it too); the UI replaces the cast with [] when the
 	// last character goes or an empty scene loads, and a minItems refusal there was thrown uncaught (#1040).
 	mutation('cast.replace', 'Replace cast', input({ characters: { type: 'array', items: record } }), 'ui-only'),
-	mutation('cast.showExtras', 'Show extra subjects', input({ show: { type: 'boolean' } }), 'ui-only'),
 	mutation('cast.setLayer', 'Set character layer', input({ characterId: id, layer: record }), 'ui-only'),
 ];
 // "Apply as walk" on a route sketch chip (workflow/ContextChips.jsx): the character's whole root path in one
@@ -94,7 +93,6 @@ export function register(registry, ports) {
 		
 		'cast.replace': ({ characters }) => owner().write(characters),
 
-		'cast.showExtras': ({ show }) => owner().showExtras(show),
 		'cast.setLayer': ({ characterId, layer }) => patch(characterId, { layer: { ...character(characterId).layer, ...layer } }),
 	};
 	registerElementSet({ register(entry) {

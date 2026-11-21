@@ -34,7 +34,7 @@ export function keysOverlap(a, b) {
 	return Boolean(x && y && x.id === y.id && (!x.layer || !y.layer));
 }
 
-const SCENE = ['cast.replace', 'cast.showExtras', 'objects.replace', 'shot.replace', 'ai.prepareShot'];
+const SCENE = ['cast.replace', 'objects.replace', 'shot.replace', 'ai.prepareShot'];
 const TIMELINE = ['shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
 const CREATE = ['object.add', 'object.createKit', 'asset.import', 'character.add'];
 const CHARACTER = /^(character\.|characters?\b|cast\.setLayer$|ik\.|motion\.)/;

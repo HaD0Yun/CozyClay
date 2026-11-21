@@ -111,7 +111,7 @@ const startPose = { ...DEFAULT_POSE, id: "qa-first-edit-pose", label: "QA pose",
 const sceneId = "qa-first-edit-scene";
 const shotId = "qa-first-edit-shot";
 const projectScene = async () => JSON.parse(await b.evaluate("window.__cozyclayProject.export()")).scenes.scenes[0];
-const currentPose = "window.__cozyclay.charA.pose";
+const currentPose = "window.__cozyclay.characters[0].pose";
 const poseBones = `JSON.stringify((() => {
 	const bones = [];
 	window.__cozyclay.rigA.traverse((bone) => { if (bone.isBone) bones.push([bone.name, ...bone.quaternion.toArray()]); });
@@ -177,9 +177,9 @@ async function fresh(surface) {
 	await expectEvents(surface, null, "restored pose, library and shot are not edits");
 }
 async function applyPose(id) {
-	await b.change("document.querySelector('[data-node-id=characterA]')?.getAttribute('aria-selected') === 'true'", () =>
-		click('[data-node-id="characterA"] .hierarchy-row'));
-	await b.change("!!document.querySelector('.pose-studio')", () => click('[aria-label="Open pose studio for Subject 1"]'));
+	await b.change("document.querySelector('[data-node-id=\"character:qa-character\"]')?.getAttribute('aria-selected') === 'true'", () =>
+		click('[data-node-id="character:qa-character"] .hierarchy-row'));
+	await b.change("!!document.querySelector('.pose-studio')", () => click('[aria-label="Open pose studio for Character 1"]'));
 	await b.change(`document.querySelector('.pose-studio [data-pose-id="${id}"]')?.classList.contains('active')`, () =>
 		click(`.pose-studio [data-pose-id="${id}"]`));
 	await b.change("!document.querySelector('.pose-studio')", () => click('.pose-studio [data-pose-apply]'));
@@ -317,7 +317,7 @@ try {
 	console.log("COVERAGE NOTE Playground hides pose authoring: pose-only UI is tested in Studio; rail and navigation are tested on both surfaces.");
 	console.log(`Screenshots: ${shotDir}`);
 	console.log(`qa-first-edit-browser: ${failures ? `${failures} FAILED scenarios` : 'all 5 real-surface scenarios passed'}`);
-	process.exitCode = failures ? 1 : 0;
+	if (failures) process.exitCode = 1;
 } finally {
 	for (const request of pending.values()) clearTimeout(request.timer);
 	interception.close();

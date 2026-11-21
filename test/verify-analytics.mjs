@@ -17,6 +17,7 @@ import * as shortcuts from "../src/shortcut-friction.js";
 import * as search from "../src/search-friction.js";
 import * as thrash from "../src/thrash-friction.js";
 import { exportMenuOpenedProps } from "../src/export-menu-telemetry.js";
+import { REPLAY_OPTIONS, recordsReplay } from "../src/analytics-values.js";
 import { readFileSync } from "node:fs";
 import packageInfo from "../package.json" with { type: "json" };
 import {
@@ -88,6 +89,7 @@ assert.doesNotMatch(appSource, /latency_bucket/);
 assert.deepEqual(sanitizeProps("feature:used", { name: "pose_edit", prompt: "secret" }), { name: "pose_edit" });
 assert.deepEqual(sanitizeProps("feature:used", { name: "private-feature" }), {});
 assert.deepEqual(sanitizeProps("install:first_launch", { heard_from: "github" }), { heard_from: "github" });
+assert.deepEqual(sanitizeProps("install:first_launch", { heard_from: "installer" }), { heard_from: "installer" });
 assert.deepEqual(sanitizeProps("install:first_launch", { heard_from: "skip" }), {});
 assert.equal(bucketCount(0), "0");
 assert.equal(bucketCount(4), "4-10");
@@ -171,6 +173,18 @@ assert.deepEqual(
 		updateStatus: null,
 	},
 );
+{
+	// #1321: session replay is the hosted studio only, never npm or the landing page.
+	const hosted = resolveAnalyticsRuntime({ env: { PROD: true, VITE_POSTHOG_KEY: "phc_hosted" }, origin: "https://cozyclay.org", runtime: null });
+	assert.equal(recordsReplay(hosted, false), true, "the hosted studio records replays");
+	assert.equal(recordsReplay(hosted, true), false, "the landing page (lite) never records replays");
+	assert.equal(recordsReplay({ kind: "enabled", distribution: "npm" }, false), false, "the npm package never records replays");
+	assert.equal(recordsReplay({ kind: "disabled", reason: "opted out" }, false), false);
+	assert.equal(REPLAY_OPTIONS.maskAllInputs, true);
+	assert.equal(REPLAY_OPTIONS.maskTextSelector, ".agent-transcript");
+	assert.equal(REPLAY_OPTIONS.recordBody, false);
+	assert.equal(REPLAY_OPTIONS.recordHeaders, false);
+}
 const npmRuntime = {
 	distribution: "npm",
 	telemetryEnabled: true,
@@ -1127,6 +1141,7 @@ async function runtimeFixture({
 		// A data: module cannot resolve analytics.js's relative imports itself.
 		.replace(/from "\.\/([a-z-]+\.js)"/g, (_match, file) => `from ${JSON.stringify(new URL(`../src/${file}`, import.meta.url).href)}`)
 		.replace("import.meta.env", JSON.stringify(env))
+		.replace('await import("posthog-js/dist/posthog-recorder")', "await Promise.resolve()")
 		.replace('import("posthog-js")', "Promise.resolve({ default: globalThis.__analyticsSdkFixture })");
 	const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${++runtimeFixtureId}`);
 	await module.initAnalytics();
@@ -1800,7 +1815,7 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 
 	const { FIRST_LAUNCH_SOURCES } = await import("../bin/telemetry-state.mjs");
 	assert.deepEqual([...HEARD_FROM_SOURCES].sort(), [...FIRST_LAUNCH_SOURCES].sort(), "the CLI and the browser agree on install sources");
-	for (const heard_from of ["site", "playground"]) {
+	for (const heard_from of ["site", "playground", "installer"]) {
 		assert.deepEqual(sanitizeProps("install:first_launch", { heard_from }), { heard_from });
 		assert.ok(rowTokens("install:first_launch").has(heard_from), `install source ${heard_from} is disclosed`);
 	}
@@ -1830,6 +1845,14 @@ try {
 	const answers = survey.records.filter((record) => record.event === "survey:use_case").map((record) => [record.properties.use_case, record.properties.team]);
 	assert.deepEqual(answers, [["film", "team"], ["skip", "skip"]]);
 	console.log("PASS update_status parity, passive action counts, edit buckets in the end beacon and the one-time use-case answer");
+	const hostedInit = await runtimeFixture({ runtime: null, origin: "https://cozyclay.org" });
+	assert.equal(hostedInit.options.disable_session_recording, false, "the hosted studio init turns replay on");
+	assert.equal(hostedInit.options.session_recording.maskAllInputs, true);
+	assert.equal(hostedInit.options.enable_recording_console_log, false);
+	const npmInit = await runtimeFixture();
+	assert.equal(npmInit.options.disable_session_recording, true, "the npm package init keeps replay off");
+	assert.equal(npmInit.options.session_recording, undefined);
+	console.log("PASS session replay is on for the hosted studio only (#1321)");
 } finally {
 	for (const [key, descriptor] of savedGlobals) {
 		if (descriptor) Object.defineProperty(globalThis, key, descriptor);

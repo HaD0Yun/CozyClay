@@ -18,7 +18,7 @@ export function ContextChips() {
 				<li key={mark.id} className="agent-context-chip" data-chip-kind={mark.kind} data-mark={mark.n} title={markTitle(mark)}
 					onPointerEnter={() => highlightMark(mark.n)} onPointerLeave={() => highlightMark(null)}>
 					<span className="agent-context-chip-label">{markLabel(mark)}</span>
-					{mark.local?.walk && shell && <button type="button" className="agent-context-chip-action" data-testid="chip-apply-walk" aria-label={ko("Apply as walk", "걷기로 적용")} title={ko("Suggestion: walk this character along the stroke", "제안: 이 캐릭터를 선을 따라 걷게 하기")} onClick={() => applyRouteAsWalk(shell, mark)}><FiNavigation2 size={9} aria-hidden="true" /></button>}
+					{mark.local?.walk && shell && <button type="button" className="agent-context-chip-action" data-testid="chip-apply-walk" aria-label={ko("Apply as walk", "걷기로 적용")} title={ko("Suggestion: walk this character along the stroke", "제안: 이 인물을 선을 따라 걷게 하기")} onClick={() => applyRouteAsWalk(shell, mark)}><FiNavigation2 size={9} aria-hidden="true" /></button>}
 					<button type="button" className="agent-context-chip-remove" aria-label={ko("Remove the mark", "표시 제거")} onClick={() => { highlightMark(null); removeMark(mark.id); }}><FiX size={9} aria-hidden="true" /></button>
 				</li>
 			))}

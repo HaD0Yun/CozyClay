@@ -315,8 +315,8 @@ test('framing #1042: crew words and defaults land on the first call; a wrong sub
     assert.equal(validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex'], framing: { intent: { size } } } }).args.framing.intent.size, want, size);
   assert.throws(() => validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex'], framing: { intent: { size: 'huge' } } } }),
     error => error.code === 'INVALID_ARGUMENT' && /\$\.args\.framing\.intent\.size: "huge" is not one of: extreme close-up, close-up/.test(error.message) && error.details.rule === 'enum', 'an unknown size lists the allowed ones');
-  assert.throws(() => validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex', 'blair'], framing: { intent: { size: 'wide shot' } } } }),
-    error => /\$\.args\.subjectIds: expected exactly 1 item, got 2\. Exactly ONE character id/.test(error.message) && error.details.path === '$.args.subjectIds', 'a two-subject call is told to name one');
+  assert.deepEqual(validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex', 'blair'], framing: { intent: { size: 'wide shot' } } } }).args.subjectIds,
+    ['alex', 'blair'], 'a group framing keeps every named subject');
 
   const f = fixture();
   seed(f, { id: 'table' });

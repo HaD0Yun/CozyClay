@@ -37,4 +37,4 @@ await undo();
 await waitFor("text node undo", () => evaluate(`document.querySelectorAll('.react-flow__node').length === ${baseline.nodes}`));
 await writeFile(`${out}/undone.png`, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
 console.log(`PASS qa-canvas-agent-browser: ${out}/connected.png (+2 nodes, +1 edge), ${out}/undone.png (three Ctrl+Z restore the baseline)`);
-cdp.close(); for (const client of hub.server.clients) client.terminate(); hub.server.close(() => process.exit(0));
+cdp.close(); for (const client of hub.server.clients) client.terminate(); hub.server.close();

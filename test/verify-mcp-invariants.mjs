@@ -21,7 +21,7 @@ const MCP_DEPENDENCY_BASELINE = Object.freeze({
 	// compare_sculpt decodes JPEG references locally (#730); BSD-3-Clause, no dependencies.
 	"jpeg-js": "0.4.4",
 	ws: "^8.19.0",
-	zod: "^3.25.0",
+	zod: "^4.6.7",
 });
 const RAW_EXECUTION_ARGUMENTS = new Set([
 	"code", "script", "scriptpath", "expression", "eval", "command", "cmd", "shell", "source",

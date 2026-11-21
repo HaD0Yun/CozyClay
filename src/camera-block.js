@@ -20,6 +20,15 @@ function cloneRail(points) {
 	return Array.isArray(points) ? points.map((point) => ({ x: point.x, z: point.z })) : null;
 }
 
+/** Per-frame aim local to the shot; position, lens and roll stay on the rail. */
+function cloneAimTake(value) {
+	if (!value || !Number.isInteger(value.startFrame) || value.startFrame < 0
+		|| !Array.isArray(value.samples) || !value.samples.length
+		|| value.startFrame + value.samples.length > 28800
+		|| !value.samples.every(sample => sample && Number.isFinite(sample.yaw) && Number.isFinite(sample.pitch))) return null;
+	return { startFrame: value.startFrame, samples: value.samples.map(({ yaw, pitch }) => ({ yaw, pitch })) };
+}
+
 /**
  * The crane axis a rail may carry: height marks along the dolly's arc
  * progress ({ points: [{ t, height }] }, endpoints pinned at t 0 and 1, at
@@ -88,7 +97,8 @@ export function railShotFields(value, cameraRail) {
 	const aim = cameraRail ? cloneRailAim(value.aim) : null;
 	const focalMm = cameraRail && Number.isFinite(value.focalMm) && value.focalMm > 0 ? value.focalMm : null;
 	const rollDeg = cameraRail ? cameraRoll(value.rollDeg) : 0;
-	return { ...(aim ? { aim } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}) };
+	const aimTake = cameraRail ? cloneAimTake(value.aimTake) : null;
+	return { ...(aim ? { aim } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}), ...(aimTake ? { aimTake } : {}) };
 }
 
 /** Build a complete block from a partial or stored camera value. */

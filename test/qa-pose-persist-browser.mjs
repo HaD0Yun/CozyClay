@@ -56,6 +56,10 @@ const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 await send("Runtime.enable");
 await send("Page.enable");
 await send("Page.navigate", { url: baseUrl });
+await waitFor("viewport Add", "!!document.querySelector('[data-testid=viewport-add]')");
+await evaluate("document.querySelector('[data-testid=viewport-add]').click()");
+await waitFor("Character entry", "!!document.querySelector('[data-add=character]')");
+await evaluate("document.querySelector('[data-add=character]').click()");
 await waitFor("studio ready", "!!window.__cozyclay?.rigA && !!window.__cozyclay?.ikChains && !window.__cozyclay?.ikMode");
 
 // Pose mode: focus a hand, then pull it along one of its axis arrows.

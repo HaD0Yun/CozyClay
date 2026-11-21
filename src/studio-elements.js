@@ -91,6 +91,7 @@ const entries = [
 	{ path: "shot.cameraKeys", type: "array", persisted: true, undoDomain: "shot", normalizer: null, frameMin: 0 },
 	{ path: "shot.cameraRail", type: "array", persisted: true, undoDomain: "shot", normalizer: "repairCamera", actions: ["shot.setCameraRail", "shot.clearCameraRail"], note: "rail points; crane/dolly timing follow the shot's camera block" },
 	{ path: "shot.targetModel", type: "id", persisted: true, undoDomain: "shot", normalizer: "repairCamera" },
+	{ path: "shot.subjectIds", type: "array", persisted: true, undoDomain: "shot", normalizer: null, note: "visible cast members framed together; empty uses the active character" },
 	{ path: "shot.freeCamera", type: "vec3", persisted: false, undoDomain: "shot", normalizer: null, note: "transient until keyed" },
 	{ path: "scenes", type: "array", persisted: true, undoDomain: null, normalizer: null, actions: ["scene.create", "scene.duplicate", "scene.rename", "scene.delete", "scene.switch"], note: "the project's scene list and the open scene; outside the undo history" },
 	{ path: "project", type: "string", persisted: true, undoDomain: null, normalizer: null, actions: ["project.save"], note: "save to the current project file; opening one needs the user's file picker" },

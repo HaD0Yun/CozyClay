@@ -46,6 +46,7 @@ export function createCompileRunner({ spawn = browserWorker, size = POOL } = {})
 	const fallBack = reason => {
 		dead = true;
 		warning ??= `The motion compile worker stopped (${reason}); compiling on the main thread, which is slower and blocks the editor while it runs.`;
+		console.warn("[cozyclay] motion compile worker stopped", warning);
 		const orphans = [...slots.flatMap(slot => (slot.job ? [slot.job] : [])), ...queue.splice(0)];
 		for (const slot of slots.splice(0)) slot.worker?.terminate?.();
 		for (const { job, resolve, reject } of orphans) { try { resolve(local(job)); } catch (error) { reject(error); } }

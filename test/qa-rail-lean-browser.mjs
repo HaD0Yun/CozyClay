@@ -183,4 +183,4 @@ assert.match(endHint, /level/i, `the hint says the ends are level: ${endHint}`);
 await shot("rail-lean-end-selected");
 
 console.log("rail lean browser QA: route turns leave roads alone, a bank mark lifts one wheel, Add dot and Bank field work");
-process.exit(0);
+ws.close();

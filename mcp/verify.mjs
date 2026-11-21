@@ -101,39 +101,41 @@ await call("add_character", { subject: "a street vendor", x: -2.2, z: 1.1, facin
 
 const cast = await call("describe_scene");
 check("cast holds three characters", cast.includes("CAST (total: 3, returned: 3, truncated: false"), cast);
-check("third character is labelled C", /^\s+C /m.test(cast), cast);
+check("third character has its numbered label", /^\s+Character 3 /m.test(cast), cast);
 
 const focused = await call("focus_character", { character: "B" });
-check("focus follows the named character", focused.startsWith("Framing B"), focused.split("\n")[0]);
+check("focus follows the named character", focused.startsWith("Framing Character 2"), focused.split("\n")[0]);
 
-const byId = await call("place_character", { character: "char-c", facing: 12 });
-check("character resolves by id", byId.startsWith("Character C updated"), byId.split("\n")[0]);
+const byId = await call("place_character", { character: cast.match(/^\s+Character 3 (\S+)/m)?.[1], facing: 12 });
+check("character resolves by id", byId.startsWith("Character 3 updated"), byId.split("\n")[0]);
 
 const bySlot = await call("place_character", { character: "3", facing: 15 });
-check("character resolves by slot", bySlot.startsWith("Character C updated"), bySlot.split("\n")[0]);
+check("character resolves by slot", bySlot.startsWith("Character 3 updated"), bySlot.split("\n")[0]);
+const poses = Object.fromEntries([...cast.matchAll(/^\s+Character \d+ (\S+)/gm)].map((match, index) => [match[1], `TRANSPORT_POSE_${index}_SENTINEL`]));
+const posed = await call("render_prompt", { mode: "image", environment: "an empty stage", pose_phrases: poses });
+check("every ID-keyed pose crosses the real transport", Object.values(poses).every(pose => posed.split(pose).length === 2), posed);
 
 check("unknown character is reported", (await call("place_character", { character: "Z" })).startsWith("No character"));
 
 const removed = await call("remove_character", { character: "C" });
-check("character removal works", removed.startsWith("Removed C"), removed.split("\n")[0]);
+check("character removal works", removed.startsWith("Removed Character 3"), removed.split("\n")[0]);
 check("cast shrinks after removal", removed.includes("CAST (total: 2, returned: 2, truncated: false"), removed);
 
 // A rigless capsule figure joins the cast with its posture, and describe_scene
 // names its model so an agent can tell it from a rig.
 const proxy = await call("add_character", { subject: "a stand-in", model: "proxy-figure", posture: "sit", x: 0.5, z: 1 });
-const proxyLine = proxy.split("\n").find((line) => /^\s+C /.test(line)) ?? "";
+const proxyLine = proxy.split("\n").find((line) => /^\s+Character 3 /.test(line)) ?? "";
 check("add_character model proxy-figure casts a capsule figure", proxyLine.includes("[proxy-figure]"), proxyLine);
 check("describe_scene names the capsule figure's model", (await call("describe_scene")).includes("model: proxy-figure"));
 const badPosture = await client.callTool({ name: "add_character", arguments: { subject: "a stand-in", model: "proxy-figure", posture: "kneel" } });
 check("add_character refuses an unknown posture", badPosture.isError === true, JSON.stringify(badPosture));
-console.log(`add_character proxy-figure cast line: ${proxyLine.trim()}`);
-check("capsule figure removal works", (await call("remove_character", { character: "C" })).startsWith("Removed C"));
+check("capsule figure removal works", (await call("remove_character", { character: "C" })).startsWith("Removed Character 3"));
 
 // An empty stage is legal: the last character can go, and the scene still
 // describes and prompts without a cast.
 await call("remove_character", { character: "B" });
 const lastOne = await call("remove_character", { character: "A" });
-check("the last character can be removed", lastOne.startsWith("Removed A") && lastOne.includes("CAST (total: 0"), lastOne);
+check("the last character can be removed", lastOne.startsWith("Removed Character 1") && lastOne.includes("CAST (total: 0"), lastOne);
 check("describe_scene reads an empty cast", (await call("describe_scene")).includes("CAST (total: 0"));
 const emptyPrompt = await client.callTool({ name: "render_prompt", arguments: { mode: "video", environment: "an empty studio", style: "flat light" } });
 check("render_prompt answers on an empty stage", emptyPrompt.isError !== true && typeof emptyPrompt.content?.[0]?.text === "string", JSON.stringify(emptyPrompt));
@@ -142,10 +144,10 @@ check("render_prompt answers on an empty stage", emptyPrompt.isError !== true &&
 await call("add_character", { subject: "a detective in a wet trench coat" });
 await call("add_character", { subject: "a courier holding a package", x: 1.6, z: 0.4, facing: -150 });
 const hiddenCast = await call("place_character", { character: "B", hidden: true });
-const hiddenCastLine = hiddenCast.split("\n").find((line) => /^\s+B /.test(line)) ?? "";
+const hiddenCastLine = hiddenCast.split("\n").find((line) => /^\s+Character 2 /.test(line)) ?? "";
 check("place_character hidden marks the cast line", hiddenCastLine.includes(" hidden"), hiddenCastLine);
 const shownCast = await call("place_character", { character: "B", hidden: false });
-const shownCastLine = shownCast.split("\n").find((line) => /^\s+B /.test(line)) ?? "";
+const shownCastLine = shownCast.split("\n").find((line) => /^\s+Character 2 /.test(line)) ?? "";
 check("place_character hidden false clears the cast marker", !shownCastLine.includes(" hidden"), shownCastLine);
 
 /* --------------------------------- the set ------------------------------- */

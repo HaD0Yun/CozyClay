@@ -121,4 +121,4 @@ expect("OFF is stored", await evaluate(`localStorage.getItem("cozyclay.auto-colo
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-auto-color-browser: all checks passed");
-process.exit(0);
+ws.close();

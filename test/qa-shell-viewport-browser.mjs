@@ -128,7 +128,7 @@ const toolbar = await evaluate(`(() => {
 		titles: keys.every((key) => key.title.length > 0),
 	};
 })()`);
-expect("the toolbar is 40 px tall", toolbar.height === 40, JSON.stringify(toolbar));
+expect("the toolbar is 20 px tall", toolbar.height === 20, JSON.stringify(toolbar));
 expect("mode keys read 1 2 3 4 5", toolbar.keys.join("") === "12345", JSON.stringify(toolbar));
 expect("exactly one mode key is active", toolbar.active === 1, JSON.stringify(toolbar));
 expect("every mode key has a title", toolbar.titles, JSON.stringify(toolbar));
@@ -161,7 +161,7 @@ for (const [mode, spec] of Object.entries(G1)) {
 	})()`);
 	modeReport[mode] = { ...state, html: undefined };
 	snapshots.push(state.html);
-	expect(`${mode}: the toolbar stays 40 px`, state.height === 40, JSON.stringify(modeReport[mode]));
+	expect(`${mode}: the toolbar stays 20 px`, state.height === 20, JSON.stringify(modeReport[mode]));
 	expect(`${mode}: exactly one active mode key, named ${spec.name}`, state.activeModes === 1 && state.activeText === `${spec.key}${spec.name}`, JSON.stringify(modeReport[mode]));
 
 	const inset = await evaluate(`(() => {
@@ -174,7 +174,7 @@ for (const [mode, spec] of Object.entries(G1)) {
 	// mode: hidden, the frame was a hole onto the editor view (Pose, Motion).
 	expect(`${mode}: the camera preview inset is visible`, inset.visible && inset.width > 0, JSON.stringify(inset));
 	if (mode === "scene" || mode === "camera") {
-		expect(`${mode}: the inset header names the shot and lens`, inset.header > 0 && /^Shot_A\s*\d+mm$/.test(inset.text ?? ""), JSON.stringify(inset));
+		expect(`${mode}: the inset header names the shot and lens`, inset.header > 0 && /^Shot_A\s*\d+(\.\d+)?mm$/.test(inset.text ?? ""), JSON.stringify(inset));
 	}
 }
 writeFileSync(`${outputDir}/task-10-modes.json`, JSON.stringify(modeReport, null, 2));

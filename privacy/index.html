@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores." />
+    <meta name="description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores." />
     <meta name="theme-color" content="#232323" />
     <link rel="canonical" href="https://cozyclay.org/privacy/" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
@@ -14,14 +14,14 @@
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="CozyClay" />
     <meta property="og:title" content="CozyClay privacy: analytics and telemetry disclosure" />
-    <meta property="og:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores." />
+    <meta property="og:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores." />
     <meta property="og:url" content="https://cozyclay.org/privacy/" />
     <meta property="og:image" content="https://cozyclay.org/media/cozyclay-demo-poster.jpg" />
     <meta property="og:image:width" content="1920" />
     <meta property="og:image:height" content="1080" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CozyClay privacy: analytics and telemetry disclosure" />
-    <meta name="twitter:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores." />
+    <meta name="twitter:description" content="What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores." />
     <meta name="twitter:image" content="https://cozyclay.org/media/cozyclay-demo-poster.jpg" />
 
     <title>Privacy — CozyClay</title>
@@ -30,7 +30,7 @@
 {
       "@context": "https://schema.org",
       "@type": "WebPage",
-      "description": "What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no session recording, no project content), how to opt out, and what the hosted demo stores.",
+      "description": "What cozyclay.org and the cozyclay npm package collect (anonymous usage analytics via PostHog, no cookies, no project files, masked session replay on the hosted studio only), how to opt out, and what the hosted demo stores.",
       "image": "https://cozyclay.org/media/cozyclay-demo-poster.jpg",
       "mainEntityOfPage": "https://cozyclay.org/privacy/",
       "datePublished": "2026-10-25",
@@ -56,23 +56,27 @@
     <main class="wrap article">
       <div class="hero">
         <h1>Privacy</h1>
-        <p class="lede">Short version: anonymous usage counts, no cookies, no recordings, never your project content. Every part of it can be turned off.</p>
-        <p class="meta">Effective October 25, 2026</p>
+        <p class="lede">Short version: anonymous usage counts, no cookies, never your project files. The hosted studio records masked session replays; the landing page and the npm app never do. Every part of it can be turned off.</p>
+        <p class="meta">Effective November 18, 2026</p>
       </div>
 
       <section>
         <h2>The website (cozyclay.org)</h2>
         <p>
           The site uses <a href="https://posthog.com/">PostHog</a> (US Cloud) for anonymous usage analytics and
-          Cloudflare Web Analytics for page counts. There are no cookies and no session recording, and
-          Do-Not-Track is respected. PostHog keeps a random pseudonymous identifier in your browser's
+          Cloudflare Web Analytics for page counts. There are no cookies, and
+          Do-Not-Track is respected. The hosted studio (<code>/app/</code>) records an anonymous session replay
+          (what is on screen, with the 3D viewport sampled at a low frame rate) so we can see where the studio
+          is confusing. Everything typed into inputs and the agent conversation are masked, and console logs and
+          network contents are not recorded. The landing page and the npm package never record replays. PostHog keeps a random pseudonymous identifier in your browser's
           localStorage so returning visits can be counted; it is never linked to an account or to anything you
           make, and clearing site data removes it. Country comes from ingest-time GeoIP only; no precise
           location is collected.
         </p>
         <p>
           The in-browser playground on the home page runs the studio inside the page. It does not read or
-          write your saved scenes, and nothing you build there leaves your browser unless you download it.
+          write your saved scenes, and your scene is never uploaded as a file; the session replay above shows what
+          was on screen.
         </p>
       </section>
 
@@ -87,6 +91,7 @@
           fingerprinting, account linking or cross-device matching; do not copy the state file between users.
           A copied start command such as <code>npx cozyclay --via site</code> stores that one source label
           with the first-launch receipt instead of asking where you heard about CozyClay.
+          Installer starts use <code>--via installer</code> to record the <code>installer</code> label.
           Prompt text, asset names,
           file names, project content, local paths and any user-entered text are never collected. For a prompt sent to the agent, only two values derived from its text leave the device: a length bucket and a similarity grade (first, same, near or different) that the browser computes against the previous prompt. Neither the text nor its words are sent; the previous prompt is kept in the page only as its set of words, until the page closes. Session
           duration and action counts are bucketed. Source checkouts, forks, development servers, CI and tests
@@ -131,7 +136,7 @@ cclay telemetry on</code></pre>
           <table>
             <thead><tr><th>Event</th><th>Purpose</th></tr></thead>
             <tbody>
-              <tr><td>install:first_launch, app:session_started, app:session_ended</td><td>Counting installs and sessions; duration and action counts are bucketed. install:first_launch may carry heard_from (x, hn, reddit, github, friend, other, site or playground), from the first-launch prompt or a copied <code>npx cozyclay --via</code> command. app:session_ended also carries scenes_touched (how many scenes were created or loaded in the session, an exact count capped at 20, not bucketed), session_id (the opaque random session id the PostHog SDK generates, used only to join a session's last events, such as an error just before it ended) and per-session edit gesture counts in five groups, pose_edit_bucket, camera_edit_bucket, object_edit_bucket, shot_edit_bucket and prompt_edit_bucket, each bucketed (0, 1-3, 4-10 or gte11); never what was edited</td></tr>
+              <tr><td>install:first_launch, app:session_started, app:session_ended</td><td>Counting installs and sessions; duration and action counts are bucketed. install:first_launch may carry heard_from (x, hn, reddit, github, friend, other, site, playground or installer), from the first-launch prompt, a copied <code>npx cozyclay --via</code> command or an installer start. app:session_ended also carries scenes_touched (how many scenes were created or loaded in the session, an exact count capped at 20, not bucketed), session_id (the opaque random session id the PostHog SDK generates, used only to join a session's last events, such as an error just before it ended) and per-session edit gesture counts in five groups, pose_edit_bucket, camera_edit_bucket, object_edit_bucket, shot_edit_bucket and prompt_edit_bucket, each bucketed (0, 1-3, 4-10 or gte11); never what was edited</td></tr>
               <tr><td>app:friction_summary</td><td>Once per session, next to app:session_ended: how much friction the session had, as closed buckets only. active_time (the session duration bucket); counts of refusals the Studio gave the user (refusals_ui) and the agent (refusals_agent), user undos (undos), errors (errors), browser long tasks (long_tasks) and motion compiles (compiles), each as 0, 1, 2, 3, 4-5, 6-10 or gte11; the longest long task (long_task_max: lt50, 50-150, 150-500, 500-2000 or gte2000 ms); the share of late playback ticks (late_tick_ratio: 0, lt5, 5-20, 20-50 or gte50 %). rage_clicks and dead_clicks count every ui:rage_click and ui:dead_click, shortcut_ignored every shortcut:ignored, search_empty every search:no_results, and nav_thrash and camera_thrash every nav:thrash and camera:thrash, including those past their event's cap. Never which command, control, key or text was involved.</td></tr>
               <tr><td>studio:refused</td><td>A command the Studio refused, as closed values only: code (one of the Studio's fixed error codes, such as INVALID_ARGUMENT, STALE_SCENE or TARGET_BUSY, else other), origin (ui for the user's own control, agent for the agent or an MCP client), phase (admission, refused before any change, or commit, refused after it started changing) group (the command's family: object, shot, cast, scene, motion, edit, task, agent or other) and command (the refused action's id, such as object.set or shot.setCameraRail, only when it is one of the actions or controls the Studio itself declares; a name the caller made up is left out). For INVALID_ARGUMENT also rule (which kind of check failed: type, unknown_field, missing, items, unique, format, enum, range, variant, unknown_action, spec, recipe, check or unclassified) and, when known, field (the path of the field that failed, as the command's own schema names it, with list positions folded, such as $.args.framing.intent.size; a field name the caller made up is cut off). At most 3 per code, command (or group, without one), field (or rule) and origin per session; the rest are only counted in app:friction_summary. A cancel the caller asked for is not a refusal. Never the command's arguments, target or message.</td></tr>
               <tr><td>edit:undone</td><td>A user undo (agent undos are not counted): age (lt2s, 2-10s, 10-60s or gte60s since the undone edit was made, only when the undo was done and its age is known), kind (pose, camera, object, shot, prompt, agent_turn for the agent's whole turn, ik_preview for an un-applied IK drag, or other), via (key, menu or button) and result (done, noop when there was nothing to undo, or refused). At most 20 per session. Never what was undone.</td></tr>

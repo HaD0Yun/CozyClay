@@ -167,7 +167,6 @@ const COMMAND_INPUTS = {
 	'character.setPose': { characterId: 'actor', pose: { id: 'new-pose', bones: {} } },
 	'characters.arrange': { ops: [{ op: 'remove', characterId: 'actor-other' }] },
 	'cast.replace': { characters: [createCharacterEntry({ id: 'replacement' })] },
-	'cast.showExtras': { show: true },
 	'cast.setLayer': { characterId: 'actor', layer: { waypoints: [] } },
 	'motion.clear': { characterId: 'actor' },
 	"character.addWaypoint": { characterId: "actor", position: { x: 0, z: 2 }, frame: 40 },
@@ -253,7 +252,7 @@ function commandFixture({ frame = 8 } = {}) {
 		write: update => ports.writeCharacters(typeof update === 'function' ? update(state.characters) : update),
 		update: (id, patch) => ports.writeCharacters(state.characters.map(entry => entry.id === id ? { ...entry, ...patch } : entry)),
 		writeState: update => ports.writeCastState(typeof update === 'function' ? update(castDomain.state()) : update),
-		applyPose: (id, pose) => ports.writePose(id, pose), showExtras: () => ports.writeCharacters([...state.characters]),
+		applyPose: (id, pose) => ports.writePose(id, pose),
 		extendTimeline: () => ports.writeCharacters([...state.characters]), poses: () => [],
 		arrange: args => { const plan = arrangement({ name: 'arrange_characters', args }, state, { bounds: () => [] }); ports.writeCharacters(plan.draft); return plan; },
 	};
@@ -264,7 +263,7 @@ function commandFixture({ frame = 8 } = {}) {
 		capture: () => ({ pos: { x: 0, y: 1.6, z: 5 }, yaw: 0, pitch: 0, fovDeg: 40 }),
 		// This fixture measures the history boundary. The real framing planner
 		// and renderer publication are exercised by verify-shots-commands.
-		frame: () => { ports.writeShots([...state.shots]); return { affectedIds: ['shot-1'], checks: { coverage: 'same-frame-subject-bounds-projection', derivedSize: 'wide shot' }, warnings: [], details: { shotId: 'shot-1', frame: 0 } }; },
+		frame: () => { ports.writeShots([...state.shots]); return { affectedIds: ['shot-1'], checks: { coverage: 'same-frame-subject-bounds-projection', derivedSize: 'wide shot' }, warnings: [], details: { shotId: 'shot-1', frame: 0, subjectIds: [state.activeCharacterId] } }; },
 		setLens: fovDeg => ports.writeShotState({ fovDeg }),
 		captureCamera: () => ports.writeShotState({ manual: true }),
 		placeCamera: camera => ports.writeShotState({ camera }),
@@ -325,7 +324,7 @@ const cases = {
 	},
 	async "every command mutation writes inside one entry of its undo domain"() {
 		const mutations = Object.values(COMMAND_MODULES).flatMap(module => module.declarations).filter(entry => entry.kind === "mutation");
-		assert.equal(mutations.length, 75);
+		assert.equal(mutations.length, 74);
 		for (const declaration of mutations) {
 			// A new shot needs free room at the playhead; the others act inside shot-1.
 			const f = commandFixture({ frame: declaration.id === "shot.create" ? 24 : 8 }), [name] = Object.entries(COMMAND_MODULES).find(([, module]) => module.declarations.includes(declaration));

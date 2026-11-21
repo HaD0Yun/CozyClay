@@ -5,7 +5,7 @@ import HierarchyPanel from "../hierarchy-panel.jsx";
 export default function OutlinerSlot() {
 	const {
 		selectedHierarchyId, selectHierarchy,
-		aimEditorAtKeyLight, characters, showB,
+		aimEditorAtKeyLight, characters,
 		ikMode, rowIdForCharIndex, activeCharIndex, sceneObjects,
 		scenes, activeSceneId, selectSceneDocument, createSceneDocumentFromUi, duplicateSceneDocumentFromUi,
 		renameSceneDocumentFromUi, deleteSceneDocumentFromUi, addSceneObject, renameSceneObject, runStudioAction,
@@ -23,7 +23,6 @@ export default function OutlinerSlot() {
 				if (id === "light") aimEditorAtKeyLight();
 			}}
 			characters={characters}
-			showB={showB}
 			ikMode={ikMode}
 			ikRowId={rowIdForCharIndex(activeCharIndex)}
 			sceneObjects={sceneObjects}

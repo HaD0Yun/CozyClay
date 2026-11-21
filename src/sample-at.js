@@ -2,7 +2,7 @@
 // advance simulation state. That makes a frame an address, not a side effect.
 
 import { createCameraBlock } from "./camera-block.js";
-import { railCameraOwner, resolveRailSchedule, isRailUsable, RAIL_OWNER_KEYS } from "./camera-rail-schedule.js";
+import { railCameraOwner, resolveRailSchedule, isRailUsable, RAIL_OWNER_KEYS, RAIL_OWNER_RAIL, RAIL_SCHEDULE_TOO_SHORT } from "./camera-rail-schedule.js";
 import { cameraMoveAt } from "./camera-move.js";
 import { DEFAULT_SENSOR_FORMAT, SENSOR_FORMATS, fovToFocalMm } from "./shot.js";
 
@@ -43,6 +43,9 @@ function pointOnTrack(track, frame) {
 	const lo = Math.floor(at);
 	const hi = Math.min(lo + 1, track.length - 1);
 	const weight = at - lo;
+	if (!track[lo]) return null;
+	if (!weight) return copyPoint(track[lo]);
+	if (!track[hi]) return null;
 	return {
 		x: track[lo].x + (track[hi].x - track[lo].x) * weight,
 		z: track[lo].z + (track[hi].z - track[lo].z) * weight,
@@ -94,10 +97,13 @@ export function sampleAt(scene, shot, frame) {
 
 	let camera = null;
 	if (shot) {
-		const block = createCameraBlock(shot.camera);
+		// The document boundary owns validation and cloning of the dense take.
+		// Sampling must not copy a whole recording for every addressed frame.
+		const { aimTake, ...instruction } = shot.camera ?? {};
+		const block = createCameraBlock(instruction);
 		const keyedCamera = () => sharedCamera(cameraMoveAt(
 			shot.cameraKeys,
-			source.cameraAnchor ?? source.subject ?? { x: 0, z: 0 },
+			source.cameraAnchorTrack ? pointOnTrack(source.cameraAnchorTrack, sampledFrame) ?? { x: 0, z: 0 } : source.cameraAnchor ?? source.subject ?? { x: 0, z: 0 },
 			sampledFrame,
 			source.filmback,
 		), source);
@@ -122,6 +128,10 @@ export function sampleAt(scene, shot, frame) {
 			camera = owner === RAIL_OWNER_KEYS
 				? keyedCamera()
 				: cameraOnTrack(source.cameraTrack, sampledFrame, source);
+			const aim = aimTake?.samples?.[Math.round(sampledFrame - startFrame) - aimTake.startFrame];
+			// A cut can retain fewer frames than a newly authored rail requires.
+			const retainedTake = schedule.kind === RAIL_SCHEDULE_TOO_SHORT && block.railFollow?.mode !== "off";
+			if (camera && (owner === RAIL_OWNER_RAIL || retainedTake) && aim) camera = { ...camera, yaw: aim.yaw, pitch: aim.pitch };
 		} else {
 			camera = cameraOnTrack(source.cameraTrack, sampledFrame, source);
 		}

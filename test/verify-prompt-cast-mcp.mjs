@@ -7,7 +7,8 @@
 // This file has its own process because the handler module keeps state.
 
 import { strict as assert } from "node:assert";
-import { createToolHandlers } from "../mcp/tool-handlers.mjs";
+import { test } from "node:test";
+import { createToolHandlers, state } from "../mcp/tool-handlers.mjs";
 
 const tools = createToolHandlers({});
 const call = async (name, args) => {
@@ -48,4 +49,48 @@ assert.ok(withHidden.includes("Three subjects."), `a hidden character changed th
 assert.ok(!withHidden.includes(D), `a hidden character reached the prompt:\n${withHidden}`);
 console.log("PASS render_prompt leaves a hidden character out");
 
-console.log("\nPASS render_prompt cast");
+await test("pose phrases bind to stable IDs across the full visible cast", async () => {
+	const cast = state.doc.scenes.find(scene => scene.id === state.doc.activeSceneId).stage.characters.filter(character => !character.hidden);
+	const poses = Object.fromEntries(cast.map((character, index) => [character.id, `POSE_${index}_SENTINEL`]));
+	assert.deepEqual(tools.find(tool => tool.name === "render_prompt").inputSchema.pose_phrases.parse(poses), poses);
+	const rendered = await call("render_prompt", { ...promptArgs, pose_phrases: poses });
+	const ordered = [...cast].sort((left, right) => rendered.indexOf(left.subject) - rendered.indexOf(right.subject));
+	for (const [index, character] of ordered.entries()) {
+		const marker = poses[character.id], position = rendered.indexOf(marker);
+		assert.equal(count(rendered, marker), 1, "every supplied pose survives exactly once");
+		assert.ok(position > rendered.indexOf(character.subject), "the pose follows its own character description");
+		if (ordered[index + 1]) assert.ok(position < rendered.indexOf(ordered[index + 1].subject), "another character cannot acquire this pose");
+	}
+	const legacy = await call("render_prompt", { ...promptArgs, pose_phrase: "LEGACY_FRAMED_SENTINEL", pose2_phrase: "LEGACY_NEXT_SENTINEL" });
+	assert.equal(count(legacy, "LEGACY_FRAMED_SENTINEL"), 1);
+	assert.equal(count(legacy, "LEGACY_NEXT_SENTINEL"), 1);
+});
+
+await test("28 cast members keep valid unique IDs and numbered report labels", async () => {
+	const cast = () => state.doc.scenes.find(scene => scene.id === state.doc.activeSceneId).stage.characters;
+	while (cast().length < 28) await call("add_character", { subject: `CAST_${cast().length}_SENTINEL`, x: cast().length, z: 0, facing: 0 });
+	const ids = cast().map(character => character.id);
+	assert.equal(new Set(ids).size, 28);
+	for (const id of ids) assert.match(id, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+	const report = await call("describe_scene", {});
+	const rows = [...report.matchAll(/^\s+Character (\d+) (\S+)\s/gm)].map(match => ({ number: Number(match[1]), id: match[2] }));
+	assert.deepEqual(rows, ids.map((id, index) => ({ number: index + 1, id })));
+	const poses = Object.fromEntries(ids.map((id, index) => [id, `FULL_CAST_POSE_${index}_SENTINEL`]));
+	const rendered = await call("render_prompt", { ...promptArgs, pose_phrases: poses });
+	for (const character of cast()) assert.equal(count(rendered, poses[character.id]), character.hidden ? 0 : 1);
+	const last = ids.at(-1);
+	await call("place_character", { character: last, x: 91 });
+	assert.equal(cast().find(character => character.id === last).x, 91);
+	await call("remove_character", { character: ids[1] });
+	assert.equal(cast().find(character => character.id === last).x, 91);
+	assert.equal(cast().some(character => character.id === ids[1]), false);
+});
+
+await test("pose dictionaries use only supplied values for prototype-named IDs", async () => {
+	const cast = state.doc.scenes.find(scene => scene.id === state.doc.activeSceneId).stage.characters;
+	cast[0].id = "constructor";
+	const empty = await call("render_prompt", { ...promptArgs, pose_phrases: Object.create(null) });
+	assert.equal(await call("render_prompt", { ...promptArgs, pose_phrases: {} }), empty);
+	const supplied = await call("render_prompt", { ...promptArgs, pose_phrases: { constructor: "OWN_POSE_SENTINEL" } });
+	assert.equal(count(supplied, "OWN_POSE_SENTINEL"), 1);
+});

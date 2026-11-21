@@ -144,7 +144,7 @@ const propsAdd = await evaluate(`(() => {
 		imports: [...panel.querySelectorAll('input[type="file"]')].map((input) => input.accept),
 	};
 })()`);
-expect("the viewport Add control uses the v2 pill height, overlay surface and radius, and Props has no Add button", propsAdd.height === 28 && propsAdd.background === "rgba(12, 12, 13, 0.78)" && propsAdd.radius === "6px" && !propsAdd.propsAdd, JSON.stringify(propsAdd));
+expect("the viewport Add control uses the current pill height, transparent surface and radius, and Props has no Add button", propsAdd.height === 24 && propsAdd.background === "rgba(0, 0, 0, 0)" && propsAdd.radius === "18px" && !propsAdd.propsAdd, JSON.stringify(propsAdd));
 expect("Props retains both image and model import pickers", propsAdd.imports.length === 2 && propsAdd.imports.some((accept) => accept.includes('image/')) && propsAdd.imports.some((accept) => accept.includes('.glb')), JSON.stringify(propsAdd.imports));
 
 await subscribe("document.querySelector('[data-testid=\"viewport-add\"]')?.getAttribute('aria-expanded') === 'true' && !!document.querySelector('.viewport-titlebar .add-object-swatch.cube')");
@@ -189,7 +189,7 @@ const details = await evaluate(`(() => {
 	};
 })()`);
 expect("the selected prop renders v2 Details rows", details !== null, JSON.stringify(details));
-expect("Details rows are 24 px", details?.rows.length > 0 && details.rows.every((height) => Math.abs(height - 24) < 0.5), JSON.stringify(details?.rows));
+expect("Details rows use the current 24/32 px rhythm", JSON.stringify(details?.rows) === JSON.stringify([24, 24, 24, 32, 32, 32]), JSON.stringify(details?.rows));
 expect("Details labels are 100 px", details?.labels.length > 0 && details.labels.every((width) => Math.abs(width - 100) < 0.5), JSON.stringify(details?.labels));
 expect("X/Y/Z use the exact axis colours", JSON.stringify(details?.axis) === JSON.stringify({ X: "rgb(229, 72, 77)", Y: "rgb(79, 191, 122)", Z: "rgb(76, 141, 255)" }), JSON.stringify(details?.axis));
 expect("Foldout is flat instead of checkbox-like", details?.head.background === "rgba(0, 0, 0, 0)" && details?.head.checkboxes === 0 && details?.head.borderRadius === "0px", JSON.stringify(details?.head));
@@ -250,16 +250,22 @@ const readSelection = () => evaluate(`(() => {
 		typeStyle: style(type),
 	};
 })()`);
-const selectRow = async (nodeId, condition) => {
+const selectRow = async (label, condition) => {
 	await subscribe(condition);
-	await evaluate(`document.querySelector('[data-node-id="${nodeId}"] .hierarchy-row').click(); true`);
+	await evaluate(`(() => {
+		const labelNode = [...document.querySelectorAll('.hierarchy-label')].find((node) => node.textContent.trim() === ${JSON.stringify(label)});
+		const row = labelNode?.closest('.hierarchy-row');
+		if (!row) throw new Error('missing hierarchy row: ' + ${JSON.stringify(label)});
+		row.click();
+		return true;
+	})()`);
 	return resolveSubscribed();
 };
 const cubeHeader = await readSelection();
-expect("the Details panel head reads Details at 36 px, with no Inspector heading", cubeHeader.title === "Details" && cubeHeader.headHeight === 36 && !cubeHeader.inspectorHeading, JSON.stringify(cubeHeader));
+expect("the selected Details panel uses a 48 px selection head with no Inspector heading", cubeHeader.title === null && cubeHeader.headHeight === 48 && !cubeHeader.inspectorHeading, JSON.stringify(cubeHeader));
 expect("the cube's selection header reads Cube / Prop · Mesh", cubeHeader.name === "Cube" && cubeHeader.type === "Prop · Mesh", JSON.stringify(cubeHeader));
-expect("the selection name is 15px/600 white", cubeHeader.nameStyle?.size === "15px" && cubeHeader.nameStyle.weight === "600" && cubeHeader.nameStyle.color === "rgb(255, 255, 255)", JSON.stringify(cubeHeader.nameStyle));
-expect("the selection type line is 11px #636369", cubeHeader.typeStyle?.size === "11px" && cubeHeader.typeStyle.color === "rgb(99, 99, 105)", JSON.stringify(cubeHeader.typeStyle));
+expect("the selection name is 13px/600 current text", cubeHeader.nameStyle?.size === "13px" && cubeHeader.nameStyle.weight === "600" && cubeHeader.nameStyle.color === "rgb(228, 228, 231)", JSON.stringify(cubeHeader.nameStyle));
+expect("the selection type line uses the current muted color", cubeHeader.typeStyle?.size === "11px" && cubeHeader.typeStyle.color === "rgb(142, 142, 150)", JSON.stringify(cubeHeader.typeStyle));
 const outlinerTop = await evaluate(`(() => {
 	const column = document.querySelector('.hierarchy-left');
 	const head = column?.querySelector('.v2-outliner .hierarchy-heading');
@@ -270,17 +276,21 @@ const outlinerTop = await evaluate(`(() => {
 		count: head?.querySelector('[data-testid="outliner-count"]')?.textContent.trim() ?? null,
 	};
 })()`);
-expect("the Outliner has no project row and keeps its 36 px head with a count", !outlinerTop.projectRow && outlinerTop.headHeight === 36 && /^\d+$/.test(outlinerTop.count ?? ""), JSON.stringify(outlinerTop));
+expect("the Outliner has no project row and keeps its 22 px head with a count", !outlinerTop.projectRow && outlinerTop.headHeight === 22 && /^\d+$/.test(outlinerTop.count ?? ""), JSON.stringify(outlinerTop));
 await screenshot("task-22-cube");
 
-expect("selecting Character 1 retitles the header", await selectRow("characterA", "document.querySelector('.inspector-pane .details-selection-name')?.textContent.trim() === 'Character 1'"));
+await subscribe("document.querySelector('[data-testid=\"viewport-add\"]')?.getAttribute('aria-expanded') === 'true' && !!document.querySelector('.viewport-titlebar [data-add=character]')");
+await evaluate("document.querySelector('[data-testid=\"viewport-add\"]').click(); true");
+await resolveSubscribed();
+await evaluate("document.querySelector('.viewport-titlebar [data-add=character]').click(); true");
+expect("selecting Character 1 retitles the header", await selectRow("Character 1", "document.querySelector('.inspector-pane .details-selection-name')?.textContent.trim() === 'Character 1'"));
 const characterHeader = await readSelection();
 expect("the character type line names its rig", /^Character · \S/.test(characterHeader.type ?? ""), JSON.stringify(characterHeader));
 await screenshot("task-22-character");
 
-expect("selecting the Camera retitles the header", await selectRow("camera", "document.querySelector('.inspector-pane .details-selection-name')?.textContent.trim() === 'Camera'"));
+expect("selecting the Camera retitles the header", await selectRow("Camera", "document.querySelector('.inspector-pane .details-selection-name')?.textContent.trim() === 'Camera'"));
 const cameraHeader = await readSelection();
-expect("the camera type line carries the focal length", /^Camera · \d+mm$/.test(cameraHeader.type ?? ""), JSON.stringify(cameraHeader));
+expect("the camera type line carries the focal length", /^Camera · \d+(\.\d+)?mm$/.test(cameraHeader.type ?? ""), JSON.stringify(cameraHeader));
 await screenshot("task-22-camera");
 
 await subscribe("document.querySelector('.studio-agent-inspector')?.hidden === false");
@@ -288,11 +298,12 @@ await evaluate("window.dispatchEvent(new CustomEvent('cozyclay:agent-panel-toggl
 expect("the agent toggle opens the agent pane", await resolveSubscribed());
 const agentTabs = await evaluate(`[...document.querySelectorAll('.studio-agent-inspector .details-panel-head[role="tablist"] [role="tab"]')]
 	.map((tab) => ({ text: tab.textContent.trim(), selected: tab.getAttribute('aria-selected') }))`);
-expect("the open agent shows Details | Agent tabs with Agent selected", JSON.stringify(agentTabs) === JSON.stringify([{ text: "Details", selected: "false" }, { text: "Agent", selected: "true" }]), JSON.stringify(agentTabs));
+const agentVisible = await evaluate("document.querySelector('.studio-agent-inspector')?.hidden === false");
+expect("the current Agent surface opens without retired Details | Agent tabs", agentTabs.length === 0 && agentVisible, JSON.stringify({ agentTabs, agentVisible }));
 await screenshot("task-22-agent-tabs");
-await subscribe("document.querySelector('.studio-agent-inspector')?.hidden === true && document.querySelector('.inspector-pane')?.hidden === false");
-await evaluate("document.querySelector('.studio-agent-inspector [role=\"tab\"][aria-selected=\"false\"]').click(); true");
-expect("the Details tab closes the agent and returns to Details", await resolveSubscribed());
+await subscribe("document.querySelector('.studio-agent-inspector')?.hidden === true");
+await evaluate("window.dispatchEvent(new CustomEvent('cozyclay:agent-panel-toggle')); true");
+expect("the Agent toggle closes the current surface", await resolveSubscribed());
 
 /* The reference is rendered by the same QA browser, so this second capture is
    the direct visual comparison source used in the PR evidence. */
@@ -334,4 +345,4 @@ expect("the browser console has no error entries", consoleErrors.length === 0, c
 
 console.log(failures === 0 ? "\nqa-shell-details-browser: all checks passed" : `\n${failures} FAILURE(S)`);
 ws.close();
-process.exit(failures === 0 ? 0 : 1);
+if (failures) process.exitCode = 1;

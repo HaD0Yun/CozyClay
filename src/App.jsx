@@ -29,7 +29,7 @@ import { restorePlaybackBones, snapshotPlaybackBones } from "./motion/rig-snapsh
 import { playTakeFrame as applyTakeFrame } from "./character-playback.js";
 
 import { FlyControls, aimAt, forwardFrom } from "./controls.jsx";
-import { createCameraPerformance, framingFromCamera } from "./camera-performance.js";
+import { useCameraPerformance, RailRecordingRig } from "./use-rail-recording.jsx";
 import ViewportMeasurement from "./viewport-measurement.jsx"; import { ContextChipTools } from "./context-chip-tools.jsx"; import { PoseKeyGhosts } from "./pose-key-ghosts.jsx"; import { FixOriginalGhost } from "./fix-original-ghost.jsx";
 import ReviewOverlay from "./review-overlay.jsx";
 import "./previs.css";
@@ -82,7 +82,8 @@ import { useUiTheme } from "./theme.js";
 import { Room, StageLights, StageAtmosphere } from "./room.jsx";
 import { createDocumentMirrors } from "./document-mirrors.js";
 import { buildRail, simplifyStroke } from "./camera-follow.js";
-import { useShotCameraTracks } from "./use-shot-camera-tracks.js";
+import { useShotCameraTracks, useShotSubjects } from "./use-shot-camera-tracks.js";
+import { subjectsCenter } from "./shot-subjects.js";
 import { ObjectCarrier, SetProps } from "./props.jsx";
 import {
 	CUTOUT_KIND,
@@ -206,9 +207,9 @@ import {
 	fovToFocalMm,
 } from "./shot.js";
 import { captureFraming, classifyMove, moveSequenceSlate, moveSequencePhrase } from "./camera-move.js";
-import { sampleAt } from "./sample-at.js";
+import { sampleAt } from "./sample-at.js"; import { createCameraReadout } from "./camera-readout.js";
 import { exportOffscreenVideo } from "./offscreen-export.js";
-import { characterRowExists, parseRigNodeId } from "./hierarchy-model.js";
+import { characterRowExists, characterRowId, parseRigNodeId } from "./hierarchy-model.js";
 import { timelineContentExtent } from "./timeline-extent.js";
 import {
 	guideGeometry,
@@ -479,7 +480,6 @@ export default function App() {
 	const shotsDomain = useShots(appContext.forRender({
 		get cameraPreviewEndRef() { return cameraPreviewEndRef; },
 		get captureCurrentFraming() { return captureCurrentFraming; },
-		get charA() { return charA; },
 		get ikMode() { return ikMode; },
 		get look() { return look; },
 		get manualCameraOverrideRef() { return manualCameraOverrideRef; },
@@ -633,7 +633,7 @@ export default function App() {
 	 * back, playback paused, so leaving never leaves the timeline running
 	 * underneath it. */
 	function exitPreview() {
-		if (cameraPerformanceRef.current?.active) stopCameraPerformance();
+		if (cameraPerformance.active) cameraPerformance.stop();
 		setPreview(false);
 		setLookThroughShot(false);
 		setTlPlaying(false);
@@ -954,7 +954,7 @@ export default function App() {
 	}));
 	const {
 		characters, posing, posingClosing, studioPick, setStudioPick,
-		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
+		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick,
 		updateCharacterAt, moveCharacter, removeCharacter, reportRig, spawnCharacter,
 		charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId, rowIdForCharIndex,
 		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, ghostLayers,
@@ -1026,7 +1026,6 @@ export default function App() {
 		get cameraPreviewEndRef() { return cameraPreviewEndRef; },
 		get castDomain() { return castDomain; },
 		get castMemberOf() { return castMemberOf; },
-		get charA() { return charA; },
 		get characters() { return characters; },
 		get frameCountRef() { return frameCountRef; },
 		get ikBodyDragRef() { return ikBodyDragRef; },
@@ -1097,7 +1096,7 @@ export default function App() {
 	const [partColoursEnabled, setPartColoursEnabled] = useState(false);
 	const [partColoursMode, setPartColoursMode] = useState("shaded");
 
-	const [selectedHierarchyId, setSelectedHierarchyId] = useState("characterA");
+	const [selectedHierarchyId, setSelectedHierarchyId] = useState(() => characterRowId(startupStage.characters[0]?.id) ?? "shot");
 	// The studio is easier to read when the operator chooses a department first.
 	// Keep the underlying selection model intact, but use this small workflow
 	// state to surface only the tools that belong to the current job.
@@ -1109,9 +1108,11 @@ export default function App() {
 	// A capsule figure (no rig) or an imported character (no IK) gets its own reason rather than
 	// the "load a character" one, which would read as a loading problem.
 	const activeCapabilities = characterCapabilities(activeChar);
-	const poseRefusal = !activeCapabilities.pose ? capabilityRefusal(activeChar, "pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "캐릭터를 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
+	const poseRefusal = !activeCapabilities.pose ? capabilityRefusal(activeChar, "pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "인물을 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
 	// #1048: one rigged character is selected and posed; otherwise Pose points at what to do next.
-	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: setActiveCharacterId, enter: () => selectWorkflowMode("pose") });
+	// Keep the Outliner in step so its selection effect cannot restore the
+	// capsule while the fallback waits for the selected rig's IK chains.
+	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: (id) => { if (id !== activeChar.id) setSelectedHierarchyId(characterRowId(id)); setActiveCharacterId(id); }, enter: () => selectWorkflowMode("pose") });
 	// False when the mode refuses (its reason shows as a toast): the 1-5 keys report that as shortcut:ignored.
 	// `hinted`: a pointer click on the disabled tab already showed the reason (friction-hint.js).
 	function selectWorkflowMode(next, { hinted = false } = {}) {
@@ -1619,16 +1620,7 @@ export default function App() {
 					frameWorldTarget({ x: keyLight.x, y: keyLight.y, z: keyLight.z }, 0.8);
 					return;
 				}
-				// Rig node ids carry their row (#76), so `characterB.rig.head`
-				// frames character B — startsWith on the row prefix covers both
-				// the character row and every rig node under it.
-				const framedChar = selectedHierarchyId.startsWith("characterB") ? (showB ? charB : null)
-					: selectedHierarchyId.startsWith("characterA") ? charA
-					: selectedHierarchyId.startsWith("character:") ? (() => {
-						const rowId = parseRigNodeId(selectedHierarchyId)?.rowId ?? selectedHierarchyId;
-						return characters.find((entry) => `character:${entry.id}` === rowId) ?? null;
-					})()
-					: null;
+				const framedChar = characters.find(entry => entry.id === charIdFromHierarchyId(selectedHierarchyId));
 				if (framedChar) {
 					event.preventDefault();
 					frameWorldTarget({ x: framedChar.x, y: 1, z: framedChar.z }, 1.8);
@@ -1663,12 +1655,10 @@ export default function App() {
 		return () => window.removeEventListener("keydown", onKeyDown);
 	});
 
-	// Deps are identities, not the entry objects: the cast placeholders are made
-	// once (domains/cast.js), but every edit to a character replaces its entry,
-	// and the actions menu should close only when the selection changes.
+	// Entry edits do not change selection, so they do not close the actions menu.
 	useEffect(() => {
 		setInspectorActionsOpen(false);
-	}, [selectedSceneObjectId, selectedHierarchyId, charA.id, charB.id, showB]);
+	}, [selectedSceneObjectId, selectedHierarchyId, activeChar.id]);
 	// A point index belongs to one object's route; carrying it to the next
 	// selection would point the gizmo at a stale dot.
 	useEffect(() => {
@@ -2469,7 +2459,7 @@ export default function App() {
 		dirtyRef.current = true;
 		const timer = setTimeout(flushScenes, 400);
 		return () => clearTimeout(timer);
-	}, [sceneObjects, shots, waypoints, tlFrameCount, charA, charB, showB, hasCharSheet, environmentImage, environment, style, hasEnvSheet, shotAspectKey, sensorId, keyLight, scenes, activeSceneId, motionLayers]);
+	}, [sceneObjects, shots, waypoints, tlFrameCount, characters, hasCharSheet, environmentImage, environment, style, hasEnvSheet, shotAspectKey, sensorId, keyLight, scenes, activeSceneId, motionLayers]);
 	useEffect(() => {
 		const onPageHide = () => flushScenes();
 		const onVisibility = () => {
@@ -2505,7 +2495,7 @@ export default function App() {
 	// props did not change must not re-render its subtree.
 	const characterViews = useMemo(() => characters.flatMap((entry, index) => {
 		if (entry.hidden) return [];
-		const pickId = index === 0 ? "A" : index === 1 ? "B" : entry.id;
+		const pickId = entry.id;
 		// Each cast member is driven by ITS OWN clip: the active one reads
 		// the editing buffer, the others their stored session motion.
 		const clip = entry.id === activeChar.id ? motion : entry.sessionMotion;
@@ -2654,9 +2644,12 @@ export default function App() {
 		}));
 	}
 
+	const cameraSubjects = useShotSubjects({ characters, objects: sceneObjects, shots, frameCount: tlFrameCount, fps: tlFps, activeId: activeChar.id, motion });
+	const cameraSubjectsAt = cameraSubjects.at;
+	const framingSubject = useMemo(() => subjectsCenter(cameraSubjectsAt(shotAtFrame(shots, tlFrame), tlFrame)) ?? { x: 0, y: 0, z: 0, rot: 0 }, [cameraSubjectsAt, shots, tlFrame]);
 	const shot = useMemo(
-		() => deriveShot(cameraPos, charA, (fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback),
-		[cameraPos, charA, fovDeg, filmback],
+		() => deriveShot(cameraPos, framingSubject, (fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback),
+		[cameraPos, framingSubject, fovDeg, filmback],
 	);
 
 	// The derived move sequence: what the keyframings geometrically prove
@@ -2666,7 +2659,7 @@ export default function App() {
 		const segs = [];
 		for (let i = 0; i < cameraKeys.length - 1; i++) {
 			segs.push(
-				classifyMove(cameraKeys[i].framing, cameraKeys[i + 1].framing, charA, {
+				classifyMove(cameraKeys[i].framing, cameraKeys[i + 1].framing, subjectsCenter(cameraSubjectsAt(activeShot, cameraKeys[i].frame)) ?? { x: 0, z: 0, rot: 0 }, {
 					durationS: (cameraKeys[i + 1].frame - cameraKeys[i].frame) / tlFps,
 					...filmback,
 				}),
@@ -2680,7 +2673,7 @@ export default function App() {
 			fromShot: segs[0].from,
 			spanS: Math.round(((cameraKeys[cameraKeys.length - 1].frame - cameraKeys[0].frame) / tlFps) * 10) / 10,
 		};
-	}, [cameraKeys, charA, filmback, tlFps]);
+	}, [cameraKeys, activeShot, cameraSubjectsAt, filmback, tlFps]);
 
 	/* --------------------------- shot video export --------------------------- */
 	// Record is an offline frame-addressed export. It never starts playback and
@@ -2688,37 +2681,12 @@ export default function App() {
 	// CaptureRig reads the shot camera's WebGLRenderTarget, and WebCodecs receives
 	// exactly one VideoFrame for every address in the inclusive export range.
 	const [recState, setRecState] = useState("idle"); // "idle" | "recording"
-	const recRef = useRef(null), cameraPerformanceRef = useRef(null), cameraPerformanceShotRef = useRef(null);
+	const recRef = useRef(null);
 	const tlFrameRef = useRef(0);
 	tlFrameRef.current = tlFrame;
 	const [exportStatus, setExportStatus] = useState(null);
-	const [cameraPerformanceRecording, setCameraPerformanceRecording] = useState(false);
 	const retryExportRef = useRef(null);
 	const frameExportRef = useRef(null);
-	function startCameraPerformance() {
-		if (!activeShot || cameraPerformanceRef.current?.active) return false;
-		if (!cameraPerformanceRef.current) {
-			cameraPerformanceRef.current = createCameraPerformance({ sample: () => framingFromCamera(shotCamRef.current, look.current) });
-		}
-		const started = cameraPerformanceRef.current.start({ startFrame: activeShot.startFrame, endFrame: activeShot.endFrame, fps: tlFps });
-		if (!started) return false;
-		enterShotLook();
-		cameraPerformanceShotRef.current = activeShot.id; manualCameraOverrideRef.current = true;
-		setCameraPerformanceRecording(true);
-		setToast(ko("Recording camera performance — right-drag and WASD to shoot; Stop saves editable keys", "퍼포먼스 녹화 중 — 오른쪽 드래그와 WASD로 촬영하고 Stop으로 키를 저장하세요"));
-		return true;
-	}
-	function stopCameraPerformance() {
-		const shotId = cameraPerformanceShotRef.current, keys = cameraPerformanceRef.current?.stop() ?? []; cameraPerformanceShotRef.current = null;
-		setCameraPerformanceRecording(false);
-		manualCameraOverrideRef.current = false;
-		if (!shotId || !keys.length) { setToast(ko("No camera performance was recorded", "녹화된 퍼포먼스가 없습니다")); return null; }
-		setTlFrame(keys.at(-1).frame);
-		runStudioAction("shot.recordKeys", { shotId, keys });
-		setToast(ko(`Camera performance saved as ${keys.length} editable keys`, `퍼포먼스를 편집 가능한 키 ${keys.length}개로 저장했어요`));
-		return keys;
-	}
-	useEffect(() => () => cameraPerformanceRef.current?.cancel(), []);
 	// Snapshot authored inputs once, not when Retry is pressed. Runtime render
 	// resources are acquired per attempt; they are never part of the snapshot.
 	function exportRequest(kind, run, { exportShots = shots, external = false, download = true, output = null } = {}) {
@@ -3386,15 +3354,13 @@ export default function App() {
 	// owns what gets generated, the camera owns the lens, and a character owns
 	// its pose and its motion.
 	const isCameraSelection = selectedHierarchyId === "camera";
-	const isCharacterSelection = selectedHierarchyId === "characters"
-		|| ((selectedHierarchyId === "characterA" || selectedHierarchyId === "characterB" || selectedHierarchyId.startsWith("character:"))
-			&& characterRowExists(selectedHierarchyId, characters));
+	const isCharacterSelection = selectedHierarchyId === "characters" || (!parseRigNodeId(selectedHierarchyId) && characterRowExists(selectedHierarchyId, characters));
 	// The View menu's four settings, as the menu reads them: one radio choice
 	// for the part colours, and a dot on the trigger whenever the viewport is
 	// showing something other than the plain stage.
 	const partColoursChoice = partColoursEnabled ? partColoursMode : "off";
 	const viewLooksActive = gridView || autoColor || partColoursEnabled || guideMode !== "off";
-	const rigSelection = parseRigNodeId(selectedHierarchyId);
+	const rigSelection = characterRowExists(selectedHierarchyId, characters) ? parseRigNodeId(selectedHierarchyId) : null;
 	const isRigSelection = rigSelection !== null;
 	// The scene row owns no settings of its own, so it leaves the empty-panel hint up rather than a blank column.
 	const inspectorHasContent = isCameraSelection || isCharacterSelection || isRigSelection
@@ -3494,7 +3460,8 @@ export default function App() {
 	// (test/motion3/qa-motion3-*-browser.mjs). Harmless in normal use.
 	useEffect(() => {
 	window.__cozyclay = {
-			runStudioAction, setFrame: setTlFrame, setPlaying: setTlPlaying,
+			// The same UI action path, with machine refusals exposed for QA.
+			runStudioAction: (id, args) => runStudioAction(id, args, true), setFrame: setTlFrame, setPlaying: setTlPlaying,
 			// lowvis QA: any clip of public/lowvis/clips/pi by name, installed as Studio scene content
 			showLowvisClip: async (name) => { const clip = await loadLowvisClip(name); if (clip) await showLowvis({ name, clip }); return Boolean(clip); },
 			rigA: activeRig, motion, tlFrame, frameCount: tlFrameCount, playing: tlPlaying, ikMode, ikChains, ikFocus, contactRadii: ikChains?.values().next().value?.contactRadii ?? null, ik: ikStateRef.current,
@@ -3513,7 +3480,8 @@ export default function App() {
 			// the camera the main view renders through (poser in IK mode) — QA
 			// projections must use this one, not the frozen shot camera
 			activeCam: ikMode ? poserCamRef.current : lookThroughShot ? shotCamRef.current : editorCamRef.current,
-			shotCam: shotCamRef.current,
+			get shotCam() { return shotCamRef.current; }, get shotMetrics() { return shot; }, get moveMetrics() { return moveSequence; },
+			sampleStateAt: (frame) => appContext.ports.sampleStateAt(frame),
 			poserCam: poserCamRef.current,
 			planCam: planCamRef.current,
 			editorCam: editorCamRef.current,
@@ -3578,7 +3546,7 @@ export default function App() {
 			frameEditorCam: (position, target) => frameEditorView(editorCamRef.current, editorLook.current, position, target),
 			lookThroughShot,
 			setLookThrough: (value) => setLookThroughShot(!!value),
-			charA,
+			activeChar,
 			insetPane: insetPaneRef.current,
 			mainPane: mainPaneRef.current,
 			// the selected prop's route, so QA can aim a gesture at the line
@@ -3604,7 +3572,7 @@ export default function App() {
 			pathDraw,
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeRig, motion, tlFrame, tlFrameCount, ikMode, ikChains, ikFocus, ikTick, charA, rangePins, rangePinResiduals, committedIkEdits, waypoints, lookThroughShot, selectedSceneObject, sceneObjects, rigs, characters, pathPointIndex, preview, posing, playMode, pathDraw, pendingIkEdit, ikEditTool]);
+	}, [activeRig, motion, tlFrame, tlFrameCount, ikMode, ikChains, ikFocus, ikTick, activeChar, shot, moveSequence, rangePins, rangePinResiduals, committedIkEdits, waypoints, lookThroughShot, selectedSceneObject, sceneObjects, rigs, characters, pathPointIndex, preview, posing, playMode, pathDraw, pendingIkEdit, ikEditTool]);
 	// QA hook (plan §6.5): exposes history depth and the present === objects
 	// invariant so the browser suite can assert undo entry counts directly.
 	// Reads live store state at call time; re-registered after every render.
@@ -3638,31 +3606,24 @@ export default function App() {
 	const playbackSceneBase = useMemo(() => ({
 		frameCount: tlFrameCount,
 		fps: tlFps,
-		subject: charA,
+		subject: activeChar,
 		motion,
-		cameraAnchor: charA,
+		cameraAnchor: activeChar,
 		fovDeg,
 		filmback,
-	}), [tlFrameCount, tlFps, charA, motion, fovDeg, filmback]);
+	}), [tlFrameCount, tlFps, activeChar, motion, fovDeg, filmback]);
 	// The camera's subject grouped under a routed object (#655) stands where
 	// that object carries it: its played root through the object's carry,
 	// frame by frame — the same carry the renderer gives the body. Null when it
 	// rides nothing, so every reader below keeps the plain played root.
 	const subjectCarry = useMemo(() => {
-		if (!charA.parent) return null;
 		const objects = new Map(sceneObjects.map((object) => [object.id, object]));
-		const take = { frameCount: tlFrameCount, fps: tlFps };
-		return (point, frame) => {
-			if (!point) return point;
-			const at = carriedPointAt(objects, charA.parent, { x: point.x, y: charA.y ?? 0, z: point.z }, frame, take);
-			return { x: at.x, z: at.z };
-		};
-	}, [charA.parent, charA.y, sceneObjects, tlFrameCount, tlFps]);
+		return activeChar.parent ? (point, frame) => { const at = carriedPointAt(objects, activeChar.parent, { ...point, y: activeChar.y ?? 0 }, frame, { frameCount: tlFrameCount, fps: tlFps }); return { x: at.x, z: at.z }; } : null;
+	}, [activeChar.parent, activeChar.y, sceneObjects, tlFrameCount, tlFps]);
 	const motionPos = usePlaybackSubjectPosition({ motion, subjectCarry, scene: playbackSceneBase, frame: tlFrame });
 
-	// The subject's full per-frame scene trajectory — what the follow camera
-	// is derived from. Without a loaded motion, and riding nothing, the subject
-	// stands still and the follow camera simply composes a static frame.
+	// The active editing layer keeps its own played root. Camera anchors are
+	// sampled separately from each shot's named cast, including inactive takes.
 	const subjectTrack = useMemo(() => {
 		if (!shots.some((shot) => shot.camera?.mode === "follow" || shot.camera?.mode === "rail")) return null;
 		const frames = Math.max(tlFrameCount, 1);
@@ -3677,9 +3638,19 @@ export default function App() {
 	const railCurve = useMemo(() => (cameraRail ? buildRail(cameraRail) : null), [cameraRail]);
 
 	// A rail shot with an aim holds its cast (or a world point) instead of the subject.
-	const followTrack = useShotCameraTracks({ shots, subjectTrack, subjectId: charA.id, fps: tlFps, yawDeg: charA.rot, filmback, fovDeg, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion });
+	const cameraAnchorTrack = cameraSubjects.track;
+	const followTrack = useShotCameraTracks({ shots, fps: tlFps, filmback, fovDeg, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion, subjects: cameraSubjects });
 
-	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack), [playbackSceneBase, subjectTrack, followTrack]);
+	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack), [playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack]);
+	const cameraPerformance = useCameraPerformance({
+		shot: activeShot, scene: playbackScene, fps: tlFps, playing: tlPlaying, setPlaying: setTlPlaying,
+		setFrame: setTlFrame, frameRef: propFrameRef, camRef: shotCamRef, look, stageRef,
+		enterShotLook, manualRef: manualCameraOverrideRef, setMovePlaying, previewEndRef: cameraPreviewEndRef,
+		writeTake: (shotId, aimTake) => runStudioAction("shot.setCamera", { shotId, patch: { aimTake } }),
+		writeKeys: (shotId, keys) => runStudioAction("shot.recordKeys", { shotId, keys }), notify: setToast,
+		onLockError: () => setToast(ko("Camera recording needs mouse capture. Allow it and try again.", "카메라 녹화에는 마우스 캡처가 필요합니다. 허용한 뒤 다시 시도하세요.", "摄影机录制需要捕获鼠标。请允许后重试。")),
+	});
+	const railRecording = cameraPerformance.rail;
 
 	// Browser acceptance seam: it invokes the exact production exporter but
 	// suppresses the download, returning only serializable evidence.
@@ -3910,9 +3881,7 @@ export default function App() {
 			: trackedFramings;
 		const framingA = blockFramings[0] ?? null;
 		const framingB = blockFramings.length > 1 ? blockFramings[blockFramings.length - 1] : null;
-		const promptSubject = activeShot && subjectTrack?.[activeShot.startFrame]
-			? { ...charA, ...subjectTrack[activeShot.startFrame] }
-			: charA;
+		const promptSubject = subjectsCenter(cameraSubjectsAt(activeShot, activeShot?.startFrame ?? tlFrame)) ?? { x: 0, z: 0, rot: 0 };
 		const blockMove = mode === "video" && activeShot && activeCamera.mode !== "keys"
 			? activeCamera.mode === "rail"
 				? "a continuous rail tracking move following the subject"
@@ -3924,7 +3893,7 @@ export default function App() {
 			shot: movePlan?.fromShot ?? (framingA
 				? deriveShot(framingA.pos, promptSubject, (framingA.fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback)
 				: shot),
-			subjects: promptSubjects(characters, charA),
+			subjects: promptSubjects(characters, activeChar),
 			environment,
 			style,
 			cameraMove: movePlan || blockMove ? CUSTOM_MOVE : cameraMove,
@@ -4163,7 +4132,7 @@ export default function App() {
 		appContext.patchLive({ studioSelection: selection, studioView: view, studioShotId: shotId });
 		appContext.patchTimeline({ currentFrame: frame }); tlFrameRef.current = frame;
 		if (selection && ["character", "rig"].includes(selection.kind)) { appContext.patchLive({ activeCharacterId: selection.id }); setActiveCharacterId(selection.id); }
-		setSelectedHierarchyId(selection ? selection.kind === "object" ? `object:${selection.id}` : ["character", "rig"].includes(selection.kind) ? `character:${selection.id}` : selection.kind === "camera" ? "camera" : "shot" : "");
+		setSelectedHierarchyId(selection ? selection.kind === "object" ? `object:${selection.id}` : ["character", "rig"].includes(selection.kind) ? characterRowId(selection.id) : selection.kind === "camera" ? "camera" : "shot" : "");
 		// Sculpt is UI-only and publishes as Stage (below): a view write that
 		// names no mode keeps the editor in it.
 		setTlFrame(frame); setWorkflowMode((current) => (current === "sculpt" && !modeSet && view.mode === "scene" ? current : view.mode)); setLookThroughShot(view.lookThrough); setGridView(view.grid); setAutoColor(view.autoColor); setTlPlaying(view.playing);
@@ -4247,16 +4216,16 @@ export default function App() {
 	 * model, so a person only ever sees the localized `uiMessage` a thrower
 	 * attached (studioActionRefusal); any other refusal stays silent, as the
 	 * controls always were. */
-	function runStudioAction(id, args = {}) {
+	function runStudioAction(id, args = {}, exposeRefusal = false) {
 		const refused = error => {
-			if (!(error instanceof StudioProtocolError)) throw error;
+			if (!(error instanceof StudioProtocolError) || exposeRefusal) throw error;
 			if (error.uiMessage) setToast(error.uiMessage);
 			return null;
 		};
 		try {
 			// A long-running action answers with a promise that refuses the same way.
 			const result = appContext.bus.run(id, args, { origin: "ui" });
-			const answer = receipt => receipt.ok ? receipt : null;
+			const answer = receipt => receipt.ok || exposeRefusal ? receipt : null;
 			return typeof result?.then === "function" ? result.then(answer, refused) : answer(result);
 		} catch (error) {
 			return refused(error);
@@ -4336,7 +4305,7 @@ export default function App() {
 		resultOpen, shots, exportKeyframePacks,
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		downloadOtioCutList, projectStatus, liveWorkspaceHandle, selectedHierarchyId, selectHierarchy,
-		aimEditorAtKeyLight, characters, showB, ikFrames, ikMode,
+		aimEditorAtKeyLight, characters, ikFrames, ikMode,
 		rowIdForCharIndex, activeCharIndex, waypoints, sceneObjects, scenes,
 		activeSceneId, selectSceneDocument, createSceneDocumentFromUi, duplicateSceneDocumentFromUi, renameSceneDocumentFromUi,
 		deleteSceneDocumentFromUi, addSceneObject, renameSceneObject, deleteSceneObject, frameSelection, groupObjectUnderNewEmpty, renameRequest,
@@ -4369,7 +4338,7 @@ export default function App() {
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
 		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
-		posingIndex, posingChar, charA, studioPick,
+		posingIndex, posingChar, studioPick,
 		posingClosing, closeStudio, castDomain, setToast,
 		setBottomTab, beginAssetDrag, shelfImageIds, shelfMeshIds,
 		manageAssetStorage, setManageAssetStorage, unusedAssetIds, usedAssetIds, usageCounts,
@@ -4396,11 +4365,11 @@ export default function App() {
 		saveStatus: { state: projectSaveState, text: projectStatus, dirty: projectDirty, name: projectName },
 		exportStatus: exportStatus && { ...exportStatus, cancel: stopShotRecording, retry: retryExport },
 		subscribeToasts: (listener) => { toastSinkRef.current.add(listener); return () => toastSinkRef.current.delete(listener); },
-		enterShotLook, startCameraPerformance, stopCameraPerformance, cameraPerformanceRecording,
-		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform,
-		// The shot camera's transform for Details › Transform; cameraLookTick keeps the angles fresh.
-		// eslint-disable-next-line react-hooks/refs -- the look ref is the camera's angle; cameraLookTick re-renders after every gizmo or Details edit
-		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), tick: cameraLookTick },
+		enterShotLook, startCameraPerformance: () => cameraPerformance.start(), stopCameraPerformance: () => cameraPerformance.stop(), cameraPerformanceRecording: cameraPerformance.active,
+		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform, cameraReadoutAt: createCameraReadout({ scene: playbackScene, shots, filmback, subjectAt: (sampledShot, sampledFrame) => subjectsCenter(cameraSubjectsAt(sampledShot, sampledFrame)), fallback: { shot, transform: null, camera: null } }),
+		// The no-shot fallback remains the live manual transform used by Details.
+		// eslint-disable-next-line react-hooks/refs
+		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), roll: 0, tick: cameraLookTick },
 	};
 
 	return (
@@ -4624,8 +4593,8 @@ export default function App() {
 								appliedPresetRef={shotPresetAppliedRef}
 								lastPosRef={shotCameraPosRef}
 								fovDeg={fovDeg}
-								charA={charA}
-								probe={{ scene: playbackSceneBase, frameRef: propFrameRef, carry: subjectCarry }}
+								subject={framingSubject}
+								subjectsAt={(frame) => cameraSubjectsAt(shotAtFrame(shots, frame), frame)} frameRef={propFrameRef}
 								camRef={shotCamRef}
 								look={look}
 								onMetrics={(p, visible) => updateShotMetrics({ position: p, visible, playing: tlPlaying, setCameraPos, setSubjectVisible, cameraRef: shotCameraPosRef, visibleRef: subjectVisibleRef })}
@@ -4654,7 +4623,7 @@ export default function App() {
 								onDone={shotsDomain.finishCameraMove}
 							/>
 							<FollowCamRig
-								enabled={followCamActive && !movePlaying}
+								enabled={followCamActive && !movePlaying && !railRecording.active}
 								frame={tlFrame}
 								frameRef={propFrameRef}
 								scene={playbackScene}
@@ -4663,12 +4632,13 @@ export default function App() {
 								look={look}
 								isInterrupted={() => (lookThroughShot && flyingRef.current) || manualCameraOverrideRef.current}
 							/>
+							<RailRecordingRig recording={railRecording} />
 							{/* Camera stays live in IK mode but drives the POSER camera,
 							    never the shot camera: the handle layer only consumes
 							    pointerdowns that hit a handle, so empty-space drags orbit
 							    and the wheel dollies without wrecking the framing. */}
 							<FlyControls
-								enabled={!posing && !playMode && !sculptMode}
+								enabled={!posing && !playMode && !sculptMode && !railRecording.active}
 								camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef}
 								look={ikMode ? poserLook : lookThroughShot ? look : editorLook}
 								getPivot={() => {
@@ -4877,8 +4847,8 @@ export default function App() {
 								onChangePoints={shotsDomain.changeCranePoints}
 								onChangeRail={shotsDomain.changeCraneRail}
 							/>
-							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} subject={charA} />
-							<CameraGlide glide={camGlide} camRef={editorCamRef} lookRef={editorLook} onDone={() => setCamGlide(null)} />
+							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} subject={activeChar} />
+							<CameraGlide glide={camGlide} camRef={editorCamRef} lookRef={editorLook} onDone={() => { setCamGlide(null); window.dispatchEvent(new Event("cozyclay:editor-framed")); }} />
 							<ViewportMeasurement camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} /><ContextChipTools camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} />
 							<ShotLookApplier camRef={shotCamRef} look={look} />
 							<ShotCameraGhost
@@ -4889,7 +4859,7 @@ export default function App() {
 								selected={shotCameraSelected}
 							/>
 							{waypointMode && !preview && (
-								<ShotPathPreview waypoints={waypoints} start={charA} activeWaypointId={activeWaypointId} />
+								<ShotPathPreview waypoints={waypoints} start={activeChar} activeWaypointId={activeWaypointId} />
 							)}
 							<CaptureRig
 								apiRef={captureRef}
@@ -4945,7 +4915,11 @@ export default function App() {
 							</div>
 						)}
 
-						<div ref={mainPaneRef} className="vp-pane vp-main" />
+						<div ref={mainPaneRef} className="vp-pane vp-main">
+							<div className={"caption" + (subjectVisible ? "" : " off")} hidden={playMode || !lookThroughShot}>
+								{subjectVisible ? slateLineKo(shot) : ko("CHARACTER OUT OF FRAME", "인물이 프레임 밖에 있어요", "角色不在画面内")}
+							</div>
+						</div>
 						<div
 							ref={insetPaneRef}
 							hidden={playMode}
@@ -5047,9 +5021,6 @@ export default function App() {
 							<span />
 							<span />
 							<span />
-						</div>
-						<div className={"caption" + (subjectVisible ? "" : " off")} hidden={playMode || !lookThroughShot}>
-							{subjectVisible ? slateLineKo(shot) : ko("SUBJECT OUT OF FRAME", "피사체가 프레임 밖에 있어요")}
 						</div>
 
 						</div>

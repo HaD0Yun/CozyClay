@@ -53,7 +53,7 @@ export default function ImportedRigPanel({ isCharacterSelection, activeChar }) {
 						{RIG_TEMPLATE_IDS.map((id) => <option key={id} value={id}>{id}</option>)}
 					</select>
 				</label>
-				<p className="inspector-hint">{ko("Changing it clears the character's take: compile the motion again.", "바꾸면 캐릭터의 테이크가 지워져요: 모션을 다시 컴파일하세요.", "更改后会清除角色的动作片段：请重新编译动作。")}</p>
+				<p className="inspector-hint">{ko("Changing it clears the character's take: compile the motion again.", "바꾸면 인물의 테이크가 지워져요: 모션을 다시 컴파일하세요.", "更改后会清除角色的动作片段：请重新编译动作。")}</p>
 				{error && <p className="inspector-hint" role="alert">{error}</p>}
 			</div>
 		</Foldout>

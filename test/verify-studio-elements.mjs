@@ -262,7 +262,7 @@ const sample = {
 	object: (entry) => (entry.path === "object.light" ? { type: "point", intensity: 0.45, flicker: 0.6, aim: null }
 		: entry.path === "object.effect" ? { preset: "smoke", rate: 30, wind: { x: 0.1 } }
 			: entry.path === "object.text" ? { value: "CozyClay", size: 0.4, depth: 0, align: "center" } : { color: "#ff5a1f", intensity: 6, halo: 2 }),
-	array: (entry) => (entry.path === "object.path"
+	array: (entry) => (entry.path === "shot.subjectIds" ? ["first", "second", "third"] : entry.path === "object.path"
 		? { points: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 1 }] }
 		: entry.path === "shot.cameraKeys"
 			? [{ frame: 4, framing: { pos: { x: 0, y: 1, z: 2 }, yaw: 0.1, pitch: -0.2, fovDeg: 40 } }]

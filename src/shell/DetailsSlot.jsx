@@ -1,4 +1,4 @@
-import { useStudioShell } from "./studio-shell-context.js";
+import { useStudioPlaybackFrame, useStudioShell } from "./studio-shell-context.js";
 import { ko } from "../locale.js";
 import { detailsSelection } from "./details-selection.js";
 import LightPanel from "../panels/LightPanel.jsx";
@@ -26,8 +26,8 @@ export default function DetailsSlot() {
 		buildStudioAgentContext, highlightAgentTargets, selectedSceneObject, rigSelection,
 		inspectorActionsOpen, setInspectorActionsOpen, runStudioAction, deleteSelectedSceneObject, inspectorHasContent,
 		keyLightSelected, keyLight, lighting, isCameraSelection,
-		shot, moveSequence, cameraKeys, activeShot,
-		isCharacterSelection, showB, characters, openStudio,
+		shot: sceneShot, moveSequence, cameraKeys, activeShot, cameraReadoutAt,
+		isCharacterSelection, characters, openStudio,
 		posing, workflowMode, activeChar,
 		activeCharIndex,
 		selectablePoses, ikMode, ikApplyPoseAsKey, motion, setStudioPick,
@@ -46,10 +46,10 @@ export default function DetailsSlot() {
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
 		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		autoColor, recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
-		posingIndex, posingChar, charA,
+		posingIndex, posingChar,
 		studioPick, posingClosing, closeStudio, castDomain, setToast,
 		beginWorkspaceResize,
-	} = useStudioShell();
+	} = useStudioShell(), shot = cameraReadoutAt(useStudioPlaybackFrame()).shot ?? sceneShot;
 	const selection = detailsSelection({ selectedHierarchyId, selectedSceneObject, rigSelection, characters, shot, inspectorHasContent });
 	const { resetPose, fingerPanel } = posePanelControls(useStudioShell());
 	return (
@@ -113,7 +113,7 @@ export default function DetailsSlot() {
 			<p className="inspector-empty" data-inspector-empty role="status">
 				{ko(
 					"Select the camera, a character, the light, the environment or a prop in the Outliner, and its settings appear here.",
-					"아웃라이너에서 카메라, 캐릭터, 조명, 환경, 소품을 고르면 그 설정이 여기 나타납니다.",
+					"아웃라이너에서 카메라, 인물, 조명, 환경, 소품을 고르면 그 설정이 여기 나타납니다.",
 				)}
 			</p>
 		)}
@@ -134,7 +134,6 @@ export default function DetailsSlot() {
 
 		<SubjectsPanel
 			isCharacterSelection={isCharacterSelection}
-			showB={showB}
 			characters={characters}
 			openStudio={openStudio}
 			posing={posing}
@@ -313,7 +312,7 @@ export default function DetailsSlot() {
 				<PoseStudioPanel
 					docked
 					subject={posingIndex >= 0 ? posingIndex + 1 : 1}
-					model={posingChar?.model ?? charA.model}
+					model={posingChar?.model ?? activeChar.model}
 					poses={selectablePoses}
 					selectedId={studioPick}
 					closing={posingClosing}

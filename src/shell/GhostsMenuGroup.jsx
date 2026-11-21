@@ -46,7 +46,7 @@ export default function GhostsMenuGroup() {
 						className={"view-menu-item ghost-mode-option" + (checked ? " active" : "")}
 						data-ghosts={option.value}
 						aria-checked={checked}
-						title={ko("Translucent poses of the selected character's take before and after the playhead; never in exports", "선택한 캐릭터 테이크의 앞뒤 포즈를 반투명하게 표시합니다. 내보내기에는 나오지 않습니다")}
+						title={ko("Translucent poses of the selected character's take before and after the playhead; never in exports", "선택한 인물 테이크의 앞뒤 포즈를 반투명하게 표시합니다. 내보내기에는 나오지 않습니다")}
 						onClick={() => set({ mode: option.value })}
 					>
 						<span className="view-menu-mark" aria-hidden="true">{checked ? "✓" : ""}</span>
@@ -62,7 +62,7 @@ export default function GhostsMenuGroup() {
 				className={"view-menu-item draft-ghost-option" + (drafts ? " active" : "")}
 				data-testid="draft-ghost-toggle"
 				aria-checked={drafts}
-				title={ko("While the agent works, its latest motion draft plays on the character as a teal figure; never in exports", "에이전트가 작업하는 동안 최신 모션 초안을 캐릭터 위에 청록색으로 재생합니다. 내보내기에는 나오지 않습니다")}
+				title={ko("While the agent works, its latest motion draft plays on the character as a teal figure; never in exports", "에이전트가 작업하는 동안 최신 모션 초안을 인물 위에 청록색으로 재생합니다. 내보내기에는 나오지 않습니다")}
 				onClick={() => setDraftGhostShown(!drafts)}
 			>
 				<span className="view-menu-mark" aria-hidden="true">{drafts ? "✓" : ""}</span>

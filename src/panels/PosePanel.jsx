@@ -19,7 +19,7 @@ export default function PosePanel({
 					    is the same grid the studio shows, applied to whichever
 					    character the hierarchy has selected. */}
 					<p className="inspector-hint v2-details-hint">
-						{ko(`The pose on Subject ${activeCharIndex + 1}.`, `인물 ${activeCharIndex + 1}의 자세입니다.`, `角色 ${activeCharIndex + 1} 的姿势。`)}
+						{ko(`The pose on Character ${activeCharIndex + 1}.`, `인물 ${activeCharIndex + 1}의 자세입니다.`, `角色 ${activeCharIndex + 1} 的姿势。`)}
 					</p>
 					<PoseTileGrid
 						poses={selectablePoses}
@@ -49,7 +49,7 @@ export default function PosePanel({
 						label={ko("Identity image", "인물 이미지")}
 						hint={ko(
 							"A character sheet or photo of this person. It travels with every framing capture so a render keeps the same face, hair and wardrobe.",
-							"이 인물의 캐릭터 시트나 사진입니다. 모든 프레이밍 캡처에 함께 실려 얼굴·머리·의상을 유지합니다.",
+							"이 인물의 인물 시트나 사진입니다. 모든 프레이밍 캡처에 함께 실려 얼굴·머리·의상을 유지합니다.",
 						)}
 						value={activeChar.identityImage ?? null}
 						alt={ko("Identity reference", "인물 참고 이미지")}

@@ -344,4 +344,4 @@ const studioErrors = runtimeErrors.filter((error) => !externalErrors.includes(er
 expect("browser QA has no Studio console or page errors", studioErrors.length === 0, JSON.stringify(studioErrors));
 console.log(failures === 0 ? `empty object browser QA: ok (screenshots in ${out})` : `empty object browser QA: ${failures} failure(s)`);
 ws.close();
-process.exit(failures === 0 ? 0 : 1);
+if (failures) process.exitCode = 1;

@@ -637,9 +637,9 @@ export function useObjects(appContext) {
 	 * means that one frame. Bone rows are namespaced per character (#76), so
 	 * the row itself names whose frame it is. */
 	function attachTargetForRow(rowId) {
-		const charId = appContext.shared.charIdFromHierarchyId(rowId);
-		if (charId) return appContext.shared.characters.some((entry) => entry.id === charId) ? { characterId: charId, bone: null } : null;
 		const rig = parseRigNodeId(rowId);
+		const charId = appContext.shared.charIdFromHierarchyId(rowId);
+		if (charId && !rig) return appContext.shared.characters.some((entry) => entry.id === charId) ? { characterId: charId, bone: null } : null;
 		const owner = rig ? appContext.shared.charIdFromHierarchyId(rig.rowId) : null;
 		const bone = rig ? ATTACH_BONE_ROWS.get(rig.token) : null;
 		if (!bone || !owner || !appContext.shared.characters.some((entry) => entry.id === owner)) return null;

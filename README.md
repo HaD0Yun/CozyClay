@@ -3,6 +3,19 @@
 </p>
 
 <p align="center">
+  <b>English</b> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.zh-TW.md">繁體中文</a> ·
+  <a href="README.es.md">Español</a> ·
+  <a href="README.fr.md">Français</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.pt-BR.md">Português (BR)</a> ·
+  <a href="README.ru.md">Русский</a>
+</p>
+
+<p align="center">
   <b>Make the scene first. Then make it a video.</b><br>
   <em>Open source previs in a browser tab: block the set, move the cast, cut the camera, hand the shot to an AI video model.</em>
 </p>
@@ -58,12 +71,13 @@ npx cozyclay
 That is the whole install. You need Node.js 22.19 or newer and a Chromium browser. You do not need
 a GPU, Python or a model download. The studio opens at `http://127.0.0.1:5180/app/`.
 
-**Updating.** `npx cozyclay` fetches the newest release each time you run it. After
-`npm install -g cozyclay`, the studio shows a small **Update** chip in the top bar when a newer
-release is out. **Update now** installs it, and **Restart now** starts the new version in the same
-terminal; the studio reloads once your project is saved. On Windows the chip gives you the command to
-copy instead: one-click stays off there by design. `cclay update` does the same from the terminal. `--no-update-check` or `COZYCLAY_NO_UPDATE_CHECK=1` turns the check off
-for one launch; `cclay update --off` turns it off for good, and `cclay update --on` brings it back.
+**Updating.**
+
+- `npx cozyclay` fetches the newest release on every run.
+- After `npm install -g cozyclay`, the studio shows an **Update** chip in the top bar when a release is out. **Update now** installs it. **Restart now** starts the new version in the same terminal.
+- On Windows the chip shows the command to copy instead. One-click update stays off there by design.
+- `cclay update` does the same from the terminal.
+- Turn the check off for one launch with `--no-update-check` or `COZYCLAY_NO_UPDATE_CHECK=1`. Turn it off for good with `cclay update --off`, and back on with `cclay update --on`.
 
 > **Asking an AI agent to set it up?** Give it this repository link. Its instructions are in
 > [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md).
@@ -100,6 +114,8 @@ npm install
 npm run dev     # http://127.0.0.1:5180/app/
 npm test
 ```
+
+Contribution rules are in [`AGENTS.md`](AGENTS.md). Open pull requests against `main`.
 
 ## Docs
 

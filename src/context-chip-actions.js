@@ -181,9 +181,9 @@ function armBone(shell, characterId, noteId) {
 /** N or the head's pin: a note at the playhead on the selected character's lane. */
 export function dropNoteAtPlayhead(shell) {
 	const character = shell.activeChar;
-	if (!character) { shell.setToast?.(ko("Select a character to pin a note on its lane", "노트를 꽂을 캐릭터를 먼저 선택하세요")); return null; }
+	if (!character) { shell.setToast?.(ko("Select a character to pin a note on its lane", "노트를 꽂을 인물을 먼저 선택하세요")); return null; }
 	const notes = notesOf(shell, character.id);
-	if (notes.length >= NOTE_MAX) { shell.setToast?.(ko(`A character holds up to ${NOTE_MAX} notes`, `캐릭터 하나에 노트는 ${NOTE_MAX}개까지예요`, `每个角色最多 ${NOTE_MAX} 条笔记`)); return null; }
+	if (notes.length >= NOTE_MAX) { shell.setToast?.(ko(`A character holds up to ${NOTE_MAX} notes`, `인물 하나에 노트는 ${NOTE_MAX}개까지예요`, `每个角色最多 ${NOTE_MAX} 条笔记`)); return null; }
 	const note = createTimelineNote({ id: createStableItemId("note"), frame: shell.tlFrame ?? 0, frameCount: shell.tlFrameCount ?? 1, takeId: character.motionTake?.takeId ?? null });
 	if (!writeNotes(shell, character.id, [...notes, note])) return null;
 	openNoteMark(shell, character.id, note);

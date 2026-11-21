@@ -9,8 +9,8 @@ const SHOW_MS = 2200, SAME_HINT_GAP_MS = 4000, SELECTION_HINT_GAP_MS = 60_000;
 
 const FALLBACK = {
 	tool_pin: () => ko("Select a bone to pin first", "먼저 고정할 뼈를 선택하세요", "请先选择要固定的骨骼"),
-	tool_ik: () => ko("Select a character first", "먼저 캐릭터를 선택하세요", "请先选择角色"),
-	mode_pose: () => ko("Select a character to pose first", "먼저 포즈를 잡을 캐릭터를 선택하세요", "请先选择要摆姿势的角色"),
+	tool_ik: () => ko("Select a character first", "먼저 인물을 선택하세요", "请先选择角色"),
+	mode_pose: () => ko("Select a character to pose first", "먼저 포즈를 잡을 인물을 선택하세요", "请先选择要摆姿势的角色"),
 	agent_send: () => ko("Type a message first", "먼저 메시지를 입력하세요", "请先输入消息"),
 };
 const HOSTED_AGENT = () => ko("The agent connects in the local app: npx cozyclay", "에이전트는 로컬 앱에서 연결돼요: npx cozyclay", "智能体需在本地应用中连接：npx cozyclay");

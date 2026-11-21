@@ -63,3 +63,22 @@ export function sessionEndedPropAllowed(key, value) {
 	if (key === "session_id") return typeof value === "string" && SESSION_ID_PATTERN.test(value);
 	return key.endsWith("_bucket") && COUNT_BUCKETS.has(value);
 }
+
+// Session replay for the hosted studio (cozyclay.org/app/) only (#1321). Inputs
+// and the agent transcript are masked; the 3D viewport is sampled at a low frame
+// rate; console logs and network headers/bodies are never recorded.
+export const REPLAY_OPTIONS = Object.freeze({
+	maskAllInputs: true,
+	maskTextSelector: ".agent-transcript",
+	recordHeaders: false,
+	recordBody: false,
+	captureCanvas: { recordCanvas: true, canvasFps: 2, canvasQuality: "0.4" },
+	canvasCapture: { resolutionScale: 0.5 },
+});
+export const REPLAY_INIT = Object.freeze({ disable_session_recording: false, session_recording: REPLAY_OPTIONS, enable_recording_console_log: false });
+export const NO_REPLAY = Object.freeze({ disable_session_recording: true });
+
+/** Replay records the hosted studio only: never the npm package and never the landing page (lite). */
+export function recordsReplay(resolved, lite) {
+	return resolved?.kind === "enabled" && resolved.distribution === "hosted" && !lite;
+}

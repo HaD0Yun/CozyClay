@@ -390,7 +390,7 @@ export function readProjectDocument(raw) {
 			castStyle: normalizeCastStyle(parsed.castStyle),
 			...(parsed.previsMode === "storyboard" ? { wasStoryboard: true } : {}),
 			savedAt: Number.isFinite(parsed.savedAt) && parsed.savedAt > 0 ? parsed.savedAt : null,
-			scenesDocument: { version: scenes.version, activeSceneId: scenes.activeSceneId ?? null, scenes: scenes.scenes },
+			scenesDocument: { version: scenes.version, activeSceneId: scenes.activeSceneId ?? null, scenes: scenes.scenes, ...(scenes.version < 3 && plainRecord(scenes.stage) ? { stage: scenes.stage } : {}) },
 			workspaceLayout: parsed.workspace && typeof parsed.workspace === "object" ? parsed.workspace : null,
 						assets,
 			workflow,

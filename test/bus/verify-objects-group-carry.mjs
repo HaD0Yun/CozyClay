@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import { objectsFixture } from './objects-fixture.mjs';
 import { createSceneObject, rotatePatch, translatePatch } from '../../src/scene-objects.js';
+import { characterRowId } from '../../src/hierarchy-model.js';
 
 // Every authored transform edit of a group root carries its parts rigidly (records are flat world
 // space): object.set, patch_elements, object.update, the inspector and the gizmo. The move is the
@@ -126,4 +127,19 @@ console.log('PASS the patch receipt is applied (no false droppedPaths) and reads
     assert.ok(Math.abs(at(f, 'part-9').y - 0) < 1e-9, 'the parts go down with the root to where it landed (y 0)');
   } finally { f.dispose(); }
   console.log('PASS a group of 12 parts: 8 rows of readback with a detail cursor; a clamped root move is partial and carries its parts to where it landed');
+}
+
+{
+  const f = objectsFixture(scene()), calls = [];
+  try {
+    const ids = ['first', 'second', 'third'];
+    f.scope.characters = ids.map(id => ({ id }));
+    f.scope.runStudioAction = (action, input) => { calls.push({ action, input }); };
+    for (const id of ids) f.objects.reparentSceneObject('object:other', `${characterRowId(id)}.rig.rightHand`);
+    assert.deepEqual(calls, ids.map(characterId => ({ action: 'object.attach', input: { objectId: 'other', characterId, bone: 'rightHand' } })), 'bone-row drops keep the named bone for every member');
+    calls.length = 0;
+    for (const id of ids) f.objects.reparentSceneObject('object:other', characterRowId(id));
+    assert.deepEqual(calls, ids.map(characterId => ({ action: 'object.attach', input: { objectId: 'other', characterId } })), 'character-row drops still attach to the animated root');
+  } finally { f.dispose(); }
+  console.log('PASS hierarchy drops distinguish character roots from bones for all three members');
 }

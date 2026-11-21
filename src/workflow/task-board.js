@@ -87,7 +87,7 @@ export function taskLine(task) {
 	return TASK_STATUS_COPY[task.status] ?? task.status;
 }
 
-const SCOPE_NAMES = { timeline: ko("timeline", "타임라인"), stage: ko("stage", "무대"), scene: ko("scene", "장면"), object: ko("object", "오브젝트"), character: ko("character", "캐릭터"), shot: ko("shot", "샷") };
+const SCOPE_NAMES = { timeline: ko("timeline", "타임라인"), stage: ko("stage", "무대"), scene: ko("scene", "장면"), object: ko("object", "오브젝트"), character: ko("character", "인물"), shot: ko("shot", "샷") };
 /** A scope key (object:<id>, timeline, ...) as a word; the raw key stays in the tooltip. */
 export const scopeLabel = key => SCOPE_NAMES[String(key).split(":")[0]] ?? String(key);
 

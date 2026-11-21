@@ -1276,7 +1276,7 @@ export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, o
 	return (
 		<div className={"pose-studio" + (docked ? " docked" : "") + (closing ? " closing" : "")}>
 			<div className="studio-head">
-				<span>{ko(`Pose Studio · Subject ${subject}`, `포즈 스튜디오 · 인물 ${subject}`, `姿势工作室 · 角色 ${subject}`)}</span>
+				<span>{ko(`Pose Studio · Character ${subject}`, `포즈 스튜디오 · 인물 ${subject}`, `姿势工作室 · 角色 ${subject}`)}</span>
 				<button type="button" className="x" onClick={onClose} aria-label={ko("Close pose studio", "포즈 스튜디오 닫기")}>
 					✕
 				</button>
@@ -1285,7 +1285,7 @@ export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, o
 				<p className="studio-hint" data-pose-motion-warning role="status">
 					{ikCorrection
 						? ko("Pose mode is on — applying keys the pose as a full-body correction at the current frame; the motion stays.", "포즈 모드가 켜져 있어요 — 적용하면 현재 프레임에 전신 보정 키로 들어가고, 모션은 그대로 유지됩니다.")
-						: ko("A sample motion is moving the character — applying a pose clears it and returns to the blocking pose.", "현재 샘플 모션이 캐릭터를 움직이고 있어요. 포즈를 적용하면 샘플 모션이 지워지고 블로킹 포즈로 돌아가요.")}
+						: ko("A sample motion is moving the character — applying a pose clears it and returns to the blocking pose.", "현재 샘플 모션이 인물을 움직이고 있어요. 포즈를 적용하면 샘플 모션이 지워지고 블로킹 포즈로 돌아가요.")}
 				</p>
 			)}
 			<div className="studio-actions">
