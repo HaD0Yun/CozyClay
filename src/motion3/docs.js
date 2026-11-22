@@ -19,7 +19,7 @@ export const MOTION_ACTION_HELP = {
 		+ "keeps its own hand and foot contacts and clears the block, then compiles and installs as is (no repair). The block stands on the floor, 0.3-1 m tall, unturned. Opt-in on the dev server (COZYCLAY_MB_PRIMITIVES=1).",
 	qa: "Measure the character's installed take again against the scene as it is now (objects may have moved). Optional checks replace the spec's checks and its skills' checks. "
 		+ "Answers specId and qa as motion.compile does (goals, ranked groups with cause, hint and patch); output.more pages with motion.report. Changes nothing.",
-	sample: "World positions (metres) of named bones of the installed take as drawn, at the character's scale, at up to 64 frames. Bone names may be loose (any case, a mixamorig: prefix, aliases such as hips or hand_l); an unknown one answers a did-you-mean. "
+	sample: "World positions (metres) of named bones of the installed take at the character's place, turn and scale, at up to 64 frames. Bone names may be loose (any case, a mixamorig: prefix, aliases such as hips or hand_l); an unknown one answers a did-you-mean. "
 		+ "Before a take is installed, use motion.compile probes instead. Changes nothing.",
 	describe: "The motion spec reference. topic essentials: all a first spec needs, { types (every field of every topic, one line each; objects, channels and reachGrip "
 		+ "say what fields mean), skills (typed args, needs, frames, adds), notes }. topic spec, skills, anchors, props, objects, checks, goals, probes, channels, refs, fix or fill: "

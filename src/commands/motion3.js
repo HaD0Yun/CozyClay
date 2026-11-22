@@ -35,7 +35,7 @@ import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
 import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
-import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { unitScale } from "./motion3-scale.js";
+import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { unitScale, measurable } from "./motion3-scale.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -247,15 +247,15 @@ export function register(registry, ports) {
 		})));
 	} });
 	registry.register({ ...declarations[1], available: mounted, run({ characterId, checks }) {
-		const character = characterOf(ports, characterId), take = installed(characterId); unitScale(character, "motion.qa");
+		const character = characterOf(ports, characterId), take = installed(characterId); measurable(character, take, "motion.qa");
 		return after(compile(character, take.spec, { checks }), r => { const qa = flag(r.qa, take); return { affectedIds: [], summary: `QA ${qaSay(qa)}, ${blockingSay(qa)}${adjustedSay(r.notes ?? [])}.`,
 			output: report({ ...r, qa }, adjustedOf(r.notes ?? [])), ...workerWarning() }; });
 	} });
 	registry.register({ ...declarations[2], available: mounted, run({ characterId, frames, bones = DEFAULT_BONES }) {
-		// the bones as drawn: the take's skeleton times the character's scale about its place (stage-characters.jsx scales the
-		// whole body; a take of a scaled body holds the unit skeleton's motion, motion-v4/track/codec.js)
+		// where the stage puts the take's bones: its skeleton (in the take's placement frame, the unit body's) times the character's
+		// scale, turned and placed as the character is now (stage-characters.jsx: a character moved, turned or resized carries its take)
 		const character = characterOf(ports, characterId), take = installed(characterId), sk = rigOf(character), s = character.scale ?? 1;
-		const yaw = ry(take.placement?.yaw ?? 0), at = take.placement?.position ?? [0, 0, 0], B = take.bones.length, drawn = p => (s === 1 ? p : p.map(v => v * s));
+		const yaw = ry(character.rot ?? 0), at = [character.x ?? 0, character.y ?? 0, character.z ?? 0], B = take.bones.length, drawn = p => (s === 1 ? p : p.map(v => v * s));
 		const rows = frames.map(f => {
 			const ff = Math.min(take.frameCount - 1, f);
 			const quats = Array.from({ length: B }, (_, b) => Array.from(take.rot.subarray((ff * B + b) * 4, (ff * B + b) * 4 + 4)));
@@ -266,7 +266,7 @@ export function register(registry, ports) {
 				return [name, add(at, apply(yaw, drawn(state.P[sk.index[bone]]))).map(v => Math.round(v * 1e4) / 1e4)];
 			})) };
 		});
-		return { affectedIds: [], summary: `Sampled ${rows.length} frames${s === 1 ? "" : ` at scale ${s}, as drawn`}.`, output: { frames: rows } };
+		return { affectedIds: [], summary: `Sampled ${rows.length} frames${s === 1 ? "" : ` at scale ${s}`}.`, output: { frames: rows } };
 	} });
 	registry.register({ ...declarations[3], available: always, run({ topic, name, topics }) {
 		if (topic === undefined && topics === undefined) fail("INVALID_ARGUMENT", "Send topic (and name) for one answer, or topics: [{ topic, name? }] for several in one call.");
@@ -287,15 +287,15 @@ export function register(registry, ports) {
 		const answer = (parts, id) => { const page = reportPage(parts, id, part, from); return { affectedIds: [], summary: `${page.items.length} ${part} from ${from}.`, output: page }; };
 		if (wanted) return answer(store.parts(wanted) ?? unknownSpec("specId", wanted, "compile it again"), wanted);
 		if (!characterId) fail("INVALID_ARGUMENT", "motion.report needs specId (from a motion.compile or motion.qa answer) or characterId (its installed take).");
-		const take = installed(characterId), id = specIdOf(take.spec), kept = store.parts(id);
-		if (kept) return answer(kept, id); else unitScale(characterOf(ports, characterId), "motion.report");
+		const take = installed(characterId), id = specIdOf(take.spec), kept = store.parts(id); measurable(characterOf(ports, characterId), take, "motion.report");
+		if (kept) return answer(kept, id);
 		return after(compile(characterOf(ports, characterId), take.spec), r => { const out = report(r, {}); return answer(store.parts(out.specId), out.specId); });
 	} });
 	// motion.keyObject (C14): one key of a held object (or a hinge angle) in the installed take's spec, compiled
 	// and installed whatever QA says (a user edit), as one undo entry
 	registry.register({ ...declarations[5], available: mounted, target: args => args.characterId, run({ characterId, ...args }, context) {
-		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character); unitScale(character, "motion.keyObject");
-		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args");
+		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character);
+		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args"); unitScale(character, "motion.keyObject");
 		return after(compile(character, spec, { lenient: true }, { prompt: take.prompt }), r => {
 			const timing = put(character, r.take, context);
 			return { affectedIds: [characterId], summary: `${keyed.removed ? "Removed the key of" : "Keyed"} ${keyed.objectId} at f${keyed.f}; QA ${qaSay(r.qa)}; installed.`,

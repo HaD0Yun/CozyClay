@@ -2,7 +2,8 @@
 // Browser check in the Studio: a lowvis clip of three bodies, at scale 0.81, 0.95 and 0.88, installed as the Studio installs
 // one (window.__cozyclay.showLowvisClip -> installClip). On several frames motion.sample answers, for every one of the 17
 // clip joints of each body, the world place of that bone as drawn (the rig's bone, read from the page) within 1 mm
-// (verify-size-read.mjs measures the same against the clip in node); then the third is set to scale 1 and read again.
+// (verify-size-read.mjs measures the same against the clip in node); then the third is set to scale 1, and the first is
+// moved, turned and lifted (a character carries its take), and each is read again.
 //
 // Run: `COZYCLAY_FIGURE=cube COZYCLAY_LIVE_PORT=5390 npm run dev -- --port 5190 --strictPort` in one shell, then
 // `QA_URL=http://127.0.0.1:5190/app/ CDP_PORT=9346 node tools/qa-browser.mjs -- node test/lowvis/qa-size-read-browser.mjs`
@@ -89,6 +90,11 @@ try {
 	assert.equal(set?.ok, true, `the scale is set (${JSON.stringify(set)?.slice(0, 200)})`);
 	await waitFor(`window.__cozyclay.characters.find(c => c.id === "lowvis-c")?.scale === 1`);
 	check(await measure(["lowvis-c"]), await scalesNow());
+	// the first body moved, turned and lifted after the install: the stage draws its take there, and so reads motion.sample
+	const moved = await evaluate(`window.__cozyclay.runStudioAction("character.update", { characterId: "lowvis-a", patch: { x: -2.4, y: 0.3, z: 1.1, rot: -140 } })`);
+	assert.equal(moved?.ok, true, `the character is moved (${JSON.stringify(moved)?.slice(0, 200)})`);
+	await waitFor(`window.__cozyclay.characters.find(c => c.id === "lowvis-a")?.rot === -140`);
+	check(await measure(["lowvis-a"]), await scalesNow());
 	console.log("PASS qa-size-read-browser");
 } finally {
 	ws.close();
