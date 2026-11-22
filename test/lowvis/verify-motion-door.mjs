@@ -230,3 +230,21 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	}
 	console.log("PASS a call without request refits: no motion writer, under the turn's mark, rolled back when refused");
 }
+
+// while this turn's motion is still being written, a call without request is refused and nothing is refit; after its result, it runs
+{
+	let end, refits = 0;
+	const tool = createMotionDoor({ background: true, mark: async () => null, rollback: async () => null,
+		run: ({ onScene }) => { onScene({ characters: { c1: "c1" }, props: {} }); return new Promise(resolve => { end = () => resolve(DONE); }); },
+		refit: async () => { refits++; return { ok: true, refit: [], kept: [], skipped: [] }; } });
+	assert.deepEqual(await tool.handler({ request: "she waves" }), { ok: true, started: true });
+	await assert.rejects(tool.handler({}), error => error.code === "MOTION_RUNNING" && /a refit is another motion call after that/.test(error.message));
+	assert.equal(refits, 0);
+	end();
+	const result = tool.with([]).find(entry => entry.name === "motion_result");
+	assert.equal((await result.handler()).ok, true);
+	assert.deepEqual(await tool.handler({}), { ok: true, refit: [], kept: [], skipped: [] });
+	assert.equal(refits, 1);
+	assert.match(tool.description, /In this turn a call with a request answers started .* Called without request, it writes nothing/s, "the refit is said after what a call with a request answers");
+	console.log("PASS a refit waits for this turn's motion: refused while it is written, run after its result");
+}

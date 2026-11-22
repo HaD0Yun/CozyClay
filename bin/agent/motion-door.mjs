@@ -169,7 +169,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	};
 	// a call without request: the refit (motion-refit.mjs), which holds the scene like an install and is rolled back when
 	// the Studio refused a step; never while this turn's motion is still being written
-	const refitting = () => {
+	const refitting = async () => {
 		if (job && !job.collected) throw coded("MOTION_RUNNING", "A motion of this turn is still being written: motion_result answers it; a refit is another motion call after that.");
 		if (!refit) throw coded("NO_REFIT", "This motion tool cannot refit.");
 		return hold(async () => {
