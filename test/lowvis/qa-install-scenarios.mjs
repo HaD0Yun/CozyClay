@@ -131,7 +131,7 @@ export async function scenarios(t) {
 		gate("a3").open(); await sleep(400);
 		assert.ok(agent.contexts.at(-1).includes("is still being written and nothing of it is installed; motion_result waits for it and answers it."));
 		r = await turn("make him jump instead", [["motion"], ["result", { stop: true }]]);
-		assert.ok(r[0].isError && String(r[0].value).startsWith("MOTION_RUNNING: A motion of this conversation is still being written"), String(r[0].value).slice(0, 200));
+		assert.ok(r[0].isError && String(r[0].value).startsWith("MOTION_RUNNING: A motion of this conversation has no answered result yet: motion_result answers it"), String(r[0].value).slice(0, 200));
 		assert.ok(r[1].isError && /The motion writer was stopped before it compiled a motion/.test(String(r[1].value)), String(r[1].value).slice(0, 200));
 		await equal(before, "stopped before a compile: nothing installed");
 		gate("w2").open();
@@ -327,6 +327,7 @@ export async function scenarios(t) {
 		await act("view.select", { selection: { kind: "character", id: ID } });
 		const hint = () => evaluate("document.querySelector('[data-fid=\"motion_size_note\"]')?.textContent ?? ''");
 		assert.equal(await hint(), "", "a body of the motion's size: no note");
+		await sleep(2600); // a toast of the resize above is gone (a toast with the same words does not start its time again)
 		// the Scale slider of the Character panel, with the pointer
 		const head = await evaluate(`(() => { const head = [...document.querySelectorAll('.foldout-head')].find(h => h.offsetParent !== null && /^(Transform|변환)$/.test(h.querySelector('.foldout-title')?.textContent ?? '')); if (!head) return 'none'; head.dataset.qa = 'transform'; return head.getAttribute('aria-expanded'); })()`);
 		assert.notEqual(head, "none", "the Transform foldout of the Character panel");

@@ -26,6 +26,7 @@ import { installClip, placeSetLater } from "../../src/lowvis/studio/install.js";
 import { eulerXYZ } from "../../src/lowvis/studio/attach.js";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
 import { stoppedNote } from "../../src/workflow/agent-turn.js";
+import { takeScaleOf } from "../../src/lowvis/studio/figure.js";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 
@@ -387,4 +388,16 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 	done = await motion();
 	assert.deepEqual([steps.filter(([, args]) => [args.objectId, args.id].includes(cup)).length, done.attached[0].kept], [0, true]);
 	console.log("PASS attached place: an edit after an install stays across the next install and a refit; an unedited or detached one, another bone and a take without the list take the clip's place; the writer is told a place set by hand");
+}
+
+// --- 4. the size a take was made for (the Character panel's note when the body has another scale) ---
+{
+	const raw = scale => ({ spec: { raw: scale === 1 ? {} : { scale } } });
+	assert.equal(takeScaleOf(raw(1), "x-bot-tpose", null), 1, "a take of the rig's own body under the block look: scale 1");
+	assert.equal(takeScaleOf(raw(0.81), "x-bot-tpose", "cube"), 1, "the cube look's body is scale 1 there");
+	assert.equal(takeScaleOf(raw(0.648), "x-bot-tpose", "cube"), 0.8, "a take refit to 0.8 under the cube look");
+	assert.equal(takeScaleOf(raw(1.3), "capsule", "cube"), 1.3, "another model has no look body");
+	assert.equal(takeScaleOf({ spec: { a1: [[0, "idle"]] } }, "x-bot-tpose", "cube"), null, "a take with no size of its own: no note");
+	assert.equal(takeScaleOf(null, "x-bot-tpose", "cube"), null);
+	console.log("PASS size: the scale a take was made for, per look");
 }

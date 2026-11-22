@@ -118,7 +118,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		} finally { if (current.seat === seat) { current.collected = true; if (!current.offer && stored() === current) jobs.delete(key); } }
 	};
 	const starting = async (args, { signal, toolCallId, emit } = {}) => {
-		if (job && !job.collected) { own(job); throw coded("MOTION_RUNNING", "A motion of this conversation is still being written: motion_result answers it; a change to it is another motion call after that."); }
+		if (job && !job.collected) { own(job); throw coded("MOTION_RUNNING", "A motion of this conversation has no answered result yet: motion_result answers it; a change to it is another motion call after that."); }
 		// with a place to keep it, the motion does not hang on this turn's signal: a stopped turn leaves it running
 		const current = createJob({ seat, scene: sceneOf(), row: { toolCallId, emit }, turn });
 		let read;
@@ -191,7 +191,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			const current = own(job);
 			if (!current) throw coded("NO_MOTION", "This conversation has no motion that is being written or waits to be collected.");
 			if (args.install) {
-				if (!current.collected) throw coded("MOTION_RUNNING", "The motion is still being written: motion_result without install answers it (and installs it when the writer answered for it).");
+				if (!current.collected) throw coded("MOTION_RUNNING", "The motion has no answered result yet: motion_result without install answers it (and installs it when the writer answered for it).");
 				if (!current.offer) throw coded("NO_OFFER", "The last motion result has no motion left to install: it was installed, or it was the motion that plays, or it compiled none.");
 				// an install the Studio refused keeps the offer; one kept out again (another scene) offers itself again
 				const done = await current.offer();
@@ -213,7 +213,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	// a call without request: the refit (motion-refit.mjs), which holds the scene like an install and is rolled back when
 	// the Studio refused a step; never while this conversation's motion is still being written
 	const refitting = async () => {
-		if (job && !job.collected) throw coded("MOTION_RUNNING", "A motion of this conversation is still being written: motion_result answers it; a refit is another motion call after that.");
+		if (job && !job.collected) throw coded("MOTION_RUNNING", "A motion of this conversation has no answered result yet: motion_result answers it; a refit is another motion call after that.");
 		if (!refit) throw coded("NO_REFIT", "This motion tool cannot refit.");
 		return hold(async () => {
 			await mark();
