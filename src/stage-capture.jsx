@@ -30,8 +30,6 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 		// view setting (stage-finish-view.jsx puts it on scene.userData.finishLook). The rig and each capture it made
 		// hold it: an export still in flight when the editor resizes keeps drawing through it, and the last holder frees it.
 		const finish = createFinish();
-		// The draw of the canvas itself, as a finish look: the renderer's tone curve at the stage's exposure, no surface look, no lines.
-		const canvasLook = { tone: gl.toneMapping, exposure: 1, surface: null, line: { color: "#000000", amount: 0, width: 1, crease: 0, own: 1 }, occlusion: true, saturation: 1 };
 		let holders = 1;
 		const release = () => { holders -= 1; if (holders === 0) finish.dispose(); };
 		// Each attempt owns its target independently of the live output size.
@@ -43,12 +41,19 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 				colorSpace: THREE.SRGBColorSpace,
 				samples: 4,
 			});
+			// The look-off beauty draw's own target, made on first use. three tone-maps and encodes in the material
+			// only on the canvas and on a target flagged isXRRenderTarget (WebGLPrograms.js; the finish uses the same
+			// flag), so a draw into this one is the canvas's draw: its tone curve at the stage's exposure, with no
+			// light scaled to stand in for it. RGBA8 by name: the material has encoded already, and the samples and
+			// the texture they resolve into must be one format.
+			let canvasTarget = null;
+			const asCanvas = () => (canvasTarget ??= Object.assign(new THREE.WebGLRenderTarget(width, height, { colorSpace: THREE.SRGBColorSpace, samples: 4, internalFormat: "RGBA8" }), { isXRRenderTarget: true }));
 			const buffer = new Uint8Array(width * height * 4);
 			let held = true;
 			holders += 1;
 			return {
 				scene,
-				dispose: () => { if (!held) return; held = false; target.dispose(); release(); },
+				dispose: () => { if (!held) return; held = false; target.dispose(); canvasTarget?.dispose(); release(); },
 				render() {
 					const cam = camera();
 					if (!cam) return null;
@@ -77,18 +82,19 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 						fog.near = look?.fog?.near ?? CAPTURE_FOG_NEAR;
 						fog.far = look?.fog?.far ?? CAPTURE_FOG_FAR;
 					}
-					// three tone-maps only the canvas, never a plain render target. The finish (stage-finish.js) draws
-					// the frame as the canvas does, tone curve and exposure included: with the look on it is the look,
-					// with it off it is the canvas's own curve with no surface look and no lines, so an export is the
-					// viewport's picture either way. A pass (render-passes.js, an override material) is data, drawn as is.
-					const finishLook = scene.userData.finishLook ?? (scene.overrideMaterial ? null : canvasLook);
+					// three tone-maps only the canvas, never a plain render target. An export is the viewport's picture
+					// either way: with the look on the finish (stage-finish.js) draws the frame as the canvas does, tone
+					// curve and exposure included; with it off the frame is drawn into a target three treats as the
+					// canvas. A pass (render-passes.js, an override material) is data, drawn as is into the plain target.
+					const finishLook = scene.userData.finishLook ?? null;
+					const drawn = finishLook || scene.overrideMaterial ? target : asCanvas();
 					try {
 						if (finishLook) finish.render(gl, scene, cam, target, finishLook);
 						else {
-							gl.setRenderTarget(target);
+							gl.setRenderTarget(drawn);
 							gl.render(scene, cam);
 						}
-						gl.readRenderTargetPixels(target, 0, 0, width, height, buffer);
+						gl.readRenderTargetPixels(drawn, 0, 0, width, height, buffer);
 					} finally {
 						gl.setRenderTarget(previous);
 						if (fog) {

@@ -72,7 +72,12 @@ const GRID_INK = Object.freeze({
 function makeDeckMaterial(light) {
 	const ink = light ? GRID_INK.light : GRID_INK.dark;
 	// A standard surface with no specular is the lambert deck it replaced, and it takes the finish's surface look like
-	// every other surface on the set (stage-finish-surface.js): the same light steps, fill, lamp pools and shadow edge.
+	// every other surface on the set (stage-finish-surface.js): the same light steps, shadow edge and environment
+	// light. Two things it sets for itself (userData below). Its fill gain is 1: the look lifts the fill to keep a
+	// form's shade side readable, and the open deck has no shade side, only the shadows cast on it, which stay as
+	// dark against the lit deck as in the look the owner approved (2026-11-16). And a lamp's light falls off on it
+	// as the lamp's does: the look's flat lamp pool keeps a form's faces flat, and the deck is where a lamp's pool
+	// is seen, as bright under the lamp as before the deck took the look.
 	const material = new THREE.MeshPhysicalMaterial({
 		roughness: 1,
 		metalness: 0,
@@ -111,6 +116,7 @@ float gridLines(float spacing, float width) {
 #include <opaque_fragment>`);
 	};
 	material.customProgramCacheKey = () => `deck-grid-${light ? "light" : "dark"}`;
+	Object.assign(material.userData, { surfaceFill: 1, surfaceLampStock: true });
 	return material;
 }
 
@@ -130,9 +136,9 @@ export function Room({ light = false }) {
  * The key is the USER'S light: `keyLight` carries its grabbable position and
  * the rig's master brightness — fill and rim ride the same dimmer so turning
  * the key down darkens the whole stage instead of flattening it. */
-// Warm/cool slider → light colour. 0.5 is the tuned default (neutral white,
-// so the grey set and the grey clay stay grey); 0 pulls toward cool daylight,
-// 1 toward sunset amber.
+// Cool/warm slider → light colour. 0.5 is neutral white (the grey set and the
+// grey clay stay grey); 0 pulls toward cool daylight (the key a new project
+// opens with, stage-lighting.js), 1 toward sunset amber.
 export function keyLightColor(warmth = 0.5) {
 	const w = Math.max(0, Math.min(1, warmth ?? 0.5));
 	const base = new THREE.Color("#ffffff");
@@ -177,9 +183,9 @@ export function StageLights({ keyLight = { x: 6, y: 9, z: 4, intensity: 1.12, wa
 				userData-shadowRadius={look.shadowRadius}
 				userData-shadowNormalBias={look.shadowNormalBias}
 			/>
-			{/* Fill and rim cast no shadow: under the toon look they light every face alike (stage-finish-surface.js). */}
-			<directionalLight color="#eef2f4" position={[-6, 4, -4]} intensity={look.fill} />
-			<directionalLight color="#ffffff" position={[2, 3, 9]} intensity={look.rim} />
+			{/* Fill and rim are fill lights: under the toon look they light every face alike (stage-finish-surface.js applySurfaceLook). */}
+			<directionalLight color="#eef2f4" position={[-6, 4, -4]} intensity={look.fill} userData-fillLight />
+			<directionalLight color="#ffffff" position={[2, 3, 9]} intensity={look.rim} userData-fillLight />
 		</>
 	);
 }

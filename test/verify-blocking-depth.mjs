@@ -107,8 +107,9 @@ expect("sheet mode drops the preset subject and environment text", !sheeted.incl
 
 /* --- the key's shadow box follows the set (src/stage-shadow-fit.js) -------- */
 
-// A figure 20 m from the origin shadows the deck around it (the old fixed box stopped at 14 m), a camera that sees less
-// gets finer texels, the penumbra keeps its width in metres, and the same draw fits the same box.
+// A figure 20 m from the origin shadows the deck around it (the old fixed box stopped at 14 m); a set that fits the
+// old 28 m box keeps its texel density; only what can cast into the camera's view sizes the box; a wider box keeps the
+// penumbra's width in metres; and the same draw fits the same box.
 {
 	const scene = new THREE.Scene();
 	const light = new THREE.DirectionalLight("#ffffff", 1);
@@ -141,16 +142,30 @@ expect("sheet mode drops the preset subject and environment text", !sheeted.incl
 	};
 	const beside = camera([22.6, 1.6, 1.4], [20, 0.9, -3]), besideFit = fit(beside);
 	expect("a figure 20 m out casts onto the deck around it", inMap([20, 1.8, -3]) && inMap([20, 0, -3]) && inMap([19, 0, -4.5]));
-	expect("a camera beside one figure gets a box finer than the old 28 m one", besideFit.width < 28, `${besideFit.width} m`);
-	expect("a finer map widens the kernel in texels, so the penumbra keeps its width in metres", besideFit.radius > 2, String(besideFit.radius));
+	expect("a set that fits the old 28 m box keeps its texel density and its kernel", besideFit.width === 28 && besideFit.radius === 2 && light.shadow.mapSize.x === 2048, `${besideFit.width} m, radius ${besideFit.radius}`);
 	expect("the same draw fits the same box", JSON.stringify(fit(beside).matrix) === JSON.stringify(besideFit.matrix));
+	// the camera beside the far figure looks away from the one at home, 20 m behind it: that one cannot cast into the view
+	const alone = light.shadow.camera.left;
+	home.position.set(0, 0.9, 3);
+	expect("a caster that cannot cast into the view does not move the box", fit(beside).width === 28 && light.shadow.camera.left === alone);
+	home.position.set(0, 0.9, 0);
 	const wideFit = fit(camera([10, 6, 16], [10, 0, -2]));
-	expect("a camera that sees both figures shadows both", inMap([0, 1.8, 0]) && inMap([20, 1.8, -3]) && wideFit.width <= 120);
+	expect("a camera that sees both figures shadows both", inMap([0, 1.8, 0]) && inMap([20, 1.8, -3]) && wideFit.width === 28);
 	far.position.x += 0.003;
 	const moved = fit(beside), left = light.shadow.camera.left / (moved.width / 2048);
 	expect("a figure that moves by a hair leaves the box edge on a texel, so shadow edges do not crawl", Math.abs(left - Math.round(left)) < 1e-6);
-	home.position.set(-150, 0.9, 80);
-	expect("a caster out of view does not take resolution from the one in view", fit(beside).width < besideFit.width);
+	// a walk of 6 m in view keeps the box's size: shadow edges move only when the size does
+	const sizes = new Set();
+	for (let step = 0; step <= 12; step += 1) { far.position.x = 17 + step * 0.5; sizes.add(fit(beside).width); }
+	far.position.x = 20;
+	expect("a walk across the view keeps the box's size", sizes.size === 1, [...sizes].join(","));
+	// a set wider than the old box: a wider box of the ladder, with the kernel narrowed in texels
+	const street = camera([-10, 10, 30], [15, 0, -5]);
+	const lamp = box(45, -20);
+	const streetFit = fit(street);
+	expect("a set wider than 28 m takes a wider box that holds it", [32, 40, 48, 56, 64, 80, 96, 120].includes(streetFit.width) && inMap([0, 1.8, 0]) && inMap([45, 1.8, -20]), `${streetFit.width} m`);
+	expect("a wider box narrows the kernel in texels, so the penumbra keeps its width in metres", Math.abs(streetFit.radius * streetFit.width - 2 * 28) < 1e-9, String(streetFit.radius));
+	lamp.position.set(20.5, 0.9, -3.5);
 	const plan = new THREE.OrthographicCamera(-20, 20, 20, -20, 0.1, 200);
 	plan.position.set(0, 100, 0);
 	plan.lookAt(0, 0, 0);
@@ -158,6 +173,15 @@ expect("sheet mode drops the preset subject and environment text", !sheeted.incl
 	home.position.set(-30, 0.9, 10);
 	fit(plan);
 	expect("without a perspective view (the plan) the box holds every caster", inMap([-30, 1.8, 10]) && inMap([20, 1.8, -3]));
+	home.position.set(0, 0.9, 0);
+	// an instanced mesh is where its instances are, not where its one geometry is
+	const many = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 1.8, 0.5), new THREE.MeshStandardMaterial(), 2);
+	many.setMatrixAt(0, new THREE.Matrix4().makeTranslation(40, 0.9, -3));
+	many.setMatrixAt(1, new THREE.Matrix4().makeTranslation(41, 0.9, -3));
+	many.castShadow = true;
+	scene.add(many);
+	fit(camera([43, 1.6, 1.4], [40.5, 0.9, -3]));
+	expect("an instanced mesh casts from where its instances stand", inMap([40, 1.8, -3]) && inMap([41, 0, -3]));
 	undo();
 	expect("the undo puts three's own fit back", !Object.hasOwn(light.shadow, "updateMatrices"));
 }

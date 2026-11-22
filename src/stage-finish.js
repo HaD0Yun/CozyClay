@@ -162,10 +162,10 @@ export function createFinish() {
 			renderer.toneMapping = look.tone;
 			renderer.toneMappingExposure = before.exposure * look.exposure;
 			renderer.autoClear = true;
-			// the set's own lines (on the layers this draw shows, not the editor's) are ink: out of the colour draw (kept in it by a look with no ink)
+			// the set's own lines (on the layers this draw shows, not the editor's) are ink: out of the colour draw
 			const lines = [], set = camera.layers.mask & ~((1 << GIZMO_LAYER) | (1 << POSER_LAYER));
 			scene.traverse((node) => {
-				if (!node.visible || !ownLines(node) || !(node.layers.mask & set) || !(look.line.amount > 0)) return;
+				if (!node.visible || !ownLines(node) || !(node.layers.mask & set)) return;
 				lines.push(node);
 				hidden.push(node);
 				node.visible = false;
@@ -189,8 +189,8 @@ export function createFinish() {
 			renderer.shadowMap.autoUpdate = false;
 			renderer.setClearColor(0x000000, 0);
 			renderer.setRenderTarget(prepass);
-			if (look.line.amount > 0) renderer.render(scene, camera); // a look with no lines (an export with the look off) needs no prepass
-			if (lines.length && look.line.amount > 0) {
+			renderer.render(scene, camera);
+			if (lines.length) {
 				scene.overrideMaterial = depthOnly;
 				renderer.setRenderTarget(marks);
 				renderer.render(scene, camera);
