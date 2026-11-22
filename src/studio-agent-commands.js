@@ -375,7 +375,8 @@ export const FRAMING_ANGLES = { front: 0, 'front three-quarter': 40, profile: 90
 export function projectSubject(points, camera, fov, aspectRatio) {
   const direction = vector(camera.lookAt).sub(vector(camera.position));
   const projection = new PerspectiveCamera(fov / DEG, aspectRatio, 0.01, 10000);
-  projection.position.copy(vector(camera.position)); projection.lookAt(vector(camera.lookAt)); projection.updateMatrixWorld(true);
+  // A vertical sight line needs the same yaw-defined up as the shot key.
+  projection.position.copy(vector(camera.position)); if (Math.hypot(direction.x, direction.z) < 1e-10) projection.rotation.set(Math.atan2(direction.y, 0), camera.yaw ?? 0, 0, 'YXZ'); else projection.lookAt(vector(camera.lookAt)); projection.updateMatrixWorld(true);
   const screen = points.map(p => p.clone().project(projection));
   const screenBounds = aabb(screen);
   const behindCamera = points.some(p => p.clone().sub(projection.position).dot(direction) <= 0);
@@ -462,14 +463,15 @@ export function frameDraft(command, state, ports) {
   }
   const direction = vector(camera.lookAt).sub(vector(camera.position));
   if (direction.length() <= EPS) fail('INVALID_ARGUMENT', 'Camera position and aim must differ.');
-  const framing = captureFraming({ pos: camera.position, yaw: Math.atan2(-direction.x, -direction.z), pitch: Math.atan2(direction.y, Math.hypot(direction.x, direction.z)), fovDeg: fov / DEG });
+  // A vertical aim keeps the existing key yaw, or uses zero for a new shot.
+  const framing = captureFraming({ pos: camera.position, yaw: Math.hypot(direction.x, direction.z) < 1e-10 ? existingKey?.framing.yaw ?? 0 : Math.atan2(-direction.x, -direction.z), pitch: Math.atan2(direction.y, Math.hypot(direction.x, direction.z)), fovDeg: fov / DEG });
   const keyId = (hold ? existingKey?.id : shot.cameraKeys.find(k => k.frame === frame)?.id) ?? createStableItemId('camera-key');
   const keys = hold ? [{ id: keyId, frame, framing }] : [...shot.cameraKeys.filter(k => k.frame !== frame), { id: keyId, frame, framing }].sort((a, b) => a.frame - b.frame);
   const subjectIds = subjects.map(entry => entry.id), nextShot = { ...shot, subjectIds, cameraKeys: keys, camera: { ...shot.camera, mode: 'keys' } };
   const shots = created ? [nextShot] : state.shotDocument.shots.map(s => s.id === shot.id ? nextShot : s);
-  const { screenBounds, checks: projected } = projectSubject(points, camera, fov, state.filmback.aspectRatio), derivedSize = projected.derivedSize;
+  const { screenBounds, checks: projected } = projectSubject(points, { ...camera, yaw: framing.yaw }, fov, state.filmback.aspectRatio), derivedSize = projected.derivedSize;
   const sight = sightChecks(subjects, boxes, camera.position, state, ports), checks = { ...projected, ...sight.checks };
-  const resolvedCamera = { ...camera, sensorId: state.filmback.sensorId, slate: derivedSize };
+  const resolvedCamera = { ...camera, ...(Math.hypot(direction.x, direction.z) < 1e-10 ? { yaw: framing.yaw } : {}), sensorId: state.filmback.sensorId, slate: derivedSize };
   // Not a manual override: the keys drive the live shot camera from here, so a
   // later playhead move shows what the export renders at that frame.
   const draft = { shotDocument: { ...state.shotDocument, shots }, camera: resolvedCamera, manual: false };

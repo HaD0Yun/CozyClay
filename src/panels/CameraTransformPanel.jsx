@@ -31,7 +31,8 @@ export default function CameraTransformPanel({ isCameraSelection }) {
 				<Vector3Row
 					label={ko("Rotation", "회전")}
 					fields={[
-						{ axis: "X", value: camera.pitch, step: 1, precision: 1, scrubRange: 85, onChange: (rotX) => set({ rotX }) },
+						// Match the shot camera limit so the scrubber can reach a vertical view.
+						{ axis: "X", value: camera.pitch, step: 1, precision: 1, scrubRange: 90, onChange: (rotX) => set({ rotX }) },
 						{ axis: "Y", value: camera.yaw, step: 1, precision: 1, scrubRange: 180, onChange: (rot) => set({ rot }) },
 						{ axis: "Z", value: camera.roll, step: 1, precision: 1, disabled: true },
 					]}

@@ -2,6 +2,7 @@
 // The camera-move contract: interpolation reproduces its endpoints, an orbit
 // stays on the arc instead of cutting the chord, and the classifier only
 // claims a move the two framings geometrically prove.
+import { PerspectiveCamera, Vector3 } from "three";
 import {
 	CAMERA_PRESETS,
 	cameraMoveAt,
@@ -50,6 +51,27 @@ function framingAt(r, azimuthDeg, height, fovDeg = 40) {
 }
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
+
+// The YXZ camera convention defines the screen top even at a vertical aim.
+{
+	for (const pitch of [-Math.PI / 2, Math.PI / 2]) for (const yaw of [0, 0.7, -2]) for (const roll of [0, 90]) {
+		const camera = new PerspectiveCamera();
+		camera.rotation.set(pitch, yaw, roll * Math.PI / 180, "YXZ");
+		const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+		const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+		const expectedUp = roll ? new Vector3(-Math.cos(yaw), 0, Math.sin(yaw)) : new Vector3(Math.sign(pitch) * Math.sin(yaw), 0, Math.sign(pitch) * Math.cos(yaw));
+		expect("pole camera has finite forward and yaw-defined up", forward.distanceTo(new Vector3(0, Math.sign(pitch), 0)) < 1e-10 && up.distanceTo(expectedUp) < 1e-10 && [...forward, ...up].every(Number.isFinite));
+	}
+	const a = { pos: { x: 0, y: 4, z: 0 }, yaw: 1, pitch: -Math.PI / 2, fovDeg: 40 };
+	const b = { ...a, yaw: 0.3, pitch: -Math.PI / 3 };
+	let previous = null;
+	for (let frame = 0; frame <= 100; frame++) {
+		const sample = cameraMoveAt([{ frame: 0, framing: a }, { frame: 100, framing: b }], SUBJECT, frame);
+		const q = new PerspectiveCamera(); q.rotation.set(sample.pitch, sample.yaw, 0, "YXZ");
+		expect("pole interpolation stays finite and continuous", [sample.pos.x, sample.pos.y, sample.pos.z, sample.yaw, sample.pitch].every(Number.isFinite) && (!previous || previous.angleTo(q.quaternion) < 0.03));
+		previous = q.quaternion.clone();
+	}
+}
 
 /* ----------------------------------------------------------- filmbacks --- */
 {

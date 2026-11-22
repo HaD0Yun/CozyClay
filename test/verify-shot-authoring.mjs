@@ -332,3 +332,10 @@ assert.equal(reviewed.shots[0].review.comments[0].text, "Hold this");
 assert.equal(reviewed.shots[0].review.annotations.length, 1);
 
 console.log("all shot-authoring checks PASS");
+
+// A vertical camera key survives the same save and load path as other keys.
+{
+	const pole = structuredClone(authored);
+	pole.shots[0].cameraKeys[0].framing.pitch = -Math.PI / 2;
+	assert.equal(readShotAuthoring(serializeShotAuthoring(pole)).state.shots[0].cameraKeys[0].framing.pitch, -Math.PI / 2);
+}

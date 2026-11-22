@@ -311,8 +311,8 @@ const CHARACTER_SCALE_BOUNDS = elementByPath("character.scale");
 // never mistaken for selection. Paired with --agent-touch in styles.css, which
 // fades the same highlight out over the same two seconds.
 const AGENT_RECEIPT_HIGHLIGHT_MS = 2000;
-// The fly controls clamp pitch to the same 85° (controls.jsx), so the gizmo cannot flip the camera.
-const CAMERA_PITCH_LIMIT = THREE.MathUtils.degToRad(85);
+// The shot camera can point straight up or down without flipping.
+const CAMERA_PITCH_LIMIT = Math.PI / 2;
 
 /**
  * Pose ONE cast member's rig at an absolute timeline frame: its own clip first,
