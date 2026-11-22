@@ -46,7 +46,10 @@ try {
 	for (let tries = 0; tries < 50 && !shown; tries++) { shown = await evaluate(`window.__cozyclay.showLowvisClip(${JSON.stringify(NAME)})`); if (!shown) await new Promise(r => setTimeout(r, 200)); }
 	assert.equal(shown, true, "the clip installs");
 	await waitFor(`${JSON.stringify(IDS)}.every(id => window.__cozyclay.rigs?.[id]?.parent)`);
+	// the Studio plays a clip it has just installed, and the playhead the page reports stays where it was while it plays:
+	// the drawn pose is the playhead's only once playback has stopped
 	await evaluate("window.__cozyclay.pause()");
+	await waitFor("window.__cozyclay.playing === false");
 	const scalesNow = () => evaluate(`Object.fromEntries(window.__cozyclay.characters.filter(c => ${JSON.stringify(IDS)}.includes(c.id)).map(c => [c.id, c.scale ?? 1]))`);
 	const scales = await scalesNow();
 	assert.deepEqual(IDS.map(id => scales[id]), Object.values(SCALES), "the Studio holds the clip's scales");
@@ -54,7 +57,7 @@ try {
 	const measure = async ids => {
 		const worst = Object.fromEntries(ids.map(id => [id, 0]));
 		for (const f of FRAMES) {
-			// drawn: the playhead is on f and two reads one animation frame apart are the same
+			// drawn: playback is stopped, the playhead is on f and two reads one animation frame apart are the same
 			const drawn = await evaluate(`(async () => {
 				const qa = window.__cozyclay, raf = () => new Promise(r => requestAnimationFrame(r)), joints = ${JSON.stringify(JOINTS)};
 				qa.pause(); qa.setFrame(${f});
@@ -62,7 +65,7 @@ try {
 				let row = null;
 				for (let tries = 0; tries < 240; tries++) {
 					await raf();
-					if (window.__cozyclay.tlFrame !== ${f}) { row = null; continue; }
+					if (window.__cozyclay.playing || window.__cozyclay.tlFrame !== ${f}) { row = null; continue; }
 					const next = read();
 					if (row && JSON.stringify(row) === JSON.stringify(next)) return row;
 					row = next;
