@@ -114,8 +114,15 @@ export function register(registry, ports) {
 		const sk = skeletonFor(registerCastRigs([character])[0].model);
 		if (!sk && isImportedModel(character.model)) fail("TARGET_NOT_READY", `${characterName(character)}'s imported skeleton is incomplete in this project; import the file again.`);
 		if (!sk) fail("TARGET_NOT_READY", `${characterName(character)} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
-		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before compiling motion.");
 		return sk;
+	};
+	// motion compile computes for the body at scale 1: an action that compiles is refused on a scaled character, with what
+	// that action does; reading the drawn bones (motion.sample) is not compiling and reads at the character's own scale
+	const unitScale = (character, action = null) => {
+		const s = character.scale ?? 1;
+		if (Math.abs(s - 1) <= 1e-6) return;
+		fail("TARGET_NOT_READY", action ? `${action} compiles the installed take's spec again, which motion compile does only for a body at scale 1; ${characterName(character)}'s scale is ${s}. motion.sample reads its bones as drawn, at that scale.`
+			: "Set the character's scale back to 1 before compiling motion.");
 	};
 	// the scene a compile sees: the objects, and the other characters' installed takes as moving bodies (people.js)
 	const sceneFor = character => {
@@ -139,6 +146,7 @@ export function register(registry, ports) {
 	 */
 	const compile = (character, spec, opts = {}, bake, taskId = null, scene = sceneFor(character)) => {
 		rigOf(character);
+		unitScale(character);
 		const placed = bake && { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0, ...bake };
 		const rigs = rigsOf(character, scene);
 		return runner.run({ model: character.model, ...(Object.keys(rigs).length ? { rigs } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
@@ -249,12 +257,15 @@ export function register(registry, ports) {
 	} });
 	registry.register({ ...declarations[1], available: mounted, run({ characterId, checks }) {
 		const character = characterOf(ports, characterId), take = installed(characterId);
+		unitScale(character, "motion.qa");
 		return after(compile(character, take.spec, { checks }), r => { const qa = flag(r.qa, take); return { affectedIds: [], summary: `QA ${qaSay(qa)}, ${blockingSay(qa)}${adjustedSay(r.notes ?? [])}.`,
 			output: report({ ...r, qa }, adjustedOf(r.notes ?? [])), ...workerWarning() }; });
 	} });
 	registry.register({ ...declarations[2], available: mounted, run({ characterId, frames, bones = DEFAULT_BONES }) {
-		const character = characterOf(ports, characterId), take = installed(characterId), sk = rigOf(character);
-		const yaw = ry(take.placement?.yaw ?? 0), at = take.placement?.position ?? [0, 0, 0], B = take.bones.length;
+		// the bones as drawn: the take's skeleton times the character's scale about its place (stage-characters.jsx scales the
+		// whole body; a take of a scaled body holds the unit skeleton's motion, motion-v4/track/codec.js)
+		const character = characterOf(ports, characterId), take = installed(characterId), sk = rigOf(character), s = character.scale ?? 1;
+		const yaw = ry(take.placement?.yaw ?? 0), at = take.placement?.position ?? [0, 0, 0], B = take.bones.length, drawn = p => (s === 1 ? p : p.map(v => v * s));
 		const rows = frames.map(f => {
 			const ff = Math.min(take.frameCount - 1, f);
 			const quats = Array.from({ length: B }, (_, b) => Array.from(take.rot.subarray((ff * B + b) * 4, (ff * B + b) * 4 + 4)));
@@ -262,7 +273,7 @@ export function register(registry, ports) {
 			return { frame: ff, bones: Object.fromEntries(bones.map(name => {
 				const { bone, hint } = resolveBone(sk, name);
 				if (bone === null) fail("INVALID_ARGUMENT", `Unknown bone ${name}${hint || "."}`);
-				return [name, add(at, apply(yaw, state.P[sk.index[bone]])).map(v => Math.round(v * 1e4) / 1e4)];
+				return [name, add(at, apply(yaw, drawn(state.P[sk.index[bone]]))).map(v => Math.round(v * 1e4) / 1e4)];
 			})) };
 		});
 		return { affectedIds: [], summary: `Sampled ${rows.length} frames.`, output: { frames: rows } };
@@ -288,12 +299,14 @@ export function register(registry, ports) {
 		if (!characterId) fail("INVALID_ARGUMENT", "motion.report needs specId (from a motion.compile or motion.qa answer) or characterId (its installed take).");
 		const take = installed(characterId), id = specIdOf(take.spec), kept = store.parts(id);
 		if (kept) return answer(kept, id);
+		unitScale(characterOf(ports, characterId), "motion.report");
 		return after(compile(characterOf(ports, characterId), take.spec), r => { const out = report(r, {}); return answer(store.parts(out.specId), out.specId); });
 	} });
 	// motion.keyObject (C14): one key of a held object (or a hinge angle) in the installed take's spec, compiled
 	// and installed whatever QA says (a user edit), as one undo entry
 	registry.register({ ...declarations[5], available: mounted, target: args => args.characterId, run({ characterId, ...args }, context) {
 		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character);
+		unitScale(character, "motion.keyObject");
 		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args");
 		return after(compile(character, spec, { lenient: true }, { prompt: take.prompt }), r => {
 			const timing = put(character, r.take, context);
