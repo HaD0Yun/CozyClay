@@ -60,8 +60,9 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ya
 		const aim = camera.aim ? Array.from({ length }, (_, offset) => railAimPoint(camera.aim, from + offset, aimAt)) : null;
 		const aimed = aim?.every(Boolean) ? aim : null, follows = camera.head?.follow !== false;
 		const subject = subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1);
-		// A named aim that lost a member holds still rather than turning to another character (shot-subjects.js).
-		if (follows && (aim ? !aimed : subjectSlice.some(point => !point))) continue;
+		// A cast aim that lost a member turns to the follow subject, as it always has; a cast the user picked by
+		// hand (aim.picked) holds still instead, like a picked subject (shot-subjects.js).
+		if (follows && (camera.aim?.picked && !aimed || !aimed && subjectSlice.some(point => !point))) continue;
 		// A head that turns to nothing still rides the rail: without a subject the dolly keeps its schedule alone.
 		const lone = !aimed && subjectSlice.some(point => !point);
 		const track = aimed

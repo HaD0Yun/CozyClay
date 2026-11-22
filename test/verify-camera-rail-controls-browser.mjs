@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // The rail camera's controls in the real Details panel: pick who a shot follows
 // (with Undo/Redo and reload), turn the camera by hand on a rail (the existing
-// Transform rotation field and the new offset fields) and keep that over the
-// whole rail, switch the head's follow off, and the aim-recording feel controls
-// that persist per browser. The math is covered by the node tests.
+// Transform rotation field, the new offset fields, the rotate gizmo and a
+// right-drag while looking through the shot) and keep that over the whole
+// rail, switch the head's follow off, and the aim-recording feel controls that
+// persist per browser; a hand move still sets the follow distance; a pick on a
+// rail with a cast aim, and what the camera does when the picked character is
+// removed. The math is covered by the node tests.
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -115,6 +118,56 @@ try {
 	await screenshot("3-turned-by-hand");
 	log.push({ head: (await readShot()).camera.head });
 
+	// A: the rotate gizmo on the camera in the editor view. The free camera is put 4 m in front of the gizmo first.
+	await seek(72);
+	const followBefore = (await readShot()).camera.followCam;
+	await b.evaluate("document.activeElement?.blur()");
+	await b.change("document.querySelector('[data-tool-key].active')?.dataset.tool === 'rotate'", () => key("e", "KeyE", 0, 69));
+	await b.evaluate(`(() => { const c = window.__cozyclay.editorCam, s = window.__cozyclay.shotCam, d = c.position.clone(); c.getWorldDirection(d);
+		c.position.set(s.position.x - d.x * 4, s.position.y - 0.12 - d.y * 4, s.position.z - d.z * 4); c.updateMatrixWorld(); })()`);
+	const ring = `(() => { const c = (window.__gizmoHandles?.() ?? []).find(h => h.axis === 'y'); if (!c) return null;
+		const solid = (x, y) => [[0,0],[3,0],[-3,0],[0,3],[0,-3]].every(([dx, dy]) => window.__gizmoPick(x + dx, y + dy) === 'y');
+		for (let r = 8; r < 260; r += 2) for (let a = 0; a < 360; a += 15) {
+			const x = Math.round(c.x + r * Math.cos(a * Math.PI / 180)), y = Math.round(c.y + r * Math.sin(a * Math.PI / 180));
+			if (solid(x, y) && document.elementFromPoint(x, y)?.tagName === 'CANVAS') return { x, y, hubX: c.x, hubY: c.y }; }
+		return null; })()`;
+	let grab = null;
+	for (let tries = 0; tries < 60 && !grab; tries += 1) { await settle(); grab = await b.evaluate(ring); }
+	assert.ok(grab, "the camera's pan ring is on screen and can be grabbed");
+	const head3 = (await readShot()).camera.head, radius = Math.hypot(grab.x - grab.hubX, grab.y - grab.hubY), from = Math.atan2(grab.y - grab.hubY, grab.x - grab.hubX);
+	const onRing = (angle) => ({ x: Math.round(grab.hubX + radius * Math.cos(angle)), y: Math.round(grab.hubY + radius * Math.sin(angle)) });
+	await b.mouse("mouseMoved", { x: grab.x, y: grab.y });
+	await b.mouse("mousePressed", { x: grab.x, y: grab.y, button: "left", buttons: 1, clickCount: 1 });
+	for (let i = 1; i <= 12; i += 1) { await b.mouse("mouseMoved", { ...onRing(from + (i / 12) * (Math.PI / 4)), button: "left", buttons: 1 }); await settle(); }
+	await b.mouse("mouseReleased", { ...onRing(from + Math.PI / 4), button: "left", buttons: 0, clickCount: 1 });
+	await waitShot(`Math.abs(s.camera.head.yawDeg - ${head3.yawDeg}) > 2`);
+	const ringShot = await readShot();
+	assert.equal(ringShot.camera.head.pitchDeg, head3.pitchDeg, "the pan ring leaves the tilt");
+	assert.deepEqual(ringShot.camera.followCam, followBefore, "a turn with the gizmo leaves the follow settings, and so the dolly");
+	assert.ok(Math.abs((await angleAt(30)).yaw - (base30.yaw + ringShot.camera.head.yawDeg * DEG)) < 0.002, "the gizmo turn rides the whole rail");
+	log.push({ gizmoHead: ringShot.camera.head });
+
+	// A: right-drag while looking through the shot camera.
+	await seek(72);
+	await b.change("window.__cozyclay.lookThroughShot === true", () => b.click(".dock-shot-card .dock-shot-look"));
+	await settle();
+	const lookBefore = await b.pose(), stage = await b.centre(".stage canvas");
+	await b.mouse("mouseMoved", { ...stage });
+	await b.change("document.pointerLockElement === document.querySelector('.stage canvas')", () => b.mouse("mousePressed", { ...stage, button: "right", buttons: 2, clickCount: 1 }));
+	await b.change(`Math.abs(window.__cozyclay.shotCam.rotation.y - ${lookBefore.yaw}) > 0.01`, () => b.mouse("mouseMoved", { x: stage.x + 90, y: stage.y + 24, button: "right", buttons: 2 }));
+	const lookAfter = await b.pose();
+	const dragged = { yawDeg: ringShot.camera.head.yawDeg + (lookAfter.yaw - lookBefore.yaw) / DEG, pitchDeg: ringShot.camera.head.pitchDeg + (lookAfter.pitch - lookBefore.pitch) / DEG };
+	await b.change("document.pointerLockElement === null", () => b.mouse("mouseReleased", { x: stage.x + 90, y: stage.y + 24, button: "right", buttons: 0, clickCount: 1 }));
+	await waitShot(`Math.abs(s.camera.head.yawDeg - ${dragged.yawDeg}) < 0.11 && Math.abs(s.camera.head.pitchDeg - ${dragged.pitchDeg}) < 0.11`);
+	const lookShot = await readShot();
+	assert.deepEqual(lookShot.camera.followCam, followBefore, "a right-drag turn leaves the follow settings, and so the dolly");
+	const at110 = await angleAt(110);
+	assert.ok(Math.abs(at110.yaw - (base110.yaw + lookShot.camera.head.yawDeg * DEG)) < 0.002 && Math.abs(at110.pitch - (base110.pitch + lookShot.camera.head.pitchDeg * DEG)) < 0.002, "the right-drag turn rides the whole rail");
+	await screenshot("3b-right-drag");
+	log.push({ rightDragHead: lookShot.camera.head });
+	await b.change("window.__cozyclay.lookThroughShot === false", () => b.escape());
+	if (!(await b.evaluate(`!!document.querySelector('[data-testid="camera-head-follow"]')?.offsetParent`))) await b.click('[data-node-id="camera"]');
+
 	// A: follow off holds the angle shown at the playhead, at every frame.
 	await seek(72);
 	const shown = await b.pose();
@@ -161,8 +214,41 @@ try {
 	assert.ok(near((await angleAt(72)).yaw, boYaw), "follow on again turns to Bo with no offset");
 	await screenshot("6-reloaded-follow-on");
 
+	// A hand MOVE of the camera on a rail frame still sets the follow distance, as it did before the head existed.
+	await seek(72);
+	const still = await b.pose(), distanceBefore = (await readShot()).camera.followCam.distance;
+	await typeInto("camera-transform", 2, (still.pos.z + 1).toFixed(2));
+	await waitShot(`s.camera.followCam.distance !== ${distanceBefore}`);
+	const movedShot = await readShot();
+	assert.ok(Math.abs(movedShot.camera.followCam.distance - Math.hypot(still.pos.x - 2, still.pos.z + 1)) < 0.011, `the distance is read from the moved camera to Bo: ${movedShot.camera.followCam.distance}`);
+	assert.equal(movedShot.camera.head, undefined, "a move is not a turn");
+
+	// B on a rail that already holds a cast aim (laid with shot.setCameraRail): the pick is the aim, marked as the user's.
+	const aimed = await b.evaluate(`window.__cozyclay.runStudioAction('shot.setCameraRail', { shotId: 'rail-a', points: [{ x: -3, z: 5 }, { x: 3, z: 5 }], aim: ['char-a'] })`);
+	assert.equal(aimed.ok, true, JSON.stringify(aimed));
+	await waitShot(`JSON.stringify(s.camera.aim) === '{"ids":["char-a"]}'`);
+	await b.change(`document.querySelector('[data-testid="camera-follow-subject-char-a"]').getAttribute('aria-pressed') === 'true'`, async () => {});
+	await b.click('[data-testid="camera-follow-subject-char-b"]');
+	await waitShot(`JSON.stringify(s.camera.aim) === '{"ids":["char-a","char-b"],"picked":true}'`);
+	await b.click('[data-testid="camera-follow-subject-char-a"]');
+	await waitShot(`JSON.stringify(s.camera.aim) === '{"ids":["char-b"],"picked":true}'`);
+	const toBo = await angleAt(110);
+	// the picked character removed: the camera holds still and says so; Undo follows Bo again
+	const removed = await b.evaluate(`window.__cozyclay.runStudioAction('character.remove', { characterId: 'char-b' })`);
+	assert.equal(removed.ok, true, JSON.stringify(removed));
+	// the Studio shell hides the inspector's hint lines, so the user reads this as the tooltip of the Follows row
+	const followTip = `(document.querySelector('[data-testid="camera-follow-pick"]')?.title ?? '')`;
+	await b.change(`/holds still/.test(${followTip})`, async () => {});
+	assert.match(await b.evaluate(`document.querySelector('[data-testid="camera-follow-subject-char-b"]').textContent`), /removed/, "the removed pick stays listed");
+	const held30 = await angleAt(30), held110 = await angleAt(110);
+	assert.ok(near(held30.yaw, held110.yaw) && near(held30.pitch, held110.pitch), "with the picked character gone the camera holds still, it does not turn to Ada");
+	await screenshot("7-picked-removed");
+	await b.evaluate("document.activeElement?.blur()");
+	await b.change(`!/holds still/.test(${followTip})`, () => key("z", "KeyZ", 2, 90));
+	assert.ok(near((await angleAt(110)).yaw, toBo.yaw), "Undo of the removal follows Bo again");
+
 	writeFileSync(join(dir, "results.json"), JSON.stringify({ pass: true, viewport: [1438, 979], log }, null, 2));
-	console.log("PASS rail camera controls: pick Bo (undo/redo/reload), hand angle over the whole rail (offset fields and Transform rotation), follow off holds the angle, aim feel controls persist");
+	console.log("PASS rail camera controls: pick Bo (undo/redo/reload), hand angle over the whole rail (offset fields, Transform rotation, rotate gizmo, right-drag in Look through), follow off holds the angle, aim feel controls persist, a hand move sets the follow distance, a removed pick holds the camera still");
 	console.log(`EVIDENCE ${dir}/results.json`);
 } finally {
 	b.close();

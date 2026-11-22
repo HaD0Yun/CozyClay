@@ -139,7 +139,37 @@ for (const interruption of ["escape", "blur", "unlock", "error"]) {
 	assert.ok(Math.abs(seen.at(-1) - settled) < 1e-9, "the turn eases in with the filter's time constant");
 	const take = h.saved[0].take;
 	assert.deepEqual(Array.from(take.samples.slice(1), sample => sample.yaw), seen, "the take is what the camera showed");
+	assert.deepEqual([take.samples[0].yaw, take.samples[0].pitch], [0.2, -0.1], "the take starts on the shot's own angle at its first frame: no jump into it");
 	for (let i = 2; i < take.samples.length; i += 1) assert.ok(take.samples[i].yaw <= take.samples[i - 1].yaw, "a flick becomes one steady pan, no overshoot");
 	h.cleanup();
 }
-console.log("PASS actual rail recorder lifecycle: aim input, full range, skipped display frames, authored optics, auto-stop and interruption discard, the user's sensitivity and smoothing");
+{
+	// Smoothing 0 at any sensitivity is the raw mouse: every sample is the movement so far times the sensitivity.
+	const h = mount({ sensitivity: 7, smoothing: 0 }), perPixel = 0.07 * Math.PI / 180;
+	h.controller.start(); h.grant(); h.frame(22);
+	let moved = 0;
+	for (let frame = 23; frame <= 45; frame += 1) {
+		const dx = (frame % 5) * 7 - 11; moved += dx;
+		h.move(dx, 0); h.frame(frame);
+		assert.ok(Math.abs(h.camera.rotation.y - (0.2 - moved * perPixel)) < 1e-12, `raw at frame ${frame}`);
+	}
+	const samples = h.saved[0].take.samples;
+	assert.equal(samples[0].yaw, 0.2);
+	assert.ok(Math.abs(samples.at(-1).yaw - (0.2 - moved * perPixel)) < 1e-12, "and the take keeps it");
+	h.cleanup();
+}
+{
+	// Display frames skipped while smoothing: the filter steps by the production time that passed, and the
+	// frames nobody saw hold the last angle that was shown (they are not filtered again afterwards).
+	const h = mount({ sensitivity: 7, smoothing: 0.2 }), turn = 100 * 0.07 * Math.PI / 180;
+	h.controller.start(); h.grant(); h.frame(22);
+	h.move(100, 0); h.frame(34);
+	const shown = h.camera.rotation.y;
+	assert.ok(Math.abs(shown - (0.2 - turn * (1 - Math.exp(-12 / 24 / 0.2)))) < 1e-12, "twelve frames of production time in one step");
+	h.frame(45);
+	const samples = h.saved[0].take.samples;
+	assert.equal(samples[11].yaw, 0.2, "the skipped frames hold what was last shown");
+	assert.equal(samples[12].yaw, shown, "the observed frame keeps what the camera showed then");
+	h.cleanup();
+}
+console.log("PASS actual rail recorder lifecycle: aim input, full range, skipped display frames, authored optics, auto-stop and interruption discard, the user's sensitivity and smoothing (0 is the raw mouse), the first sample on the shot's angle");

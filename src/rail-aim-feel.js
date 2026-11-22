@@ -25,10 +25,9 @@ function storedFeel(storage) {
 
 export function readRailAimFeel(storage = globalThis.localStorage) {
 	const stored = storedFeel(storage);
-	return {
-		sensitivity: bounded(Number(stored?.sensitivity ?? NaN), RAIL_AIM_FEEL.sensitivity),
-		smoothing: bounded(Number(stored?.smoothing ?? NaN), RAIL_AIM_FEEL.smoothing),
-	};
+	// only a stored number counts: a string, a boolean or null there is a broken value, not a 0 or a 1
+	const part = (key) => bounded(typeof stored?.[key] === "number" ? stored[key] : NaN, RAIL_AIM_FEEL[key]);
+	return { sensitivity: part("sensitivity"), smoothing: part("smoothing") };
 }
 
 export function writeRailAimFeel(feel, storage = globalThis.localStorage) {

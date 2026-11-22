@@ -24,6 +24,15 @@ writeRailAimFeel({ sensitivity: 400, smoothing: -3 }, storage);
 assert.deepEqual(readRailAimFeel(storage), { sensitivity: RAIL_AIM_FEEL.sensitivity.max, smoothing: 0 }, "out-of-range values are bounded");
 storage.setItem("cozyclay.railAimFeel", "{not json");
 assert.deepEqual(readRailAimFeel(storage), fresh, "unreadable bytes fall back to the defaults");
+// a stored body of the wrong shape, or a part that is not a number, is the default for that part
+for (const broken of ["null", "7", "\"fast\"", "[3,0.1]", "{}", "{\"sensitivity\":\"\",\"smoothing\":null}", "{\"sensitivity\":true,\"smoothing\":\"0.4\"}", "{\"sensitivity\":null}"]) {
+	storage.setItem("cozyclay.railAimFeel", broken);
+	assert.deepEqual(readRailAimFeel(storage), fresh, `a broken stored value gives the defaults: ${broken}`);
+}
+storage.setItem("cozyclay.railAimFeel", "{\"smoothing\":0.4}");
+assert.deepEqual(readRailAimFeel(storage), { sensitivity: 7, smoothing: 0.4 }, "a missing part is its default, the other part is kept");
+assert.deepEqual(readRailAimFeel({ getItem() { throw new Error("blocked"); } }), fresh, "a storage that cannot be read gives the defaults");
+assert.deepEqual(readRailAimFeel(undefined), fresh, "no storage at all gives the defaults");
 assert.doesNotThrow(() => writeRailAimFeel(fresh, { setItem() { throw new Error("quota"); } }), "a full storage never breaks recording");
 
 // The filter: first order on production time. Smoothing 0 is the raw mouse.

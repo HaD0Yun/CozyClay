@@ -15,7 +15,7 @@ import { subjectsCenter } from '../shot-subjects.js';
 import { createCameraBlock, updateCameraBlock } from '../camera-block.js';
 import { followFramingFromCamera, craneHeightAt, buildRail, simplifyStroke } from '../camera-follow.js';
 import { defaultRailRange, clampRailRange, resolveRailSchedule, activeAt } from '../camera-rail-schedule.js';
-import { headFromLook } from '../camera-rail-head.js';
+import { railHandTurn } from '../camera-rail-head.js';
 import { timelineSpan, timelineContentExtent } from '../timeline-extent.js';
 import { trackFeature } from '../analytics.js';
 import { ko } from '../locale.js';
@@ -115,15 +115,15 @@ function createShotsDomain(appContext, initial = {}) {
     commitDraft(plan.draft);
     return { ...plan, affectedIds: [...plan.affectedIds, ...setPresetMetadata(cameraPresetId)] };
   }
-  // The head a rail shot needs to show `look` at frame, or undefined where the rail does not own that frame's angle
+  // What a rail shot shows at frame ({ camera, head }) where the rail owns that frame's angle, else null
   // (off its range, or its aim take covers the frame: the take wins).
-  function railHeadTurn(shot, frame, look) {
+  function railShown(shot, frame) {
     const camera = createCameraBlock(shot.camera), local = frame - shot.startFrame;
-    if (camera.mode !== 'rail' || !camera.cameraRail) return undefined;
-    if (!activeAt(resolveRailSchedule({ ...camera, frameCount: shot.endFrame - shot.startFrame + 1 }), local)) return undefined;
-    if (camera.aimTake?.samples[local - camera.aimTake.startFrame]) return undefined;
+    if (camera.mode !== 'rail' || !camera.cameraRail) return null;
+    if (!activeAt(resolveRailSchedule({ ...camera, frameCount: shot.endFrame - shot.startFrame + 1 }), local)) return null;
+    if (camera.aimTake?.samples[local - camera.aimTake.startFrame]) return null;
     const shown = appContext.shared.railCameraAt?.(shot.id, frame);
-    return shown?.camera ? headFromLook(shown.head, shown.camera, look) : undefined;
+    return shown?.camera ? shown : null;
   }
   function captureCamera(shotId) {
     const shared = appContext.shared, mounted = shared.shotCamRef.current;
@@ -133,23 +133,28 @@ function createShotsDomain(appContext, initial = {}) {
     const camera = { position, lookAt: { x: position.x - Math.sin(yaw) * Math.cos(pitch), y: position.y + Math.sin(pitch), z: position.z - Math.cos(yaw) * Math.cos(pitch) },
       focalMm: fovToFocalMm(mounted.fov * Math.PI / 180, appContext.live.state.filmback.sensorId, appContext.live.state.filmback.aspectRatio),
       sensorId: appContext.live.state.filmback.sensorId, slate: 'Shot camera' };
-    let railTurned = false;
+    let turn = null;
     writeState(before => {
       const shots = before.shots.map(shot => {
         if (shot.id !== shotId) return shot;
-        // Where the rail owns the frame the dolly owns the position: a hand turn is the head's angle
-        // (camera-rail-head.js) and leaves the follow settings, and so the dolly, as they were.
-        const head = railHeadTurn(shot, raw.view.frame, { yaw, pitch });
-        railTurned = head !== undefined;
-        if (railTurned) return { ...shot, camera: updateCameraBlock(shot.camera, { head }) };
+        // Where the rail owns the frame, a hand turn is the head's angle and leaves the follow settings, and so
+        // the dolly, as they were (camera-rail-head.js railHandTurn); a hand move sets the follow framing below,
+        // as it always has. `left` is where the last hand move left the camera, and how it looked.
+        const shown = railShown(shot, raw.view.frame), last = before.manual && before.camera;
+        const left = last ? { position: last.position, ...aimAt(last.position, last.lookAt) } : null;
+        turn = shown && railHandTurn(shown, position, { yaw, pitch }, left);
+        if (turn) return 'head' in turn ? { ...shot, camera: updateCameraBlock(shot.camera, { head: turn.head }) } : shot;
         const subject = subjectsCenter(frameSubjectsAt(raw, read(), TIMELINE_FPS)(shot, raw.view.frame)); if (!subject) return shot;
         const subjectYaw = (subject.rot * Math.PI) / 180;
-        const followCam = createCameraBlock(shot.camera).followCam;
+        const { followCam, head } = createCameraBlock(shot.camera);
         const measured = followFramingFromCamera(position, pitch, subject, followCam.aimHeight, { x: Math.sin(subjectYaw), z: Math.cos(subjectYaw) });
-        return { ...shot, camera: updateCameraBlock(shot.camera, { followCam: { ...followCam, ...measured } }) };
+        // The tilt a rail's head carries is not measured a second time into the follow pitch.
+        const tilt = !shown || !head ? {} : { pitchOffsetDeg: head.follow === false ? followCam.pitchOffsetDeg : Math.round((measured.pitchOffsetDeg - head.pitchDeg) * 10) / 10 };
+        return { ...shot, camera: updateCameraBlock(shot.camera, { followCam: { ...followCam, ...measured, ...tilt } }) };
       });
-      // the rail's track now shows the turned angle itself, so it keeps playing the camera (no manual hold)
-      return { ...before, shots, ...cameraPatch(camera, !railTurned) };
+      // A rail whose camera was only turned shows the turned angle itself, so it keeps playing the camera (no
+      // manual hold); a camera that was moved stays where the hand put it until the playhead moves.
+      return { ...before, shots, ...cameraPatch(camera, turn ? turn.hold : true) };
     });
   }
   function setLens(fovDeg) {

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { createCameraBlock, updateCameraBlock, removeCameraRail } from "../src/camera-block.js";
 import { buildShotCameraTracks } from "../src/camera-direction.js";
-import { applyRailHead, cloneRailHead, headFromLook, railShownPitchDeg, toggleRailHeadFollow } from "../src/camera-rail-head.js";
+import { applyRailHead, cloneRailHead, headFromLook, railHandTurn, railShownPitchDeg, toggleRailHeadFollow } from "../src/camera-rail-head.js";
 import { createShotAuthoringDocument, serializeShotAuthoring } from "../src/shot-authoring.js";
 import { sampleAt } from "../src/sample-at.js";
 
@@ -67,6 +67,19 @@ for (const [label, camera] of [["following", turned], ["held", held]]) {
 }
 // A yaw turn across +-180 is the short way round.
 assert.deepEqual(headFromLook(null, { yaw: 179 * DEG, pitch: 0 }, { yaw: -179 * DEG, pitch: 0 }), { yawDeg: 2, pitchDeg: 0 });
+
+// Turn or move: a camera still where the rail shows it was turned; one moved off it sets the follow framing
+// (null); one still where the last hand move left it is turned only when its look changed since.
+{
+	const shown = { camera: { pos: { x: 1, y: 1.6, z: 4 }, yaw: 0.3, pitch: -0.1 }, head: { yawDeg: 5, pitchDeg: 0 } };
+	const look = { yaw: 0.3 + 10 * DEG, pitch: -0.1 };
+	assert.deepEqual(railHandTurn(shown, { x: 1, y: 1.6, z: 4.0004 }, look, null), { hold: false, head: { yawDeg: 15, pitchDeg: 0 } }, "on the rail: a turn");
+	assert.equal(railHandTurn(shown, { x: 1, y: 2.1, z: 4 }, look, null), null, "lifted half a metre: a move");
+	const left = { position: { x: 1, y: 2.1, z: 4 }, yaw: 0.3, pitch: -0.1 };
+	assert.deepEqual(railHandTurn(shown, { x: 1, y: 2.1, z: 4 }, look, left), { hold: true, head: { yawDeg: 15, pitchDeg: 0 } }, "turned where the last move left it");
+	assert.deepEqual(railHandTurn(shown, { x: 1, y: 2.1, z: 4 }, { yaw: 0.3, pitch: -0.1 }, left), { hold: true }, "nothing changed since the move");
+	assert.equal(railHandTurn(shown, { x: 1, y: 2.4, z: 4 }, look, left), null, "moved again");
+}
 
 // The on/off switch: off freezes what is shown, on centres the subject again.
 assert.deepEqual(toggleRailHeadFollow({ yawDeg: 5, pitchDeg: 1 }, { yaw: 30 * DEG, pitch: -10 * DEG }), { follow: false, yawDeg: 30, pitchDeg: -10 });

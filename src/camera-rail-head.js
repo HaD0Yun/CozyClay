@@ -50,6 +50,24 @@ export function headFromLook(head, sample, look) {
 	});
 }
 
+const samePlace = (a, b) => ["x", "y", "z"].every((axis) => Math.abs(a[axis] - b[axis]) < 1e-3);
+
+/**
+ * How a hand change of the camera on a rail frame reads. `shown` is what the rail shows there ({ camera, head }),
+ * `position` and `look` are where the hand left the camera, `left` is where the last hand MOVE left it and how
+ * it looked then ({ position, yaw, pitch }, or null).
+ *   { hold: false, head }  the camera stands where the rail put it: it was turned, the head takes the turn
+ *   { hold: true, head? }  it stands where the last hand move left it: a look that changed since is a turn
+ *                          (head), an unchanged one is nothing new; the camera stays held where it is
+ *   null                   it was moved: the caller measures the follow framing, as before the head existed
+ */
+export function railHandTurn(shown, position, look, left) {
+	if (samePlace(position, shown.camera.pos)) return { hold: false, head: headFromLook(shown.head, shown.camera, look) };
+	if (!left || !samePlace(position, left.position)) return null;
+	const turned = Math.abs(left.yaw - look.yaw) > 1e-6 || Math.abs(left.pitch - look.pitch) > 1e-6;
+	return { hold: true, ...(turned ? { head: headFromLook(shown.head, shown.camera, look) } : {}) };
+}
+
 /** The tilt a rail's controls show: the head's own angle with follow off, else its tilt offset plus the follow
  * pitch an aimless rail still carries from before the head existed (camera-follow.js offsetPitch). */
 export function railShownPitchDeg(camera, followPitchDeg = 0) {

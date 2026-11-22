@@ -99,7 +99,7 @@ export function register(registry, ports) {
     return { note, warnings: fast };
   }
   // aimHeight moves a cast aim off the chest to a world height (a whole body, a face).
-  const aimOf = (aim, aimHeight) => (aim?.ids && aimHeight !== undefined ? { ids: aim.ids, height: aimHeight } : aim);
+  const aimOf = (aim, aimHeight) => (aim?.ids && aimHeight !== undefined ? { ...aim, height: aimHeight } : aim);
   const methods = {
     'shot.create': () => createClip(),
     'shot.split': ({ shotId }) => {
