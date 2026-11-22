@@ -50,7 +50,10 @@ check("a character named in ids gets its spec and placement once, never the scen
 });
 check("the cast, the stage and every saved scene answer a saved take's specId too", () => {
 	const cast = [{ id: "char-a", subject: "driver", motionTake: { ...source, takeId: "t1" } }];
-	const read = readElementDocument({ characters: cast, stage: { characters: cast }, scenes: [{ id: "scene-1", name: "A", order: 0, stage: { characters: cast } }] }, {}, "scene-x");
+	// a stage's figureBody is the file's mark of the body its scales are stored for (scenes.js): no read answers it
+	const read = readElementDocument({ characters: cast, stage: { characters: cast, figureBody: 0.81 }, scenes: [{ id: "scene-1", name: "A", order: 0, stage: { characters: cast, figureBody: 0.81 } }, { id: "scene-2", name: "B", order: 1, stage: { figureBody: 0.81, hasCharSheet: false } }] }, {}, "scene-x");
+	assert.equal(JSON.stringify(read.document).includes("figureBody"), false);
+	assert.equal(read.document.scenes[1].stage.hasCharSheet, false);
 	for (const c of [read.document.characters[0], read.document.stage.characters[0], read.document.scenes[0].stage.characters[0]]) {
 		assert.equal(c.motionTake.specId, specIdOf(spec));
 		assert.equal(c.motionTake.takeId, "t1");

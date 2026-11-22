@@ -37,6 +37,14 @@ export function readTake(take, named) {
 export const readCastTakes = (characters, named) => (Array.isArray(characters)
   ? characters.map(row => (row?.motionTake?.spec ? { ...row, motionTake: readSource(row.motionTake, named(row.id)) } : row)) : characters);
 
+/** A stage as a read answers it: its cast's takes read as above, without the file's mark of the body its characters'
+ * scales are stored for (scenes.js figureBody): a read's scales are the characters' own. */
+export function readStage(stage, named) {
+  if (!stage || typeof stage !== 'object') return stage;
+  const { figureBody: _mark, ...rest } = stage;
+  return rest.characters ? { ...rest, characters: readCastTakes(rest.characters, named) } : rest;
+}
+
 /** A document whose cast rows carry the take the motion owner holds now (a cast row's motionTake is what the scene last
  * saved or loaded; while the scene is open the motion layer owns the take, as document-mirrors.js saves it). */
 export function withLiveTakes(document) {
