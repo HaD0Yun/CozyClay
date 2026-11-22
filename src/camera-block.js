@@ -1,4 +1,5 @@
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
+import { cloneRailHead } from "./camera-rail-head.js";
 
 // Pure Camera Block model. A shot owns one complete camera instruction, like
 // the camera card clipped to a single strip of film.
@@ -73,10 +74,12 @@ function cloneRailFollow(value) {
  * frame, at their chest or at a world height) or one world point. Null = the follow subject (every older shot).
  * Like the crane, an aim and a lens of its own (focalMm) ride the rail and
  * are left out of the block without one, so untouched shots stay byte-stable.
+ * `picked` marks a cast the user chose by hand: when one of them is gone the camera holds still, where
+ * any other cast aim turns to the follow subject (camera-direction.js).
  */
 function cloneRailAim(value) {
 	const ids = Array.isArray(value?.ids) ? value.ids.filter((id) => typeof id === "string" && id).slice(0, 4) : [];
-	if (ids.length) return Number.isFinite(value.height) ? { ids, height: value.height } : { ids };
+	if (ids.length) return { ids, ...(Number.isFinite(value.height) ? { height: value.height } : {}), ...(value.picked === true ? { picked: true } : {}) };
 	const point = value?.point;
 	return point && [point.x, point.y, point.z].every(Number.isFinite) ? { point: { x: point.x, y: point.y, z: point.z } } : null;
 }
@@ -92,13 +95,14 @@ export function cameraRoll(value) {
 	return wrapped === -180 && value > 0 ? 180 : wrapped;
 }
 
-/** The aim, lens and roll fields a block with a rail carries (none without one). */
+/** The aim, head, lens and roll fields a block with a rail carries (none without one). */
 export function railShotFields(value, cameraRail) {
 	const aim = cameraRail ? cloneRailAim(value.aim) : null;
+	const head = cameraRail ? cloneRailHead(value.head) : null;
 	const focalMm = cameraRail && Number.isFinite(value.focalMm) && value.focalMm > 0 ? value.focalMm : null;
 	const rollDeg = cameraRail ? cameraRoll(value.rollDeg) : 0;
 	const aimTake = cameraRail ? cloneAimTake(value.aimTake) : null;
-	return { ...(aim ? { aim } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}), ...(aimTake ? { aimTake } : {}) };
+	return { ...(aim ? { aim } : {}), ...(head ? { head } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}), ...(aimTake ? { aimTake } : {}) };
 }
 
 /** Build a complete block from a partial or stored camera value. */

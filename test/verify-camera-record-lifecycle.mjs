@@ -7,6 +7,7 @@ import { runInNewContext } from "node:vm";
 import * as THREE from "three";
 import { activeAt, resolveRailSchedule } from "../src/camera-rail-schedule.js";
 import { sampleAt } from "../src/sample-at.js";
+import { aimRadiansPerPixel, smoothAim } from "../src/rail-aim-feel.js";
 
 const source = readFileSync(new URL("../src/use-rail-recording.jsx", import.meta.url), "utf8")
 	.replace(/^import .*;\n/gm, "").replace(/^export /gm, "");
@@ -17,7 +18,9 @@ class Surface {
 	removeEventListener(type, fn) { this.listeners.set(type, (this.listeners.get(type) ?? []).filter(value => value !== fn)); }
 	emit(type, args = {}) { for (const fn of this.listeners.get(type) ?? []) fn({ type, ...args }); }
 }
-function mount() {
+// The Studio's look speed (0.0032 rad/px) with no smoothing: the raw recorder this test was written for.
+const RAW_FEEL = { sensitivity: 0.0032 * 100 * 180 / Math.PI, smoothing: 0 };
+function mount(feel = RAW_FEEL) {
 	const document = new Surface(), window = new Surface(), effects = [], cleanup = [];
 	const saved = [], errors = [], frameRef = { current: 22 }, look = { current: { yaw: 0, pitch: 0 } };
 	let playing = false, active = false, requests = 0, tick;
@@ -30,7 +33,7 @@ function mount() {
 		pos: { x: frame / 20, y: 2, z: 4 }, yaw: 0.2, pitch: -0.1, fovDeg: 37, rollDeg: 17,
 	})) };
 	const camera = new THREE.PerspectiveCamera();
-	const context = { document, window, activeAt, resolveRailSchedule, sampleAt,
+	const context = { document, window, activeAt, resolveRailSchedule, sampleAt, aimRadiansPerPixel, smoothAim, readRailAimFeel: () => feel,
 		cancelAnimationFrame: () => {},
 		ko: en => en,
 		useRef: current => ({ current }), useCallback: callback => callback,
@@ -121,4 +124,52 @@ for (const interruption of ["escape", "blur", "unlock", "error"]) {
 	assert.equal(h.errors.length, 0, "a stale rejection is not a current permission error");
 	h.controller.rail.cancel(); h.cleanup();
 }
-console.log("PASS actual rail recorder lifecycle: aim input, full range, skipped display frames, authored optics, auto-stop and interruption discard");
+{
+	// The user's feel: 7 degrees per 100 px through a 0.2 s filter on the production clock. The camera
+	// shows the filtered angle and the take keeps exactly that, frame by frame.
+	const h = mount({ sensitivity: 7, smoothing: 0.2 }), turn = 100 * 0.07 * Math.PI / 180;
+	h.controller.start(); h.grant(); h.frame(22);
+	h.move(100, 0); h.frame(22);
+	assert.equal(h.camera.rotation.y, 0.2, "no production time has passed: the filter has not moved yet");
+	const seen = [];
+	for (let frame = 23; frame <= 45; frame += 1) { h.frame(frame); seen.push(h.camera.rotation.y); }
+	const weight = 1 - Math.exp(-1 / 24 / 0.2);
+	assert.ok(Math.abs(seen[0] - (0.2 - turn * weight)) < 1e-9, `one frame in: ${seen[0]}`);
+	const settled = 0.2 - turn * (1 - Math.exp(-23 / 24 / 0.2));
+	assert.ok(Math.abs(seen.at(-1) - settled) < 1e-9, "the turn eases in with the filter's time constant");
+	const take = h.saved[0].take;
+	assert.deepEqual(Array.from(take.samples.slice(1), sample => sample.yaw), seen, "the take is what the camera showed");
+	assert.deepEqual([take.samples[0].yaw, take.samples[0].pitch], [0.2, -0.1], "the take starts on the shot's own angle at its first frame: no jump into it");
+	for (let i = 2; i < take.samples.length; i += 1) assert.ok(take.samples[i].yaw <= take.samples[i - 1].yaw, "a flick becomes one steady pan, no overshoot");
+	h.cleanup();
+}
+{
+	// Smoothing 0 at any sensitivity is the raw mouse: every sample is the movement so far times the sensitivity.
+	const h = mount({ sensitivity: 7, smoothing: 0 }), perPixel = 0.07 * Math.PI / 180;
+	h.controller.start(); h.grant(); h.frame(22);
+	let moved = 0;
+	for (let frame = 23; frame <= 45; frame += 1) {
+		const dx = (frame % 5) * 7 - 11; moved += dx;
+		h.move(dx, 0); h.frame(frame);
+		assert.ok(Math.abs(h.camera.rotation.y - (0.2 - moved * perPixel)) < 1e-12, `raw at frame ${frame}`);
+	}
+	const samples = h.saved[0].take.samples;
+	assert.equal(samples[0].yaw, 0.2);
+	assert.ok(Math.abs(samples.at(-1).yaw - (0.2 - moved * perPixel)) < 1e-12, "and the take keeps it");
+	h.cleanup();
+}
+{
+	// Display frames skipped while smoothing: the filter steps by the production time that passed, and the
+	// frames nobody saw hold the last angle that was shown (they are not filtered again afterwards).
+	const h = mount({ sensitivity: 7, smoothing: 0.2 }), turn = 100 * 0.07 * Math.PI / 180;
+	h.controller.start(); h.grant(); h.frame(22);
+	h.move(100, 0); h.frame(34);
+	const shown = h.camera.rotation.y;
+	assert.ok(Math.abs(shown - (0.2 - turn * (1 - Math.exp(-12 / 24 / 0.2)))) < 1e-12, "twelve frames of production time in one step");
+	h.frame(45);
+	const samples = h.saved[0].take.samples;
+	assert.equal(samples[11].yaw, 0.2, "the skipped frames hold what was last shown");
+	assert.equal(samples[12].yaw, shown, "the observed frame keeps what the camera showed then");
+	h.cleanup();
+}
+console.log("PASS actual rail recorder lifecycle: aim input, full range, skipped display frames, authored optics, auto-stop and interruption discard, the user's sensitivity and smoothing (0 is the raw mouse), the first sample on the shot's angle");

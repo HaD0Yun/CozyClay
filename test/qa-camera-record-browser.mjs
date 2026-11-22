@@ -47,6 +47,8 @@ try {
 	await b.evaluate(`(() => {
 		localStorage.clear();
 		localStorage.setItem('cozyclay.locale','en');
+		// The raw recorder this suite measures: the Studio's look speed (0.0032 rad/px), no smoothing.
+		localStorage.setItem('cozyclay.railAimFeel',JSON.stringify({sensitivity:0.0032*100*180/Math.PI,smoothing:0}));
 		localStorage.setItem('cozyclay.project-session.v1',JSON.stringify({name:'Camera take QA',updatedAt:Date.now()}));
 		localStorage.setItem('${SCENES_STORAGE_KEY}',JSON.stringify({version:4,activeSceneId:'camera-take',scenes:[{
 			id:'camera-take',name:'Camera take QA',objects:[],

@@ -65,6 +65,11 @@ assert.equal(followed[0].fovDeg, undefined, "no lens of its own: the scene lens 
 // A missing cast member falls back to the follow subject rather than aiming at nothing.
 const lost = buildShotCameraTracks({ shots: [{ ...shot, camera: updateCameraBlock(shot.camera, { aim: { ids: ["gone"] } }) }], subjectTrack, fps: 24, aimAt: () => null, filmback });
 assert(Math.abs(lost[0].yaw - Math.atan2(-(9 - lost[0].pos.x), -(9 - lost[0].pos.z))) < 0.05);
+assert.deepEqual(lost, buildShotCameraTracks({ shots: [{ ...shot, camera: updateCameraBlock(shot.camera, { aim: null }) }], subjectTrack, fps: 24, filmback }), "frame for frame the track of the same rail with no aim");
+// A cast the user picked by hand never hands the rail to another character (shot-subjects.js): the rail has
+// no track there, so the camera holds where it is until the member is back or the pick is changed.
+const lostPick = buildShotCameraTracks({ shots: [{ ...shot, camera: updateCameraBlock(shot.camera, { aim: { ids: ["gone"], picked: true } }) }], subjectTrack, fps: 24, aimAt: () => null, filmback });
+assert.equal(lostPick[0], null, "a lost pick does not turn to the follow subject at (9, 9)");
 assert.equal(buildShotCameraTracks({ shots: [{ ...shot, camera: createCameraBlock({ mode: "keys" }) }], subjectTrack, fps: 24 })[0], null, "a keyed shot has no track");
 
 // Cast aim points: a character's chest where it stands, an object's middle.
