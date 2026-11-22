@@ -39,12 +39,13 @@ export function sampleSpans(frames, flags) {
 	return spans;
 }
 
-/** World joint positions of a v3 take at timeline frame f, in take bone order (motion.sample's reading). */
-function jointsAt(sk, take, f) {
+/** World joint positions of a v3 take at timeline frame f, in take bone order (motion.sample's reading: the take's
+ *  skeleton at the character's place, turn and scale as they are now). */
+function jointsAt(sk, take, f, character) {
 	const B = take.bones.length, ff = Math.max(0, Math.min(take.frameCount - 1, Math.round(f)));
 	const quats = Array.from({ length: B }, (_, b) => Array.from(take.rot.subarray((ff * B + b) * 4, (ff * B + b) * 4 + 4)));
 	const state = fk(sk, quats, Array.from(take.hips.subarray(ff * 3, ff * 3 + 3)));
-	const yaw = ry(take.placement?.yaw ?? 0), at = take.placement?.position ?? [0, 0, 0], size = take.scale ?? 1; // a take of a body of another scale: its joints times it
+	const yaw = ry(character.rot ?? 0), at = [character.x ?? 0, character.y ?? 0, character.z ?? 0], size = character.scale ?? 1;
 	return state.P.map(p => add(at, apply(yaw, size === 1 ? p : p.map(v => v * size))));
 }
 
@@ -112,7 +113,7 @@ export function exportFraming({ character, take, scene, ports, range }) {
 		sources.add(shot ? "shot" : "studio");
 		const view = { camera, position: new Vector3(camera.position.x, camera.position.y, camera.position.z), lookAt: new Vector3(camera.lookAt.x, camera.lookAt.y, camera.lookAt.z),
 			fov: focalMmToFov(camera.focalMm, sensorId, aspect), aspect };
-		const joints = jointsAt(sk, take, frame).map(([x, y, z]) => new Vector3(x, y, z));
+		const joints = jointsAt(sk, take, frame, character).map(([x, y, z]) => new Vector3(x, y, z));
 		body.push(landing(joints, view));
 		for (const [part, index] of Object.entries(partIndex)) parts[part].push(landing(index.map(i => joints[i]), view));
 		const posed = sceneObjectsAt(scene.objects, frame, { frameCount: take.frameCount, fps: 24, objectTracks: tracks }), state = { ...scene, objects: posed, frame };

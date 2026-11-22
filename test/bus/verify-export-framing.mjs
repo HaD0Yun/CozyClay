@@ -65,6 +65,13 @@ assert.ok(!within(cup.cut ?? [], 0) && !within(cup.out ?? [], 0), "the cup on th
 assert.ok(within([...(cup.cut ?? []), ...(cup.out ?? [])], 30), `the carried cup rides the hand out of frame: ${JSON.stringify(cup)}`);
 console.log("PASS export framing: a tight camera cuts the head all take, the raised hand and the carried cup only while up");
 
+// a character resized or moved after the install carries its take (the stage draws it there): the framing reads it there
+const half = { ...CHARACTER, scale: 0.5 }, small = exportFraming({ character: half, take, scene: { ...scene(camera(0.5, 3, 31)), characters: [half] }, ports, range: "whole_clip" });
+assert.equal(small.character.cut?.head, undefined, `at half the size the head stays under the tight frame's top: ${JSON.stringify(small.character.cut)}`);
+const aside = { ...CHARACTER, x: 30 }, far = exportFraming({ character: aside, take, scene: { ...scene(camera(1, 8, 40)), characters: [aside] }, ports, range: "whole_clip" });
+assert.equal(far.character.inFrame[0], 0, "moved 30 m to the side, the character is out of the wide frame");
+console.log("PASS export framing: a character resized or moved after the install is read where the stage draws it");
+
 // facing away: the character is behind the camera
 const away = exportFraming({ character: CHARACTER, take, scene: scene(camera(1, 3, 40, 10)), ports, range: "whole_clip" });
 assert.deepEqual(away.character.behindCamera, all);

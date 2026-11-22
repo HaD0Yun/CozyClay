@@ -841,9 +841,13 @@ The other motion actions (`motion.qa`, `motion.sample`, `motion.describe`,
   motion owner mounted; otherwise `motion.compile`, `motion.qa`,
   `motion.sample` and `motion.keyObject` are refused as unavailable with
   "The motion owner is not mounted."
-- a rigged character at scale 1 (X Bot, Y Bot, or an imported character whose
-  rig adapted); a capsule figure, an imported body with an incomplete
-  skeleton, or any other scale answers `TARGET_NOT_READY` with the reason.
+- a rigged character (X Bot, Y Bot, or an imported character whose rig
+  adapted); a capsule figure or an imported body with an incomplete skeleton
+  answers `TARGET_NOT_READY` with the reason. The actions that compile
+  (`motion.compile`, `motion.qa`, `motion.report` by character,
+  `motion.keyObject`) also need the character at scale 1 and answer
+  `TARGET_NOT_READY` at any other; `motion.sample` reads the take's bones at
+  the character's place, turn and scale, whatever they are.
 - `motion.qa`, `motion.sample` and `motion.keyObject` need a compiled take on
   the character; compile first.
 

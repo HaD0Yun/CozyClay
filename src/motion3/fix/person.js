@@ -11,10 +11,10 @@
 import { add, sub, scale, dot, len, clamp } from "../compiler/math.js";
 import { QA_LIMITS, allowance } from "../qa/checks.js";
 import { CAPSULES, capsulesFor, segPoints } from "../qa/geometry.js";
-import { personCapsules } from "../qa/people-checks.js";
+import { personCapsules, apartOf } from "../qa/people-checks.js";
 import { round4 } from "./ease.js";
 
-const EASE = 4, MARGIN = 0.004, PASSES = 6, APART = 2.2;
+const EASE = 4, MARGIN = 0.004, PASSES = 6;
 const armParts = (sk, k) => capsulesFor(sk).filter(c => c[0] === `uarm_${k}` || c[0] === `farm_${k}` || c[0] === `hand_${k}`);
 
 /** The closest points of segment PQ (sampled as qa/geometry.js segDist does, so the depth is QA's) and segment CD. */
@@ -49,7 +49,7 @@ function needs(out, k, people, lim, allow, stats) {
 		let sum = null;
 		for (const [id, p] of people) {
 			const theirs = personCapsules(p, i + f0), hips = theirs.find(t => t[0] === "hips")[1];
-			if (len(sub(s.P[I.Hips], hips)) > APART) continue;
+			if (len(sub(s.P[I.Hips], hips)) > apartOf(p)) continue;
 			let best = null;
 			for (const [part, a, b, r] of arm) {
 				const meant = allowance(allow, part, `person:${id}`), limit = meant ?? lim, A = s.P[I[a]], B = s.P[I[b]];
