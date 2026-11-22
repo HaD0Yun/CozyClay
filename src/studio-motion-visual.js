@@ -39,7 +39,7 @@ function takeCompile(args, s, receipt) {
 		try {
 			// a raw take (motion.v4.install) is read as its own track: its spec has no keys to compile
 			const compiled = rawCompile(take, s.objects) ?? compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true });
-			return { ...compiled, characterId: id, placement: take.placement };
+			return { ...compiled, characterId: id, placement: take.placement, of: take.spec.raw ? take.scale ?? 1 : 1 };
 		} catch { return null; }
 	}
 	return null;
@@ -119,7 +119,7 @@ function viewSheet(args, r, { s, frames, span, grid, picks, ports, added }) {
 /** The sheet frames a scene body hides at least HIDDEN_SHARE of the character from the shot camera: { hidden, hint }, or nothing. */
 function shotHidden(r, frames, ports, scene) {
 	if (!r || !scene || typeof ports.sampleStateAt !== "function") return {};
-	const character = scene.characters?.find(c => c.id === r.characterId), out = character ? placedOut(r.out, r.placement, character) : r.out, solids = solidsOf(scene.objects);
+	const character = scene.characters?.find(c => c.id === r.characterId), out = character ? placedOut(r.out, r.placement, character, r.of) : r.out, solids = solidsOf(scene.objects);
 	const hidden = frames.flatMap(f => {
 		const at = (ports.sampleStateAt(f, scene)?.camera ?? scene.camera)?.position;
 		if (!at) return [];

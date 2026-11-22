@@ -19,7 +19,7 @@ function compiledTake(character, take, ports) {
 	if (!sk) return null;
 	try {
 		const objects = ports.state().objects, compiled = rawCompile(take, objects) ?? compileSpec({ fps: FPS, ...take.spec }, { sk, scene: motionScene(objects) }, { lenient: true });
-		return placedOut(compiled.out, take.placement, character);
+		return placedOut(compiled.out, take.placement, character, take.spec.raw ? take.scale ?? 1 : 1);
 	} catch { return null; }
 }
 

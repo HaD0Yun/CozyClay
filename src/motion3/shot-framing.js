@@ -10,14 +10,15 @@ const jointsAt = (out, f) => out.frames?.[f - (out.f0 ?? 0)]?.s.P ?? [];
 const dotOf = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 /**
- * out with its joints where the stage draws them. A compile is in the world of take.placement; a character moved or turned since
- * carries its take along, and the scene's bodies stay. character: { x, y, z, rot (deg) }.
+ * out with its joints where the stage draws them. A compile is in the world of take.placement, of a body of scale `of` (1: a
+ * compiled spec; a raw track's out is of its take's scale); a character moved, turned or resized since carries its take along
+ * (the body is drawn about its place at its scale), and the scene's bodies stay. character: { x, y, z, rot (deg), scale }.
  */
-export function placedOut(out, placement, character) {
-	const from = placement?.position ?? [0, 0, 0], was = placement?.yaw ?? 0, to = [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw = character.rot ?? 0;
-	if (Math.abs(was - yaw) < 1e-6 && from.every((v, i) => Math.abs(v - to[i]) < 1e-6)) return out;
+export function placedOut(out, placement, character, of = 1) {
+	const from = placement?.position ?? [0, 0, 0], was = placement?.yaw ?? 0, to = [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw = character.rot ?? 0, k = (character.scale ?? 1) / of;
+	if (Math.abs(was - yaw) < 1e-6 && from.every((v, i) => Math.abs(v - to[i]) < 1e-6) && Math.abs(k - 1) < 1e-9) return out;
 	const a = (yaw - was) * DEG, c = Math.cos(a), n = Math.sin(a);
-	const move = p => { const x = p[0] - from[0], y = p[1] - from[1], z = p[2] - from[2]; return [x * c + z * n + to[0], y + to[1], -x * n + z * c + to[2]]; };
+	const move = p => { const x = (p[0] - from[0]) * k, y = (p[1] - from[1]) * k, z = (p[2] - from[2]) * k; return [x * c + z * n + to[0], y + to[1], -x * n + z * c + to[2]]; };
 	return { ...out, frames: out.frames.map(fr => ({ ...fr, s: { ...fr.s, P: fr.s.P.map(move) } })) };
 }
 

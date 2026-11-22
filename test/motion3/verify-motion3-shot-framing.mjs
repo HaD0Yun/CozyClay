@@ -48,6 +48,12 @@ expect("a moved character carries its joints", JSON.stringify(placedOut(one, at,
 const turnedP = placedOut(one, at, { x: 1, y: 0, z: 1, rot: 90 }).frames[0].s.P[0];
 expect("a turned character turns them about its placement (+z goes to +x)", Math.abs(turnedP[0] - 2) < 1e-9 && Math.abs(turnedP[2] - 1) < 1e-9, turnedP);
 expect("the original compile is not changed", one.frames[0].s.P[0][0] === 1);
+// a resized character is drawn about its place at its scale: a compiled spec's joints are of the scale-1 body, a raw track's of its take's scale
+expect("a character at scale 1 with a compiled spec keeps the compile's joints", placedOut(one, at, { x: 1, y: 0, z: 1, rot: 0, scale: 1 }) === one);
+expect("a resized character's joints are that many times as far from its place", JSON.stringify(placedOut(one, at, { x: 1, y: 0, z: 1, rot: 0, scale: 0.5 }).frames[0].s.P[0]) === "[1,0.5,1.5]");
+expect("a raw track of the character's own scale keeps its joints", placedOut(one, at, { x: 1, y: 0, z: 1, rot: 0, scale: 0.8 }, 0.8) === one);
+const resized = placedOut(one, at, { x: 4, y: 0, z: 1, rot: 0, scale: 0.4 }, 0.8).frames[0].s.P[0];
+expect("a raw track of 0.8 on a character resized to 0.4 and moved: half as far from the new place", JSON.stringify(resized) === "[4,0.5,1.5]", resized);
 const away = fitHeld(placedOut(walk(), { position: [0, 0, 0], yaw: 0 }, { x: 10, y: 0, z: 0, rot: 0 }), frames, { asked: 90, ...opts });
 expect("a held camera frames a character moved off the origin", Math.abs(away.lookAt[0] - 10) < 0.01 && away.outOfFrame.length === 0, away);
 
