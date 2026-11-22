@@ -12,10 +12,10 @@ import { declarations } from '../src/commands/shot.js';
 import { shotsFixture } from './bus/shots-fixture.mjs';
 
 const DEG = Math.PI / 180;
-const state = rows => ({ host: { workspaceId: 'w', documentEpoch: 'd', sceneId: 's', sceneEpoch: 'e' }, frame: 0, frameCount: 96, floorY: 0, activeCharacterId: 'mara', selectedShotId: null,
-  objects: rows, characters: [createCharacterEntry({ id: 'mara', subject: 'Mara' })], shotDocument: { shots: [] }, camera: null, filmback: null, manual: false });
+const state = (rows, cast = ['mara']) => ({ host: { workspaceId: 'w', documentEpoch: 'd', sceneId: 's', sceneEpoch: 'e' }, frame: 0, frameCount: 96, floorY: 0, activeCharacterId: 'mara', selectedShotId: null,
+  objects: rows, characters: cast.map(id => createCharacterEntry({ id, subject: id })), shotDocument: { shots: [] }, camera: null, filmback: null, manual: false });
 const ports = { bounds: ({ entity }) => ({ min: { x: entity.x - 0.1, y: entity.y, z: entity.z - 0.1 }, max: { x: entity.x + 0.1, y: entity.y + 0.1, z: entity.z + 0.1 } }) };
-const plan = (rows, ops) => arrangement(validateStudioCommand({ name: 'arrange_objects', args: { ops } }), state(rows), ports);
+const plan = (rows, ops, more = {}, cast) => arrangement(validateStudioCommand({ name: 'arrange_objects', args: { ops, ...more } }), state(rows, cast), ports);
 const run = (rows, ops) => plan(rows, ops).draft;
 const near = (a, b, label, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${label}: ${a} != ${b}`);
 const refused = (code, pattern) => error => error instanceof StudioProtocolError && error.code === code && pattern.test(error.message);
@@ -41,11 +41,32 @@ test('frame-free fields of an attached object need no space; a world place on it
   assert.throws(() => run([badge()], [{ op: 'update', id: 'badge', color: '#000000', space: 'parent' }]), refused('INVALID_ARGUMENT', /none was given/));
 });
 
-test('a bone-frame place below the bone is not lifted off the floor', () => {
-  const kept = run([badge()], [{ op: 'update', id: 'badge', position: { world: { x: 0, y: 0, z: 0.1 } }, space: 'parent' }]).find(o => o.id === 'badge');
-  assert.equal(kept.y, 0);
-  const receipt = plan([badge()], [{ op: 'update', id: 'badge', position: { world: { x: 0, y: 0, z: 0.1 } }, space: 'parent' }]);
-  assert.ok(!receipt.warnings.some(w => w.code === 'FLOOR_LIFT'), JSON.stringify(receipt.warnings));
+test('a bone-frame place below and behind the bone origin is kept as given: the deck and the room are world limits', () => {
+  const op = { op: 'update', id: 'badge', position: { world: { x: -0.03, y: -0.12, z: -0.2 } }, space: 'parent' };
+  const receipt = plan([badge()], [op]), kept = receipt.draft.find(o => o.id === 'badge');
+  assert.deepEqual([kept.x, kept.y, kept.z], [-0.03, -0.12, -0.2]);
+  assert.deepEqual(receipt.warnings.filter(w => ['CLAMPED', 'FLOOR_LIFT'].includes(w.code)), []);
+  assert.deepEqual(localTransformReadback(kept, receipt.draft).position, { x: -0.03, y: -0.12, z: -0.2 });
+  // an unattached object keeps the world's deck
+  const free = plan([badge({ attach: null })], [{ op: 'update', id: 'badge', position: { world: { x: 0, y: -0.12, z: 3 } } }]);
+  assert.ok(free.draft.find(o => o.id === 'badge').y >= 0);
+  // a turn or a scale of an attached object leaves what is grouped under it where it is
+  const child = { ...createSceneObject('cube'), id: 'pin', name: 'Pin', x: 2, y: 0.5, z: 1, parent: 'badge' };
+  const turned = run([badge(), child], [{ op: 'update', id: 'badge', position: { world: { x: 0.2, y: -0.05, z: 0.1 } }, rotationDeg: { x: 0, y: 90, z: 0 }, space: 'parent' }]).find(o => o.id === 'pin');
+  assert.deepEqual([turned.x, turned.y, turned.z, turned.rot], [2, 0.5, 1, 0]);
+});
+
+test('an attached object does not count as overlapping the body that carries it; another body does', () => {
+  // the stub bounds stand every entity at its own numbers: the badge at the origin is inside both characters' boxes
+  const op = { op: 'update', id: 'badge', position: { world: { x: 0.02, y: 0.03, z: 0.02 } }, space: 'parent' };
+  const alone = plan([badge()], [op]);
+  assert.deepEqual([alone.checks.overlapIds, alone.warnings.filter(w => w.code === 'FOOTPRINT_OVERLAP')], [[], []]);
+  const two = plan([badge()], [op], {}, ['mara', 'zed']);
+  assert.deepEqual(two.checks.overlapIds, ['zed'], JSON.stringify(two.checks));
+  // collisionPolicy avoid refuses a batch that ends with an overlap: the carrier is none, another body is one
+  const crate = { op: 'create', source: { kind: 'cube' }, name: 'Crate', position: { relativeTo: 'mara', basis: 'world', side: 'left', gapM: 2, support: 'floor' } };
+  assert.equal(plan([badge()], [op, crate], { collisionPolicy: 'avoid' }).draft.length, 2);
+  assert.throws(() => plan([badge()], [op, crate], { collisionPolicy: 'avoid' }, ['mara', 'zed']), refused('VERIFICATION_FAILED', /still blocked/));
 });
 
 // A cart that drives a route: what is placed under it in its frame rides it on every frame.
@@ -88,7 +109,7 @@ test('the agent sets the timeline length; the answer names the length and the sh
     const longer = await f.run('shot.setTimeline', { frameCount: 720 }, 'agent');
     assert.equal(longer.ok, true, JSON.stringify(longer));
     assert.equal(f.shots.state().frameCount, 720);
-    assert.match(longer.summary, /720 frames \(30\.0 s\)\.$/);
+    assert.match(longer.summary, /720 frames \(30\.00 s\)\.$/);
     const shorter = await f.run('shot.setTimeline', { frameCount: 30 }, 'agent');
     assert.equal(shorter.ok, true, JSON.stringify(shorter));
     assert.equal(f.shots.state().frameCount, 30);
@@ -96,10 +117,36 @@ test('the agent sets the timeline length; the answer names the length and the sh
     assert.equal((await f.run('shot.setTimeline', { frameCount: 120 }, 'agent')).ok, true);
     assert.equal((await f.run('shot.setRange', { shotId: 'shot-a', range: [0, 100] }, 'agent')).ok, true);
     const cutting = await f.run('shot.setTimeline', { frameCount: 48 }, 'agent');
-    assert.match(cutting.summary, /Hero \[0, 48\).*48 frames \(2\.0 s\); 1 shot cut to end inside it\.$/);
+    assert.match(cutting.summary, /Hero \[0, 48\).*48 frames \(2\.00 s\); 1 shot cut or moved to fit inside it\.$/);
     assert.equal(f.shots.read()[0].endFrame, 47);
     assert.equal((await f.run('edit.undo', { receiptId: cutting.receiptId }, 'agent')).status, 'undone');
     assert.equal(f.shots.state().frameCount, 120, 'one undo takes the length back');
     assert.equal(f.shots.read()[0].endFrame, 99, 'and the shot');
+  } finally { f.dispose(); }
+});
+
+test('a shorter timeline says what it did to each shot, read off the document: cut, moved, removed', async () => {
+  const f = shotsFixture();
+  const ranges = () => f.shots.read().map(shot => [shot.name, shot.startFrame, shot.endFrame]);
+  try {
+    assert.equal((await f.run('shot.setRange', { shotId: 'shot-a', range: [0, 40] }, 'agent')).ok, true);
+    for (const range of [[40, 80], [80, 120]]) {
+      assert.equal((await f.run('shot.create', {}, 'agent')).ok, true);
+      assert.equal((await f.run('shot.setRange', { shotId: f.shots.read().at(-1).id, range }, 'agent')).ok, true);
+    }
+    assert.deepEqual(ranges(), [['Hero', 0, 39], ['Shot 2', 40, 79], ['Shot 3', 80, 119]]);
+    // 60 frames: Shot 2 runs past the end and is cut, Shot 3 starts past it and becomes the last frame
+    const sixty = await f.run('shot.setTimeline', { frameCount: 60 }, 'agent');
+    assert.deepEqual(ranges(), [['Hero', 0, 39], ['Shot 2', 40, 58], ['Shot 3', 59, 59]]);
+    assert.match(sixty.summary, /Shot 2 \[40, 59\); Shot 3 \[59, 60\): the timeline is 60 frames \(2\.50 s\); 2 shots cut or moved to fit inside it\.$/);
+    // 40 frames: Hero never ran past the end, and gives its last frame to Shot 3
+    const forty = await f.run('shot.setTimeline', { frameCount: 40 }, 'agent');
+    assert.deepEqual(ranges(), [['Hero', 0, 38], ['Shot 3', 39, 39]]);
+    assert.match(forty.summary, /the timeline is 40 frames \(1\.67 s\); 1 shot left without a frame removed \(Shot 2\); 2 shots cut or moved to fit inside it\.$/);
+    assert.equal((await f.run('edit.undo', { receiptId: forty.receiptId }, 'agent')).status, 'undone');
+    assert.deepEqual(ranges(), [['Hero', 0, 39], ['Shot 2', 40, 58], ['Shot 3', 59, 59]], 'one undo brings the removed shot back');
+    assert.equal(f.shots.state().frameCount, 60);
+    const same = await f.run('shot.setTimeline', { frameCount: 60 }, 'agent');
+    assert.match(same.summary, /: the timeline is 60 frames \(2\.50 s\)\.$/);
   } finally { f.dispose(); }
 });

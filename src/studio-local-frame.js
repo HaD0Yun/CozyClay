@@ -58,6 +58,13 @@ export function attachedFrameOp(op, entity) {
   const { space, facing, ...rest } = op;
   return { ...rest, ...(facing && !op.rotationDeg ? { rotationDeg: { x: entity.rotX ?? 0, y: facing.yawDeg, z: entity.rotZ ?? 0 } } : {}) };
 }
+// A bone-frame place is not bound by the world's limits (the deck at y 0, the room): a hand's own frame puts what it
+// carries below or behind its origin, so the place is written past them, as an attach writes it (stage-attach-frames.js placeSceneObject).
+export const attachedPlace = (entity, op) => (op.position ? { ...entity, ...op.position.world } : entity);
+export function writeAttached(rows, id, patch, update) {
+  const { x, y, z, ...rest } = patch, place = Object.fromEntries(Object.entries({ x, y, z }).filter(([, value]) => value !== undefined));
+  return update(rows, id, rest).map(row => (row.id === id ? { ...row, ...place } : row));
+}
 const resolveParentRef = (ref, rows, createdByName) => rows.some(e => e.id === ref) ? ref : createdByName.get(normalizedName(ref));
 /** Rewrites an op given in the parent's local frame into the equivalent world op. */
 export function parentFrameOp(op, entity, rows, createdByName) {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Browser check of what arrange_objects can now edit, read off the drawn props (props.jsx placement hook):
-// an object attached to a head bone, moved and turned in that bone's frame, is drawn there; a lamp placed in
+// an object attached to a head bone, moved and turned in that bone's frame, is drawn there (also below the bone's
+// origin), and the receipt's overlap evidence is of the edited place; a lamp placed in
 // a routed cart's frame rides the cart at that local pose on every frame; the timeline length is set by command.
 // Run: `COZYCLAY_LIVE_PORT=5396 npm run dev -- --port 5196`, then
 // `QA_URL=http://127.0.0.1:5196/app/ CDP_PORT=9343 node tools/qa-browser.mjs -- node test/qa-agent-edit-reach-browser.mjs`
@@ -41,15 +42,39 @@ try {
 	const kept = await record(badge);
 	assert.deepEqual([kept.x, kept.y, kept.z, kept.rot, kept.scaleX], [local.x, local.y, local.z, 30, 0.2], "the channels hold the bone-frame numbers");
 	assert.deepEqual(kept.attach, { characterId: "char-a", bone: "head" });
-	const head = await b.evaluate(`(() => {
+	// where the drawn head bone puts a point of its own unscaled frame
+	const headPoint = p => b.evaluate(`(() => {
 		let bone = null; window.__cozyclay.rigA.traverse(n => { if (!bone && n.isBone && /head$/i.test(n.name.replace(/[^a-z]/gi, ''))) bone = n; });
 		bone.updateWorldMatrix(true, false); const e = bone.matrixWorld.elements, len = i => Math.hypot(e[i], e[i + 1], e[i + 2]);
-		const p = ${JSON.stringify(local)}, s = [len(0), len(4), len(8)];
+		const p = ${JSON.stringify(p)}, s = [len(0), len(4), len(8)];
 		return { x: e[12] + (e[0] * p.x / s[0] + e[4] * p.y / s[1] + e[8] * p.z / s[2]), y: e[13] + (e[1] * p.x / s[0] + e[5] * p.y / s[1] + e[9] * p.z / s[2]), z: e[14] + (e[2] * p.x / s[0] + e[6] * p.y / s[1] + e[10] * p.z / s[2]) };
 	})()`);
-	const shown = await drawn(badge, 0);
+	const head = await headPoint(local), shown = await drawn(badge, 0);
 	for (const axis of ["x", "y", "z"]) near(shown[axis], head[axis], 2e-3, `badge drawn ${axis} at the head frame point`);
 	console.log(`PASS attached: ${arranged.summary}; drawn ${JSON.stringify({ x: +shown.x.toFixed(3), y: +shown.y.toFixed(3), z: +shown.z.toFixed(3) })}`);
+
+	// 1b. A place below and behind the bone's origin is kept as given (the deck at y 0 is a world limit) and drawn there.
+	const low = { x: 0.02, y: -0.15, z: -0.1 };
+	const lowered = await run("objects.arrange", { ops: [{ op: "update", id: badge, position: { world: low }, space: "parent" }] });
+	const below = await record(badge);
+	assert.deepEqual([below.x, below.y, below.z], [low.x, low.y, low.z], "the bone-frame place is written as given");
+	assert.deepEqual(lowered.warnings.filter(w => ["CLAMPED", "FLOOR_LIFT", "FOOTPRINT_OVERLAP"].includes(w.code)), [], "nothing clamped or lifted, and the carrier is no overlap");
+	const lowPoint = await headPoint(low), lowShown = await drawn(badge, 0);
+	for (const axis of ["x", "y", "z"]) near(lowShown[axis], lowPoint[axis], 2e-3, `badge drawn ${axis} below the head`);
+	console.log(`PASS below the bone: drawn ${JSON.stringify({ x: +lowShown.x.toFixed(3), y: +lowShown.y.toFixed(3), z: +lowShown.z.toFixed(3) })}`);
+
+	// 1c. The receipt measures the edited place, not the place drawn before the edit: 3 m along the head frame's z a wall
+	// stands; the badge put there overlaps the wall, and put back on the head it overlaps nothing.
+	const far = { x: 0, y: 0.1, z: 3 }, farPoint = await headPoint(far);
+	const wall = (await run("object.add", { kind: "cube", name: "Wall", placement: { x: farPoint.x, z: farPoint.z } })).affectedIds[0];
+	await run("object.update", { id: wall, patch: { scaleX: 2, scaleY: 3, scaleZ: 2 } });
+	const overlapsOf = receipt => receipt.warnings.filter(w => w.code === "FOOTPRINT_OVERLAP").map(w => w.id);
+	const into = await run("objects.arrange", { ops: [{ op: "update", id: badge, position: { world: far }, space: "parent" }] });
+	assert.deepEqual(overlapsOf(into), [wall], `in the wall: ${JSON.stringify(into.warnings)}`);
+	const out = await run("objects.arrange", { ops: [{ op: "update", id: badge, position: { world: local }, space: "parent" }] });
+	assert.deepEqual(overlapsOf(out), [], `back on the head: ${JSON.stringify(out.warnings)}`);
+	await run("object.remove", { ids: [wall] });
+	console.log(`PASS overlap evidence of the edited place: ${into.warnings.find(w => w.code === "FOOTPRINT_OVERLAP").message}; back on the head: none`);
 
 	// 2. A lamp placed in a routed cart's frame rides it.
 	await run("shot.setTimeline", { frameCount: 96 });

@@ -13,7 +13,7 @@ import { axisSubjects, occludersOf, sideOfAxis, framingCodes, subjectIssues, out
 import { frameSubject } from './studio-frame-subject.js'; import { subjectsCenter } from './shot-subjects.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
-import { attachedFrameOp, parentFrameOp } from './studio-local-frame.js';
+import { attachedFrameOp, attachedPlace, parentFrameOp, writeAttached } from './studio-local-frame.js';
 import { supportGaps, liftOffDeck, floorLiftWarnings } from './studio-support-gap.js';
 import { contactBody, interpenetration } from './solid-contact.js';
 
@@ -175,9 +175,9 @@ function groupRootOf(id, objects) {
 const pieceOf = (e, corners, state, ports) => (e.renderer ? { body: contactBody(e, () => entityWorldBounds(e, state, ports)) } : { points: corners.body, bones: corners.bones, radii: corners.radii });
 function overlapsFor(entity, state, ports) {
   const corners = geometry(entity, state, ports), own = aabb(corners), mine = pieceOf(entity, corners, state, ports), root = groupRootOf(entity.id, state.objects);
-  // Parts of one grouped object are built to touch; only other bodies count. Boxes that cross count only where the drawn
-  // shapes or the posed body stand inside each other (solid-contact.js): a chair under a table, a body on a seat touch.
-  return [...state.objects, ...state.characters].filter(e => e.id !== entity.id && !isEffectivelyHidden(e, state.objects, state.characters) && groupRootOf(e.id, state.objects) !== root).map(other => {
+  // Parts of one grouped object are built to touch, and an object attached to a character is on that body; only other bodies
+  // count. Boxes that cross count only where the drawn shapes or the posed body stand inside each other (solid-contact.js): a chair under a table, a body on a seat touch.
+  return [...state.objects, ...state.characters].filter(e => e.id !== entity.id && e.attach?.characterId !== entity.id && entity.attach?.characterId !== e.id && !isEffectivelyHidden(e, state.objects, state.characters) && groupRootOf(e.id, state.objects) !== root).map(other => {
     const theirs = geometry(other, state, ports), bounds = aabb(theirs), depth = overlap(own, bounds);
     return { id: other.id, bounds, of: entity.id, depth: depth > EPS && interpenetration(mine, pieceOf(other, theirs, state, ports), own, bounds) === 0 ? 0 : depth };
   }).filter(o => o.depth > EPS);
@@ -245,7 +245,7 @@ export function arrangement(command, before, ports) {
       entity = patchEntity(entity, transformPatch(op, isObject));
       const placed = place(entity, op, draft(), ports);
       // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (studio-support-gap.js); a bone-frame place is not on the deck.
-      entity = attached ? placed.entity : liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
+      entity = attached ? attachedPlace(placed.entity, op) : liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
       // What was asked against what the domain kept: scale and position limits move values silently; the lift is FLOOR_LIFT, not a clamp.
       const asked = isObject ? { ...(op.position?.world ?? {}), ...(liftedIds.has(entity.id) ? { y: undefined } : {}), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
         : { ...(op.position?.world ?? {}), ...(op.scale === undefined ? {} : { scale: op.scale }) };
@@ -259,7 +259,7 @@ export function arrangement(command, before, ports) {
         if (placed.relation.actualGapM < op.position.gapM - EPS) fail('VERIFICATION_FAILED', 'Avoidance cannot preserve the requested facing and minimum clearance.');
       }
       const patch = Object.fromEntries(Object.entries(entity).filter(([k, v]) => !equal(v, rows.find(e => e.id === entity.id)[k])));
-      rows = isObject ? updateSceneObject(rows, entity.id, patch) : rows.map(e => e.id === entity.id ? entity : e);
+      rows = attached ? writeAttached(rows, entity.id, patch, updateSceneObject) : isObject ? updateSceneObject(rows, entity.id, patch) : rows.map(e => e.id === entity.id ? entity : e);
       if (placed.relation) relations.push(placed.relation);
       if (op.op === 'create' && op.name) createdByName.set(normalizedName(op.name), entity.id);
     } else if (op.op === 'remove') {
