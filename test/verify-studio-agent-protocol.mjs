@@ -368,6 +368,30 @@ function registerTests() {
 		const stale = structuredClone(result); stale.entities = stale.entities.filter(e=>e.id!=="char-alex"); stale.entityPage.returned--;
 		rejects(()=>protocol.validateStudioContext(stale));
 	});
+	test("D4 a selection that names nothing in the scene is no selection; a missing target is named", () => {
+		const base = contextFixture(), prop = { id: "object-001", kind: "object", name: "Crate", token: "t-1", position: { x: 1, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } };
+		// the selected thing was removed (an object, an attached object, a character, a rig): no selection, no refusal
+		for (const selection of [{ kind: "object", id: "object-gone" }, { kind: "character", id: "char-gone" }, { kind: "rig", id: "char-gone" }]) {
+			const c = structuredClone(base); c.selection = selection;
+			const result = contextTools.buildStudioContext(c);
+			assert.equal(result.selection, null, `${selection.kind} ${selection.id}`); protocol.validateStudioContext(result);
+		}
+		// the same selection with its object in the scene (not removed, or brought back by an undo) stays, and leads the detail
+		const kept = structuredClone(base); kept.entities.push(prop); kept.scene.objectCount = 1; kept.selection = { kind: "object", id: prop.id };
+		const selected = contextTools.buildStudioContext(kept);
+		assert.deepEqual(selected.selection, { kind: "object", id: prop.id }); assert.equal(selected.entities[0].id, prop.id);
+		// a selection that is not an entity (the camera, the scene) is untouched
+		for (const selection of [{ kind: "camera", id: "camera" }, { kind: "scene", id: base.host.sceneId }]) {
+			const c = structuredClone(base); c.selection = selection;
+			assert.deepEqual(contextTools.buildStudioContext(c).selection, selection);
+		}
+		// what is still mandatory and missing is refused by its id
+		const lost = structuredClone(base); lost.selection = null; lost.entities = lost.entities.filter(e => e.id !== lost.activeCharacterId);
+		assert.throws(() => contextTools.buildStudioContext(lost), error => error.code === "TARGET_NOT_READY" && error.message === `Mandatory target ${base.activeCharacterId} is not in the scene.`);
+		const subject = structuredClone(base); subject.shot = { id: "shot-1", name: "Current", range: { startFrame: 0, endFrameExclusive: 144 }, mode: "keys", subjectIds: ["object-gone"] };
+		subject.shots = [{ id: "shot-1", name: "Current", range: subject.shot.range, keyCount: 0 }];
+		assert.throws(() => contextTools.buildStudioContext(subject), error => error.code === "TARGET_NOT_READY" && error.message.includes("object-gone"));
+	});
 	test("D4 context indexes every entity (cap 400) beside at most 24 detailed ones", () => {
 		const c = contextFixture();
 		c.entities = Array.from({length: 62}, (_,i) => ({ id: `object-${String(i).padStart(3,"0")}`, kind: "object", name: `Prop ${i}`, token: `t-${i}`, position: {x:i+0.123456,y:0,z:-2}, scale: { x: 1, y: 1, z: 1 } }));

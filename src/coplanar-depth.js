@@ -16,10 +16,15 @@ const DEG = Math.PI / 180;
 /** Planes closer than this are one plane. */
 const PLANE_EPS = 1e-3;
 // The smallest depth step a 24-bit depth buffer resolves at the far plane of the room-scale cameras (near 0.1 m,
-// far 100 m): about 6 mm. Same-facing faces closer than this fight somewhere in view, a millimetre apart or five.
+// far 100 m): about 6 mm. Same-facing faces closer than this fight somewhere in view, a millimetre apart or five
+// (measured on a software renderer with 200 m planes: 2 mm apart the lower one shows through from 2 m away
+// already; 7 mm apart they hold).
 const DEPTH_GAP = WORLD_SCALES.room.cameraFar ** 2 / (0.1 * 2 ** 24);
 /** Normals this aligned (cosine) face the same way. */
 const NORMAL_DOT = 0.9999;
+/** The lowest a camera's lens is put by hand or by a rail (rail and crane points 0.1 m, the fly controls and the
+ * camera's Transform 0.12 m, a follow camera 0.2 m): a level face below it is seen from above only. */
+const CAMERA_FLOOR = 0.1;
 /** Overlap shallower than this is two faces touching along an edge. */
 const OVERLAP_EPS = 1e-4;
 /** Bounds the offset: a deeper chain shares the top rank. */
@@ -128,20 +133,26 @@ function conflictingFaces(a, b) {
 
 // Which of a and b must win where same-facing faces of the two overlap closer than the depth buffer tells apart:
 // 1 = b, -1 = a, 0 = neither. Faces in one plane: the later part (b), the later-made detail. Faces a gap apart:
-// the one in front along their normal; when two pairs disagree (the two sides of stacked planes), the pair that
-// faces most upward decides, as the cameras of a set stand above its floor.
+// the one in front along their normal. The offset is one number for a part, whichever side it is seen from, so when
+// two pairs disagree (the two sides of stacked double-sided planes) it can be right from one side only: the upper
+// part wins where no camera can stand under it (level faces below the lens floor: a ground, its road, the lines),
+// and anywhere else (sheets in the air, upright sheets, ramps) there is no winner and the depth test orders the
+// two as it did before.
 function winner(a, b) {
-	let best = null;
+	const best = { 1: null, [-1]: null };
 	for (const fa of a.faces) {
 		for (const fb of b.faces) {
 			if (dot(fa.n, fb.n) <= NORMAL_DOT) continue;
 			const gap = dot(fa.n, [fb.c[0] - fa.c[0], fb.c[1] - fa.c[1], fb.c[2] - fa.c[2]]);
 			if (Math.abs(gap) > DEPTH_GAP || !overlaps(fa, fb)) continue;
 			if (Math.abs(gap) <= PLANE_EPS) return 1;
-			if (!best || fa.n[1] > best.up) best = { up: fa.n[1], side: gap > 0 ? 1 : -1 };
+			const side = gap > 0 ? 1 : -1;
+			if (!best[side] || fa.n[1] > best[side].up) best[side] = { up: fa.n[1], top: Math.max(fa.c[1], fb.c[1]) };
 		}
 	}
-	return best?.side ?? 0;
+	if (!best[1] || !best[-1]) return best[1] ? 1 : best[-1] ? -1 : 0;
+	const upper = best[1].up > best[-1].up ? 1 : -1;
+	return best[upper].up > NORMAL_DOT && best[upper].top < CAMERA_FLOOR ? upper : 0;
 }
 
 /**

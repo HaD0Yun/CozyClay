@@ -10,6 +10,10 @@
 //    the hand left it; after the turn the same drag moves the camera and is kept.
 // 3. In the same held turn the user draws a rail stroke in the Top-View: no page error, no rail written, the draw
 //    mode stays on; after the turn the same stroke draws the rail.
+// 4. A second held turn, the rail now drawn: Delete rail throws no page error and deletes nothing; a value typed into
+//    the camera's Transform (no press: keys only) is refused and the camera goes back to where it stood at the key,
+//    not to where an older press began; after the turn Delete rail deletes.
+// Each refused move tells the user why in a notice (the page's locale: QA_LOCALE en or ko).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -48,7 +52,9 @@ const fake = createFakeModel({ provider: "openai-codex", modelId: "gpt-6-astra",
 fake.fauxProvider.setResponses(Array.from({ length: 40 }, () => async context => {
 	const messages = context.messages, words = lastUserWords(messages), last = messages.at(-1);
 	const sinceUser = messages.slice(messages.findLastIndex(message => message.role === "user" && textOf(message).includes("[[")) + 1).filter(message => message.role === "toolResult");
-	calls.push({ words, lastRole: last?.role, result: last?.role === "toolResult" ? textOf(last) : null, error: last?.role === "toolResult" ? Boolean(last.isError) : null });
+	// the selection the turn's Studio context carries (the last one the model was given)
+	const selection = [...JSON.stringify([context.systemPrompt ?? "", messages]).matchAll(/\\"selection\\":(null|\{[^}]*\})/g)].at(-1)?.[1].replaceAll("\\", "") ?? "none";
+	calls.push({ words, selection, lastRole: last?.role, result: last?.role === "toolResult" ? textOf(last) : null, error: last?.role === "toolResult" ? Boolean(last.isError) : null });
 	if (words.includes("[[remove]]")) {
 		if (sinceUser.length === 0) return call("run_action", { action: "object.remove", args: { ids: [crate] } });
 		if (sinceUser.length === 1) return call("inspect_studio", { scope: "scene" });
@@ -58,9 +64,9 @@ fake.fauxProvider.setResponses(Array.from({ length: 40 }, () => async context =>
 		if (sinceUser.length === 0) return call("inspect_studio", { scope: "scene" });
 		return fauxAssistantMessage([fauxText("QA: looked.")]);
 	}
-	if (words.includes("[[hold]]")) {
-		if (sinceUser.length === 0) return call("run_action", { action: "object.add", args: { kind: "cube", name: "Held box", placement: { x: 3, y: 0, z: -3 } } });
-		await gate("H").promise;
+	for (const [marker, name] of [["[[hold]]", "H"], ["[[hold again]]", "H2"]]) if (words.includes(marker)) {
+		if (sinceUser.length === 0) return call("run_action", { action: "object.add", args: { kind: "cube", name: `Held box ${name}`, placement: { x: 3, y: 0, z: -3 } } });
+		await gate(name).promise;
 		return fauxAssistantMessage([fauxText("QA: the held turn ended.")]);
 	}
 	return fauxAssistantMessage([fauxText(`QA heard: ${words}`)]);
@@ -132,6 +138,11 @@ const idle = label => waitFor("document.querySelector('.agent-panel')?.dataset.a
 const camera = () => evaluate("(() => { const c = window.__cozyclay.shotCam; return { x: c.position.x, y: c.position.y, z: c.position.z, yaw: c.rotation.y, pitch: c.rotation.x }; })()");
 const near = (a, b) => ["x", "y", "z", "yaw", "pitch"].every(key => Math.abs(a[key] - b[key]) < 1e-4);
 const framingWarnings = () => warnings.filter(line => line.includes("the camera framing was not captured")).length;
+// the notices shown since the last ask, and the one that names the agent's hold (agent-turn-hold.js) in the page's locale
+const locale = process.env.QA_LOCALE === "ko" ? "ko" : "en";
+const notices = () => evaluate("window.__qaToasts.splice(0)");
+const quiet = async () => { await waitFor("!document.querySelector('.toast')?.textContent.trim()", "the last notice is gone"); await notices(); };
+const namesHold = text => locale === "en" ? text === "The agent is editing the scene: wait for it, or press Stop to take over." : /[\uAC00-\uD7A3]/.test(text) && text.includes("Stop");
 // a right-button fly drag across the main pane, as a hand looks around through the shot camera
 async function fly() {
 	const r = await evaluate("(() => { const r = window.__cozyclay.mainPane.getBoundingClientRect(); return { x: r.x + r.width * 0.45, y: r.y + r.height * 0.45 }; })()");
@@ -143,6 +154,13 @@ async function fly() {
 }
 const scene = async () => JSON.parse(await evaluate("window.__cozyclayProject.export()")).scenes.scenes[0];
 const rail = async () => JSON.stringify((await scene()).shotDocument.shots[0].camera.cameraRail ?? null);
+// Delete rail sits under the camera editor's Advanced fold. At this window size the open fold's row is clipped by the
+// one-line editor (the button lies under the timeline's head, out of a pointer's reach), so the button is pressed
+// through its own click(), as test/verify-camera-rail-browser.mjs presses it.
+async function deleteRail() {
+	await waitFor("!!document.querySelector('.tl-camera-advanced .tl-camera-tool.danger')", "Delete rail shown");
+	await evaluate("document.querySelector('.tl-camera-advanced .tl-camera-tool.danger').click()");
+}
 async function stroke() {
 	const box = await evaluate("(() => { const r = document.querySelector('.vp-inset').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()");
 	const from = { x: box.x + box.width * 0.2, y: box.y + box.height * 0.6 };
@@ -166,13 +184,15 @@ try {
 			shotDocument: { version: 4, frameCount: 240, shots: [shot], waypoints: [] },
 			stage: { characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "a man" }], hasCharSheet: false, shotAspect: "16:9" } }] };
 		localStorage.clear();
-		localStorage.setItem("cozyclay.locale", "en"); localStorage.setItem("cozyclay.agent.tasks", "off");
+		localStorage.setItem("cozyclay.locale", ${JSON.stringify(locale)}); localStorage.setItem("cozyclay.agent.tasks", "off");
 		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Hold QA", updatedAt: Date.now() }));
 		localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, JSON.stringify(scene));
 	})()`);
 	await send("Page.navigate", { url: `${origin}/app/` });
 	await waitFor("!!window.__cozyclay?.runStudioAction && !!window.__cozyclay.shotCam && !!document.querySelector('.studio-agent-bar')", "Studio ready", 120_000);
 	crate = await evaluate("window.__cozyclay.sceneObject.place({ kind: 'cube', name: 'Crate', x: 1.5, y: 0, z: 0 }).id");
+	await evaluate(`(() => { window.__qaToasts = []; let last = "";
+		new MutationObserver(() => { const text = document.querySelector(".toast")?.textContent.trim() ?? ""; if (text && text !== last) window.__qaToasts.push(text); last = text; }).observe(document.body, { childList: true, subtree: true, characterData: true }); })()`);
 	if (!(await evaluate("!!document.querySelector('.agent-input') && document.querySelector('.agent-input').offsetParent !== null"))) await click(".studio-agent-bar");
 	await waitFor("document.querySelector('.agent-input') && !document.querySelector('.agent-input').disabled", "agent composer ready", 60_000);
 
@@ -193,7 +213,20 @@ try {
 		assert.ok(!read.error && !read.result.includes("TARGET_NOT_READY"), `inspect_studio after the removal reads the scene: ${read.result.slice(0, 160)}`);
 		assert.ok(!(await evaluate(`window.__cozyclay.objects.some(o => o.id === ${JSON.stringify(crate)})`)), "the crate is gone");
 		assert.ok(again.result !== null && !again.error && !again.result.includes("TARGET_NOT_READY"), `the next turn reads the scene too: ${String(again.result).slice(0, 160)}`);
+		assert.equal(again.selection, "null", "the next turn's context carries no selection");
 	});
+	// undo brings the crate back: the Outliner still names it, so the selection is the crate again
+	await evaluate("window.__cozyclay.runStudioAction('edit.undo', {})");
+	await waitFor(`window.__cozyclay.objects.some(o => o.id === ${JSON.stringify(crate)})`, "undo brings the crate back");
+	await say("Look once more [[look]] [[back]]");
+	await ended("[[back]]", 2, "third look turn ends");
+	const back = calls.findLast(entry => entry.words.includes("[[back]]"));
+	await part("undo brings the removed crate back: it is the selection again, and the turn reads the scene", async () => {
+		assert.ok(back.result !== null && !back.error, `the turn reads the scene: ${String(back.result).slice(0, 160)}`);
+		assert.ok(back.selection.includes(`"id":"${crate}"`) && back.selection.includes(`"kind":"object"`), `the context selects the crate again: ${back.selection}`);
+		assert.equal(await evaluate(`document.querySelector(${JSON.stringify(row)})?.getAttribute('aria-selected')`), "true", "the Outliner shows the crate selected");
+	});
+	await click('[data-node-id="camera"]'); // off the crate: the timeline shows the shot strip the next parts use
 
 	// 2 and 3. a held turn: fly the shot camera, draw a rail
 	await evaluate("window.__cozyclay.setLookThrough(true)");
@@ -212,11 +245,14 @@ try {
 	assert.ok(added && !added.error, `the turn authored first: ${added?.result?.slice(0, 200)}`);
 
 	const pageErrorsBefore = errors.length;
+	await quiet();
 	await stroke();
-	await part("a rail stroke while a turn holds the scene: no page error, no rail written, draw mode still on", async () => {
+	const strokeNotices = await notices();
+	await part("a rail stroke while a turn holds the scene: no page error, no rail written, draw mode still on, the user is told why", async () => {
 		assert.equal(errors.length, pageErrorsBefore, `a stroke during the turn throws no page error: ${errors.slice(pageErrorsBefore).join("\n").slice(0, 300)}`);
 		assert.equal(await rail(), railBefore, "no rail is written while the turn holds the scene");
 		assert.equal(await evaluate("document.querySelector('.app').dataset.railDraw"), "1", "the draw mode stays on");
+		assert.ok(strokeNotices.some(namesHold), `a notice names the agent's hold: ${JSON.stringify(strokeNotices)}`);
 	});
 	errors.length = pageErrorsBefore;
 	if (await evaluate("document.querySelector('.app').dataset.railDraw === '1'")) {
@@ -225,14 +261,29 @@ try {
 	}
 	errors.length = pageErrorsBefore;
 
-	await sleep(300);
+	await quiet();
 	const before = await camera(), warned = framingWarnings();
 	await fly();
-	const held = await camera(), refusals = framingWarnings() - warned;
+	const held = await camera(), refusals = framingWarnings() - warned, flyNotices = await notices();
 	await shot("hold-fly-during-turn");
-	await part(`a fly drag (24 moves) while a turn holds the scene: one refusal (seen ${refusals}), the camera stays on the scene's framing`, async () => {
+	await part(`a fly drag (24 moves) while a turn holds the scene: one refusal (seen ${refusals}), the camera stays on the scene's framing, the user is told why`, async () => {
 		assert.equal(refusals, 1, `one refusal for the whole drag, not one per move: ${refusals}`);
 		assert.ok(near(held, before), `the shot camera stands where the drag began: ${JSON.stringify({ before, held })}`);
+		assert.ok(flyNotices.some(namesHold), `a notice names the agent's hold: ${JSON.stringify(flyNotices)}`);
+	});
+	// a wheel notch (a dolly) is a framing of its own: refused once, back to where the notch began, told
+	await quiet();
+	const pane = await evaluate("(() => { const r = window.__cozyclay.mainPane.getBoundingClientRect(); return { x: r.x + r.width * 0.45, y: r.y + r.height * 0.45 }; })()");
+	const warnedNotch = framingWarnings();
+	await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: pane.x, y: pane.y, deltaX: 0, deltaY: -240 });
+	await sleep(400);
+	const notched = await camera(), notchRefusals = framingWarnings() - warnedNotch, notchNotices = await notices();
+	// the two wordings of the same refusal in the console: with a press armed, and without one (a notch)
+	console.log(`refusal lines: ${JSON.stringify([...new Set(warnings.filter(line => line.includes("the camera framing was not captured")).map(line => line.slice(0, 140)))])}`);
+	await part(`a wheel notch while a turn holds the scene: one refusal (seen ${notchRefusals}), the camera stays, the user is told why`, async () => {
+		assert.equal(notchRefusals, 1, `one refusal for the notch: ${notchRefusals}`);
+		assert.ok(near(notched, before), `the shot camera stands where the notch began: ${JSON.stringify({ before, notched })}`);
+		assert.ok(notchNotices.some(namesHold), `a notice names the agent's hold: ${JSON.stringify(notchNotices)}`);
 	});
 
 	gate("H").open();
@@ -250,6 +301,49 @@ try {
 	await waitFor("document.querySelector('.app').dataset.railDraw !== '1'", "the stroke ends the draw mode");
 	assert.notEqual(await rail(), railBefore, "after the turn the stroke draws the rail");
 	pass("after the turn the same stroke draws the rail");
+
+	// 4. a second held turn with the rail drawn
+	const railDrawn = await rail();
+	await say("Build and wait once more [[hold again]]");
+	await waitFor("document.querySelector('.agent-panel')?.dataset.agentState === 'streaming'", "second held turn runs");
+	for (let i = 0; i < 300 && !calls.some(entry => entry.words.includes("[[hold again]]") && entry.lastRole === "toolResult"); i++) await sleep(100);
+	assert.ok(calls.some(entry => entry.words.includes("[[hold again]]") && entry.lastRole === "toolResult" && !entry.error), "the second turn authored first");
+	await quiet();
+	const errorsBeforeDelete = errors.length;
+	await deleteRail();
+	await sleep(300);
+	const deleteNotices = await notices();
+	await part("Delete rail while a turn holds the scene: no page error, the rail stays, the user is told why", async () => {
+		assert.equal(errors.length, errorsBeforeDelete, `no page error: ${errors.slice(errorsBeforeDelete).join("\n").slice(0, 300)}`);
+		assert.equal(await rail(), railDrawn, "the rail is still there");
+		assert.ok(deleteNotices.some(namesHold), `a notice names the agent's hold: ${JSON.stringify(deleteNotices)}`);
+	});
+	errors.length = errorsBeforeDelete;
+	// keys only: the camera has moved since the last press (as a turn's own camera edit or a follow camera moves it)
+	await evaluate("window.__cozyclay.setLookThrough(false)");
+	await click('[data-node-id="camera"]');
+	await waitFor("!!document.querySelector('[data-testid=\"camera-transform\"] input')", "the camera's Transform shown");
+	await evaluate("window.__cozyclay.shotCam.position.x += 0.5");
+	const atKey = await camera(), warnedKey = framingWarnings();
+	await quiet();
+	await evaluate("(() => { const field = document.querySelector('[data-testid=\"camera-transform\"] input'); field.focus(); field.select(); })()");
+	await send("Input.insertText", { text: "7" });
+	await press("Enter");
+	await sleep(300);
+	const afterKey = await camera(), keyRefusals = framingWarnings() - warnedKey, keyNotices = await notices();
+	await part(`a typed camera position while a turn holds the scene: refused (seen ${keyRefusals}), the camera stands where it stood at the key, the user is told why`, async () => {
+		assert.ok(keyRefusals >= 1, `the typed value was refused: ${keyRefusals}`);
+		assert.ok(near(afterKey, atKey), `the shot camera stands where it stood when the key was pressed: ${JSON.stringify({ atKey, afterKey })}`);
+		assert.ok(keyNotices.some(namesHold), `a notice names the agent's hold: ${JSON.stringify(keyNotices)}`);
+	});
+	gate("H2").open();
+	await idle("second held turn ends");
+	await click(".tl-shot-label b");
+	await waitFor("!!document.querySelector('.tl-camera-advanced')", "the camera editor shown again");
+	await deleteRail();
+	for (let i = 0; i < 50 && (await rail()) !== "null"; i++) await sleep(100);
+	assert.equal(await rail(), "null", "after the turn Delete rail deletes the rail");
+	pass("after the second turn Delete rail deletes the rail");
 
 	const depth = warnings.filter(line => line.includes("Maximum update depth"));
 	assert.deepEqual(depth, [], "no update loop");

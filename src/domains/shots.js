@@ -341,8 +341,8 @@ export function useShots(appContext) {
     if (next) { appContext.shared.setWorkspaceLayout(current => ({ ...current, insetCollapsed: false })); appContext.notify(ko("Draw the selected Shot's rail in the Top-View", '탑뷰에서 선택한 샷의 레일을 그리세요')); }
   }
   function deleteCameraRail() {
-    if (!cameraRail || !activeShot) return;
-    setRailDraw(false); clearShotCameraRail(activeShot.id);
+    if (!cameraRail || !activeShot) return; // refused while an agent turn holds the scene: the rail and the draw mode stay
+    if (settleUiRefusal('the camera rail was not deleted', () => clearShotCameraRail(activeShot.id)) === null) return; setRailDraw(false);
     appContext.notify(ko('Camera rail deleted — Follow keeps the current distance', '카메라 레일 삭제됨 — 팔로우가 현재 거리를 유지합니다'));
   }
   function drawCameraRail(stroke) {

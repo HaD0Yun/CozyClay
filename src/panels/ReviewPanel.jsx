@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Foldout from "./Foldout.jsx";
 import { ko } from "../locale.js";
 import { emptyReview, reviewAtFrame } from "../shot-review.js";
@@ -10,10 +10,15 @@ const id = prefix => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? Date.now(
 export default function ReviewPanel({ hidden = false }) {
 	const { activeShot, tlFrame, runStudioAction } = useStudioShell();
 	const { annotate } = useViewportTools();
-	const [draft, setDraft] = useState("");
+	// The draft belongs to the frame it was typed on: another shot or frame starts empty. Kept with its frame and
+	// dropped while rendering, not from an effect: an effect that sets state on every frame adds a second commit to
+	// each playhead move, and React counts a train of those as an update loop ("Maximum update depth exceeded").
+	const at = `${activeShot?.id ?? ""}:${tlFrame}`;
+	const [typed, setTyped] = useState({ at, text: "" });
+	if (typed.at !== at) setTyped({ at, text: "" });
+	const draft = typed.at === at ? typed.text : "", setDraft = text => setTyped({ at, text });
 	const review = activeShot?.review ?? emptyReview();
 	const current = reviewAtFrame(review, tlFrame);
-	useEffect(() => setDraft(""), [activeShot?.id, tlFrame]);
 	if (hidden || !activeShot) return null;
 	const write = next => runStudioAction("shot.setReview", { shotId: activeShot.id, review: next });
 	const add = () => {
