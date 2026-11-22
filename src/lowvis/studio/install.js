@@ -6,11 +6,18 @@
 // cameras and export see ordinary scene content.
 // A clip character's scale and tint (clip.js) are the cast member's own scale and tint fields: set when it is added, or
 // with character.update when the Studio holds other values; its take is of a body of that scale (take.js).
+// A prop that is a Studio object with no box of its own (scene.js kinds: an effect, a light, a group's Empty) is that
+// object: a track moves the object itself, its place the prop's centre, its own turn kept against the prop's box, so an
+// effect emits from where the prop is on every frame and keeps its kind.
+// A prop one bone of one body carries over the whole clip (attach.js: read from the clip's `by` and poses) gets no
+// track: it is attached to that Studio bone at its place in the bone's frame (object.attach { local }), so it follows
+// the drawn body under timing edits, scale changes and another look. Any other moving prop keeps its track.
 // installClip(clip, run, options) is the same for the Studio page (run = its own action runner) and for the agent
 // sidecar (run = the turn's run_action). Browser-safe and node-safe: no three.js, no node:* import.
 import { encodeRawTrack } from "../../motion-v4/track/codec.js";
-import { qMul, qRotate } from "../rig17.js";
+import { qConj, qMul, qRotate } from "../rig17.js";
 import { TRACK_RIG, clipTrack } from "./take.js";
+import { attachOf, eulerXYZ, turnOnBone } from "./attach.js";
 
 /** Ids of the cast members a clip made: "lowvis-<clip character id>". */
 export const LOWVIS_ID = /^lowvis-/;
@@ -23,10 +30,11 @@ export function clipStart(clip, index) {
 	return { x: c.pos[0], z: c.pos[2], rot: Math.round(Math.atan2(forward[0], forward[2]) * DEG * 10) / 10 };
 }
 
-/** A clip prop's pose at frame f as a Studio object's: the base pivot (the middle of its underside) and its rotation. */
-function pivot(prop, f) {
+/** A clip prop's pose at frame f as a Studio object's: the base pivot (the middle of its underside; a point object's:
+ *  the prop's centre) and its rotation. */
+function pivot(prop, f, point = false) {
 	const n = prop.pos.length / 3, k = Math.min(f, n - 1), q = [prop.quat[k * 4], prop.quat[k * 4 + 1], prop.quat[k * 4 + 2], prop.quat[k * 4 + 3]];
-	const height = prop.shape === "sphere" ? prop.size[0] : prop.size[1], down = qRotate(q, [0, -height / 2, 0]);
+	const height = point ? 0 : prop.shape === "sphere" ? prop.size[0] : prop.size[1], down = qRotate(q, [0, -height / 2, 0]);
 	return { pos: [prop.pos[k * 3] + down[0], prop.pos[k * 3 + 1] + down[1], prop.pos[k * 3 + 2] + down[2]], quat: q };
 }
 
@@ -99,10 +107,15 @@ function ownerOf(clip, prop) {
 
 /**
  * installClip(clip, run, { label, remove, existing, drafted }) -> { characterIds, objectIds, switched, placed, ok, bodies?,
- * moved?, moving? }: what it made, the Studio ids of the cast members whose model it changed and placed:
+ * moved?, moving?, attached? }: what it made, the Studio ids of the cast members whose model it changed and placed:
  * { <clip prop id>: <Studio object id> } for every prop, made, known or drafted; ok false when the Studio refused a step.
  * bodies (only when there is one): [{ id, scale?, tint? }], the cast members whose scale or tint it set, with the fields
- * it set. moved: the listed objects it moved or turned; moving: the objects a track moves (each only when there is one).
+ * it set. moved: the listed objects it moved or turned; moving: the objects a track moves; attached: [{ id, characterId,
+ * bone, joint, drift }] the objects it attached to a bone instead (attach.js; each only when there is one). A listed
+ * object attached to a body (existing.props[id].attach: its numbers are in that bone's frame, quat its turn there) is
+ * attached again at its new place when one bone carries it throughout; when this clip does not attach it, it is detached
+ * (object.detach) and set to the prop's place and turn in the world. An object others are grouped under
+ * (existing.props[id].group) is never attached.
  * drafted: { <clip prop id>: { id, untouched, size, place? } }, the stand-in an earlier compile of the same motion added
  * for that prop (addStandIn, of the kind this prop's stand-in has): it is set to the prop's place and turn, and to its
  * size when untouched (its record is still what the draft made); place { x, y, z, rot }: where it stands now (no step
@@ -113,6 +126,8 @@ function ownerOf(clip, prop) {
  * character with a listed id IS that Studio object or cast member, so it is moved or animated, not made again. Such a
  * cast member loses its root path before its take goes in (the take holds the whole motion), and one listed in
  * existing.switch is changed to the clip's rig first. Characters the clip does not animate keep everything.
+ * A listed object with point: true (scene.js kinds) stands at the prop's centre and keeps its own turn (quat) against the
+ * prop's box: a track moves it when the prop moves.
  * existing.bodies: { <Studio id>: { scale, tint } } as the Studio holds them (1 and none when it is not listed).
  * existing.start: the scale the Studio gives a new character it is not told one for (src/lowvis/studio/figure.js; 1). 
  * turn: the clip was written over studioScene(describe, { turn: true }), so a listed object's box stands turned as the
@@ -121,19 +136,33 @@ function ownerOf(clip, prop) {
 export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false, drafted = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, owners = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
+	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, owners = {}, rides = [], attached = [], F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
 	for (const prop of clip.props ?? []) {
-		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
-		const own = turned && prop.shape !== "sphere"; // the clip box is the object's own, turned as it is
+		const known = existing?.props?.[prop.id], point = Boolean(known?.point), at = pivot(prop, 0, point), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS;
+		const own = turned && prop.shape !== "sphere" && !point; // the clip box is the object's own, turned as it is
 		const draft = known ? null : drafted?.[prop.id];
 		let id = known?.id ?? draft?.id, turn = null;
-		if (known) {
+		if (known?.attach) {
+			// an object that rides a bone now keeps, on frame 0, the turn its bone gives it there, and turns with its box
+			// from that: a point object, and a solid whose box is not its own (a ball, the turn step off)
+			const on = clip.characters.find(c => existing.characters?.[c.id] === known.attach.characterId), world = on && known.quat ? turnOnBone(on, known.attach.bone, known.quat) : null;
+			if (point || !own) turn = world ? qMul(qConj(at.quat), world) : point ? known.quat ?? null : null;
+		} else if (point) turn = known.quat ?? null; // a point object's whole own turn, which the clip's box does not have
+		else if (known?.rot && !own) turn = [0, Math.sin(known.rot / DEG / 2), 0, Math.cos(known.rot / DEG / 2)]; // the object's own turn about Y, which the clip's box does not have
+		const poseAt = f => { const p = pivot(prop, f, point); return { pos: p.pos, quat: turn ? qMul(p.quat, turn) : p.quat }; };
+		// an object others are grouped under keeps a track: they go with a tracked parent and stay behind an attached one
+		const ride = moves(prop) && !known?.group ? attachOf(clip, prop, poseAt) : null;
+		if (known?.attach) {
+			// its numbers are in the bone's frame: one that rides a bone again gets its new ones with the attach below; any
+			// other comes off the body and gets its whole place and turn in the world
+			if (!ride && (!await run("object.detach", { objectId: id }) || !await run("object.update", { id, patch: { x: at.pos[0], y: at.pos[1], z: at.pos[2], ...eulerXYZ(poseAt(0).quat) } }))) return stop();
+			if (!ride) moved.push(id);
+		} else if (known) {
 			// the scene the model wrote is where the motion happens: an object it stood elsewhere (or turned otherwise) goes there
 			const patch = Math.hypot(at.pos[0] - known.x, at.pos[1] - known.y, at.pos[2] - known.z) > 0.005 ? { x: at.pos[0], y: at.pos[1], z: at.pos[2] } : {};
 			if (own && upright) { const rot = yawOf(at.quat); if (Math.abs(((rot - known.rot) % 360 + 540) % 360 - 180) > 0.05) patch.rot = rot; }
 			if (Object.keys(patch).length && !await run("object.update", { id, patch })) return stop();
 			if (Object.keys(patch).length) moved.push(id);
-			if (known.rot && !own) turn = [0, Math.sin(known.rot / DEG / 2), 0, Math.cos(known.rot / DEG / 2)]; // the object's own turn about Y, which the clip's box does not have
 		} else if (draft) {
 			// the draft's stand-in of this prop: the final place and turn, and the final size while it is as the draft made it
 			const { kind, size, placement } = standInOf(prop), resize = draft.untouched && size.some((v, k) => Math.abs(v - draft.size[k]) > 1e-6);
@@ -147,10 +176,12 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			objectIds.push(id);
 		}
 		placed[prop.id] = id;
-		// a prop that moves, or a new one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
-		if (moves(prop) || (!known && !upright)) {
+		// a prop one bone carries throughout rides that bone (attached with its character below); any other that moves, or a new
+		// one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
+		if (ride) rides.push({ id, ...ride });
+		else if (moves(prop) || (!known && !upright)) {
 			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
-			for (let f = 0; f < F; f++) { const p = pivot(prop, f); pos.set(p.pos, f * 3); quat.set(turn ? qMul(p.quat, turn) : p.quat, f * 4); }
+			for (let f = 0; f < F; f++) { const p = poseAt(f); pos.set(p.pos, f * 3); quat.set(p.quat, f * 4); }
 			tracks[id] = { pos, quat };
 			owners[id] = ownerOf(clip, prop);
 		}
@@ -175,10 +206,16 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			if (sized && !await run("character.update", { characterId, patch: body })) return stop();
 			if (!await run("character.clearWaypoints", { characterId })) return stop();
 		}
+		// what this body's bones carry throughout goes onto them before its take: the Studio's redo of a take install drops
+		// the steps made after it, so an attach after the take would not come back with a redo of the install
+		for (const { id, joint, bone, local, drift } of rides.filter(ride => ride.index === index)) {
+			if (!await run("object.attach", { objectId: id, characterId, bone, local })) return stop();
+			attached.push({ id, characterId, bone, joint, drift });
+		}
 		const raw = clipTrack(clip, index);
 		raw.objects = Object.fromEntries(Object.entries(tracks).filter(([id]) => owners[id] === index)); // this character's take draws the props it handles
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
 	const moving = Object.keys(tracks);
-	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}) };
+	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}), ...(attached.length ? { attached } : {}) };
 }

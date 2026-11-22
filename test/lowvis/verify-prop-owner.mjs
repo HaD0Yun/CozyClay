@@ -5,6 +5,9 @@
 // through installClip, each take decoded and placed as motion.v4.install does, the edit rendered, the object tracks
 // merged across the cast (object-tracks.js), the hand played by forward kinematics. On every timeline frame a holder holds
 // a prop, the prop stays where it is against that hand at the same moment of the unedited clip.
+// A prop one bone of one body carries over the whole clip has no track: the install attaches it to that bone
+// (src/lowvis/studio/attach.js), and here it is played as the Studio draws an attached object, through the bone of the
+// played take; onBone names those props and their bones, drawn the props whose track a take holds.
 // Every scene here is made up for this test.
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
@@ -15,20 +18,24 @@ import { decodeRawTrack } from "../../src/motion-v4/track/codec.js";
 import { placedTake } from "../../src/motion-v4/track/literal.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { fk } from "../../src/motion3/compiler/skeleton.js";
+import { apply } from "../../src/motion3/compiler/math.js";
+import { ATTACH_BONE_OF } from "../../src/lowvis/studio/attach.js";
+import { qRotate } from "../../src/lowvis/rig17.js";
 import { createTakeEdit, renderTakeEdit, setSegmentSpeed, splitTakeEdit, timelineToSource } from "../../src/motion3/take-edit.js";
 import { objectTracksOf } from "../../src/motion3/object-tracks.js";
 import { compileTakeSource, normalizeTakeSource, takeSource } from "../../src/domains/motion/take-source.js";
 
-const sk = skeletonFor(TRACK_RIG), HAND = sk.index.RightHand;
+const sk = skeletonFor(TRACK_RIG), HAND = sk.index.RightHand, JOINT_OF_BONE = Object.fromEntries(Object.entries(ATTACH_BONE_OF).map(([joint, bone]) => [bone, joint]));
 
 /** The clip of a spec on a scene, as the Studio reads it (serialized and parsed), with the engine's aux. */
 const build = (spec, scene) => { const b = buildClip(structuredClone({ demo: "x", ...spec }), scene); return { aux: b.aux, clip: JSON.parse(serializeClip(b.clip)) }; };
 
 /** installClip with a Studio that records: { takes: { <clip character id>: placed take }, objectOf: { <prop id>: Studio id } }. */
 async function install(clip) {
-	const placements = {}, raws = {};
+	const placements = {}, raws = {}, attached = {};
 	let n = 0;
 	const run = async (action, args) => {
+		if (action === "object.attach") { attached[args.objectId] = args; return { affectedIds: [args.objectId] }; }
 		if (action === "character.add") { placements[args.character.id] = { position: [args.character.x, 0, args.character.z], yaw: args.character.rot }; return { affectedIds: [args.character.id] }; }
 		if (action === "motion.v4.install") { raws[args.characterId] = args.raw; return { affectedIds: [args.characterId] }; }
 		return { affectedIds: [`obj-${++n}`] };
@@ -37,14 +44,18 @@ async function install(clip) {
 	assert.equal(out.ok, true);
 	const takes = Object.fromEntries(clip.characters.map(c => { const id = `lowvis-${c.id}`; return [c.id, { id, take: placedTake(decodeRawTrack(raws[id], sk), placements[id]) }]; }));
 	// drawnBy: { <prop id>: [the clip characters whose take holds its track] }
-	const drawnBy = Object.fromEntries(Object.entries(out.placed).map(([prop, id]) => [prop, Object.entries(takes).filter(([, t]) => t.take.objects[id]).map(([cid]) => cid)]));
-	return { takes, objectOf: out.placed, drawnBy, raws };
+	const drawnBy = Object.fromEntries(Object.entries(out.placed).filter(([, id]) => !attached[id]).map(([prop, id]) => [prop, Object.entries(takes).filter(([, t]) => t.take.objects[id]).map(([cid]) => cid)]));
+	// onBone: { <prop id>: "<clip character id>:<bone>" } for the props attached to a bone instead of tracked
+	const onBone = Object.fromEntries(Object.entries(out.placed).filter(([, id]) => attached[id]).map(([prop, id]) => [prop, `${attached[id].characterId.replace(/^lowvis-/, "")}:${attached[id].bone}`]));
+	return { takes, objectOf: out.placed, drawnBy, onBone, attached, raws, clip };
 }
 
-/** The world place of the right hand in a (rendered) take at frame f. */
-function hand(take, f) {
+/** The world place of bone j (default the right hand) in a (rendered) take at frame f; with local { x, y, z }: that
+ *  point in the bone's frame (an object attached to the bone at that place, as the Studio draws it). */
+function hand(take, f, j = HAND, local = null) {
 	const B = take.bones.length, quats = take.bones.map((_, b) => Array.from(take.rot.slice((f * B + b) * 4, (f * B + b) * 4 + 4)));
-	const p = fk(sk, quats, Array.from(take.hips.slice(f * 3, f * 3 + 3))).P[HAND], yaw = take.placement.yaw * Math.PI / 180, cs = Math.cos(yaw), sn = Math.sin(yaw), at = take.placement.position;
+	const s = fk(sk, quats, Array.from(take.hips.slice(f * 3, f * 3 + 3))), off = local ? apply(s.R[j], [local.x, local.y, local.z]) : [0, 0, 0];
+	const p = s.P[j].map((v, k) => v + off[k]), yaw = take.placement.yaw * Math.PI / 180, cs = Math.cos(yaw), sn = Math.sin(yaw), at = take.placement.position;
 	return [cs * p[0] + sn * p[2] + at[0], p[1] + at[1], -sn * p[0] + cs * p[2] + at[2]];
 }
 
@@ -65,14 +76,18 @@ const dist = (a, b) => Math.hypot(...sub(a, b));
  */
 function drift(case_, who, prop, edits) {
 	const base = play(case_.takes), edited = play(case_.takes, edits), id = case_.objectOf[prop], me = case_.takes[who];
-	const taken = edited.shown.get(me.id).take, plain = base.shown.get(me.id).take, edit = edits[who];
-	const ref = f => sub(at(base.tracks.get(id), f), hand(plain, f));
+	const taken = edited.shown.get(me.id).take, plain = base.shown.get(me.id).take, edit = edits[who], ride = case_.attached?.[id];
+	// an attached prop is drawn through its bone; the reference is the clip's own prop place (its base pivot) against the hand
+	const clipProp = case_.clip?.props.find(p => p.id === prop), size = clipProp?.size;
+	const clipAt = f => { const down = qRotate(Array.from(clipProp.quat.slice(f * 4, f * 4 + 4)), [0, -(clipProp.shape === "sphere" ? size[0] : size[1]) / 2, 0]); return [0, 1, 2].map(k => clipProp.pos[f * 3 + k] + down[k]); };
+	const placeAt = (take, tracks, f) => ride ? hand(take, f, sk.index[JOINT_OF_BONE[ride.bone]], ride.local) : at(tracks.get(id), Math.min(f, tracks.get(id).pos.length / 3 - 1));
+	const ref = f => sub(ride ? clipAt(f) : at(base.tracks.get(id), f), hand(plain, f));
 	let worst = 0, frames = 0;
 	for (let t = 0; t < taken.frameCount; t++) {
 		const s = edit ? timelineToSource(edit, t) : t, held = [Math.floor(s), Math.ceil(s)].every(k => String(case_.aux.holders[prop][k] ?? "").split("+").some(h => h.split(":")[0] === who));
 		if (!held) continue;
 		frames++;
-		const track = edited.tracks.get(id), now = sub(at(track, Math.min(t, track.pos.length / 3 - 1)), hand(taken, t));
+		const now = sub(placeAt(taken, edited.tracks, t), hand(taken, t));
 		worst = Math.max(worst, dist(now, lerpAt(ref, s)));
 	}
 	return { worst, frames };
@@ -102,7 +117,9 @@ for (const [edited, other] of [["a", "b"], ["b", "a"]]) {
 	}
 }
 assert.equal(failed.length, 0, `each prop stays in its holder's hand after a timing edit of either take:\n${failed.join("\n")}`);
-assert.deepEqual(installed.drawnBy, { boxA: ["a"], boxB: ["b"] }, "each box's track is in its holder's take, and in no other");
+// was { boxA: ["a"], boxB: ["b"] }: a holds boxA the whole clip, so it rides a's right hand; b lets boxB go, so it keeps its track
+assert.deepEqual(installed.drawnBy, { boxB: ["b"] }, "each tracked box's track is in its holder's take, and in no other");
+assert.deepEqual(installed.onBone, { boxA: "a:rightHand" }, "the box held the whole clip rides the hand that holds it");
 
 // --- who handles a prop, case by case: the take that draws each moving prop ---
 const ROOM = (characters, props, frames = 140) => ({ frames, characters, props });
@@ -111,7 +128,8 @@ const CASES = [
 	{ name: "three characters, the middle one handles nothing: each box stays with its holder",
 		scene: ROOM([stand("a", -1.5), stand("b", 0), stand("c", 1.5)], [box("boxA", [-1.75, 0.85, 0.3]), box("boxC", [1.25, 0.85, 0.3])]),
 		spec: { a: [[0, "hold", { prop: "boxA", hand: "R" }], [20, "walk", { to: [-1.5, 2] }]], b: [[10, "walk", { to: [0, 1.5] }]], c: [[0, "hold", { prop: "boxC", hand: "R" }], [50, "walk", { to: [1.5, 2] }]] },
-		drawn: { boxA: ["a"], boxC: ["c"] }, steps: [["a", "boxA"], ["c", "boxC"]] },
+		// was drawn { boxA: ["a"], boxC: ["c"] }: both boxes are held the whole clip, so they ride their holders' right hands
+		drawn: {}, onBone: { boxA: "a:rightHand", boxC: "c:rightHand" }, steps: [["a", "boxA"], ["c", "boxC"]] },
 	{ name: "let go with a roll: the ball stays with the one who let it go; a crate moved by its own keys stays with the first character",
 		scene: ROOM([stand("a", -1), stand("b", 1)], [{ id: "ball", shape: "sphere", size: [0.22, 0.22, 0.22], at: [0.75, 0.85, 0.3], moves: true }, box("crate", [3, 0.15, 3]), { id: "wall", size: [0.3, 1, 0.3], at: [0, 0.5, -3] }]),
 		spec: { b: [[0, "hold", { prop: "ball", hand: "R" }], [10, "walk", { to: [1, 1.5] }], [40, "release", { prop: "ball", roll: true }]], a: [[0, "walk", { to: [-1, 1] }]], crate: [[20, "move", { to: [3, 0.15, 4], over: 40 }]] },
@@ -119,7 +137,8 @@ const CASES = [
 	{ name: "a cup rides a tray: it goes with whoever holds the tray; a hat rides a joint of a body: it goes with that body",
 		scene: ROOM([stand("a", -1), stand("b", 1)], [box("tray", [0.75, 0.85, 0.3]), { id: "cup", size: [0.08, 0.1, 0.08], at: [0.75, 1.05, 0.3], moves: true }, { id: "hat", size: [0.25, 0.1, 0.25], at: [-1, 1.85, 0], moves: true }]),
 		spec: { b: [[0, "hold", { prop: "tray", hand: "R" }], [30, "walk", { to: [1, 2] }]], a: [[0, "walk", { to: [-1, 1.5] }]], cup: [[0, "ride", { on: "tray" }]], hat: [[0, "ride", { joint: "Head", of: "a" }]] },
-		drawn: { tray: ["b"], cup: ["b"], hat: ["a"] }, steps: [["b", "tray"]] },
+		// was drawn { tray: ["b"], cup: ["b"], hat: ["a"] }: the tray in one hand, the cup riding it and the hat on the head ride those bones
+		drawn: {}, onBone: { tray: "b:rightHand", cup: "b:rightHand", hat: "a:head" }, steps: [["b", "tray"]] },
 	{ name: "a board both carry together: one take, the earlier character",
 		scene: ROOM([stand("p", -1.05, 0.55, 180), stand("q", 1.05, 0.55, 180)], [{ id: "board", size: [2.6, 0.06, 0.4], at: [0, 0.6, 0], moves: true }, { id: "stool", size: [0.3, 0.57, 0.3], at: [0, 0.285, 0] }], 200),
 		spec: Object.fromEntries(["p", "q"].map(who => [who, [[10, "pose", { bow: 35, over: 20 }], [20, "hold", { prop: "board", hand: "both", at: who === "p" ? { L: [-1.2, 0, 0.18], R: [-0.9, 0, 0.18] } : { L: [0.9, 0, 0.18], R: [1.2, 0, 0.18] }, over: 14 }],
@@ -149,20 +168,27 @@ const CASES = [
 for (const c of CASES) {
 	const b = build(c.spec, c.scene), got = { ...b, ...(await install(b.clip)) };
 	assert.deepEqual(got.drawnBy, c.drawn, `${c.name}: the take that draws each prop`);
+	assert.deepEqual(got.onBone, c.onBone ?? {}, `${c.name}: the props attached to a bone`);
 	for (const [who, prop] of c.steps) for (const edited of Object.keys(got.takes)) {
 		const edits = { [edited]: speedUpOf(c.scene.frames) }, d = drift(got, who, prop, edits);
 		assert.ok(d.frames > 10 && d.worst < TOL, `${c.name}: with ${edited}'s take sped up, ${prop} stays in ${who}'s hand (worst ${mm(d.worst)} mm over ${d.frames} frames)`);
 	}
-	console.log(`ok ${c.name}: ${Object.entries(got.drawnBy).map(([p, w]) => `${p} -> ${w.join(",") || "no track"}`).join(", ")}`);
+	console.log(`ok ${c.name}: ${[...Object.entries(got.drawnBy).map(([p, w]) => `${p} -> ${w.join(",") || "no track"}`), ...Object.entries(got.onBone).map(([p, b]) => `${p} -> on ${b}`)].join(", ")}`);
 }
 
 // --- over a Studio scene that already has the characters and the boxes (installClip's existing ids): the same owners ---
 {
 	const sent = {}, existing = { characters: { a: "cast-1", b: "cast-2" }, switch: [], props: { boxA: { id: "thing-1", x: -1.25, y: 0.7, z: 0.3, rot: 0 }, boxB: { id: "thing-2", x: 0.75, y: 0.7, z: 0.3, rot: 0 } } };
-	const out = await installClip(built.clip, async (action, args) => { if (action === "motion.v4.install") sent[args.characterId] = Object.keys(args.raw.objects); return { affectedIds: [] }; }, { existing });
+	const attachedTo = {}, out = await installClip(built.clip, async (action, args) => {
+		if (action === "motion.v4.install") sent[args.characterId] = Object.keys(args.raw.objects);
+		if (action === "object.attach") attachedTo[args.objectId] = `${args.characterId}:${args.bone}`;
+		return { affectedIds: [] };
+	}, { existing });
 	assert.equal(out.ok, true);
-	assert.deepEqual(sent, { "cast-1": ["thing-1"], "cast-2": ["thing-2"] }, "each known character's take holds the track of the known box it handles");
-	console.log("ok over existing ids: each known character's take holds the box it handles");
+	// was { "cast-1": ["thing-1"], "cast-2": ["thing-2"] }: thing-1 is held the whole clip, so it is attached to cast-1's right hand
+	assert.deepEqual(sent, { "cast-1": [], "cast-2": ["thing-2"] }, "each known character's take holds the track of the known box it handles and lets go");
+	assert.deepEqual(attachedTo, { "thing-1": "cast-1:rightHand" }, "the known box held the whole clip rides the known character's hand");
+	console.log("ok over existing ids: the box held throughout rides cast-1's hand, the other is in cast-2's take");
 }
 
 // --- saved and loaded (take-source.js): a take is rebuilt from its own encoded track, so each box stays in its holder's take ---

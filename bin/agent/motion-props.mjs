@@ -1,6 +1,7 @@
 // What a motion's draft added and what its install set, one line per object, every number read from the scene (rule 6).
 // The draft (motion-draft.mjs) adds the stand-ins of the writer's first compile; the install sets them to the final
-// props. Only geometry and ids.
+// props. A stand-in the install attached to a bone (install.js) is told as attached: its numbers are in that bone's
+// frame. Only geometry and ids.
 //   standInLines(made, rows)                              the draft's stand-ins as the Studio holds them
 //   propsSetOf({ props, placed, done, plan, start, at, now }) what the install changed since the draft, per object
 const PLACE = 0.01, TURN = 0.5; // metres, degrees: smaller differences are not told
@@ -37,7 +38,7 @@ function whyNew(plan, prop, now) {
 
 /**
  * What the install set, one line per object that changed, every number read from the scene: props (the clip's), placed
- * (install.js placed), done (install.js answer: objectIds, moved, moving), plan (motion-draft.mjs: drafted, remove,
+ * (install.js placed), done (install.js answer: objectIds, moved, moving, attached), plan (motion-draft.mjs: drafted, remove,
  * kept, lost, replaced), start (describe rows the motion started from, by id), at (describe rows just before the install,
  * by id), now (describe rows after it, by id). -> [text], or null when nothing changed.
  */
@@ -47,9 +48,19 @@ export function propsSetOf({ props = [], placed = {}, done = {}, plan, start = n
 		const id = placed[prop.id], row = now.get(id), draft = plan.drafted?.[prop.id];
 		if (!id || !row) continue;
 		const shape = shapeOf(row), starts = moving.has(id) ? "; the motion moves it from there" : "";
-		if (draft && at.get(id)) {
+		// attached by the install: its numbers are now in the bone's frame, so they are no place to tell
+		const onBone = (done.attached ?? []).find(entry => entry.id === id);
+		if (onBone) {
+			const where = `${onBone.characterId}'s ${onBone.bone}, which carries it the whole motion`, was = start.get(id)?.attach;
+			if (draft) out.push(`${row.name ?? prop.id} (${id}), the draft's stand-in of ${prop.id}${draft.untouched ? "" : ", changed meanwhile and keeping its look"}: now attached to ${where}.`);
+			else if (made.has(id)) out.push(`${prop.id} (${id}): the motion added it as a stand-in, ${box(shape.size)}, attached to ${where}; ${whyNew(plan, prop.id, now)}.`);
+			else if (!(was && was.characterId === onBone.characterId && (was.bone ?? null) === onBone.bone)) out.push(`${row.name ?? prop.id} (${id}): the motion attached it to ${where}.`);
+		} else if (draft && at.get(id)) {
 			const differs = changes(shapeOf(at.get(id)), shape);
 			if (differs.length) out.push(`${row.name ?? prop.id} (${id}), the draft's stand-in of ${prop.id}${draft.untouched ? "" : ", changed meanwhile and keeping its look"}: ${differs.join(", ")}${starts}.`);
+		} else if (start.get(id)?.attach) {
+			// taken off the bone it rode: its numbers at the start were in that bone's frame, so only where it is now is told
+			if (moved.has(id)) out.push(`${row.name ?? prop.id} (${id}): the motion took it off ${start.get(id).attach.characterId}'s ${start.get(id).attach.bone ?? "root"}: ${placeOf(shape)}${starts}.`);
 		} else if (moved.has(id) && start.get(id)) {
 			const differs = changes(shapeOf(start.get(id)), shape);
 			if (differs.length) out.push(`${row.name ?? prop.id} (${id}): the motion moved it: ${differs.join(", ")}${starts}.`);

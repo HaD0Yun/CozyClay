@@ -659,11 +659,10 @@ export function useObjects(appContext) {
 		return `${who} · ${bone}`;
 	}
 
-	/** Carry a prop on a character's root (`bone` null) or one of its bones, or
-	 * put it back in the world with `attach` null — the Hierarchy's character,
-	 * bone and Props drops, the Inspector's Detach and run_action
-	 * object.attach/detach. */
-	function attachSceneObject(id, attach) {
+	/** Carry a prop on a character's root (`bone` null) or one of its bones, or put it back in the world with `attach`
+	 * null — the Hierarchy's drops, the Inspector's Detach, object.attach/detach. `local` (with an attach): its place and
+	 * turn in that frame, given instead of converted (a motion install knows it), so the rig need not be on stage. */
+	function attachSceneObject(id, attach, local = null) {
 		const object = storeRef.current.objects.find((entry) => entry.id === id);
 		if (!object) throw new StudioProtocolError("STALE_TARGET", `Object ${id} is not in this scene.`);
 		if (attach) refuseRigOnly(appContext.shared.castMemberOf(attach.characterId), "attaching a prop");
@@ -671,7 +670,7 @@ export function useObjects(appContext) {
 		// joining (or left as world when it joins none). ONE conversion, whether
 		// the prop is coming from the world or from another frame.
 		const shown = appContext.shared.animatedSceneObjects.find((entry) => entry.id === id) ?? object;
-		const placement = attachPlacementPatch(sceneObjectWorldMatrix(shown), attach, appContext.shared.attachFrameRef.current);
+		const placement = attach && local ? Object.fromEntries(["x", "y", "z", "rotX", "rot", "rotZ"].map((key) => [key, Number.isFinite(local[key]) ? local[key] : 0])) : attachPlacementPatch(sceneObjectWorldMatrix(shown), attach, appContext.shared.attachFrameRef.current);
 		// A placement that could not be computed refuses the attachment, not just
 		// the numbers: attaching without converting would silently reinterpret the
 		// old frame's numbers in the new frame, which is the jump itself.
@@ -686,7 +685,8 @@ export function useObjects(appContext) {
 			// Back to the world means "world-anchored again", which drops the
 			// grouping parent too — attach and parent are the same slot.
 			if (attach === null) next = setSceneObjectParent(next, id, null);
-			if (next === objects) return objects;
+			// already on that frame: nothing to do, unless its place there was given (a motion install puts it there anew)
+			if (next === objects && !(attach && local)) return objects;
 			return placeSceneObject(next, id, placement);
 		});
 	}

@@ -390,12 +390,12 @@ function SceneObject({ object, selected, frameRef = null, take = null, attachFra
 /** User-added scene objects, all driven by the shared object registry.
  *
  * `attachFrameRef.current(characterId, bone, out)` resolves the live world
- * frame a carried prop rides, or null. `syncRef` is filled with a "place every
- * prop now" callback for the offscreen export, which renders outside the frame
- * loop and would otherwise record props one frame stale; `worldRef` with a
+ * frame a carried prop rides, or null; `attachFrameAtRef.current(characterId, bone, frame, now, out)` that frame at
+ * another frame (an attached emitter's past: attach-history.js). `syncRef` is filled with a "place every prop now"
+ * callback for the offscreen export, which renders outside the frame loop and would otherwise record props one frame stale; `worldRef` with a
  * "where is this prop" lookup, so a reparent converts from the transform on
  * screen instead of from a second computation of it. */
-export function SetProps({ objects = [], authoredObjects = null, selectedId = null, frameRef = null, take = null, attachFrameRef = null, syncRef = null, worldRef = null, fadeOpacity = null }) {
+export function SetProps({ objects = [], authoredObjects = null, selectedId = null, frameRef = null, take = null, attachFrameRef = null, attachFrameAtRef = null, syncRef = null, worldRef = null, fadeOpacity = null }) {
 	const registryRef = useRef(null);
 	// The authored records by id: a child's travel is its routed parent's
 	// route against the parent's AUTHORED pose, which the display copies in
@@ -425,7 +425,7 @@ export function SetProps({ objects = [], authoredObjects = null, selectedId = nu
 					depthRank={depthRanks.get(object.id) ?? 0}
 				/>
 			))}
-			<EffectsLayer objects={authoredObjects ?? objects} frameRef={frameRef} take={take} registryRef={registryRef} fadeOpacity={fadeOpacity} />
+			<EffectsLayer objects={authoredObjects ?? objects} frameRef={frameRef} take={take} registryRef={registryRef} attachFrameAtRef={attachFrameAtRef} fadeOpacity={fadeOpacity} />
 		</group>
 	);
 }
