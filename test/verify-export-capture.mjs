@@ -20,11 +20,12 @@ scene.fog = new THREE.Fog("white", 20, 50);
 const initialTarget = { editor: true };
 let currentTarget = initialTarget;
 let capturedCamera;
+let drawnInto;
 let readbackError = null;
 const gl = {
 	getRenderTarget: () => currentTarget,
 	setRenderTarget: (target) => { currentTarget = target; },
-	render: (_scene, camera) => { capturedCamera = camera; },
+	render: (_scene, camera) => { capturedCamera = camera; drawnInto = currentTarget; },
 	readRenderTargetPixels(target, _x, _y, width, height, buffer) {
 		assert.equal(target.width, width);
 		assert.equal(target.height, height);
@@ -37,7 +38,8 @@ let cleanup;
 const browser = {};
 const page = { visibilityState: "visible" };
 // The finish (stage-finish.js) is the toon look's frame pass; it draws only when scene.userData.finishLook is set,
-// so this stub records its calls and the checks below run with the look off, as the Studio's setting can.
+// so this stub records its calls. With the look off the renderer draws the frame itself, into a target of its own
+// that three treats as the canvas; a pass (an override material) is drawn into the plain target.
 const finishes = [];
 const createFinish = () => {
 	const finish = { renders: [], disposals: 0, render(...args) { finish.renders.push(args); }, dispose() { finish.disposals += 1; } };
@@ -72,6 +74,21 @@ assert.equal(camera.aspect, 16 / 9, "export never changes the editing camera asp
 assert.equal(camera.layers.isEnabled(5), true);
 assert.equal(currentTarget, initialTarget);
 assert.deepEqual([scene.fog.near, scene.fog.far], [20, 50]);
+// With the look off the export is the canvas's draw: the renderer draws it, tone curve and encoding in the material,
+// into a target of the export's own that three treats as the canvas (made on the first such draw).
+assert.equal(finishes[0].renders.length, 0, "the look-off draw does not go through the finish");
+const asCanvas = targets[2];
+assert.equal(drawnInto, asCanvas);
+assert.equal(asCanvas.isXRRenderTarget, true, "three tone-maps and encodes a draw into it as it does on the canvas");
+assert.deepEqual([asCanvas.width, asCanvas.height, asCanvas.samples, asCanvas.texture.internalFormat], [12, 7, 4, "RGBA8"]);
+// A pass is data, drawn as is into the plain target, not tone-mapped.
+scene.overrideMaterial = new THREE.MeshNormalMaterial();
+assert.equal(exportApi.render().byteLength, 12 * 7 * 4);
+assert.equal(drawnInto, targets[1], "a pass is drawn into the plain target");
+assert.equal(targets[1].isXRRenderTarget, undefined);
+scene.overrideMaterial = null;
+assert.equal(exportApi.render().byteLength, 12 * 7 * 4);
+assert.equal(targets.length, 3, "the canvas-like target is made once");
 
 cleanup();
 assert.equal(targets[0].disposals, 1, "editor resize releases its own target");
@@ -101,7 +118,8 @@ assert.equal(targets[1].disposals, 1, "attempt cleanup releases the export targe
 assert.equal(finishes[0].disposals, 1, "the export was the last holder of the old rig's finish: its cleanup frees it");
 exportApi.dispose();
 assert.equal(finishes[0].disposals + targets[1].disposals, 2, "a second dispose frees nothing twice");
-assert.equal(targets[2].disposals, 0, "attempt cleanup does not dispose the live preview");
+assert.equal(asCanvas.disposals, 1, "attempt cleanup releases the export's canvas-like target with it");
+assert.equal(targets[3].disposals, 0, "attempt cleanup does not dispose the live preview");
 cleanup();
 assert.ok(targets.every((target) => target.disposals === 1));
 assert.ok(finishes.length >= 1 && finishes.every((finish) => finish.disposals === 1), "every rig's finish is released with it");

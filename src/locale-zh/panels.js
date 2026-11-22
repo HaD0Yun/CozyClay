@@ -41,7 +41,7 @@ export const ZH_PANELS = {
 	"Look": "外观",
 	"Lighting look": "灯光外观",
 	"Brightness": "亮度",
-	"Warm ↔ Cool": "暖 ↔ 冷",
+	"Cool ↔ Warm": "冷 ↔ 暖",
 	"Exposure": "曝光",
 	"Sky light": "天光",
 	"Ambient occlusion": "环境光遮蔽",

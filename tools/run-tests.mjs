@@ -126,7 +126,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-model-presets.mjs",
 	"test/verify-mcp-invariants.mjs",
 	"test/verify-offscreen-export.mjs", "test/verify-previs-workflow.mjs",
-	"test/verify-export-capture.mjs",
+	"test/verify-export-capture.mjs", "test/verify-stage-finish-surface.mjs",
 	"test/verify-export-recovery.mjs", "test/verify-export-workspace.mjs",
 	"test/verify-record-mp4-source.mjs",
 	"test/verify-timeline-extent.mjs",

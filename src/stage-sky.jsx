@@ -110,15 +110,13 @@ export function StageAtmosphere({ lighting = null, keyLight, theme = "dark", gri
 		};
 	}, [get, invalidate, sky, skyTop, near, far, backdrop, backdropIntensity]);
 	useLayoutEffect(() => {
-		// The viewport applies exposure in tone mapping. Exports render into a
-		// target, which three never tone-maps, so CaptureRig reads it from here
-		// and scales the lights for its draw instead (same pass, same scene).
+		// Exposure is the tone curve's, for the canvas and for every export (CaptureRig draws through the same curve);
+		// the haze's fog range is what an export uses instead of its own far horizon.
 		const { scene, gl } = get();
 		gl.toneMappingExposure = exposure;
-		// An HDR backdrop is light as well, so exports scale it (and the horizon the deck fades into) too.
-		scene.userData.stageCapture = { exposure, fog: hazeNear === null ? null : { near: hazeNear, far: hazeFar }, backdrop: Boolean(backdrop) };
+		scene.userData.stageCapture = { fog: hazeNear === null ? null : { near: hazeNear, far: hazeFar } };
 		invalidate();
-	}, [get, invalidate, exposure, hazeNear, hazeFar, backdrop]);
+	}, [get, invalidate, exposure, hazeNear, hazeFar]);
 	const hdrTexture = hdrMap?.texture ?? null, envSource = hdrTexture ? null : envKey;
 	useLayoutEffect(() => {
 		if (!hdrTexture && !envSource) return undefined;
