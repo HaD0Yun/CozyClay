@@ -36,6 +36,10 @@ for (const how of ["infra", "stop", "refused"]) {
 		assert.equal(error.installed, false);
 		assert.ok(error.notInstalled.startsWith("The motion writer failed (the proxy failed) before its report, so its last compiled motion (compile "), error.notInstalled);
 		assert.ok(error.notInstalled.endsWith(` The draft's stand-ins: removed ${crate} (not changed since the draft); left ${bench} (changed meanwhile).`), error.notInstalled);
+		// installed on request, that motion takes the stand-in the agent shaped as its prop (no second bench) and adds the crate again
+		const put = await t.door.with([]).find(tool => tool.name === "motion_result").handler({ install: true });
+		assert.equal(put.installed, true);
+		assert.deepEqual([studio.named("bench").map(row => row.id), studio.named("crate").length, studio.rows().length], [[bench], 1, 2], `the offered install uses the shaped stand-in: ${JSON.stringify(studio.rows().map(row => row.name))}`);
 	} else if (error) {
 		assert.equal(error.code, "studio");
 		assert.ok(error.message.endsWith(` The draft's stand-ins: removed ${crate} (not changed since the draft); left ${bench} (changed meanwhile).`), error.message);

@@ -46,12 +46,11 @@ export function beforeOf(entry, studio) {
 }
 
 const INSTALL_NO = /^\s*Install:\s*no\b/im; // the writer's report line that keeps its last compile out of the Studio (prompt.mjs)
-/** Why the writer's last compiled motion is not installed: { text, offer } (offer: it can still be installed on request),
- *  or null when the writer answered for it with its report. A run that ended before its report (a safety limit, a stop,
- *  a model or proxy error) did not; nor did a report with the line "Install: no"; and a motion whose scene and spec are
- *  the ones the Studio plays already is nothing to install. */
-function notInstalled(record, before, stopped = false) {
-	const lastOk = (record.calls?.shots ?? []).findLast(shot => shot.status === "ok")?.n, what = `its last compiled motion (compile ${lastOk ?? "?"}, ${record.final?.frames ?? "?"} frames)`;
+/** Why the writer's last compiled motion (`what`) is not installed: { text, offer } (offer: it can still be installed on
+ *  request), or null when the writer answered for it with its report. A run that ended before its report (a safety
+ *  limit, a stop, a model or proxy error) did not; nor did a report with the line "Install: no"; and a motion whose
+ *  scene and spec are the ones the Studio plays already is nothing to install. */
+function notInstalled(record, before, stopped, what) {
 	if (record.finished === false || record.infraError) { // the harness says false for a run that did not end on the model's report
 		const how = stopped ? "was stopped on request" : record.infraError ? `failed (${record.infraError.message})` : `ended at ${record.endedBy}`;
 		return { text: `The motion writer ${how} before its report, so ${what} is not installed.`, offer: true };
@@ -96,7 +95,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 		const heights = studio.props.filter(prop => prop.heights?.length).map(prop => `${prop.id} offers these flat heights (world): ${JSON.stringify(prop.heights)}`);
 		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.`, JSON.stringify(scene), ...heights].join("\n"));
 	}
-	if (studio.attached?.length) parts.push(`These objects ride a bone of a character (attached in the Studio, so they go with that bone and are not props above), each with the size of its box or, when it has no box of its own, its kind: ${studio.attached.map(a => `${a.id} (${a.kind ?? `size ${JSON.stringify(a.size)}`}) on ${a.on}'s ${a.bone}${a.place ? ` ${a.place}` : ""}`).join(", ")}. A prop of your scene with such an id is that object: one bone carrying it the whole clip keeps it attached, anything else takes it off the body.${studio.attached.some(a => a.later) ? ` One set there by hand (after the motion that attached it, or attached in the Studio) keeps that place and turn on the bone when your clip keeps it on that bone; your clip's place for it is not drawn.` : ""}`);
+	if (studio.attached?.length) parts.push(`These objects ride a bone of a character (attached in the Studio, so they go with that bone and are not props above), each with the size of its box or, when it has no box of its own, its kind: ${studio.attached.map(a => `${a.id} (${a.kind ?? `size ${JSON.stringify(a.size)}`}) on ${a.on}'s ${a.bone}${a.place ? ` ${a.place}` : ""}`).join(", ")}. A prop of your scene with such an id is that object: one bone carrying it the whole clip keeps it attached, anything else takes it off the body.${studio.attached.some(a => a.place) ? " One set by hand keeps that place and turn while your clip keeps it on that bone: your clip's place for it is not drawn." : ""}`);
 	if (studio.others?.length) parts.push(`These characters cannot be animated by the engine and stand as they are: ${studio.others.map(other => `${other.id} (${other.why})`).join(", ")}.`);
 	parts.push(`${ADDED}${kinds ? ` ${PLAIN}` : ""}${body ? ` ${BODIES}` : ""}${note ? ` ${DRESSED}` : ""}`);
 	if (before) {
@@ -129,10 +128,12 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * install set a scale or a tint): [{ id, scale?, tint? }], the fields it set (install.js); onBodies(bodiesSet): once, then.
  * A motion writer that ends without a scene but with a report (it could not make the motion) answers with frames 0.
  * frames and clipSeconds (one decimal) are the length of the clip; tookSeconds is how long making it took (wall time).
- * installed: true when the clip went in; undo then holds the receipt ids of the install's own edits, newest first
- * (undo_edit of each in that order takes exactly that install back). installed false: nothing went in; notInstalled says
- * why (a run that ended before the writer's report, a report with the line "Install: no", the motion that plays already),
- * with what exists, and install() (when there is one) installs that last compiled motion on request, answering as above.
+ * installed: true when the clip went in; undo then holds the receipt ids of the install's own edits, newest first (the
+ * steps that changed the scene: in the same message undo_edit of each in that order takes exactly that install back).
+ * installed false: nothing went in; notInstalled says why (the writer compiled none; a run that ended before the
+ * writer's report; a report with the line "Install: no"; the motion that plays already; a stop on request before the
+ * install; another scene open than the motion's), with what exists and what became of the draft's stand-ins, and
+ * install() (when there is one) installs that last compiled motion on request, answering as above.
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
  * "aborted" (signal: the motion was stopped on request before it compiled one).
  * onScene(ids): once the Studio scene is read, with the ids of the characters and objects the motion is written against
@@ -160,10 +161,11 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	let refused = null, receipts = null;
 	// A scene that changed while the motion was written (a build task finished, the user moved something) answers
 	// STALE_SCENE once: the tools re-admit at the live revision, and the same step is sent again. During the install each
-	// receipt is kept (receipts), so the answer can name what undoes exactly that install.
+	// receipt of a step that changed the scene is kept (receipts: the turn's edits, src/agent-turn-mark.js), so the answer
+	// can name what undoes exactly that install.
 	const run = async (action, args) => {
 		for (let tries = 0; ; tries++) {
-			try { const receipt = await invoke(action, args); if (receipts && receipt?.receiptId) receipts.push(receipt.receiptId); return receipt; } catch (error) {
+			try { const receipt = await invoke(action, args); if (receipts && receipt?.authored === true && receipt.receiptId) receipts.push(receipt.receiptId); return receipt; } catch (error) {
 				if (error?.code === "STALE_SCENE" && tries < 2) continue;
 				refused = error;
 				return null;
@@ -173,10 +175,13 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, boxed, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
 	// the motion a take plays now, with the writer's scene and spec kept with it; this conversation's last one first
 	const open = openScene(read), takes = keptTakes(read), playing = memoryKey == null ? null : keptMotion(takes.kept, studio.ids.characters, last.get(`${open} ${memoryKey}`) ?? null);
-	// an attached object is told with its place and turn on its bone as the Studio has them, and whether they were set by hand
-	const r = (v, by) => Math.round(v * by) / by, onBone = attachedBefore(takes.kept), told = studio.scene.attached ? { ...studio.scene, attached: studio.scene.attached.map(a => {
-		const p = studio.ids.props[a.id], later = Boolean(p) && placeSetLater(onBone, p.id, p), turned = p?.quat && eulerXYZ ? `, turned [${Object.values(eulerXYZ(p.quat)).map(v => r(v, 10)).join(", ")}] degrees` : "";
-		return p ? { ...a, place: `at [${[p.x, p.y, p.z].map(v => r(v, 1000)).join(", ")}] m${turned} in its frame${later ? " (set by hand)" : ""}`, later } : a;
+	// an attached object whose place on its bone was set by hand (install.js placeSetLater) is told with that place and
+	// turn, as the Studio has them: the clip's own place for it is not drawn while the clip keeps it on that bone
+	const r = (v, by) => Math.round(v * by) / by, onBone = attachedBefore(takes), told = studio.scene.attached ? { ...studio.scene, attached: studio.scene.attached.map(a => {
+		const p = studio.ids.props[a.id];
+		if (!p || !placeSetLater(onBone, p.id, p)) return a;
+		const turned = p.quat && eulerXYZ ? `, turned [${Object.values(eulerXYZ(p.quat)).map(v => r(v, 10)).join(", ")}] degrees` : "";
+		return { ...a, place: `at [${[p.x, p.y, p.z].map(v => r(v, 1000)).join(", ")}] m${turned} in that bone's frame (set by hand)` };
 	}) } : studio.scene;
 	const before = beforeOf(playing, studio), request = requestOf({ words, wordsOf, note }, images.length, told, before, body, kinds);
 	// what the agent is told it started from: that motion, or the listed characters whose take keeps no spec to start from
@@ -192,18 +197,23 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		try {
 			if (signal?.aborted) throw failure("aborted", "The motion writer was stopped before it compiled a motion.");
 			if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
-			if (record.report) return { ...base, frames: 0, clipSeconds: 0, ...none, installed: false };
+			if (record.report) return { ...base, frames: 0, clipSeconds: 0, ...none, installed: false, notInstalled: "The motion writer compiled no motion." };
 			throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
 		} catch (error) { throw await draft.failed(error); }
 	}
 	const clip = readClip(record.final.clip), length = { frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10 };
-	const install = async useDraft => {
+	const what = `its last compiled motion (compile ${(record.calls?.shots ?? []).findLast(shot => shot.status === "ok")?.n ?? "?"}, ${record.final.frames ?? clip.frameCount} frames)`;
+	// a motion kept out of the Studio (rule 7): told with what exists and what became of the draft's stand-ins, and its
+	// last compiled motion can still be installed on request (install), unless it is the motion that plays already
+	const keptOut = async (text, offer = true) => ({ ...base, ...length, ...none, installed: false, notInstalled: (await draft.failed(failure("kept", text))).message, ...(offer ? { install: () => install(false) } : {}) });
+	// first: the install the writer's report asks for; a stop on request that came before it keeps the motion out
+	const install = async first => {
 		let result;
 		try {
 			result = await exclusive(async () => {
-				if (signal?.aborted) throw failure("aborted", "The motion writer was stopped on request.");
+				if (first && signal?.aborted) throw failure("kept", `The motion was stopped on request before its install, so ${what} is not installed.`);
 				receipts = [];
-				const plan = useDraft ? await draft.plan(clip.props ?? []) : null;
+				const plan = await draft.plan(clip.props ?? []);
 				const done = await installClip(clip, run, { label: note ?? words, existing: { ...studio.ids, attachedBefore: onBone }, turn, body: look, source: { name, scene: record.final.scene, spec: record.final.spec }, ...(plan ? { drafted: plan.drafted } : {}) });
 				if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 				// an untouched draft stand-in the final motion does not use goes once the install is in (a removal the Studio refuses is told)
@@ -215,17 +225,17 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 				if (plan) try { after = byId((await hub.command("describe", {}, workspaceHandle))?.objects); } catch { /* no propsSet */ }
 				return { ...done, plan, after, undo };
 			});
-		} catch (error) { receipts = null; throw useDraft ? await draft.failed(error) : error; }
+		} catch (error) {
+			receipts = null;
+			// kept out, not failed: stopped before the install, or another scene is open than the motion's (motion-door.mjs)
+			if (error?.code === "kept") return keptOut(error.message);
+			if (error?.code === "scene") return keptOut(`${error.message}, so ${what} is not installed.`);
+			throw await draft.failed(error);
+		}
 		return answered(result);
 	};
-	// what the writer did not answer for is not installed (rule 7): told with what exists, and the last compiled motion
-	// can still be installed on request (install), unless it is the motion that plays already
-	const why = notInstalled(record, before, signal?.aborted);
-	if (why) {
-		const told = (await draft.failed(failure("kept", why.text))).message;
-		return { ...base, ...length, ...none, installed: false, notInstalled: told, ...(why.offer ? { install: () => install(false) } : {}) };
-	}
-	return install(true);
+	const why = notInstalled(record, before, signal?.aborted, what);
+	return why ? keptOut(why.text, why.offer) : install(true);
 
 	// the answer of an install that went through
 	async function answered(result) {

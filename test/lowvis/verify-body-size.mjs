@@ -67,7 +67,7 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	// and the sentence on which of several actions an edit's entries name (verify-motion-edit.mjs), taken out
 	const EDIT_ORDER = " Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order.";
 	// and the line on when the last compile is installed (motion-run.mjs notInstalled), taken out
-	const withoutOrder = text => text.replace(EDIT_ORDER, "").replace("\nYour last compile is installed in the Studio once you report; when it should not be, put the line Install: no before the Missing line and say why.", "");
+	const withoutOrder = text => text.replace(EDIT_ORDER, "").replace("\nYour last compile is installed once you report; to keep it out, put the line Install: no before the Missing line and say why.", "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
 	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : []))))))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");

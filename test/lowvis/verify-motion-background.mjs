@@ -130,7 +130,8 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	await door4.handler({ request: "c1 waves" });
 	scene = "s2";
 	moved.gate.release();
-	await assert.rejects(door4.with([])[1].handler(), error => error.code === "studio" && /Another scene was opened/.test(error.message));
+	// the door tells the run (code "scene"), which keeps the motion out and offers it (motion-run.mjs; verify-motion-install.mjs)
+	await assert.rejects(door4.with([])[1].handler(), error => error.code === "scene" && /^Another scene is open than the one the motion was written in$/.test(error.message));
 	console.log("PASS background motion: a stop stops it, a refusal rolls back its own edits, another scene refuses the install");
 }
 

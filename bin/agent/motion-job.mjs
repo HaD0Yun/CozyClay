@@ -5,11 +5,12 @@
 // workspaceHandle }, the scene's holder, the turn transaction and the turn's editor actions.
 
 /** A motion's state: { seat, last, stop, held, changed, installed, settled, ended (the writer has ended: its install is
- *  asked for), wentIn (its install went through), collected, told, scene, row, compiles, offer, adopt, leave }. */
-export function createJob({ seat, scene, row }) {
+ *  asked for), wentIn (the turn its install went through in), collected, told, scene, turn (the id of the turn that
+ *  started it), row, offer, adopt, leave }. */
+export function createJob({ seat, scene, row, turn = null }) {
 	const waiting = [];
 	const job = {
-		seat, last: seat, stop: new AbortController(), held: null, changed: new Set(), installed: false, settled: false, ended: false, collected: false, told: false, scene, row, compiles: 0, offer: null,
+		seat, last: seat, stop: new AbortController(), held: null, changed: new Set(), installed: false, settled: false, ended: false, wentIn: null, collected: false, told: false, scene, turn, row, offer: null,
 		/** A turn takes the motion over: its install and draft run there, its compiles show on that turn's rows. */
 		adopt(next) { job.seat = job.last = next; job.row = null; for (const resolve of waiting.splice(0)) resolve(next); },
 		/** The turn that held it has ended without it: nothing waits on that turn any more. */
@@ -20,12 +21,46 @@ export function createJob({ seat, scene, row }) {
 }
 
 /** The turn that holds the motion, once there is one. */
-export const seatOf = job => (job.seat ? Promise.resolve(job.seat) : new Promise(job.wait));
+const seatOf = job => (job.seat ? Promise.resolve(job.seat) : new Promise(job.wait));
 
-/** What the agent of a later turn is told of a motion an earlier turn of the conversation left, or null. */
+const LEFT = Symbol("left");
+/**
+ * Runs a motion's install in the turn that holds it: it waits for one (and again when that turn ended while the install
+ * waited for the scene), holds the scene alone under that turn's mark, and is rolled back when the Studio refused it. The
+ * writer has ended once the install is asked for: motion_result no longer answers the draft (told). With another scene
+ * open than the motion's it throws an Error with code "scene": the run keeps the motion out and offers it (motion-run.mjs).
+ */
+export async function installIn(job, install) {
+	job.told = job.ended = true;
+	for (;;) {
+		const s = await seatOf(job);
+		const done = await s.hold(async () => {
+			if (job.seat !== s) return LEFT;
+			try {
+				if (s.sceneOf() !== job.scene) throw Object.assign(new Error("Another scene is open than the one the motion was written in"), { code: "scene" });
+				await s.mark();
+				try { const out = await install(); job.wentIn = s; return out; } catch (error) { if (error?.code === "studio") await s.rollback(); throw error; }
+			} finally { job.installed = true; }
+		});
+		if (done !== LEFT) return done;
+	}
+}
+
+/**
+ * At the start of a user's turn (value: its sessionId's key, turnId, editNote): the user's edit of their last message
+ * cut that turn from the conversation (session-rewind.mjs editNote). A motion that turn started was asked for with words
+ * the user has replaced, so its writer is stopped and nothing of it is installed; a motion of an earlier turn stays.
+ * turns: conversation -> the id of its last user turn.
+ */
+export function cutWith(jobs, turns, key, value) {
+	const left = jobs.get(key);
+	if (value.editNote && left && left.turn === turns.get(key)) { left.stop.abort(); jobs.delete(key); }
+	turns.set(key, value.turnId ?? null);
+}
+
+/** What the agent of a later turn is told of a motion an earlier turn of the conversation left uncollected, or null. */
 export function jobNote(job) {
-	if (job.collected) return job.offer ? "Studio motion observation: the last motion result of this conversation answered installed false with a compiled motion; motion_result { install: true } installs it." : null;
-	const state = job.wentIn ? "was installed in that turn; its result (with the receipts that undo it) is not collected" : job.settled || job.ended ? "has ended; its result is not collected and nothing of it is installed" : `is still being written (${job.compiles} compile${job.compiles === 1 ? "" : "s"} so far); nothing of it is installed until a turn collects it`;
-	if (job.wentIn) return `Studio motion observation: a motion that an earlier turn of this conversation started ${state}; motion_result answers it.`;
-	return `Studio motion observation: a motion that an earlier turn of this conversation started ${state}. motion_result answers it and installs it then when the writer answered for it; motion_result { stop: true } stops the writer, only when the user asks for that.`;
+	if (job.collected) return null;
+	const state = job.wentIn ? "was installed in that turn; motion_result answers its result" : job.settled || job.ended ? "has ended and nothing of it is installed; motion_result answers it" : "is still being written and nothing of it is installed; motion_result waits for it and answers it";
+	return `Studio motion observation: a motion that an earlier turn of this conversation started ${state}.`;
 }

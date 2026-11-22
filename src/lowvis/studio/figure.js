@@ -36,6 +36,10 @@ export function scaleRoom({ min, max }, model, look = LAUNCHED) {
  *  itself for the rig's own body, else to six decimals (0.81 x 0.9 / 0.81 is 0.9). */
 export const scaleOf = (size, body = 1) => (body === 1 ? size : Math.round(size / body * 1e6) / 1e6);
 
+/** The character scale a take was made for, or null: a raw take (source.spec.raw, motion-v4/track/codec.js) is of one
+ *  body size, and played on a body of another scale it plays scaled about the character's place (the panel says so). */
+export const takeScaleOf = (source, model, look = LAUNCHED) => (source?.spec?.raw ? scaleOf(source.spec.raw.scale ?? 1, model === LOOK_RIG ? lookBody(look) : 1) : null);
+
 /** A stored character row whose scale is of the body `stored` (a stage's figureBody, scenes.js; 1 when not given) as a
  *  row of this page's look: a character of the rig the looks are drawn over gets the scale that stands it as large as
  *  before; any other row, or one of the same body, is the row itself. */
