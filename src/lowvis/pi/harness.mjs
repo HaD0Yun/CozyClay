@@ -87,10 +87,12 @@ function markCache(payload) {
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
  * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs); "*":
  * the scale a new character starts at, which the system prompt also states (prompt.mjs systemPrompt start).
+ * inbox: a steer inbox (bin/agent/steer-inbox.mjs): what the user sends while the run goes reaches the model as a user
+ * message between its steps; the inbox is closed when the run ends. The record does not keep these messages.
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
@@ -159,6 +161,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 		},
 		toolExecution: "sequential", sessionId: `lowvis-pi-${name}-${Date.now()}`, identity: { attribution: null },
 	});
+	inbox?.attach(agent);
 	agent.subscribe(event => {
 		if (event.type === "message_end" && event.message.role === "assistant") {
 			const msg = event.message, u = msg.usage ?? {}, text = msg.content.filter(c => c.type === "text").map(c => c.text).join("\n").trim();
@@ -182,7 +185,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const timer = setTimeout(() => { record.safety.hit ??= "time"; agent.abort(); }, safety.ms);
 	const stop = () => agent.abort(); // the caller's signal (a Studio turn the user stopped) ends the run like the time limit does
 	signal?.addEventListener("abort", stop, { once: true });
-	try { if (!signal?.aborted) await (images.length ? agent.prompt(request, images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))) : agent.prompt(request)); } catch (error) { fail(error?.message ?? error); } finally { clearTimeout(timer); signal?.removeEventListener("abort", stop); }
+	try { if (!signal?.aborted) await (images.length ? agent.prompt(request, images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))) : agent.prompt(request)); } catch (error) { fail(error?.message ?? error); } finally { clearTimeout(timer); signal?.removeEventListener("abort", stop); inbox?.close(); }
 
 	const wallMs = round(now()), sum = k => modelCalls.reduce((n, c) => n + (c[k] ?? 0), 0), contexts = modelCalls.map(c => c.context ?? 0).filter(Boolean);
 	const last = transcript.at(-1), finished = last && modelCalls.at(-1)?.stopReason === "stop", finalText = finished ? last.text : null;

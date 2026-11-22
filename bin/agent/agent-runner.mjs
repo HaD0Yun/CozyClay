@@ -5,6 +5,7 @@ import { budgetStudioRequest } from "./studio-context-budget.mjs";
 import { createRetryingStream, retryAfterMs } from "./agent-stream.mjs";
 import { NETWORK_CODES, frameCodeOf } from "./agent-failure-codes.mjs";
 import { withAnthropicCacheBreakpoints } from "./anthropic-cache.mjs";
+import { createSteerInbox } from "./steer-inbox.mjs";
 
 const DEFAULT_MODEL = "gpt-6-astra";
 
@@ -505,7 +506,8 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					const wait = code === "rate_limit" ? retryAfterMs(last) : 0, limited = code === "rate_limit" ? { provider: state.provider, ...(wait > 0 ? { retryAfterMs: wait, resetAt: new Date(Date.now() + wait).toISOString() } : {}) } : {};
 					queue.push({ type: "error", code, message: outOfTokens || detail || fallback, ...(classified.status ? { status: classified.status } : {}), ...limited });
 				}
-				if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });
+				// a steer the run ended before reading is taken back out of its queue and reported, before done (steer-inbox.mjs)
+				state.active.inbox.close(); if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });
 				queue.close();
 			};
 			// eventAt: any event of the run, a model still streaming among them (the main turn's no-progress guard, studio-task-routes.mjs)
@@ -528,17 +530,20 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 			const queue = new FrameQueue();
 			// Studio never sends a quota frame at all (unchanged, #379): mark it sent
 			// up front so `pushFrame`'s gate never holds Studio's first frame.
-			state.active = { queue, quotaSent: input.surface === "studio", pendingFrames: [], authRetried: false, abortRequested: false, abortedCalls: new Set(), lastResponseHeaders: null, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 0 } };
+			// inbox: what the user sends while this run goes (steer); each message is reported received or dropped by its id
+			const inbox = createSteerInbox({ received: id => queue.push({ type: "steer.received", id }), dropped: id => queue.push({ type: "steer.dropped", id }) });
+			state.active = { queue, inbox, quotaSent: input.surface === "studio", pendingFrames: [], authRetried: false, abortRequested: false, abortedCalls: new Set(), lastResponseHeaders: null, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 0 } };
 			state.lastInput = input;
 			const controller = input.signal ? null : new AbortController();
 			const signal = input.signal || controller.signal;
 			state.lastInput.signal = signal;
-			// The caller's own signal (a Stop, a disconnect, a deadline) aborts the turn exactly like session.abort() does.
-			const cancel = () => { if (state.active) state.active.abortRequested = true; state.agent?.abort(); };
+			// The caller's own signal (a Stop, a disconnect, a deadline) aborts the turn exactly like session.abort() does. A
+			// steer still unread is taken back first (dropped): a loop stopped during a tool would read it as it winds down.
+			const cancel = () => { if (state.active) state.active.abortRequested = true; inbox.close(); state.agent?.abort(); };
 			const run = (async () => {
 				let removeEventListeners;
 				try {
-					await ensureAgent(input);
+					await ensureAgent(input); inbox.attach(state.agent);
 					// Keep the transcript, but replace per-turn tool closures (admission,
 					// workspace and cancellation). Auth retry reuses these same bindings.
 					// The Tasks switch swaps the whole tool set inside one session; the
@@ -594,9 +599,9 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 						return prompted;
 					});
 				} catch (error) {
-					if (!queue.closed) { queue.push(errorFrame(error, signal.aborted)); queue.push({ type: "done" }); queue.close(); }
+					if (!queue.closed) { inbox.close(); queue.push(errorFrame(error, signal.aborted)); queue.push({ type: "done" }); queue.close(); }
 				} finally {
-					signal.removeEventListener("abort", cancel);
+					signal.removeEventListener("abort", cancel); inbox.close();
 					removeEventListeners?.();
 					// However the run ended (a loop that threw never reaches finishTurn), work a tool left running stops here, inside the turn.
 					try { await input.unfinished?.({ failed: true }); } catch { /* the run's own outcome stands */ }
@@ -607,7 +612,9 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 
 		const publicSession = {
 			start,
-			steer: async (text, images = []) => state.agent?.steer({ role: "user", content: [{ type: "text", text }, ...images], timestamp: Date.now() }),
+			// A message for the running turn, read between its steps (steer-inbox.mjs); false when no turn runs. id: the
+			// caller's, named again in the turn's steer.received or steer.dropped frame.
+			steer: async (text, images = [], id = null) => state.active?.inbox.steer(text, images, id) ?? false,
 			abort: async (reason, { quiet = false } = {}) => {
 				// Set synchronously, before the run winds down: any `persist` that runs
 				// after this point — for the turn that is active right now — must
@@ -618,7 +625,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				// settled tool outcome to show instead (a Studio Stop that the motion
 				// runtime acknowledged) and is only using this abort to stop the model
 				// from being prompted again.
-				if (state.active) { state.active.abortRequested = true; if (quiet) state.active.quietAbort = true; }
+				if (state.active) { state.active.abortRequested = true; if (quiet) state.active.quietAbort = true; state.active.inbox.close(); } // as cancel above
 				if (!state.agent?.state.isStreaming) return { ok: false, reason };
 				state.agent.abort();
 				return { ok: true };

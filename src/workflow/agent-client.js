@@ -14,7 +14,9 @@
 //   POST /agent/turn    -> SSE, lines of `data: {json}`
 //   POST /agent/stop    -> { ok }
 //   GET  /agent/models  -> { providers: [{ id, label, signedIn, models }], models: [flat], roles: { byMain } }
-//   POST /agent/turn/<turnId>/steer -> { ok, queued } while that turn streams
+//   POST /agent/turn/<turnId>/steer { text, id, attachments? } -> { ok, queued } while that turn streams; the turn's
+//        stream then says { type: "steer.received", id } (in the context of its next model call) or
+//        { type: "steer.dropped", id } (the turn ended first)
 //
 // Studio hosts add the frozen task-1 contracts on the same routes:
 //   POST /agent/turn                        -> { surface, sessionId, turnId, text, context, ... }
@@ -183,10 +185,6 @@ export const PANEL_PRESENTATIONS = Object.freeze({
 		// The Workflow turn generates images, so an account without the image
 		// entitlement has to be told before it asks for one.
 		imageEntitlement: true,
-		// Steering nudges a turn that is already running. Only the Workflow turn
-		// accepts it: a Studio turn is a frozen envelope the sidecar refuses to
-		// steer (409 STEER_UNSUPPORTED), so that surface keeps Stop alone.
-		steer: true,
 		history: true,
 		persistWidth: true,
 		emptyTitle: "Direct the scene",
@@ -199,7 +197,6 @@ export const PANEL_PRESENTATIONS = Object.freeze({
 		suggestions: STUDIO_SUGGESTION_CHIPS,
 		imageHint: null,
 		imageEntitlement: false,
-		steer: false,
 		history: true,
 		persistWidth: false,
 		emptyTitle: ko("Direct the scene", "\uC7A5\uBA74\uC744 \uC5F0\uCD9C\uD558\uC138\uC694"),
@@ -347,12 +344,15 @@ export function formatElapsed(ms) {
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** Why a steer was refused, by the code the sidecar answers 409 with. The
- * draft stays in the composer either way: the author's words are never eaten
- * by a turn that ended a moment earlier. */
+/** A message's pictures as a turn or a steer carries them: at most ATTACHMENT_MAX_COUNT, data URL and name only. */
+const messageAttachments = (list) => list.slice(0, ATTACHMENT_MAX_COUNT).map(({ dataUrl, name }) => ({ dataUrl, ...(name ? { name } : {}) }));
+
+/** Why a steer (a queued row's Send now) was refused, by the code the sidecar
+ * answers 409 with. The row stays in the queue either way: the author's words
+ * are never eaten by a turn that ended a moment earlier. */
 export const STEER_ERROR_COPY = {
-	STEER_UNSUPPORTED: "This surface cannot steer a running turn.",
-	NO_ACTIVE_TURN: "That turn already ended — send it as a new message.",
+	STEER_UNSUPPORTED: ko("This turn cannot take a message while it runs: it stays queued for the next turn.", "이 작업은 도는 중에 메시지를 받을 수 없어요. 다음 턴으로 보내도록 대기열에 남겨요.", "此轮运行中无法接收消息：消息留在队列中，作为下一轮发送。"),
+	NO_ACTIVE_TURN: ko("That turn already ended: the message stays queued for the next turn.", "그 작업은 이미 끝났어요. 다음 턴으로 보내도록 대기열에 남겨요.", "该轮已结束：消息留在队列中，作为下一轮发送。"),
 };
 
 /** Codes a Studio refusal carries: a turn that met one is reviewed by the
@@ -584,8 +584,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 			return { providers, models };
 		},
 		/** Steering a turn that is STILL streaming. The id is the one this browser
-		 * minted for that turn; the sidecar answers 409 for a Studio envelope
-		 * (STEER_UNSUPPORTED) and for a turn that already ended (NO_ACTIVE_TURN). */
+		 * minted for that turn; the sidecar answers 409 for a turn that already
+		 * ended (NO_ACTIVE_TURN). */
 		async steer(turnId, body) {
 			return request(`/agent/turn/${encodeURIComponent(turnId)}/steer`, { method: "POST", body: JSON.stringify(body) });
 		},
@@ -893,8 +893,8 @@ export function createMockTransport(config = { state: "ready" }) {
 	});
 	// The turn a steer may still reach. It is cleared at the last scripted frame,
 	// while the stream is still open, exactly like the sidecar's own turn record.
-	let liveTurn = null;
-	let turns = 0;
+	let liveTurn = null, turns = 0;
+	const steered = []; // ids of accepted steers, reported received at the scripted turn's next frame
 	return {
 		mock: true,
 		state,
@@ -949,14 +949,14 @@ export function createMockTransport(config = { state: "ready" }) {
 			return { ok: true };
 		},
 		/** The scripted steer route. A message only reaches a turn that is still
-		 * running; anything else is the 409 the sidecar answers. QA reads the
-		 * accepted message back out of storage, because a scripted transport has
-		 * no request for it to inspect. */
+		 * running; anything else is the 409 the sidecar answers. The scripted turn
+		 * reports it received at its next frame, as the sidecar's loop does at its
+		 * next step. QA reads the accepted message back out of storage, because a
+		 * scripted transport has no request for it to inspect. */
 		async steer(turnId, body) {
-			if (studio) throw Object.assign(new Error("409 — Steering a Studio turn is not supported."), { status: 409, code: "STEER_UNSUPPORTED" });
 			if (!liveTurn || turnId !== liveTurn) throw Object.assign(new Error("409 — This turn already ended."), { status: 409, code: "NO_ACTIVE_TURN" });
 			try { globalThis.localStorage?.setItem("cozyclay.mock.agent.last-steer", JSON.stringify({ turnId, text: body?.text ?? null, attachments: body?.attachments?.length ?? 0 })); } catch { /* mock proof state is best effort */ }
-			return { ok: true, queued: true };
+			steered.push(body?.id ?? null); return { ok: true, queued: true };
 		},
 		async acceptJob() {
 			return { ok: true };
@@ -1040,12 +1040,13 @@ export function createMockTransport(config = { state: "ready" }) {
 				if (signal?.aborted) break;
 				await wait(step.delay);
 				if (signal?.aborted) break;
+				for (const id of steered.splice(0)) emit({ type: "steer.received", id });
 				emit(step.event);
 			}
 			// The model is done at the last frame, but the stream stays open while the
 			// sidecar closes the turn out. Steering inside that window is exactly the
 			// 409 the real route answers, so the scripted turn reproduces it.
-			liveTurn = null;
+			liveTurn = null; for (const id of steered.splice(0)) emit({ type: "steer.dropped", id });
 			await wait(240);
 			if (signal?.aborted) emit({ type: "done" });
 		},
@@ -1106,13 +1107,16 @@ export function createAgentChatStore({
 	// so it can show the change where the author is looking — on the element
 	// itself — instead of only as another card at the bottom of the chat.
 	onReceipt = null,
+	// onSteer({ type: "steer.received" | "steer.dropped", id }): what became of a steer sent with an id (the queue's
+	// Send now, agent-queue.js). A turn that ends with a steer unanswered (Stop, a lost stream) reports it dropped.
+	onSteer = null,
 	newId = createStudioSessionId,
 	clock = () => Date.now(),
 } = {}) {
 	const studio = surface === "studio";
-	const listeners = new Set();
-	const seenReceipts = new Set();
-	const settledActions = new Set();
+	const listeners = new Set(), seenReceipts = new Set(), settledActions = new Set();
+	// Steers the sidecar took and the turn has not yet put in front of the model: id -> { text, attachments }.
+	const steering = new Map();
 	let controller = null;
 	// What the running turn has actually produced, so a turn that ends with
 	// nothing on screen can be reported as the failure it is.
@@ -1279,6 +1283,8 @@ export function createAgentChatStore({
 		if (event?.type === "quota") { set({ quota: { plan: event.plan, usedPercent: event.primary?.usedPercent, windowMinutes: event.primary?.windowMinutes, resetAt: event.primary?.resetAt, credits: event.credits } }); return; }
 		// The latest model request's prompt against the model's window (bin/agent/agent-runner.mjs countAttempt, agent-context-meter.js).
 		if (event?.type === "context") { set({ context: { tokens: event.tokens, window: event.window ?? null } }); return; }
+		// A steer joins the transcript only once the model's context took it (here, between the steps it came between).
+		if (event?.type === "steer.received" || event?.type === "steer.dropped") { const sent = steering.get(event.id); steering.delete(event.id); if (sent && event.type === "steer.received") setItems((items) => [...items, { kind: "user", id: newId(), text: sent.text, steered: true, attachments: sent.attachments }]); if (sent) onSteer?.(event); return; }
 		if (event?.type !== "error") return;
 		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : (event.message !== event.code && event.message) || ERROR_COPY[event.code] || event.message || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
 		if (activeTurn) activeTurn.failure = failure;
@@ -1324,7 +1330,7 @@ export function createAgentChatStore({
 	const resetSession = () => {
 		abandonSupervisorNotes();
 		seenReceipts.clear();
-		settledActions.clear();
+		settledActions.clear(); steering.clear();
 		// Clearing the transcript also retires the server session: a cleared chat
 		// the model still remembers is the divergence this replaces.
 		set({ sessionId: newId(), turnId: null, items: [], pendingAttachments: [], rateLimit: null, context: null, lastPrompt: "", turnStartedAt: null, lastTurn: null });
@@ -1333,13 +1339,14 @@ export function createAgentChatStore({
 	// sketch (the ghost clay of a call still being written) ends with it, whatever ended it. Nothing on screen is a failure.
 	const endTurn = (turn, signal, startedAt) => {
 		if (controller?.signal === signal) controller = null; if (activeTurn !== turn) return false; wireTurnId = null; clearSculptSketch();
+		for (const id of [...steering.keys()]) applyEvent({ type: "steer.dropped", id }); // unanswered (Stop, a lost stream): not shown as received
 		if (!turn.produced && !turn.failure && !signal.aborted) { turn.failure = { code: "no_output", message: "The turn ended without a response.", recovery: { action: "retry", retryAllowed: true } }; setItems((items) => [...items, { kind: "failure", id: newId(), failure: turn.failure }]); }
 		// The end state stays in the transcript with the turn's steps (agent-turn.js withTurnEnd).
 		const endedAt = clock(); activeTurn = null; const lastTurn = { status: signal.aborted ? "stopped" : turn.failure ? "failed" : "done", endedAt, durationMs: endedAt - startedAt, failure: turn.failure };
 		set({ streaming: false, turnStartedAt: null, lastTurn, items: withPlanEnd(withTurnEnd(state.items, lastTurn, newId), lastTurn.status) }); return true;
 	};
 	const restore = (transcript, sessionId = state.sessionId) => {
-		abandonSupervisorNotes(); seenReceipts.clear(); settledActions.clear();
+		abandonSupervisorNotes(); seenReceipts.clear(); settledActions.clear(); steering.clear();
 		const restoredReceiptIds = new Set();
 		// Each turn's plan card comes back under its prompt, settled by how the turn ended (agent-plan.js).
 		const restored = restoredPlans((Array.isArray(transcript) ? transcript : []).flatMap((item) => {
@@ -1395,21 +1402,20 @@ export function createAgentChatStore({
 				return;
 			}
 			const startedAt = clock();
-			const turn = { produced: false, failure: null, reviewable: false };
+			// opened: the sidecar answered the turn (its first frame at the latest), so this browser holds the session's owner cookie a steer needs
+			const turn = { produced: false, failure: null, reviewable: false }; turn.opened = new Promise((resolve) => { turn.open = resolve; });
 			activeTurn = turn;
 			// What the author attached to THIS message: an explicit list wins, the
-			// composer's pending pictures otherwise. Either way the composer is
-			// emptied with the draft, so the next turn cannot re-send them.
-			const attachments = (Array.isArray(options.attachments) ? options.attachments : state.pendingAttachments)
-				.slice(0, ATTACHMENT_MAX_COUNT)
-				.map(({ dataUrl, name }) => ({ dataUrl, ...(name ? { name } : {}) }));
+			// composer's pending pictures otherwise. A message from the composer
+			// empties it with the draft, so the next turn cannot re-send them; a
+			// queued message (options.queued) leaves what the author is writing now.
+			const attachments = messageAttachments(Array.isArray(options.attachments) ? options.attachments : state.pendingAttachments);
 			set({
 				lastPrompt: trimmed,
 				rateLimit: null,
 				turnId,
 				streaming: true,
-				draft: "",
-				pendingAttachments: [],
+				...(options.queued ? {} : { draft: "", pendingAttachments: [] }),
 				turnStartedAt: startedAt,
 				lastTurn: null,
 				items: [...state.items, { kind: "user", id: newId(), text: trimmed, attachFrame: Boolean(options.attachFrame), attachments }],
@@ -1418,7 +1424,7 @@ export function createAgentChatStore({
 			const signal = controller.signal;
 			try {
 				await transport.turn({
-					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => set({ openSession: id }),
+					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => { turn.open(); set({ openSession: id }); },
 					...(studio ? { surface: "studio", turnId, context } : {}),
 					sessionId: state.sessionId,
 					text: trimmed,
@@ -1427,11 +1433,11 @@ export function createAgentChatStore({
 					model: options.model,
 					effort: options.effort ?? undefined,
 					...(typeof options.supervisor === "boolean" ? { supervisor: options.supervisor } : {}), ...(options.tasks ? { tasks: true } : {}),
-				}, (event) => { sculptSketchFrame(event); applyEvent(event); }, signal);
+				}, (event) => { if (event?.type !== "done") turn.open(); sculptSketchFrame(event); applyEvent(event); }, signal);
 			} catch (error) {
 				if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) });
 			} finally {
-				if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
+				turn.open(); if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
 			}
 		},
 		// After a reload mid-turn: show its message again and follow the turn to its end (the next message waits, not busy).
@@ -1445,34 +1451,31 @@ export function createAgentChatStore({
 		},
 		/** Steering the turn that is ALREADY running (#379). `send()` deliberately
 		 * returns early while streaming — a second turn would authorize a second
-		 * generation — so the composer's text goes to the running turn instead, as
-		 * a message the model sees before its next step. A refused steer leaves the
-		 * draft exactly where it is and reports the code it was refused with: the
-		 * author's words are never eaten by a turn that ended a moment earlier. */
+		 * generation — so the text goes to the running turn instead, as a message
+		 * the model sees before its next step. options.id names it (a queued row's
+		 * id, agent-queue.js); options.attachments, the composer's pictures
+		 * otherwise. Accepted means the turn's queue holds it: the message joins the
+		 * transcript only when the turn's stream says the model's context took it
+		 * (steer.received), and onSteer hears of it either way. A steer without an
+		 * id came from the composer and empties it. A refused steer leaves the
+		 * draft where it is and reports the code it was refused with. */
 		async steer(text, options = {}) {
 			const trimmed = String(text ?? "").trim();
-			if (!trimmed) return { ok: false, code: "EMPTY", message: "" };
-			if (!state.streaming || !wireTurnId || typeof transport.steer !== "function") {
-				return { ok: false, code: "NO_ACTIVE_TURN", message: STEER_ERROR_COPY.NO_ACTIVE_TURN };
-			}
-			const attachments = (Array.isArray(options.attachments) ? options.attachments : state.pendingAttachments)
-				.slice(0, ATTACHMENT_MAX_COUNT)
-				.map(({ dataUrl, name }) => ({ dataUrl, ...(name ? { name } : {}) }));
+			if (!trimmed) return { ok: false, code: "EMPTY", message: "" }; const ended = () => ({ ok: false, code: "NO_ACTIVE_TURN", message: STEER_ERROR_COPY.NO_ACTIVE_TURN }), turn = activeTurn;
+			if (!state.streaming || !wireTurnId || typeof transport.steer !== "function") return ended();
+			// A new chat's first turn: the owner cookie arrives with the sidecar's answer, so a steer before it would be refused.
+			await turn?.opened; if (activeTurn !== turn || !state.streaming || !wireTurnId) return ended();
+			const attachments = messageAttachments(Array.isArray(options.attachments) ? options.attachments : state.pendingAttachments), id = options.id ?? newId();
+			steering.set(id, { text: trimmed, attachments }); // before the answer: the turn may take it before the answer arrives
 			try {
-				await transport.steer(wireTurnId, { text: trimmed, ...(attachments.length ? { attachments } : {}) });
+				await transport.steer(wireTurnId, { text: trimmed, id, ...(attachments.length ? { attachments } : {}) });
 			} catch (error) {
+				steering.delete(id);
 				const code = typeof error?.code === "string" ? error.code : "upstream";
 				return { ok: false, code, message: STEER_ERROR_COPY[code] || String(error?.message || error) };
 			}
-			// An accepted steer is part of the conversation: it is shown in the
-			// transcript like any other thing the author said, and it empties the
-			// composer like any other send.
-			set({
-				draft: "",
-				pendingAttachments: [],
-				items: [...state.items, { kind: "user", id: newId(), text: trimmed, steered: true, attachments }],
-			});
-			return { ok: true, code: null, message: "" };
+			if (!options.id) set({ draft: "", pendingAttachments: [] });
+			return { ok: true, code: null, message: "", id };
 		},
 		stop() {
 			const running = [...state.items].reverse().find((item) => item.kind === "job" && !isTerminalJobState(item.state));

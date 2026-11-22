@@ -1,0 +1,80 @@
+/* The queue above the composer (AgentQueue.jsx): one row per message typed while a turn ran. */
+.agent-queue {
+	flex: none;
+	display: grid;
+	gap: var(--agent-space-1);
+	padding: var(--agent-space-2) var(--agent-space-4) 0;
+}
+.agent-queue-head { margin: 0; color: var(--agent-text-dim); font-size: var(--agent-font-sm); line-height: 1.4; }
+.agent-queue-rows { display: grid; gap: var(--agent-space-1); margin: 0; padding: 0; list-style: none; max-height: 30vh; overflow-y: auto; }
+.agent-queue-row {
+	display: flex;
+	align-items: center;
+	gap: var(--agent-space-2);
+	min-width: 0;
+	padding: var(--agent-space-2) var(--agent-space-2) var(--agent-space-2) var(--agent-space-4);
+	border: 1px solid var(--agent-border);
+	border-radius: var(--agent-radius-lg);
+	background: var(--agent-bg-raised);
+	color: var(--agent-text);
+	font-size: var(--agent-font-md);
+}
+.agent-queue-row[data-status="sending"] { opacity: 0.75; }
+.agent-queue-text { flex: 1 1 auto; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-queue-meta { color: var(--agent-text-dim); }
+.agent-queue-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	resize: vertical;
+	border: 1px solid var(--agent-border-focus);
+	border-radius: var(--agent-radius-md);
+	background: var(--agent-bg-sunken);
+	color: var(--agent-text);
+	font: inherit;
+	padding: var(--agent-space-1) var(--agent-space-2);
+}
+.agent-queue-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+.agent-queue-status { color: var(--agent-text-muted); font-size: var(--agent-font-sm); max-width: 12em; text-align: right; }
+.agent-queue-send {
+	flex: none;
+	padding: 3px var(--agent-space-3);
+	border: 1px solid var(--agent-border-strong);
+	border-radius: var(--agent-radius-pill);
+	background: none;
+	color: var(--agent-text);
+	font: inherit;
+	font-size: var(--agent-font-md);
+	white-space: nowrap;
+	cursor: pointer;
+}
+.agent-queue-icon {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: 12px;
+	background: none;
+	color: var(--agent-text-muted);
+	cursor: pointer;
+}
+.agent-queue-send:hover, .agent-queue-icon:hover:not([disabled]) { background: var(--agent-bg-sunken); color: var(--agent-text); }
+.agent-queue-icon[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* While a turn runs, Stop and the queue button go together, at the row's end; a row too narrow for them (the Studio's
+ * inspector column) puts the pair on a line of its own instead of pushing it out of the panel. */
+.agent-run-actions { flex: none; display: flex; align-items: center; gap: var(--agent-space-1); margin-left: auto; }
+.agent-composer-controls:has(.agent-run-actions) { flex-wrap: wrap; row-gap: var(--agent-space-1); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-composer-controls:has(.agent-run-actions) { flex-wrap: wrap; }
+
+/* The Studio's glass inspector column. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-head { color: var(--text-3); font: 500 11px var(--sans); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-row { border: 0; border-radius: 12px; background: var(--chip-fill); color: var(--text-1); font: 400 12.5px var(--sans); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-input { border-color: var(--select); background: var(--surface-raised); color: var(--text-1); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-meta,
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-status { color: var(--text-2); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-send { border-color: var(--hairline, color-mix(in srgb, var(--text-1) 18%, transparent)); color: var(--text-1); font: 600 11.5px var(--sans); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-icon { color: var(--text-2); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-send:hover,
+.app[data-shell="glass"] .studio-agent-inspector .agent-queue-icon:hover:not([disabled]) { background: var(--surface-raised); color: var(--text-1); }

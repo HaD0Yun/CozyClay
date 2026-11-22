@@ -457,43 +457,41 @@ expect("the Send button is reachable at 390px", await evaluate("(() => { const r
 shots.push(await shot("panel-optgroups-390"));
 await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
-// --- steering a turn that is still running ----------------------------------
+// --- queueing a message while a turn runs, and Send now into it ---------------
 await open("ready", { speed: 0.15 });
 await setValue(".agent-input", "Block a two-shot in this scene");
 await clickWhenEnabled(".agent-send:not(.stop)");
-expect("a running turn keeps Stop and offers Steer", await waitFor("!!document.querySelector('.agent-send.stop') && !!document.querySelector('.agent-send.agent-steer')", 15000));
-expect("Steer is disabled until there is something to say", await evaluate("document.querySelector('.agent-send.agent-steer').disabled === true"));
+expect("a running turn keeps Stop and offers the queue button", await waitFor("!!document.querySelector('.agent-send.stop') && !!document.querySelector('.agent-send.agent-queue-add')", 15000));
+expect("the queue button is disabled until there is something to say", await evaluate("document.querySelector('.agent-send.agent-queue-add').disabled === true"));
 const steerText = "actually, make it a low angle";
 await setValue(".agent-input", steerText);
-await clickWhenEnabled(".agent-send.agent-steer");
-expect("the steer reaches the turn that is still running", await waitFor(`(() => { try { return JSON.parse(localStorage.getItem('cozyclay.mock.agent.last-steer'))?.text === ${JSON.stringify(steerText)}; } catch { return false; } })()`, 15000),
+await clickWhenEnabled(".agent-send.agent-queue-add");
+expect("the message waits in a queue row and the composer empties", await waitFor("document.querySelectorAll('.agent-queue-row').length === 1 && document.querySelector('.agent-input').value === ''", 8000));
+await clickWhenEnabled(".agent-queue-send");
+expect("Send now reaches the turn that is still running", await waitFor(`(() => { try { return JSON.parse(localStorage.getItem('cozyclay.mock.agent.last-steer'))?.text === ${JSON.stringify(steerText)}; } catch { return false; } })()`, 15000),
 	await evaluate("localStorage.getItem('cozyclay.mock.agent.last-steer')"));
-expect("an accepted steer joins the transcript and empties the composer", await waitFor("document.querySelectorAll('.agent-row.user').length === 2 && document.querySelector('.agent-input').value === ''", 8000),
+expect("once the turn's next frame says the model has it, it joins the transcript and leaves the queue", await waitFor("document.querySelectorAll('.agent-row.user').length === 2 && !document.querySelector('.agent-queue-row')", 15000),
 	await evaluate("document.querySelectorAll('.agent-row.user').length + ' rows'"));
 expect("the turn is still streaming after the steer", await evaluate("document.querySelector('.agent-panel')?.dataset.agentState === 'streaming'"));
 shots.push(await shot("panel-steer"));
 
 // Failure probe: the scripted turn holds its stream open for a moment after the
-// last frame, exactly as the sidecar does while it closes the turn out. A steer
-// inside that window is the 409 the route answers, and the panel has to say so
-// instead of eating the text.
-// The probe starts at the last visible frame of the turn and keeps offering the
-// same text until either the turn takes it or the panel stops streaming, so it
-// is bounded by the turn itself rather than by a sleep.
+// last frame, exactly as the sidecar does while it closes the turn out. A Send
+// now inside that window is the 409 the route answers: the panel says so and
+// the row stays queued (it then goes as the next turn by itself).
+// The probe keeps queueing "too late" and pressing Send now until the turn refuses it or stops running.
 await waitFor("!!document.querySelector('.agent-image-card')", 30000);
 let steerNotice = "";
-for (let attempt = 0; attempt < 1000; attempt += 1) {
-	const probe = await evaluate("(() => { const notice = document.querySelector('.agent-steer-notice')?.textContent || ''; const button = document.querySelector('.agent-send.agent-steer'); const input = document.querySelector('.agent-input'); if (!notice && button && input && input.value !== 'too late') { Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, 'too late'); input.dispatchEvent(new Event('input', { bubbles: true })); } return { notice, steerable: !!button }; })()");
-	steerNotice = probe.notice;
-	if (steerNotice || !probe.steerable) break;
-	await evaluate("document.querySelector('.agent-send.agent-steer:not([disabled])')?.click()");
+for (let attempt = 0; attempt < 1000 && !steerNotice; attempt += 1) {
+	steerNotice = await evaluate("document.querySelector('.agent-steer-notice')?.textContent || ''");
+	if (steerNotice || !(await evaluate("!!document.querySelector('.agent-send.stop')"))) break;
+	if (!(await evaluate("!!document.querySelector('.agent-queue-row')"))) { await setValue(".agent-input", "too late"); await evaluate("document.querySelector('.agent-send.agent-queue-add:not([disabled])')?.click()"); }
+	await evaluate("document.querySelector('.agent-queue-row[data-status=\"queued\"] .agent-queue-send')?.click()");
 }
-steerNotice = steerNotice || await evaluate("document.querySelector('.agent-steer-notice')?.textContent || ''");
-expect("a steer the turn can no longer take reports the 409 instead of vanishing", /already ended/.test(steerNotice), steerNotice);
-expect("the refused text is still in the composer", await evaluate("document.querySelector('.agent-input')?.value === 'too late'"),
-	await evaluate("document.querySelector('.agent-input')?.value"));
+expect("a Send now the turn can no longer take reports the 409 instead of vanishing", /already ended/.test(steerNotice), steerNotice);
 shots.push(await shot("panel-steer-refused"));
-await waitFor("!document.querySelector('.agent-send.stop')", 20000);
+expect("the refused message is not lost: it goes as the next turn when this one ends", await waitFor("[...document.querySelectorAll('.agent-row.user .agent-bubble')].some((bubble) => bubble.textContent === 'too late')", 30000));
+await waitFor("!document.querySelector('.agent-send.stop')", 60000);
 
 /* ============================ Studio surface (#350) ====================== */
 

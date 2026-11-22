@@ -298,7 +298,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			const task = main.board.get(taskId);
 			if (typeof body?.text !== "string" || !body.text.trim()) { json(res, 400, { error: "invalid request" }); return true; }
 			if (!task.steer) { json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: `The task is ${task.status}.` } }); return true; }
-			await task.steer(body.text);
+			if (await task.steer(body.text) === false) { json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: "The task's run already ended." } }); return true; }
 			json(res, 200, { ok: true, queued: true }); return true;
 		}
 		json(res, 404, { error: "not found" }); return true;
