@@ -1,5 +1,5 @@
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
-import { cloneRailHead } from "./camera-rail-head.js";
+import { cloneRailHead, craneMarkTurn } from "./camera-rail-head.js";
 
 // Pure Camera Block model. A shot owns one complete camera instruction, like
 // the camera card clipped to a single strip of film.
@@ -36,6 +36,8 @@ function cloneAimTake(value) {
  * most 8 marks). A legacy { start, end } pair reads as its two endpoints.
  * Null = flat rail at the follow height (every pre-crane document). Marks
  * clamp to a 0.1 m floor — a lens below the deck is never authorable.
+ * A mark may also turn the head there (yawDeg / pitchDeg, camera-rail-head.js
+ * railTurnAt); a mark without a turn stores none.
  */
 function cloneCraneHeight(value) {
 	if (!value || typeof value !== "object") return null;
@@ -47,7 +49,7 @@ function cloneCraneHeight(value) {
 	if (!raw) return null;
 	const cleaned = raw
 		.filter((point) => point && Number.isFinite(point.t) && Number.isFinite(point.height))
-		.map((point) => ({ t: Math.max(0, Math.min(1, point.t)), height: Math.max(0.1, point.height) }))
+		.map((point) => ({ t: Math.max(0, Math.min(1, point.t)), height: Math.max(0.1, point.height), ...craneMarkTurn(point) }))
 		.sort((a, b) => a.t - b.t)
 		// duplicate marks: the later-authored one wins
 		.filter((point, i, arr) => i === arr.length - 1 || arr[i + 1].t - point.t > 1e-6)

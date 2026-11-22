@@ -16,7 +16,7 @@ import { skeletonFor } from "./motion3/rigs/index.js";
 import { fk } from "./motion3/compiler/skeleton.js";
 import { holdBody } from "./camera-hold-body.js";
 import { shotSubjects, subjectsCenter } from "./shot-subjects.js";
-import { applyRailHead } from "./camera-rail-head.js";
+import { applyRailHead, railTurnAt } from "./camera-rail-head.js";
 import { sameData } from "./same-json.js";
 import { carriedPointAt, sceneObjectCarryMatrixAt } from "./object-travel.js";
 
@@ -42,19 +42,22 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ya
 		const camera = createCameraBlock(shot.camera);
 		if (camera.mode === "keys") continue;
 		// reuse (a Map the caller keeps while every other input above stays the same): a shot whose camera changed only
-		// in its rail head's angle keeps the samples it was built with, and only the angle is applied again. What the
-		// samples are built from is the shot without that angle, compared value by value with the one they were built from.
-		const input = reuse && [{ ...shot, camera: { ...shot.camera, head: undefined } }, camera.head?.follow !== false];
+		// in its rail head's angle or its crane marks' turns keeps the samples it was built with, and only the angles
+		// are applied again (the marks' heights still rebuild: they move the dolly). What the samples are built from is the
+		// shot without those angles, compared value by value with the one they were built from.
+		const marks = camera.craneHeight && { points: camera.craneHeight.points.map(({ t, height }) => ({ t, height })) };
+		const input = reuse && [{ ...shot, camera: { ...shot.camera, head: undefined, craneHeight: marks } }, camera.head?.follow !== false];
 		const kept = reuse?.get(shot.id);
 		const built = kept && sameData(kept.input, input) ? kept : { input, ...shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback, held }) };
 		reuse?.set(shot.id, built);
 		if (!built.samples) continue;
-		built.samples.forEach((sample, offset) => { combined[built.from + offset] = built.rail ? applyRailHead(sample, camera.head) : sample; });
+		// a crane mark's turn applies where the dolly is on the rail (its arc progress), not by frame
+		built.samples.forEach((sample, offset) => { combined[built.from + offset] = built.rail ? applyRailHead(sample, camera.head, railTurnAt(camera.craneHeight, sample.s / built.rail)) : sample; });
 	}
 	return combined;
 }
 
-/** One shot's follow or rail samples before its rail head's angle ({ from, samples, rail }), or {} when it has none. */
+/** One shot's follow or rail samples before its rail head's angle ({ from, samples, rail: the rail's length or false }), or {} when it has none. */
 function shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback, held }) {
 	const start = shot.startFrame, subjectSlice = subjectTrack.slice(start, Math.min(subjectTrack.length, shot.endFrame + 1));
 	const yaw = yawDegOf(shot) * DEG, initialDir = { x: Math.sin(yaw), z: Math.cos(yaw) };
@@ -89,7 +92,7 @@ function shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback,
 	// a rail aimed at a cast or a point holds what it was asked to; an aimless following rail frames the subject's body;
 	// the hand angle comes last (the caller), so the picture is the one the user turned to
 	const framed = track.map((sample) => ({ ...sample, ...lens }));
-	return { from, samples: aimed || !follows ? framed : held(framed, from, false), rail: true };
+	return { from, samples: aimed || !follows ? framed : held(framed, from, false), rail: rail.length };
 }
 
 /** Sample every named visible member through its own take, placement and parent carry. */

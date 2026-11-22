@@ -15,7 +15,7 @@ import { subjectsCenter } from '../shot-subjects.js';
 import { createCameraBlock, updateCameraBlock } from '../camera-block.js';
 import { followFramingFromCamera, craneHeightAt, buildRail, simplifyStroke } from '../camera-follow.js';
 import { defaultRailRange, clampRailRange, resolveRailSchedule, activeAt } from '../camera-rail-schedule.js';
-import { railHandTurn } from '../camera-rail-head.js';
+import { railHandTurn, railTurnAt } from '../camera-rail-head.js';
 import { timelineSpan, timelineContentExtent } from '../timeline-extent.js';
 import { trackFeature } from '../analytics.js';
 import { ko } from '../locale.js';
@@ -319,7 +319,7 @@ export function useShots(appContext) {
       for (let i = 1; i < points.length - 1; i++) if (points[i + 1].t - points[i].t > points[gap + 1].t - points[gap].t) gap = i;
       t = (points[gap].t + points[gap + 1].t) / 2;
     } else { gap = points.findIndex((point, index) => index < points.length - 1 && t > point.t && t < points[index + 1].t); if (gap < 0) return; }
-    changeActiveCamera({ craneHeight: { points: [...points.slice(0, gap + 1), { t, height: craneHeightAt(camera.craneHeight, t) }, ...points.slice(gap + 1)] } }, shotId);
+    changeActiveCamera({ craneHeight: { points: [...points.slice(0, gap + 1), { t, height: craneHeightAt(camera.craneHeight, t), ...railTurnAt(camera.craneHeight, t) }, ...points.slice(gap + 1)] } }, shotId);
     trackFeature('crane_graph'); setCraneSelectedIndex(gap + 1);
   }
   function deleteSelectedCranePoint() {

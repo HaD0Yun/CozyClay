@@ -7,6 +7,10 @@
 //   { yawDeg, pitchDeg }              turns to the subject, then this much more by hand
 //   { follow: false, yawDeg, pitchDeg } holds this angle and turns to nothing
 // A recorded aim take (aimTake) replaces the head's angle on its frames, whatever the head says.
+// A crane mark may carry a turn of its own ({ t, height, yawDeg, pitchDeg }, camera-block.js): the head turns that
+// much more where the dolly passes the mark, eased between marks like the height (railTurnAt).
+
+import { monotoneCubicAt } from "./monotone-cubic.js";
 
 const DEG = Math.PI / 180;
 const PITCH_LIMIT_DEG = 85;
@@ -29,22 +33,50 @@ export function cloneRailHead(value) {
 	return { ...(follow ? {} : { follow: false }), yawDeg, pitchDeg };
 }
 
-/** The sample's angles after the head: an offset from the aim when it follows, its own angle when not. */
-export function applyRailHead(sample, head) {
-	if (!sample || !head) return sample;
-	const own = head.follow === false;
-	const yaw = (own ? 0 : sample.yaw) + head.yawDeg * DEG;
-	const pitch = (own ? 0 : sample.pitch) + head.pitchDeg * DEG;
+/** A crane mark's turn, normalized like the head: degrees to 0.1, left out when zero (older marks stay byte-stable). */
+export function craneMarkTurn(point) {
+	const yawDeg = Number.isFinite(point?.yawDeg) ? tenth(wrapDeg(point.yawDeg)) : 0;
+	const pitchDeg = Number.isFinite(point?.pitchDeg) ? tenth(clamp(point.pitchDeg, -PITCH_LIMIT_DEG, PITCH_LIMIT_DEG)) : 0;
+	return { ...(yawDeg ? { yawDeg } : {}), ...(pitchDeg ? { pitchDeg } : {}) };
+}
+
+/** The turn the crane marks give at arc progress 0..1, eased between marks as the height is; null when no mark turns. */
+export function railTurnAt(crane, progress) {
+	const points = crane?.points;
+	if (!Array.isArray(points) || !points.some((point) => point.yawDeg || point.pitchDeg)) return null;
+	const at = (key) => monotoneCubicAt(points, clamp(progress, 0, 1), (point) => point[key] ?? 0);
+	return { yawDeg: at("yawDeg"), pitchDeg: at("pitchDeg") };
+}
+
+/** Where the shot camera looks as it passes arc progress `t` of its rail: the shot's track sample nearest it, or null. */
+export function railViewAt(track, shot, rail, t) {
+	if (!Array.isArray(track) || !shot || !rail?.length || !Number.isFinite(t)) return null;
+	let best = null;
+	for (let frame = shot.startFrame; frame <= shot.endFrame; frame += 1) {
+		const sample = track[frame];
+		if (!sample || !Number.isFinite(sample.s)) continue;
+		const d = Math.abs(sample.s / rail.length - t);
+		if (!best || d < best.d) best = { d, yaw: sample.yaw, pitch: sample.pitch };
+	}
+	return best && { yaw: best.yaw, pitch: best.pitch };
+}
+
+/** The sample's angles after the head: an offset from the aim when it follows, its own angle when not; then a mark's turn. */
+export function applyRailHead(sample, head, turn = null) {
+	if (!sample || (!head && !turn)) return sample;
+	const own = head?.follow === false;
+	const yaw = (own ? 0 : sample.yaw) + ((head?.yawDeg ?? 0) + (turn?.yawDeg ?? 0)) * DEG;
+	const pitch = (own ? 0 : sample.pitch) + ((head?.pitchDeg ?? 0) + (turn?.pitchDeg ?? 0)) * DEG;
 	return { ...sample, yaw, pitch: clamp(pitch, -PITCH_LIMIT_DEG * DEG, PITCH_LIMIT_DEG * DEG) };
 }
 
 /**
  * The head that turns a rail camera shown at `sample` (built with `head`) to `look`:
- * the angle the user turned it to by hand. A following head keeps the turn as an offset.
+ * the angle the user turned it to by hand, as a change of the head, so a crane mark's turn there is not counted twice.
  */
 export function headFromLook(head, sample, look) {
-	if (head?.follow === false) return cloneRailHead({ follow: false, yawDeg: look.yaw / DEG, pitchDeg: look.pitch / DEG });
 	return cloneRailHead({
+		...(head?.follow === false ? { follow: false } : {}),
 		yawDeg: (head?.yawDeg ?? 0) + wrapDeg((look.yaw - sample.yaw) / DEG),
 		pitchDeg: (head?.pitchDeg ?? 0) + (look.pitch - sample.pitch) / DEG,
 	});

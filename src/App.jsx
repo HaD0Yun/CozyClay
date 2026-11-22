@@ -238,6 +238,7 @@ import { clipFrame, loadLowvisClip } from "./lowvis/studio/clip-load.js";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
 import { withTops } from "./lowvis/studio/tops.js";
+import { CraneTurnRings } from "./crane-turn-rings.jsx"; import { railViewAt } from "./camera-rail-head.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
 import {
 	CameraGlide,
@@ -4841,11 +4842,23 @@ export default function App() {
 									pathDragTokenRef.current = null;
 								}}
 							/>
+							{/* before CraneHandles: a press on a ring is the ring's, even over a dot */}
+							<CraneTurnRings
+								rail={railCurve}
+								crane={activeCamera.craneHeight}
+								selectedIndex={craneSelectedIndex}
+								enabled={gizmoMode === "rotate" && !preview && !lookThroughShot && !ikMode && !posing && !!railCurve && !!activeCamera.craneHeight}
+								view={railCurve && craneSelectedIndex != null ? railViewAt(followTrack, activeShot, railCurve, activeCamera.craneHeight?.points?.[craneSelectedIndex]?.t) : null}
+								paneRef={mainPaneRef}
+								camRef={editorCamRef}
+								onChangePoints={shotsDomain.changeCranePoints}
+							/>
 							<CraneHandles
 								rail={railCurve}
 								crane={activeCamera.craneHeight}
 								controlPoints={activeCamera.cameraRail}
 								selectedIndex={craneSelectedIndex}
+								mode={gizmoMode}
 								enabled={!preview && !lookThroughShot && !ikMode && !posing && !!railCurve && !!activeCamera.craneHeight}
 								paneRef={mainPaneRef}
 								camRef={editorCamRef}

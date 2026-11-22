@@ -105,6 +105,26 @@ test('the pick and the head undo, redo and duplicate with the shot', () => {
   } finally { f.dispose(); }
 });
 
+test('crane marks turned by hand: kept by a relaid rail, a duplicate and a split, and named in the rail answer', () => {
+  const f = shotsFixture();
+  try {
+    const marks = [{ t: 0, height: 1.6 }, { t: 0.5, height: 2, yawDeg: 20, pitchDeg: -5 }, { t: 1, height: 1.6, yawDeg: -10 }];
+    load(f, railShot({ craneHeight: { points: marks } }));
+    const kept = f.run('shot.setCameraRail', { shotId: 'shot-a', points: [{ x: -3, z: 4 }, { x: 3, z: 4 }] }, 'agent');
+    assert.equal(kept.ok, true, JSON.stringify(kept));
+    assert.deepEqual(shotOf(f).camera.craneHeight.points, marks, 'relaying the rail keeps the marks and their turns');
+    assert.match(kept.summary, /aim the follow subject, turned by hand at 2 crane marks along the rail, scene lens\.$/, kept.summary);
+    f.run('shot.duplicate', { shotId: 'shot-a' });
+    assert.deepEqual(f.shots.read().find(row => row.id !== 'shot-a').camera.craneHeight.points, marks, 'a duplicate keeps the turns');
+    f.live.current.timeline.currentFrame = 12;
+    assert.equal(f.run('shot.split', { shotId: 'shot-a' }).ok, true);
+    assert.ok(f.shots.read().filter(row => row.camera?.craneHeight).every(row => JSON.stringify(row.camera.craneHeight.points) === JSON.stringify(marks)), 'both halves of a cut keep the turns');
+    const flat = f.run('shot.setCameraRail', { shotId: 'shot-a', points: [{ x: -3, z: 4 }, { x: 3, z: 4 }], height: 1.8 }, 'agent');
+    assert.deepEqual(shotOf(f).camera.craneHeight.points, [{ t: 0, height: 1.8 }, { t: 1, height: 1.8 }]);
+    assert.match(flat.summary, /; the hand turn of 2 crane marks removed\.$/, 'heights from the agent replace the marks, and the answer says the turns went');
+  } finally { f.dispose(); }
+});
+
 test('an agent naming an aim turns a head that follows no one back on', () => {
   const f = shotsFixture();
   try {
