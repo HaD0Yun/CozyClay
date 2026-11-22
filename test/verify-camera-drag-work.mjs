@@ -31,7 +31,7 @@ const fixed = [null, 0, -0, 1, NaN, Infinity, "a", "1", "", [1], ["1"], [], [[]]
 	new Float32Array([1, 2]), { t: new Float32Array([1, 2]) }, { t: new Float32Array([1, 3]) }, { d: new Date(0) }, true, false, "true", { f() {} },
 	Object.assign(Object.create(null), { a: 1 }), { a: { b: { c: [1, { d: "e" }] } } }, { a: { b: { c: [1, { d: "f" }] } } },
 	new Date(0), "1970-01-01T00:00:00.000Z", new Uint8Array(0), new Map([[1, 2]]), new Set([1]), { 0: 1, 1: 2 }, new Number(1), new String("a"),
-	{ toJSON: () => "a" }, { toJSON: () => undefined }, undefined, Symbol("s"), [, 1], [undefined, 1], [null, 1], { a: NaN }, { a: null }, { a: -0 }, { a: 0 }];
+	{ toJSON: () => "a" }, { toJSON: () => undefined }, undefined, Symbol("s"), Object.assign(new Array(2), { 1: 1 }), [undefined, 1], [null, 1], { a: NaN }, { a: null }, { a: -0 }, { a: 0 }];
 const leaves = [null, undefined, 0, -0, 1, 2, 1.5, 0.1 + 0.2, 0.3, NaN, Infinity, "", "a", "1", "null", true, false, () => 1];
 const randomValue = (depth) => {
 	const roll = random();
