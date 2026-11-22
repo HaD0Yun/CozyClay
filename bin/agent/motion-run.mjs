@@ -85,6 +85,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.`, JSON.stringify(scene), ...heights].join("\n"));
 	}
 	if (studio.attached?.length) parts.push(`These objects ride a bone of a character (attached in the Studio, so they go with that bone and are not props above), each with the size of its box or, when it has no box of its own, its kind: ${studio.attached.map(a => `${a.id} (${a.kind ?? `size ${JSON.stringify(a.size)}`}) on ${a.on}'s ${a.bone}`).join(", ")}. A prop of your scene with such an id is that object: one bone carrying it the whole clip keeps it attached, anything else takes it off the body.`);
+	if (studio.studioIds) parts.push(`The objects a take already moves or a bone carries, as your ids and the Studio's: ${Object.entries(studio.studioIds).map(([id, studioId]) => `${id} = ${studioId}`).join(", ")}.`);
 	if (studio.others?.length) parts.push(`These characters cannot be animated by the engine and stand as they are: ${studio.others.map(other => `${other.id} (${other.why})`).join(", ")}.`);
 	parts.push(`${ADDED}${kinds ? ` ${PLAIN}` : ""}${body ? ` ${BODIES}` : ""}${note ? ` ${DRESSED}` : ""}`);
 	if (before) {

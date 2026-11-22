@@ -2,12 +2,14 @@
 // as the props and characters a lowvis request may use, so a motion can sit on the bench or lift the box that a
 // build step (or the user) put there. install.js reads `ids` to move those instead of making them again.
 // A lowvis prop is a box: with the turn flag it is the object's own box turned as the object is about Y, without it the
-// box square to the axes around its footprint; a tilted object and anything flat as a floor are left out.
+// box square to the axes around its footprint; a tilted object and anything flat as a floor are left out, unless a take
+// already moves it: every object a take moves is offered, so a motion moves it again instead of making it again.
 // With the kinds flag an object with no box of its own (footprint and height 0: an effect, a light, a group's Empty) is a
 // prop too: a POINT box centred on its place, hollow, with kind naming what it is, so a motion can move it as any prop
 // (a hand holds it, ride puts it on a joint or a prop) and install.js moves the object itself, keeping its kind.
 // Browser-safe and node-safe.
 import { TRACK_RIG } from "./take.js";
+import { qRotate } from "../rig17.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
 /** Rig models whose skeleton the clip can drive at scale 1; any but TRACK_RIG is changed to TRACK_RIG by the install. */
@@ -35,6 +37,16 @@ function kindOf(row, rows) {
 	if (row.renderer === "light") return `${row.light?.type ?? "point"} light`;
 	const parts = rows.filter(other => other?.parent === row.id && !other.hidden).map(other => other.renderer === "effect" ? `effect ${other.effect?.preset ?? "smoke"}` : other.renderer === "light" ? `${other.light?.type ?? "point"} light` : String(other.renderer));
 	return parts.length ? `group of ${parts.join(", ")}` : String(row.renderer ?? "object");
+}
+/** The ids of the objects an installed take moves: the object tracks of each character's raw take (install.js), read
+ *  from the open scene's stage and the cast rows. */
+function takeMoved(describe) {
+	const doc = describe?.document, open = Array.isArray(doc?.scenes) ? doc.scenes.find(scene => scene?.id === doc.activeSceneId) : null, ids = new Set();
+	for (const list of [open?.stage?.characters, describe?.characters]) for (const row of Array.isArray(list) ? list : []) {
+		const objects = row?.motionTake?.spec?.raw?.objects;
+		if (objects && typeof objects === "object") for (const id of Object.keys(objects)) ids.add(id);
+	}
+	return ids;
 }
 /** The record's own turn (rotX, rot, rotZ in degrees, the Studio's XYZ order) as a quaternion [x, y, z, w]. */
 function quatOf(row) {
@@ -83,6 +95,10 @@ const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${ro
  * point and kind when it has no box), so a clip prop of that id is that object (re-attached, or detached and moved by a
  * track). group: true in ids.props marks an object other objects are grouped under: they go with it when a track moves
  * it and stay behind when it is attached to a bone, so the install keeps it on a track.
+ * An object an installed take moves (an object track of a character's raw take, read from describe's open scene and cast)
+ * is offered whatever the counts, however small (a side under 1 mm is given as 1 mm) and, upright about its centre, when
+ * it stands tilted; with an attached object it takes its name's id first. scene.studioIds: { <prop or attached id>:
+ * <Studio id> } of these and the attached ones, left out when there is none.
  */
 export function studioScene(describe, { turn = false, tops = false, body = false, kinds = false } = {}) {
 	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [], attached = [];
@@ -98,12 +114,16 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)), ...(body && scale !== 1 ? { scale } : {}), ...(body && tint ? { tint } : {}) });
 	}
 	const rows = Array.isArray(describe?.objects) ? describe.objects : [], parents = new Set(rows.map(row => row?.parent).filter(Boolean));
+	// an object a take moves is offered whatever the count, its size or its tilt; it and an object a bone carries take their
+	// name's id before any other object of that name, so a motion that moves it again moves it and does not make it again
+	const moved = takeMoved(describe), first = row => moved.has(row?.id) || Boolean(row?.attach), studioIds = {};
+	const order = [...rows.filter(first), ...rows.filter(row => !first(row))];
 	// the first MAX_PROPS solids are offered as before; the objects the kinds flag adds have a count of their own, so none takes a solid's place
 	let solids = 0, added = 0;
-	for (const row of rows) {
+	for (const row of order) {
 		if (!row || row.hidden) continue;
 		const w = finite(row.footprint?.width, 1) * finite(row.scaleX, 1), h = finite(row.height, 1) * finite(row.scaleY, 1), d = finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1);
-		const point = w === 0 && h === 0 && d === 0, group = parents.has(row.id) ? { group: true } : {};
+		const point = w === 0 && h === 0 && d === 0, group = parents.has(row.id) ? { group: true } : {}, ours = moved.has(row.id);
 		if (row.attach) {
 			// it rides a bone of a body the clip may animate: no prop (its place is in the bone's frame), but the install knows it
 			const who = Object.entries(ids.characters).find(([, studioId]) => studioId === row.attach.characterId)?.[0];
@@ -111,26 +131,35 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 			const id = idFor(row.name, taken, "object"), what = point ? { kind: kindOf(row, rows) } : { size: row.renderer === "sphere" ? [round(w), round(w), round(w)] : [round(w), round(h), round(d)] };
 			ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), attach: { ...row.attach }, quat: quatOf(row), ...(point ? { point: true, ...what } : {}), ...group };
 			attached.push({ id, on: who, bone: row.attach.bone ?? "root", ...what });
+			studioIds[id] = row.id;
 			continue;
 		}
 		if (kinds && point && !row.parent) {
-			if (added++ >= MAX_PROPS) continue;
+			if (!ours && added++ >= MAX_PROPS) continue;
 			const id = idFor(row.name, taken, "object"), kind = kindOf(row, rows);
 			ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), point: true, kind, quat: quatOf(row), ...group };
 			props.push({ id, size: [POINT, POINT, POINT], at: [round(finite(row.x)), round(finite(row.y)), round(finite(row.z))], kind, hollow: true });
+			if (ours) studioIds[id] = row.id;
 			continue;
 		}
-		if (!SOLID.has(row.renderer) || finite(row.rotX) || finite(row.rotZ)) continue;
-		if (h < FLAT && !(kinds && h > 0 && w < FLAT && d < FLAT && w > 0 && d > 0)) continue;
-		if ((h < FLAT ? added++ : solids++) >= MAX_PROPS) continue;
+		const tilted = Boolean(finite(row.rotX) || finite(row.rotZ));
+		if (!SOLID.has(row.renderer) || (tilted && !ours) || (ours && !(w > 0 && h > 0 && d > 0))) continue;
+		if (!ours) {
+			if (h < FLAT && !(kinds && h > 0 && w < FLAT && d < FLAT && w > 0 && d > 0)) continue;
+			if ((h < FLAT ? added++ : solids++) >= MAX_PROPS) continue;
+		}
 		const cs = Math.abs(Math.cos(finite(row.rot) * RAD)), sn = Math.abs(Math.sin(finite(row.rot) * RAD));
-		const id = idFor(row.name, taken, "prop");
-		ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), ...group };
+		const id = idFor(row.name, taken, "prop"), side = v => (ours ? Math.max(0.001, round(v)) : round(v));
+		// a tilted object a take moves is offered upright about its centre (the take gives its turn on every frame); the base
+		// the install compares the prop's with is that upright box's, so a motion that leaves it in place does not move it
+		const centre = tilted ? qRotate(quatOf(row), [0, h / 2, 0]).map((v, k) => v + finite([row.x, row.y, row.z][k])) : [finite(row.x), finite(row.y) + h / 2, finite(row.z)];
+		ids.props[id] = { id: row.id, ...(tilted ? { x: centre[0], y: centre[1] - h / 2, z: centre[2] } : { x: finite(row.x), y: finite(row.y), z: finite(row.z) }), rot: finite(row.rot), ...group };
+		if (ours) studioIds[id] = row.id;
 		const sphere = row.renderer === "sphere", own = turn && !sphere, yaw = round(finite(row.rot));
-		props.push({ id, size: sphere ? [round(w), round(w), round(w)] : own ? [round(w), round(h), round(d)] : [round(w * cs + d * sn), round(h), round(w * sn + d * cs)],
-			at: [round(finite(row.x)), round(finite(row.y) + h / 2), round(finite(row.z))], ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
+		props.push({ id, size: sphere ? [side(w), side(w), side(w)] : own ? [side(w), side(h), side(d)] : [side(w * cs + d * sn), side(h), side(w * sn + d * cs)],
+			at: centre.map(round), ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
 		const flat = tops && Array.isArray(row.tops) ? row.tops : [];
 		if (flat.length > 1 || (flat.length === 1 && flat[0].y < h - BAND)) props.at(-1).heights = flat.map(t => heightOf(t, row, own));
 	}
-	return { scene: { characters, props, others, ...(attached.length ? { attached } : {}) }, ids };
+	return { scene: { characters, props, others, ...(attached.length ? { attached } : {}), ...(Object.keys(studioIds).length ? { studioIds } : {}) }, ids };
 }
