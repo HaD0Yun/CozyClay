@@ -20,25 +20,27 @@ export function frameRuns(frames, sampled = frames) {
 
 // A subject counts as seen at a sampled frame when part of it is in the picture and not all of it is behind props; a
 // sample that does not list it did not fail it. Shots come from the cut data (sampledChecks[].shot). A shot that names its
-// subjects (the framing's geometry: its subjectIds leave some of the cast out) is about those only: another figure in its
-// picture is not its subject, and one it names is judged at every sample of it. In a shot that names no one, a subject
-// seen at no sample of it is not in that shot (a stand-in for another shot, a figure waiting to walk in), so that shot says
-// nothing about it; one seen at some sample of a shot and fully hidden or out of the picture at another fails there, at
-// its worst value (100% hidden, 0% in the picture).
+// subjects (the framing's geometry: its subjectIds list some of the cast and leave some out) is about those only: another
+// figure in its picture is not its subject, and one it names is judged at every sample of it. In any other shot (it names
+// no one or everyone, or the geometry lists no subject for it: no camera, its subjects gone), a subject seen at no sample
+// of it is not in that shot (a stand-in for another shot, a figure waiting to walk in), so that shot says nothing about
+// it; one seen at some sample of a shot and fully hidden or out of the picture at another fails there, at its worst value
+// (100% hidden, 0% in the picture). A figure no shot judges gets the "not in the picture" line only when no sampled frame
+// shows it and some shot leaves its subjects open.
 const seen = row => !row || (row.inFrame > 0 && row.hidden < 1);
 const isCut = row => row.codes.some(code => code === "CLIPPED" || code === "BEHIND_CAMERA");
 
-/** shot id -> Set of the subjects a shot names, for the shots whose subjectIds leave some of the cast out (geometry facts). */
+/** shot id -> Set of the subjects a shot names, for the shots whose subjectIds list some of the cast and leave some out (geometry facts). */
 function namedSubjects(geometry) {
 	const cast = (geometry?.subjects ?? []).map(s => s.id), named = new Map();
-	for (const shot of geometry?.shots ?? []) if (cast.some(id => !shot.subjectIds?.includes(id))) named.set(shot.shotId, new Set(shot.subjectIds));
+	for (const shot of geometry?.shots ?? []) if (shot.subjectIds?.length && cast.some(id => !shot.subjectIds.includes(id))) named.set(shot.shotId, new Set(shot.subjectIds));
 	return named;
 }
 
 function subjectItems(id, rows, sampled, shotOf, named) {
 	const inShot = new Map();
 	for (const frame of sampled) { const shot = shotOf(frame), about = named.get(shot); inShot.set(shot, about ? about.has(id) : inShot.get(shot) || seen(rows.get(frame))); }
-	if (![...inShot.values()].some(Boolean)) return [...inShot.keys()].every(shot => named.has(shot)) ? [] : [{ kind: "unseen", id, samples: sampled.length }];
+	if (![...inShot.values()].some(Boolean)) return sampled.some(frame => seen(rows.get(frame))) || [...inShot.keys()].every(shot => named.has(shot)) ? [] : [{ kind: "unseen", id, samples: sampled.length }];
 	const counted = [...rows.values()].filter(row => inShot.get(shotOf(row.frame)));
 	const cut = counted.filter(isCut), hid = counted.filter(row => row.codes.includes("OCCLUDED")), items = [];
 	const at = list => `${list.length > 1 ? "frames" : "frame"} ${frameRuns(list.map(row => row.frame), sampled)}`;
@@ -84,12 +86,14 @@ export function findingItems({ placement, framing, motion = [], lighting, owned 
 /** What one finding says, its numbers included: the same key twice is the same failure with the same values. */
 export const itemKey = item => item.text ?? `${item.kind}:${item.id}:${metres(item.depth ?? item.gap)}${item.samples ? `:${item.samples}` : ""}`;
 
-/** One line per distinct finding: the bodies inside another, the objects standing off their support and the subjects seen at no sampled frame
- * each in one line with their worst value, every other item its own line. */
+/** One line per distinct finding: the bodies that overlap another (the drawn shapes stand inside each other, or the boxes where
+ * the editor has no shape; the number is the boxes' footprint overlap, the evidence's maximumFootprintOverlapM), the objects
+ * standing off their support and the subjects seen at no sampled frame each in one line with their worst value, every other
+ * item its own line. */
 export function findingLines(items) {
 	const of = kind => items.filter(item => item.kind === kind), lines = [];
 	const overlap = of("overlap"), floating = of("floating"), unseen = of("unseen");
-	if (overlap.length) lines.push(`placement: inside another body by up to ${metres(overlap[0].depth)}: ${overlap.map(i => i.id).join(", ")}`);
+	if (overlap.length) lines.push(`placement: overlapping another body: ${overlap.map(i => i.id).join(", ")} (footprints overlap up to ${metres(overlap[0].depth)})`);
 	const gaps = floating.map(i => i.gap).filter(Number.isFinite);
 	if (floating.length) lines.push(`placement: base over 1 cm above what is under it: ${floating.map(i => i.id).join(", ")}${gaps.length ? ` (largest ${metres(Math.max(...gaps))})` : ""}`);
 	if (unseen.length) lines.push(`framing: not in the picture at any of the ${unseen[0].samples} sampled frames: ${unseen.map(i => i.id).join(", ")}`);

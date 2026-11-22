@@ -63,7 +63,7 @@ const loop = async (runs, review) => {
 	const review = createTurnReview({ invoke: async (_n, args) => (args.checks.includes("placement") ? overlap : null), hub: hubAt({ at: 7 }), workspaceHandle: "w" });
 	const edits = { edited: true, ids: ["cube-1"], motionIds: [], stage: false };
 	const stale = await review(edits, "go", { own: [{ revision: 7, evidenceRevision: 5, stale: true, ...overlap }] });
-	assert.deepEqual(stale.findings, ["placement: inside another body by up to 0.3 m: cube-1"], "old evidence returned at revision 7 was not a measurement of revision 7");
+	assert.deepEqual(stale.findings, ["placement: overlapping another body: cube-1 (footprints overlap up to 0.3 m)"], "old evidence returned at revision 7 was not a measurement of revision 7");
 	const fresh = await review(edits, "go", { own: [{ revision: 7, evidenceRevision: 7, stale: false, ...overlap }] });
 	assert.equal(fresh.content, null);
 }

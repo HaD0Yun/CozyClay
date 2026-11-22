@@ -67,7 +67,7 @@ const failing = { checks: { placement: { overlapIds: ["cube-1"], maximumFootprin
 const turnReview = createTurnReview({ invoke: async () => failing, hub, workspaceHandle: "w" });
 const edits = { edited: true, ids: ["cube-1"], motionIds: [], stage: false };
 const plain = await turnReview(edits, "go");
-assert.deepEqual(plain.findings, ["placement: inside another body by up to 0.3 m: cube-1", "framing: hero mostly hidden behind props at frame 0 (most hidden: 70%)"]);
+assert.deepEqual(plain.findings, ["placement: overlapping another body: cube-1 (footprints overlap up to 0.3 m)", "framing: hero mostly hidden behind props at frame 0 (most hidden: 70%)"]);
 const ownCheck = { revision: 7, checks: { placement: { overlapIds: ["cube-1"], maximumFootprintOverlapM: 0.3 } } };
 assert.deepEqual((await turnReview(edits, "go", { own: [ownCheck] })).findings, [plain.findings[1]], "the model's own check of this revision already gave it the overlap");
 assert.deepEqual((await turnReview(edits, "go", { own: [{ ...ownCheck, revision: 6 }] })).findings, plain.findings, "a check of an earlier revision does not count");
@@ -84,9 +84,9 @@ const loop = async (runs, reviewFn) => {
 };
 const again = await loop([[...edit("a"), { type: "done" }], [...edit("b"), { type: "done" }], [...edit("c"), { type: "done" }]], turnReview);
 assert.equal(again.inputs.length, 2, "one review turn: the second review has nothing new");
-assert.match(again.text, /Still failing after a repair, left as it is:\n- placement: inside another body by up to 0.3 m: cube-1/, "the user hears what stays (rule 7)");
+assert.match(again.text, /Still failing after a repair, left as it is:\n- placement: overlapping another body: cube-1 \(footprints overlap up to 0.3 m\)/, "the user hears what stays (rule 7)");
 const verified = [{ type: "tool.start", callId: "v", name: "verify_result", args: {} }, { type: "tool.done", callId: "v", ok: true, result: failing.checks && { revision: 7, checks: failing.checks } }];
 const knew = await loop([[...edit("a", verified), { type: "done" }]], turnReview);
 assert.equal(knew.inputs.length, 1, "the model's own check of this revision found the same: no review turn");
-assert.match(knew.text, /^\n\nStill failing, left as it is:\n- placement: inside another body by up to 0.3 m: cube-1/, "the user still hears what fails (rule 7)");
+assert.match(knew.text, /^\n\nStill failing, left as it is:\n- placement: overlapping another body: cube-1 \(footprints overlap up to 0.3 m\)/, "the user still hears what fails (rule 7)");
 console.log("PASS review text");

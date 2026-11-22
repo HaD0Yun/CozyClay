@@ -3,15 +3,17 @@
 // of the box is not hidden. The shapes come from what the viewport draws: a sculpt's buildSculptGroup (cutters applied),
 // an imported model's loaded scene fitted the way imported-mesh.jsx fits it, and the round primitives' geometries with
 // props.jsx's arguments. A cube is its box; so is a model whose file has not loaded here (node, or still loading).
-// Built only when a sight line first crosses the box, then cached: sculpts by recipe content, models by scene and height.
+// Built only when a sight line first crosses the box, then cached: sculpts by recipe content and record colour, models by scene and height.
 // A sight line passes what the viewport draws see-through (a glass part, a glass primitive, a model's transmissive or
-// mostly transparent mesh): it still counts for contact (depth, top), never for hiding.
+// mostly transparent mesh, while its tint and finish still show what is behind): it still counts for contact (depth, top),
+// never for hiding.
 import * as THREE from "three";
 import { MeshBVH } from "three-mesh-bvh";
 import { buildSculptGroup } from "./sculpt-geometry.js";
 import { loadedMeshScene } from "./scene-mesh-cache.js";
 import { MESH_KIND, SCULPT_KIND } from "./scene-objects.js";
-import { MATERIAL_LOOKS } from "./material-presets.js";
+import { FINISH_ROUGHNESS, MATERIAL_LOOKS, lookTint, objectMaterialKeys } from "./material-presets.js";
+import { GREY_BOX } from "./object-colors.js";
 
 // The same geometries and lifts as props.jsx's Primitive: keep the two in step.
 const PRIMITIVES = {
@@ -26,10 +28,24 @@ const SCULPT_CACHE = 32, TOP_STEPS = 20;
 const AXES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(a => new THREE.Vector3(...a));
 const sculpts = new Map(), recipeKeys = new WeakMap(), models = new WeakMap(), primitives = new Map();
 const flat = new THREE.MeshBasicMaterial(), clear = new THREE.MeshBasicMaterial();
-/** A preset the viewport draws light through (material-presets.js: glass). */
-const seeThroughLook = name => MATERIAL_LOOKS[name]?.physical?.transmission > 0;
+// What is behind a transmissive surface is drawn times its tint and blurred by its roughness (material-look.js hands the
+// preset, the colour and the finish to a physical material): black glass is a black wall and frosted glass a smear. It shows
+// while at least half the light comes through, as the picture shows the tint, and the surface is smoother than half rough;
+// a blended surface while it is under half opaque. Estimates: the halves are not calibrated.
+const HALF = 0.5, WHITE = new THREE.Color("#ffffff"), shown = {};
+const lightness = color => { color.getRGB(shown, THREE.SRGBColorSpace); return 0.2126 * shown.r + 0.7152 * shown.g + 0.0722 * shown.b; };
+const passes = (transmission, color, roughness) => transmission * lightness(color) >= HALF && roughness < HALF;
+/** A look ({ material, finish, color }: a sculpt part, a primitive record) the viewport draws see-through. over: the colour
+ * a sculpt record multiplies into its parts' own (shared-sculpt.js tintSculpt; the blockout grey leaves them as authored). */
+function seeThroughLook({ material, finish, color }, over = null) {
+	const look = Object.hasOwn(MATERIAL_LOOKS, material ?? "") ? MATERIAL_LOOKS[material] : null, transmission = look?.physical?.transmission;
+	if (!(transmission > 0)) return false;
+	const tint = new THREE.Color(lookTint(color, material));
+	if (over && over !== GREY_BOX) tint.multiply(new THREE.Color(over));
+	return passes(transmission, tint, FINISH_ROUGHNESS[finish] ?? look.roughness);
+}
 /** A loaded material a sight line passes: light through it, or mostly transparent. */
-const seeThroughMaterial = m => m === clear || m?.transmission > 0 || (m?.transparent === true && m.opacity < 0.5);
+const seeThroughMaterial = m => m === clear || (m?.transmission > 0 && passes(m.transmission, m.color ?? WHITE, m.roughness ?? 0)) || (m?.transparent === true && m.opacity < HALF);
 
 /** Every drawn triangle under root, in root's parent frame (root's own transform applied), as one BVH; null when none.
  * opaque: the see-through meshes left out (the sight-line shape). */
@@ -61,13 +77,14 @@ function shapes(root, transform) {
 	return { full, opaque: clearMesh ? bvhOf(root, transform, true) : full };
 }
 
-function sculptBvh(recipe) {
-	let key = recipeKeys.get(recipe);
-	if (key === undefined) { key = JSON.stringify(recipe); recipeKeys.set(recipe, key); }
+function sculptBvh(recipe, color) {
+	let json = recipeKeys.get(recipe);
+	if (json === undefined) { json = JSON.stringify(recipe); recipeKeys.set(recipe, json); }
+	const over = typeof color === "string" ? color.toLowerCase() : null, key = `${over && over !== GREY_BOX ? over : ""}|${json}`;
 	if (sculpts.has(key)) return sculpts.get(key);
 	let bvh;
 	try {
-		const group = buildSculptGroup(recipe, { materialFor: part => (seeThroughLook(part.material) ? clear : flat) });
+		const group = buildSculptGroup(recipe, { materialFor: part => (seeThroughLook(part, over) ? clear : flat) });
 		bvh = shapes(group);
 		group.traverse(node => { if (node.isMesh) node.geometry.dispose(); });
 	} catch { bvh = null; }
@@ -91,7 +108,7 @@ function modelBvh(scene, height) {
 }
 
 function sourceOf(record) {
-	if (record.renderer === SCULPT_KIND && record.recipe?.parts) return () => sculptBvh(record.recipe);
+	if (record.renderer === SCULPT_KIND && record.recipe?.parts) return () => sculptBvh(record.recipe, record.color);
 	if (record.renderer === MESH_KIND) {
 		const scene = loadedMeshScene(record.assetId);
 		return scene ? () => modelBvh(scene, Number(record.height)) : null;
@@ -119,10 +136,12 @@ function faceNormal(geometry, face) {
 export function solidOf(record) {
 	const size = [record?.footprint?.width, record?.height, record?.footprint?.depth];
 	if (!record || !size.every(v => v > 0)) return null;
-	// a primitive drawn in a see-through preset: its box still stands in for contact, it hides no sight line
-	if (seeThroughLook(record.material)) return { hits: () => false, depth: () => null, top: () => null };
+	// a primitive drawn in a see-through preset hides no sight line; for contact it is its shape as any other (a cube: its box)
+	const clearLook = objectMaterialKeys(record.renderer).length > 0 && seeThroughLook(record);
+	// a model drawn in clay (imported-mesh.jsx: every mesh takes the clay material) keeps none of its file's glass
+	const clay = record.renderer === MESH_KIND && record.clay === true;
 	const source = sourceOf(record);
-	if (!source) return null;
+	if (!source) return clearLook ? { hits: () => false, depth: () => null, top: () => null } : null;
 	let shape;
 	const built = () => { if (shape === undefined) shape = source(); return shape?.full ?? null; };
 	const scaleOf = box => size.map((v, i) => (2 * box.half[i]) / v);
@@ -140,8 +159,9 @@ export function solidOf(record) {
 	};
 	return {
 		hits(box, eye, p) {
+			if (clearLook) return false;
 			if (!built()) return true;
-			const bvh = shape.opaque, scale = scaleOf(box);
+			const bvh = clay ? shape.full : shape.opaque, scale = scaleOf(box);
 			const a = new THREE.Vector3(...local(box, scale, eye)), b = new THREE.Vector3(...local(box, scale, p)), along = b.clone().sub(a), length = along.length();
 			const span = Math.hypot(p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]);
 			if (!bvh || !(length > 0) || span <= SURFACE_M) return false;

@@ -22,16 +22,16 @@ test("a plain turn is reviewed once, after the model's last edit, not after each
 });
 
 test("a repair that leaves the same failures ends the loop and tells the user what is left", async () => {
-	const m = model([edit("a", "cup"), edit("b", "cup"), edit("c", "cup")]), finding = ["placement: floating over 1 cm: cup"];
+	const m = model([edit("a", "cup"), edit("b", "cup"), edit("c", "cup")]), finding = ["placement: base over 1 cm above what is under it: cup"];
 	const frames = await drain(reviewedStart({ start: m.start, review: async () => ({ findings: finding, content: [{ type: "text", text: "fix" }], images: 0 }) })({ text: "x" }));
 	assert.equal(m.inputs.length, 2, "one repair run, then the same findings stop it");
-	assert.match(frames.filter(f => f.type === "text.delta").map(f => f.text).join(""), /Still failing after a repair[\s\S]*floating over 1 cm: cup/);
+	assert.match(frames.filter(f => f.type === "text.delta").map(f => f.text).join(""), /Still failing after a repair[\s\S]*above what is under it: cup/);
 });
 
 test("Tasks mode: no review while a sibling task still runs; one review of the whole request when all are done", async () => {
 	const changed = new Set(["object:table"]), board = [{ status: "done" }, { status: "running" }], reviews = [];
 	const settled = { take: () => settledEdits(board, changed), note: ids => ids.forEach(id => changed.add(id)) };
-	const review = async edits => { reviews.push(edits.ids); return { findings: ["placement: floating over 1 cm: cup"], content: [{ type: "text", text: "x" }], images: 0 }; };
+	const review = async edits => { reviews.push(edits.ids); return { findings: ["placement: base over 1 cm above what is under it: cup"], content: [{ type: "text", text: "x" }], images: 0 }; };
 	// the coordinator's turn after the first task ended: the table is built, the cup's task still runs
 	const first = model([[{ type: "text.delta", text: "table done" }]]);
 	await drain(reviewedStart({ start: first.start, review, settled })({ text: "", contextText: "<board/>" }));
@@ -42,7 +42,7 @@ test("Tasks mode: no review while a sibling task still runs; one review of the w
 	const second = model([[{ type: "text.delta", text: "all done" }]]);
 	await drain(reviewedStart({ start: second.start, review, settled })({ text: "", contextText: "<board/>" }));
 	assert.deepEqual(reviews, [["table", "cup"]]);
-	assert.match(second.inputs[0].contextText, /<scene-review>[\s\S]*floating over 1 cm: cup[\s\S]*<\/scene-review>/, "the coordinator hears the failures");
+	assert.match(second.inputs[0].contextText, /<scene-review>[\s\S]*above what is under it: cup[\s\S]*<\/scene-review>/, "the coordinator hears the failures");
 	assert.equal(changed.size, 0, "what was reviewed is not reviewed again");
 	const third = model([[{ type: "text.delta", text: "ok" }]]);
 	await drain(reviewedStart({ start: third.start, review, settled })({ text: "", contextText: "" }));
