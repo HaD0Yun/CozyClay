@@ -11,7 +11,10 @@ const LEFT_OUT = 'left out of this read: name this character in ids for its spec
 const leftOutScene = scene => `left out (the ${Object.keys(scene?.objects ?? {}).length} scene objects it was compiled against)`;
 
 // A raw take's spec (motion.v4.install) carries its whole track in base64 (~250k characters for 7 s): a read names its size.
-const leanSpec = spec => (spec?.raw ? { ...spec, raw: `left out (the encoded track of ${spec.raw.frames} frames, ${JSON.stringify(spec.raw).length} characters)` } : spec);
+// It also keeps the motion writer's scene and spec it was compiled from (spec.lowvis, ~20k characters for 30 s of three
+// bodies), which the motion tool reads by itself: a read names the motion they are of.
+const leanSpec = spec => (spec?.raw ? { ...spec, raw: `left out (the encoded track of ${spec.raw.frames} frames, ${JSON.stringify(spec.raw).length} characters)`,
+  ...(spec.lowvis ? { lowvis: `left out (the scene and spec of motion ${spec.lowvis.name}, kept with this take for the motion tool)` } : {}) } : spec);
 
 /** A take source ({ schema, rig, spec, placement, scene, ... }) as a read answers it: { specId, ... }. */
 function readSource(source, named) {
@@ -33,6 +36,14 @@ export function readTake(take, named) {
 /** Cast rows with their saved takes (motionTake) read as above. */
 export const readCastTakes = (characters, named) => (Array.isArray(characters)
   ? characters.map(row => (row?.motionTake?.spec ? { ...row, motionTake: readSource(row.motionTake, named(row.id)) } : row)) : characters);
+
+/** A stage as a read answers it: its cast's takes read as above, without the file's mark of the body its characters'
+ * scales are stored for (scenes.js figureBody): a read's scales are the characters' own. */
+export function readStage(stage, named) {
+  if (!stage || typeof stage !== 'object') return stage;
+  const { figureBody: _mark, ...rest } = stage;
+  return rest.characters ? { ...rest, characters: readCastTakes(rest.characters, named) } : rest;
+}
 
 /** A document whose cast rows carry the take the motion owner holds now (a cast row's motionTake is what the scene last
  * saved or loaded; while the scene is open the motion layer owns the take, as document-mirrors.js saves it). */

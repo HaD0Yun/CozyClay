@@ -33,6 +33,7 @@ import { block } from "../../src/lowvis/looks/block.js";
 import { cube } from "../../src/lowvis/looks/cube.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
 import { CASES } from "./inside-cases.mjs";
+import { lookBody } from "../../src/lowvis/studio/figure.js";
 
 const HANDS = new Set([J.LeftHand, J.RightHand]);
 /** The meshes the look's own figure hangs on each joint (hands out), each as the hull of its vertices: corners from the
@@ -103,7 +104,9 @@ for (const c of CASES) {
 	const clip = JSON.parse(readFileSync(tool.clipFile, "utf8")), F = clip.frameCount, rows = r.rows.filter(x => x.key.startsWith("inside:"));
 	assert.deepEqual(rows.map(x => x.key.slice(7)).sort(), c.told.slice().sort(), `${c.name}: the pairs told`);
 	// the engine's own state, built again from the scene the tool built (with moves set): who holds each prop on each frame
-	const { clip: again, aux } = buildClip(structuredClone({ ...c.spec, demo: "x" }), tool.state.last.scene);
+	// (in the engine's sizes: each scale times the look's body, compile-tool.mjs)
+	const built = tool.state.last.scene, world = { ...built, characters: built.characters.map(ch => ({ ...ch, scale: (ch.scale ?? 1) * lookBody(look) })) };
+	const { clip: again, aux } = buildClip(structuredClone({ ...c.spec, demo: "x" }), world);
 	assert.deepEqual(JSON.parse(serializeClip(again)).characters.map(x => x.pos), clip.characters.map(x => x.pos), `${c.name}: built again the same`);
 	const holds = (who, prop, f) => String(aux.holders[prop]?.[f] ?? "").split("+").some(h => h.replace(/:[LR]$/, "") === who);
 	const seen = tenth(clip.fps);

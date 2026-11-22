@@ -1,6 +1,7 @@
 import { placementAt } from "./root-path.js";
 import { shotAtFrame } from "./cuts.js";
 import { sampleAt } from "./sample-at.js";
+import { bodyScale } from "./lowvis/studio/figure.js";
 
 /**
  * Where the selected cast member's gizmo stands. A character with a take is drawn where the take puts it at this
@@ -18,7 +19,7 @@ export function characterGizmoView({ selected, characters, activeCharacterId, ac
 		return { position: [placement.x, entry.y ?? 0, placement.z], rot: placement.rot, offset: [0, 0] };
 	}
 	const at = placementAt(entry, frame, { takeRoot: sampleAt({ frameCount: clip.frames, motion: clip }, null, frame).subject });
-	const body = takeBodyOffset(clip, frame, at.rot ?? 0, entry.scale ?? 1);
+	const body = takeBodyOffset(clip, frame, at.rot ?? 0, bodyScale(entry));
 	const x = at.x + body[0], z = at.z + body[1];
 	return { position: [x, entry.y ?? 0, z], rot: at.rot, offset: [x - entry.x, z - entry.z] };
 }
@@ -35,13 +36,16 @@ function takeBodyOffset(clip, frame, rotDeg, scale = 1) {
 
 export function characterGizmoObject(gizmoView, entry) {
 	if (!gizmoView) return null;
+	// its box is the body at scale 1 (its look's body, figure.js) and its scale the character's own: the gizmo sits at the
+	// size the body stands at, and the scale knob reads and writes the character's scale
+	const unit = entry ? bodyScale({ model: entry.model }) : 1;
 	return {
 		id: "__character__",
 		x: gizmoView.position[0],
 		y: gizmoView.position[1],
 		z: gizmoView.position[2],
-		height: 1.15,
-		footprint: { width: 0.6, depth: 0.6 },
+		height: 1.15 * unit,
+		footprint: { width: 0.6 * unit, depth: 0.6 * unit },
 		rotY: gizmoView.rot ?? entry?.rot ?? 0,
 		scaleX: entry?.scale ?? 1,
 		scaleY: entry?.scale ?? 1,

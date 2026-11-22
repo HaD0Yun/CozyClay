@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
 import { OFF, VARIANTS, features, seenFrames, systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
+import { lookBody } from "../../src/lowvis/studio/figure.js";
 
 const TMP = mkdtempSync(join(tmpdir(), "lowvis-told-once-"));
 const FPS = 24;
@@ -42,7 +43,9 @@ try {
 	let n = 0;
 	const session = (calls, { figure = "block", off = [], variant = "studio" } = {}) => {
 		const tool = createCompileTool({ name: `once-${n}`, outDir: join(TMP, `${n}`), clipFile: join(TMP, `${n++}.json`), variant, off, figure });
-		return calls.map(c => tool.call(c).text.split("\n"));
+		// each body as large as the rig's own whatever the look's body (src/lowvis/studio/figure.js), so the same rows come
+		const sized = c => (c.scene && lookBody(figure) !== 1 ? { ...c, scene: { ...c.scene, characters: c.scene.characters.map(ch => ({ ...ch, scale: 1 / lookBody(figure) })) } } : c);
+		return calls.map(c => tool.call(sized(c)).text.split("\n"));
 	};
 	const counts = (texts, re) => texts.map(t => t.filter(l => re.test(l)).length);
 	const firstTold = (texts, re) => texts.findIndex(t => t.some(l => re.test(l)));

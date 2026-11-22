@@ -4,6 +4,7 @@
 // { <pair>: [[from, to, joints?], ...] } frames [from, to) on which the spec's words make that pair touch (only those
 // joints' solids when joints is given) }.
 import { REST, INDEX } from "../../src/lowvis/rig17.js";
+import { lookBody } from "../../src/lowvis/studio/figure.js";
 
 const ANKLE = REST[INDEX.RightFoot][1]; // the ankle joint over the sole at scale 1
 const prop = (id, size, at, more = {}) => ({ id, size, at, ...more });
@@ -66,4 +67,7 @@ const base = [
 // the same cases with every scale of body (and the box around the body kept at its hips' height)
 const scaled = [0.5, 2].map(s => ({ name: `a box around the hips at scale ${s}`, scene: one([prop("crate", [0.3, 0.3, 0.3], [0, 1.0 * s, 0])], { scale: s }), spec: { a: [[0, "idle"]] }, told: ["a>crate"] }));
 const reversed = base.filter(c => c.scene.props.length > 1 || c.scene.characters.length > 1).map(c => ({ ...c, name: `${c.name}, listed the other way`, scene: { ...c.scene, characters: c.scene.characters.slice().reverse(), props: c.scene.props.slice().reverse() } }));
-export const CASES = [...base, ...scaled, ...reversed, ...base.map(c => ({ ...c, name: `${c.name} (cube look)`, figure: "cube" }))];
+// the cube look's body is the rig's times lookBody("cube") (src/lowvis/studio/figure.js): its cases give each body the
+// scale that stands it as large as the base case's body, so the same pairs are told
+const cubeOf = c => ({ ...c, name: `${c.name} (cube look)`, figure: "cube", scene: { ...c.scene, characters: c.scene.characters.map(ch => ({ ...ch, scale: (ch.scale ?? 1) / lookBody("cube") })) } });
+export const CASES = [...base, ...scaled, ...reversed, ...base.map(cubeOf)];

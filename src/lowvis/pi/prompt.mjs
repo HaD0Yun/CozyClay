@@ -47,10 +47,10 @@ const TILT = `\nIn pose: tilt: [pitch, roll], about: "hips" | "feet" | [x,y,z], 
 const TURN = ` turn: degrees about Y; at 0 its d side lies along Z, at 90 along X.`;
 /** The sizes a body may have: the Studio's own limits of a character's scale (src/studio-elements.js). */
 export const BODY_SCALE = Object.freeze({ min: elementByPath("character.scale").min, max: elementByPath("character.scale").max });
-// start: the scale a new character starts at (the tool's bodies["*"]); at 1 the text is the one it has always been
-const BODY = start => ` A character's scale is the size of its body, from ${BODY_SCALE.min} to ${BODY_SCALE.max}; at 1 it is the figure of CONVENTIONS. The engine multiplies every length that belongs to that body by it: its joints and feet, its steps, where it sits and lies, the space between a wrist and what the hand holds, the most a hand moves per frame, every length the SPEC text gives as the engine's own. Lengths you write stay metres of the world, in the body frame too. tint is its colour, "#rrggbb". Left out, a character keeps the scale and tint it has; a new one has the scale new figures start at in the Studio (${start === 1 ? "1 unless the tool's bodies line says otherwise" : `${start}, as CONVENTIONS says`}) and the default grey. The sheets draw each body at its scale, and in its tint when it has one (else in a colour of the sheet's own); the tool's bodies line says both.`;
-/** The sizes of a new character at a start scale other than 1, said after the sizes at scale 1 (CONVENTIONS). */
-const STARTS = s => ` That is the figure at scale 1. A new character starts at scale ${s} here, every length of its figure ${s} times that: Hips joint ${m(hips * s)} m and shoulders ${m(shoulder * s)} m over the floor, ${m(arm * s)} m from shoulder to wrist.`;
+const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.min} to ${BODY_SCALE.max}; at 1 it is the figure of CONVENTIONS. The engine multiplies every length that belongs to that body by it: its joints and feet, its steps, where it sits and lies, the space between a wrist and what the hand holds, the most a hand moves per frame, every length the SPEC text gives as the engine's own. Lengths you write stay metres of the world, in the body frame too. tint is its colour, "#rrggbb". Left out, a character keeps the scale and tint it has; a new one has scale 1 and the default grey. The sheets draw each body at its scale, and in its tint when it has one (else in a colour of the sheet's own); the tool's bodies line says both.`;
+/** The figure at scale 1 when the Studio's look has another body than the rig's (src/lowvis/studio/figure.js lookBody):
+ *  its sizes, and that the engine's own lengths are given for the rig's body and multiplied by b too. */
+const SIZES = b => `It stands ${m(head * b)} m tall, Hips joint ${m(hips * b)} m and shoulders ${m(shoulder * b)} m over the floor, ${m(arm * b)} m from shoulder to wrist. That is the engine's reference figure (${m(head)} m tall) times ${b}: every length the SPEC text and the tool's lines give as the engine's own is the reference figure's, and the engine multiplies it by ${b}, as it does every length of the body.`;
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
 // The inside and the at rest rows: what the writer needs before its first spec. What a row measures in full and what it
 // leaves out is said by the tool once, in the answer where such a line first appears (inside.mjs insideText, balance.mjs BALANCE_TEXT).
@@ -87,20 +87,20 @@ const WORK = {
 };
 export const VARIANTS = Object.keys(FEATURES);
 
-/** The system prompt of a variant (VARIANTS), without the flags listed in off. start: the scale a new character starts
- *  at (the compile tool's bodies["*"].scale; said only where the variant has the body flag and it is a size a body may
- *  have (BODY_SCALE) other than 1: any other start leaves the text as it is at 1). */
-export const systemPrompt = (variant = "base", off = [], start = 1) => { const f = features(variant, off), s = Number.isFinite(start) && start >= BODY_SCALE.min && start <= BODY_SCALE.max ? start : 1; return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
+/** The system prompt of a variant (VARIANTS), without the flags listed in off. body: the figure at scale 1 as a share of
+ *  the rig's own body (src/lowvis/studio/figure.js lookBody: the body of the look the Studio draws; any value that is not
+ *  over 0 is 1, the text of the rig's own body). */
+export const systemPrompt = (variant = "base", off = [], body = 1) => { const f = features(variant, off), b = Number.isFinite(body) && body > 0 ? body : 1; return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
 
 Make the action read at a glance. Weight, anticipation and contacts matter more than detail: where the weight is, what winds up before a fast move, what touches what and when, how the body settles after.${f.words ? WORDS : ""}
 
 CONVENTIONS
-Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90 faces +X. At heading 0 the figure's left is +X. It stands ${m(head)} m tall, Hips joint ${m(hips)} m and shoulders ${m(shoulder)} m over the floor, ${m(arm)} m from shoulder to wrist.${f.body && s !== 1 ? STARTS(s) : ""}
+Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90 faces +X. At heading 0 the figure's left is +X. ${b === 1 ? `It stands ${m(head)} m tall, Hips joint ${m(hips)} m and shoulders ${m(shoulder)} m over the floor, ${m(arm)} m from shoulder to wrist.` : SIZES(b)}
 In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X and a blue one along +Z; the face has a dark visor; the figure's right arm and leg are darker than its left. The three-quarter camera of the sheet and of the final video looks down from the +X, +Z side, so a figure that faces +Z or +X shows its face.
 
 SCENE (you define it)
 { frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""} }] }
-A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY(s) : ""}${f.kinds ? KINDS : ""}
+A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}${f.kinds ? KINDS : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
 ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}

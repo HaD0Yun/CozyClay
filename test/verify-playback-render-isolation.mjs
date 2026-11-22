@@ -6,6 +6,7 @@ import { createShotSubjectSampler } from "../src/camera-direction.js";
 import { createSceneObject } from "../src/scene-objects.js";
 import { probeVisibility } from "../src/motion/playback-probe.js";
 import { SUBJECT_HEIGHT_M } from "../src/shot.js";
+import { bodyScale } from "../src/lowvis/studio/figure.js";
 
 const app = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
 const playback = await readFile(new URL("../src/domains/playback.js", import.meta.url), "utf8");
@@ -30,7 +31,7 @@ const camera = new THREE.PerspectiveCamera(45, 16 / 9, 0.1, 1000);
 camera.position.set(1, 1.6, 10); camera.lookAt(1, 1, 0); camera.updateMatrixWorld();
 const frameRef = { current: 0 }, visibility = [];
 let onFrame;
-const scope = { THREE, SUBJECT_HEIGHT_M, probeVisibility,
+const scope = { THREE, SUBJECT_HEIGHT_M, probeVisibility, bodyScale,
 	useRef: current => ({ current }), useEffect() {}, useFrame: callback => { onFrame = callback; } };
 const ShotRig = new Function("scope", `with(scope){return (${readStudioFunction("ShotRig", rigs)});}`)(scope);
 ShotRig({ subject: cast[0], subjectsAt: frame => sample(shot, frame), frameRef, camRef: { current: camera },

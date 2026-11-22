@@ -233,6 +233,7 @@ import {
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
 import { LowvisSkin } from "./lowvis/studio/skin.jsx";
+import { bodyScale, lookBody } from "./lowvis/studio/figure.js";
 import { TRACK_RIG } from "./lowvis/studio/take.js";
 import { LOWVIS_ID, installClip } from "./lowvis/studio/install.js";
 import { attachFrameAt } from "./effects/attach-history.js";
@@ -586,7 +587,7 @@ export default function App() {
 	const lowvisBefore = () => ({ characterIds: appContext.live.characters.filter(row => LOWVIS_ID.test(row.id)).map(row => row.id), objectIds: lowvisMade.current });
 	async function showLowvis(next) {
 		setTlPlaying(false);
-		const made = await installClip(next ? next.clip : { characters: [], props: [] }, runStudioAction, { label: next?.request ?? next?.name, remove: lowvisBefore() });
+		const made = await installClip(next ? next.clip : { characters: [], props: [] }, runStudioAction, { label: next?.request ?? next?.name, remove: lowvisBefore(), body: lookBody() });
 		lowvisMade.current = made.objectIds;
 		if (!next) return setLowvis(null);
 		setLowvis(next); // the installed takes set the timeline length (shots domain syncTimelineExtent)
@@ -1512,7 +1513,7 @@ export default function App() {
 	function wholeSceneFrame() {
 		if (lowvis) return clipFrame(lowvis.clip);
 		const rows = [
-			...characters.map(entry => ({ x: entry.x, y: (entry.y ?? 0) + 0.9 * (entry.scale ?? 1), z: entry.z, radius: entry.scale ?? 1 })),
+			...characters.map(entry => ({ x: entry.x, y: (entry.y ?? 0) + 0.9 * bodyScale(entry), z: entry.z, radius: bodyScale(entry) })),
 			...sceneObjects.filter(entry => !isEffectivelyHidden(entry, sceneObjects, characters)).map(entry => ({ x: entry.x, y: (entry.y ?? 0) + (entry.height ?? 1) / 2, z: entry.z,
 				radius: Math.max(entry.height ?? 1, entry.footprint?.width ?? 1, entry.footprint?.depth ?? 1) / 2 })),
 		];
@@ -2047,6 +2048,8 @@ export default function App() {
 		environment,
 		style,
 		hasEnvSheet,
+		// the body the rig characters' scales are of (scenes.js createSceneStage carries a stage of another one over)
+		...(lookBody() === 1 ? {} : { figureBody: lookBody() }),
 	};
 
 	const { firstSuccessGuideOpen, setFirstSuccessGuideOpen, useCaseAskOpen, setUseCaseAskOpen } = useFirstSuccessPrompt();
@@ -2524,8 +2527,9 @@ export default function App() {
 			pose: clip ? null : (placement.pose ?? DEFAULT_POSE),
 			posture: placement.posture,
 			// The stature the entry's take was extracted at. It rides with the
-			// clip, never separately — see Character for why.
-			scale: entry.scale ?? 1,
+			// clip, never separately — see Character for why. The world size:
+			// the scale times the body of the look it is drawn in (figure.js).
+			scale: bodyScale(entry),
 			...(isProxyFigure(entry) ? {} : { onRig: reportRig(entry.id) }),
 			pickId,
 			parent: entry.parent ?? null,
@@ -2940,7 +2944,7 @@ export default function App() {
 			takeRoot: targetCharacter.id === (context?.activeId ?? activeChar.id) && (context?.motion ?? motion)
 				? sampleAt({ frameCount: (context?.motion ?? motion).frames, motion: context?.motion ?? motion }, null, frame).subject : null,
 		}) : null;
-		const target = at ? { x: at.x, y: 1.3 * (targetCharacter.scale ?? 1), z: at.z }
+		const target = at ? { x: at.x, y: 1.3 * bodyScale(targetCharacter), z: at.z }
 			: targetObject ? { x: targetObject.x, y: (targetObject.y ?? 0) + (targetObject.height ?? 0) / 2, z: targetObject.z } : null;
 		const output = recRef.current?.request.context?.output ?? shotOutput;
 		return burnInRgba(pixels, output.width, output.height, reviewSlate({ shot: shotForFrame, frame, fps: TIMELINE_FPS,
@@ -3547,7 +3551,7 @@ export default function App() {
 			// framing, no material override.
 			capturePlate: () => appContext.live.state.captureFramingPng(appContext.live.state.captureCurrentFraming()),
 			captureFraming: (framing, output) => appContext.live.state.captureFramingPng(framing, output),
-			characterScale: activeChar?.scale ?? 1,
+			characterScale: activeChar ? bodyScale(activeChar) : 1,
 			characterModel: activeChar?.model ?? null,
 			// QA framing: the same move as run_action view.frame, without leaving Look Through.
 			frameEditorCam: (position, target) => frameEditorView(editorCamRef.current, editorLook.current, position, target),
@@ -4129,7 +4133,7 @@ export default function App() {
 			const resolved = resolveIkRig(rig);
 			if (resolved && target.ikState?.keys.size) ikEvaluate(resolved.chains, target.ikState, frame, resolved.fkJoints, target.motion ? IK_CORRECTION_BLEND_FRAMES : 0);
 			parent.updateMatrixWorld(true);
-			const transform = c => new THREE.Matrix4().compose(new THREE.Vector3(c.x, c.y ?? 0, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (c.rot ?? 0) * Math.PI / 180), new THREE.Vector3().setScalar(c.scale ?? 1));
+			const transform = c => new THREE.Matrix4().compose(new THREE.Vector3(c.x, c.y ?? 0, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (c.rot ?? 0) * Math.PI / 180), new THREE.Vector3().setScalar(bodyScale(c)));
 			const delta = transform(entity).multiply(transform(original).invert());
 			const box = new THREE.Box3().setFromObject(rig, true).applyMatrix4(delta), points = [], index = new Map();
 			// The posed bones as world points and the [parent, child] index pairs that join them: the sight-line, contact and frame-edge checks read the body, not its box.

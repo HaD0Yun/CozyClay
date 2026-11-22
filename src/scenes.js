@@ -11,7 +11,7 @@ import { normalizeTakeSource } from "./domains/motion/take-source.js"; import { 
 import { createKeyLight, normalizeLighting } from "./stage-lighting.js";
 // The timeline clock lives in timeline-fps.js (three-free, so the agent
 // sidecar can import it); re-exported here for every scene-side caller.
-import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js";
+import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js"; import { carriedOver, lookBody, scaleRoom } from "./lowvis/studio/figure.js";
 
 const CHARACTER_POSITION_LIMITS = elementByPath("character.position");
 const CHARACTER_SCALE_LIMITS = elementByPath("character.scale");
@@ -119,8 +119,8 @@ export function normalizeReferenceImage(value) {
 
 /** Stature band for a cast member: the gizmo's scale handles are a deliberate
  * artistic ask, and a previs giant or child is legitimate. */
-const clampScale = (value) => (Number.isFinite(value) && value > 0
-	? Math.max(CHARACTER_SCALE_LIMITS.min, Math.min(CHARACTER_SCALE_LIMITS.max, value))
+const clampScale = (value, room) => (Number.isFinite(value) && value > 0
+	? Math.max(room.min, Math.min(room.max, value))
 	: 1);
 
 /** One character entry in the stage envelope. `source` may be a v3 entry, a
@@ -155,7 +155,7 @@ export function createCharacterEntry(source = null, index = 0) {
 		// Stature multiplier: 1 is the canonical body, an extracted take carries
 		// the FILMED person's leg ratio. It persists with the entry because the
 		// take's root travel was authored against it — see the render path.
-		scale: clampScale(s.scale),
+		scale: clampScale(s.scale, scaleRoom(CHARACTER_SCALE_LIMITS, s.model)), // a row of another look's body keeps its size (figure.js)
 		subject: typeof s.subject === "string" && !PLACEHOLDER_SUBJECTS.has(s.subject) ? s.subject : "",
 		// The character's animation layer: its own root path.
 		layer: normalizeLayer(s.layer),
@@ -247,15 +247,19 @@ function migrateLegacyCast(source) {
 }
 
 const LEGACY_CAST_KEYS = Object.freeze(["charA", "charB", "showB", "poseA", "poseB", "subject", "subject2"]), STAGE_ENVELOPE_KEYS = new Set([
-	"characters", "hasCharSheet", "environmentImage", "environment", "style", "hasEnvSheet", "shotAspect", "cameraPresetId", "sensorId", "keyLight", "lighting",
+	"characters", "hasCharSheet", "environmentImage", "environment", "style", "hasEnvSheet", "shotAspect", "cameraPresetId", "sensorId", "keyLight", "lighting", "figureBody",
 	...LEGACY_CAST_KEYS,
 ]);
 
 export function createSceneStage(stage = null) {
 	const source = plainObject(stage) ? stage : {};
 	// With no cast list, a pre-v3 envelope folds its fixed cast in; anything else is an empty stage.
+	// figureBody: the body the stage's rig characters' scales are of (src/lowvis/studio/figure.js lookBody; 1, left out:
+	// the rig's own body). A stage stored under a look of another body than this page's is carried over: each such
+	// character gets the scale that stands it exactly as large as before, so it looks and plays the same (its take, the
+	// props on its bones and the tracked props are not touched; they are of the world size, which stays).
 	const characters = Array.isArray(source.characters)
-		? source.characters.map((entry, index) => createCharacterEntry(entry, index))
+		? source.characters.map((entry, index) => createCharacterEntry(carriedOver(entry, source.figureBody), index))
 		: LEGACY_CAST_KEYS.some((key) => Object.hasOwn(source, key)) ? migrateLegacyCast(source) : [];
 	// Unknown extra keys (shotAspect was one, once) ride along so the envelope
 	// stays sealed-but-lossless; legacy cast keys are deliberately dropped.
@@ -265,7 +269,7 @@ export function createSceneStage(stage = null) {
 	}
 	return {
 		...extras,
-		characters,
+		characters, ...(lookBody() === 1 ? {} : { figureBody: lookBody() }),
 		hasCharSheet: source.hasCharSheet === true,
 		// Persisted exactly like shotAspect: part of the stage envelope, written
 		// on every save and read back on load.
