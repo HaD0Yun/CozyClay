@@ -72,6 +72,7 @@ for (const [env, b] of [[{ COZYCLAY_FIGURE: "cube" }, B], [{}, 1]]) {
 	const record = await runScene({ name: "look-body", request: "x", variant: "studio", env, outDir: join(tmp, "run") });
 	assert.equal(record.infraError?.at, "setup", "no proxy in this test: the run stops before a model call");
 	assert.equal(record.prompt.systemChars, systemPrompt("studio", [], b).length, `${JSON.stringify(env)}: the manual of body ${b}`);
+	assert.equal(record.body, b === 1 ? undefined : b, "the run record names the look's body when it is not the rig's");
 }
 console.log("ok compile tool and runScene: the cube's scale 1 is built as the rig's times its body, told as written");
 
