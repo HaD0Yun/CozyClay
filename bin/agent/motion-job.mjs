@@ -4,13 +4,13 @@
 // is installed while no turn runs. The turn that holds it is its seat: { hold, mark, rollback, sceneOf, invoke,
 // workspaceHandle }, the scene's holder, the turn transaction and the turn's editor actions.
 
-/** A motion's state: { seat, last, stop, held, changed, installed, settled, ended (the writer has ended: its install is
+/** A motion's state: { seat, first (the turn that started it), last, stop, held, changed, installed, settled, ended (the writer has ended: its install is
  *  asked for), wentIn (the turn its install went through in), collected, told, scene, turn (the id of the turn that
  *  started it), row, offer, adopt, leave }. */
 export function createJob({ seat, scene, row, turn = null }) {
 	const waiting = [];
 	const job = {
-		seat, last: seat, stop: new AbortController(), held: null, changed: new Set(), installed: false, settled: false, ended: false, wentIn: null, collected: false, told: false, scene, turn, row, offer: null,
+		seat, first: seat, last: seat, stop: new AbortController(), held: null, changed: new Set(), installed: false, settled: false, ended: false, wentIn: null, collected: false, told: false, scene, turn, row, offer: null,
 		/** A turn takes the motion over: its install and draft run there, its compiles show on that turn's rows. */
 		adopt(next) { job.seat = job.last = next; job.row = null; for (const resolve of waiting.splice(0)) resolve(next); },
 		/** The turn that held it has ended without it: nothing waits on that turn any more. */

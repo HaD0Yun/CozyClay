@@ -117,6 +117,20 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 	const frames = [], answer = await second.result.handler({}, { toolCallId: "r1", emit: frame => frames.push(frame) });
 	assert.deepEqual([answer.installed, answer.undo, log], [true, ["r2", "r1"], ["t2 mark", "install"]], "the next turn's motion_result installs it under that turn's mark");
 	assert.equal(second.door.note(), null, "collected: nothing more to tell");
+	// a turn that took a motion over and would end before its result: the result is handed to it as an earlier turn's
+	{
+		const hand = new Map(), free = [];
+		const go = async ({ onScene, exclusive }) => { onScene({ characters: { c1: "c1" }, props: {} }); await new Promise(resolve => free.push(resolve)); return exclusive(async () => ({ report: "Done.", frames: 24, characterIds: ["c1"], objectIds: [], switched: [], installed: true, undo: ["r1"] })); };
+		const of = () => createMotionDoor({ background: true, key: "conv-h", jobs: hand, run: go, mark: async () => {}, rollback: async () => {} });
+		const one = of();
+		await one.handler({ request: "x" }, {});
+		await one.unfinished({ failed: true });
+		const two = of();
+		await assert.rejects(two.handler({ request: "y" }, {}), error => error.code === "MOTION_RUNNING"); // the refused call takes it over
+		const handed = two.unfinished();
+		free[0]();
+		assert.match(await handed, /^Studio motion observation: the motion an earlier turn started has ended\. Its result, as motion_result answers it:\n\{"ok":true.*"installed":true,"undo":\["r1"\]\}$/);
+	}
 	// a writer the user asks to stop: stop: true answers what it has, not installed; install: true installs it then
 	const third = turn("t3");
 	await third.door.handler({ request: "she bows" }, { toolCallId: "m3", emit: () => {} });
@@ -163,6 +177,22 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 		assert.equal((await b.tools.find(tool => tool.name === "motion_result").handler({}, {})).installed, true);
 		assert.deepEqual(order, ["a mark", "b mark", "install"]);
 	}
+	// the user's Stop reaches the door at once (stopped); the run winds down later (unfinished). A writer that ends in
+	// between installs nothing in the stopped turn
+	{
+		const between = new Map(), ran = [], stopping = new AbortController();
+		let end;
+		const slow = async ({ onScene, exclusive }) => { onScene({ characters: { c1: "c1" }, props: {} }); await new Promise(resolve => { end = resolve; }); return exclusive(async () => { ran.push("install"); return { report: "Done.", frames: 24, characterIds: ["c1"], objectIds: [], switched: [], installed: true, undo: ["r1"] }; }); };
+		const held = createMotionDoor({ background: true, key: "conv-s", jobs: between, run: slow, mark: async () => { ran.push("mark 1"); }, rollback: async () => {}, stopped: stopping.signal });
+		await held.handler({ request: "x" }, {});
+		stopping.abort();
+		end(); await tick(); await tick();
+		assert.deepEqual(ran, [], "the writer ended between the Stop and the end of the run: nothing installed");
+		assert.equal(await held.unfinished({ failed: true }), null);
+		const next = createMotionDoor({ background: true, key: "conv-s", jobs: between, run: slow, mark: async () => { ran.push("mark 2"); }, rollback: async () => {} });
+		assert.equal((await next.with([]).find(tool => tool.name === "motion_result").handler({}, {})).installed, true);
+		assert.deepEqual(ran, ["mark 2", "install"]);
+	}
 	// without a place to keep it (a door with no key) a stop still stops the motion, as before
 	aborted = false;
 	const plain = createMotionDoor({ background: true, run, mark: async () => {}, rollback: async () => {} });
@@ -180,7 +210,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 	const told = await after.with([]).find(tool => tool.name === "motion_result").handler({}, {});
 	assert.deepEqual([told.installed, told.undo], [true, undefined], "its receipts were that turn's edits: undo_edit refuses them in a later turn, so they are not handed on");
 	// the user's panel: a stopped turn whose motion no motion_result answered says the motion was not stopped with it
-	const steps = [{ kind: "tool", name: "motion", status: "done", result: { ok: true, started: true } }], NOTE = /Stop did not stop the motion this turn started: nothing more of it is installed until a later message of yours asks for it or asks to stop it\.$/;
+	const steps = [{ kind: "tool", name: "motion", status: "done", result: { ok: true, started: true } }], NOTE = /The motion this turn started was not stopped: nothing more of it is installed until a later message of yours asks for it or asks to stop it\.$/;
 	assert.match(stoppedNote({ steps }), NOTE);
 	assert.match(stoppedNote({ steps: [...steps, { kind: "tool", name: "motion_result", status: "done", result: { ok: true, draft: true } }] }), NOTE, "a motion_result that answered the draft did not answer the motion");
 	assert.match(stoppedNote({ steps: [...steps, { kind: "tool", name: "motion_result", status: "cancelled" }] }), NOTE, "nor one the stop cut");

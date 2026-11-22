@@ -195,7 +195,7 @@ export function stoppedNote(block) {
 	const note = stoppedEdits(block), started = block.steps.findLastIndex(step => step.kind === "tool" && step.name === "motion" && step.result?.started === true);
 	// a motion_result that answered the draft (draft: true) did not answer the motion; one that failed answered its error
 	if (started < 0 || block.steps.slice(started + 1).some(step => step.kind === "tool" && step.name === "motion_result" && (step.status === "failed" || (step.status === "done" && step.result?.draft !== true)))) return note;
-	return `${note} ${ko("Stop did not stop the motion this turn started: nothing more of it is installed until a later message of yours asks for it or asks to stop it.", "이 턴에서 시작한 모션 작성은 중지되지 않았어요. 다음 메시지에서 모션을 요청하거나 중지를 요청하기 전까지는 더 설치되지 않아요.", "停止并没有停止本回合开始编写的动作：在你之后的消息要求安装它或要求停止之前，不会再安装任何内容。")}`;
+	return `${note} ${ko("The motion this turn started was not stopped: nothing more of it is installed until a later message of yours asks for it or asks to stop it.", "이 턴에서 시작한 모션 작성은 중지되지 않았어요. 다음 메시지에서 모션을 요청하거나 중지를 요청하기 전까지는 더 설치되지 않아요.", "本回合开始编写的动作没有被停止：在你之后的消息要求安装它或要求停止之前，不会再安装任何内容。")}`;
 }
 function stoppedEdits(block) {
 	const authored = block.steps.some(step => step.result?.authored === true || (step.result?.calls ?? []).some(call => call?.revision && call.revision.after !== call.revision.before));

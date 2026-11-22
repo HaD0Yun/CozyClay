@@ -11,7 +11,7 @@ import { runMotion } from "./motion-run.mjs";
 import { refitMotion } from "./motion-refit.mjs";
 import { createJob, cutWith, installIn, jobNote } from "./motion-job.mjs";
 
-const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs, never an object of another kind), installs the motion and moves the objects it handles. An effect, a light or another object with no box of its own that is in the scene can be moved too: carried names those it moves, as they are. An object one bone carries the whole motion is attached to that bone (attached: id, characterId, bone) instead of following a track; one that other objects are grouped under keeps its track, which they go with. One whose place on that bone you or the user set later keeps it (kept: true) until it is detached. used names the objects the motion uses as boxes and the floor the bodies cross. A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. The writer starts from the scene and spec kept with the take a character plays (kept names that motion; keptNone the characters whose take keeps none, so the motion is written new). Its report ends with a Missing line. Only a motion the writer reported on is installed: installed true, with undo, the receipt ids of the install's edits (in this message undo_edit of each in that order takes that install back); else installed false, with notInstalled saying why. images: true sends the user's pictures.";
+const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs, never an object of another kind), installs the motion and moves the objects it handles. An effect, a light or another object with no box of its own that is in the scene can be moved too: carried names those it moves, as they are. An object one bone carries the whole motion is attached to that bone (attached: id, characterId, bone) instead of following a track; one that other objects are grouped under keeps its track, which they go with. An attached object whose place on its bone you or the user set later keeps it (kept: true) while the motion carries it on that bone. used names the objects the motion uses as boxes and the floor the bodies cross. A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. The writer starts from the scene and spec kept with the take a character plays (kept names that motion; keptNone the characters whose take keeps none, so the motion is written new). Its report ends with a Missing line. A motion is installed only when the writer's report answers for it: installed true, with undo, the receipt ids of the install's edits (in this message undo_edit of each in that order takes that install back); otherwise installed false, with notInstalled saying why. images: true sends the user's pictures.";
 // A call without request (motion-refit.mjs); said last, after what a call with a request answers in this turn (STARTED)
 const REFIT = " Called without request, it writes nothing and uses no model: each motion that plays is compiled again from its kept scene and spec for the scale and tint its characters have now (after you or the user changed one) and installed; refit names each with the engine's rows that came out new or worse than at the old size (empty: none), kept the motions no size change touched, skipped those it did not take over, each with why (a scene that changed otherwise needs the writer), keptNone the takes that keep no spec, undo the receipt ids of its edits, as above.";
 // A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
@@ -19,6 +19,7 @@ const STARTED = " In this turn a call with a request answers started once it has
 const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn or an earlier turn of this conversation (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it; a motion of an earlier turn is installed then, as motion says. Before the install, its first call answers the draft once the motion writer's first compile has made one (draft: true); the next call waits for the install. A motion that failed answers its error. install: true installs the compiled motion that the last answer's notInstalled kept out. stop: true stops the writer and answers what it has, not installed; only when the user asks to stop the motion.";
 // labelled as the editor's own message (session-store.mjs OBSERVATION_LABEL): a restored transcript does not show it as the user's words
 const ENDED = "Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:";
+const ENDED_LATER = ENDED.replace("the motion started in this turn", "the motion an earlier turn started"); // one this turn took over
 const PARAMETERS = {
 	type: "object",
 	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, images: { type: "boolean" } },
@@ -74,12 +75,14 @@ const touched = result => [...(Array.isArray(result?.affectedIds) ? result.affec
  * stopped or failed turn does not stop the motion: it goes on without a turn, installs nothing until a later door's
  * motion_result takes it over, and note() tells that door's agent of it. Without them a stopped turn stops the motion.
  * turn: this turn's id, kept with a motion it starts (turnMotionDoor drops the motion of a turn the user's edit cut).
+ * stopped: the turn's own stop signal: the motion leaves the turn the moment the user stops it (the run may take a
+ * while to wind down, and unfinished comes only then), so a writer that ends meanwhile installs nothing in it.
  * An install waits for a turn that holds the motion and whose scene is the motion's: with another scene open the run
  * is told (an Error with code "scene") and keeps the motion out (motion-run.mjs), to be installed on request later.
  * unfinished({ failed }) -> null, or the text of a result the agent has not collected, which the runner hands to the
  * model before the turn may end (agent-runner.mjs); failed (the turn ended on an error or a stop): see key and jobs.
  */
-export function createMotionDoor({ run, mark, rollback, images = () => [], background = false, sceneOf = () => null, refit = null, key = null, jobs = null, invoke = null, workspaceHandle = null, turn = null }) {
+export function createMotionDoor({ run, mark, rollback, images = () => [], background = false, sceneOf = () => null, refit = null, key = null, jobs = null, invoke = null, workspaceHandle = null, turn = null, stopped = null }) {
 	let tail = Promise.resolve(); // the scene's holder: one guarded call or the install at a time
 	const hold = step => { const next = tail.then(step); tail = next.catch(() => {}); return next; };
 	const seat = { hold, mark, rollback, sceneOf, invoke, workspaceHandle }; // this turn, as a motion's holder
@@ -103,6 +106,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	const stored = () => (jobs && key != null ? jobs.get(key) ?? null : null);
 	let job = stored(); // this conversation's motion: one of this turn, or one an earlier turn left (taken over by motion_result)
 	const own = current => { if (current && current.seat !== seat) current.adopt(seat); return current; };
+	if (jobs && key != null) stopped?.addEventListener("abort", () => { if (job?.seat === seat && !job.collected) job.leave(); }, { once: true });
 	const collect = async current => {
 		try {
 			const done = await current.result, answer = answerOf(done);
@@ -234,7 +238,8 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 				if (jobs && key != null) { current.leave(); return null; }
 				current.stop.abort(); await current.result.catch(() => {}); current.collected = true; return null;
 			}
-			try { return `${ENDED}\n${JSON.stringify(await collect(current))}`; } catch (error) { return `${ENDED}\n${error?.code ?? "error"}: ${error?.message ?? String(error)}`; }
+			const label = current.first === seat ? ENDED : ENDED_LATER;
+			try { return `${label}\n${JSON.stringify(await collect(current))}`; } catch (error) { return `${label}\n${error?.code ?? "error"}: ${error?.message ?? String(error)}`; }
 		},
 	};
 	return door;
@@ -271,6 +276,6 @@ export async function turnMotionDoor({ value, env = process.env, hub, tools, tra
 		refit: () => refitMotion({ hub, workspaceHandle: value.context.host.workspaceHandle, memoryKey: key, invoke, env, ...(deps?.refit ? { deps: deps.refit } : {}) }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
 		background: !value.task, sceneOf: () => admission?.host?.sceneId ?? null,
-		invoke, workspaceHandle: value.context.host.workspaceHandle, ...(value.task ? {} : { key, jobs, turn: value.turnId ?? null }),
+		invoke, workspaceHandle: value.context.host.workspaceHandle, ...(value.task ? {} : { key, jobs, turn: value.turnId ?? null, stopped: signal }),
 	});
 }

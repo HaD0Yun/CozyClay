@@ -12,8 +12,8 @@ const NONE = () => () => {}, ZERO = () => 0, two = v => Number(v.toFixed(2));
 // no longer meets it. Nothing refits it by itself when the user changes the size here or with the scale knob; the
 // motion tool of the agent does (bin/agent/motion-refit.mjs) when the take keeps its spec, else it writes it again.
 const sizeHint = (made, scale, kept) => kept
-	? ko(`This motion was made for scale ${two(made)}; the body is now ${two(scale)}, so the motion plays scaled and its contacts may be off. Ask the agent to fit the motion to this size.`, `이 모션은 크기 ${two(made)}에 맞춰 만든 거예요. 지금 몸은 ${two(scale)}이라 모션이 비율만 바뀐 채 재생되고 접촉이 어긋날 수 있어요. 에이전트에게 모션을 이 크기에 맞춰 달라고 요청하세요.`, `此动作是按大小 ${two(made)} 制作的；现在身体是 ${two(scale)}，所以动作只是按比例播放，接触可能对不上。请让代理把动作适配到这个大小。`)
-	: ko(`This motion was made for scale ${two(made)}; the body is now ${two(scale)}, so the motion plays scaled and its contacts may be off. Ask the agent to make the motion again for this size.`, `이 모션은 크기 ${two(made)}에 맞춰 만든 거예요. 지금 몸은 ${two(scale)}이라 모션이 비율만 바뀐 채 재생되고 접촉이 어긋날 수 있어요. 에이전트에게 이 크기로 모션을 다시 만들어 달라고 요청하세요.`, `此动作是按大小 ${two(made)} 制作的；现在身体是 ${two(scale)}，所以动作只是按比例播放，接触可能对不上。请让代理按这个大小重新制作动作。`);
+	? ko(`This motion was made for scale ${two(made)}; the body is now ${two(scale)}, so the motion plays scaled and its contacts may be off. Ask the agent to fit the motion to this size.`, `이 모션은 크기 ${two(made)}에 맞춰 만든 거예요. 지금 몸 크기(${two(scale)})와 달라서 모션이 비율만 바뀐 채 재생되고 접촉이 어긋날 수 있어요. 에이전트에게 모션을 이 크기에 맞춰 달라고 요청하세요.`, `此动作是按大小 ${two(made)} 制作的；现在身体是 ${two(scale)}，所以动作只是按比例播放，接触可能对不上。请让代理把动作适配到这个大小。`)
+	: ko(`This motion was made for scale ${two(made)}; the body is now ${two(scale)}, so the motion plays scaled and its contacts may be off. Ask the agent to make the motion again for this size.`, `이 모션은 크기 ${two(made)}에 맞춰 만든 거예요. 지금 몸 크기(${two(scale)})와 달라서 모션이 비율만 바뀐 채 재생되고 접촉이 어긋날 수 있어요. 에이전트에게 이 크기로 모션을 다시 만들어 달라고 요청하세요.`, `此动作是按大小 ${two(made)} 制作的；现在身体是 ${two(scale)}，所以动作只是按比例播放，接触可能对不上。请让代理按这个大小重新制作动作。`);
 const sizeToast = kept => kept
 	? ko("The motion was made for the old size. Ask the agent to fit it to the new one.", "모션은 이전 크기에 맞춰 만든 거예요. 에이전트에게 새 크기에 맞춰 달라고 요청하세요.", "动作是按原来的大小制作的。请让代理把它适配到新的大小。")
 	: ko("The motion was made for the old size. Ask the agent to make it again for the new one.", "모션은 이전 크기에 맞춰 만든 거예요. 에이전트에게 새 크기로 다시 만들어 달라고 요청하세요.", "动作是按原来的大小制作的。请让代理按新的大小重新制作。");
@@ -34,7 +34,7 @@ export default function CharacterTransformPanel({ workflowMode, isCharacterSelec
 		if (off && !was.off && was.id === activeChar?.id) app?.notify?.(sizeToast(kept));
 	}, [off, activeChar?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 	return (<>
-		{off && isCharacterSelection && <p className="inspector-hint" data-fid="motion_size_note">{sizeHint(made, scale, kept)}</p>}
+		{off && isCharacterSelection && <p className="inspector-hint v2-details-note" data-fid="motion_size_note">{sizeHint(made, scale, kept)}</p>}
 <Foldout
 					key={workflowMode === "motion" ? "placement" : "transform"}
 					hidden={!isCharacterSelection}

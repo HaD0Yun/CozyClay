@@ -123,6 +123,15 @@
 	padding: var(--sp-1, 8px) var(--sp-2, 12px) 0;
 }
 
+/* A note that stands between sections (the motion's size, CharacterTransformPanel.jsx): the sections' own inset. */
+.v2-details-note.v2-details-note {
+	box-sizing: border-box;
+	margin: var(--sp-1, 8px) 18px 2px;
+	color: var(--text-2, #a1a1a6);
+	font-size: var(--details-secondary-size, 11px);
+	line-height: 1.45;
+}
+
 .v2-details-section.v2-details-section .inspector-hint,
 .v2-details-section.v2-details-section .hint,
 .v2-details-section.v2-details-section .camera-editor-pointer {
