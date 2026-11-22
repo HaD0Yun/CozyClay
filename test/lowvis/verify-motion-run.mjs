@@ -95,9 +95,13 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	assert.deepEqual((await ask("conv-new")).kept, { scene: final.scene, spec: final.spec }, "another conversation: the motion that plays");
 	// a run that failed (the Studio refused its install) leaves the motion that plays as the next request's start
 	const playing = kept["scene-a"].c1;
+	// (a writer that ends with the motion that plays installs nothing, so this one ends with another spec)
+	const same = final.spec;
+	final.spec = { ...same, c1: [[0, "wave"]] };
 	refuse = true;
 	await assert.rejects(ask(), error => error.code === "studio");
 	refuse = false;
+	final.spec = same;
 	assert.equal(kept["scene-a"].c1, playing);
 	assert.deepEqual((await ask()).kept, { scene: final.scene, spec: final.spec }, "after a failed run the tool starts from the motion that is installed");
 	// an undo in the Studio puts the take before back: its kept spec is the start

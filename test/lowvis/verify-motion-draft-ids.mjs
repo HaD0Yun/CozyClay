@@ -55,10 +55,11 @@ for (const [shaped, end] of [[true, "report"], [false, "report"], [false, "infra
 	await writer.step(); await writer.step();
 	const label = `undone ${shaped ? "shaped" : "untouched"} ${end}`;
 	if (end === "infra") {
-		const error = await t.result().then(() => null, failure => failure);
-		assert.ok(error, `${label}: the motion fails`);
-		if (shaped) assert.deepEqual([studio.named("bench").length, error.message.includes(`left ${bench} (changed meanwhile)`)], [1, true], `${label}: ${error.message}`);
-		else assert.deepEqual([studio.named("bench").length, error.message.includes(`removed ${bench} (not changed since the draft)`)], [0, true], `${label}: ${error.message}`);
+		// the proxy failed after a compile: nothing is installed, and the answer says why and what of the draft it left
+		const answer = await t.result(), message = answer.notInstalled ?? "";
+		assert.equal(answer.installed, false, `${label}: the motion is not installed`);
+		if (shaped) assert.deepEqual([studio.named("bench").length, message.includes(`left ${bench} (changed meanwhile)`)], [1, true], `${label}: ${message}`);
+		else assert.deepEqual([studio.named("bench").length, message.includes(`removed ${bench} (not changed since the draft)`)], [0, true], `${label}: ${message}`);
 		continue;
 	}
 	const done = await t.result(), row = studio.row(bench);

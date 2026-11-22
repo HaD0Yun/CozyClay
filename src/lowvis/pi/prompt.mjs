@@ -116,6 +116,7 @@ HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.
 ${WORK[f.text]}
 4. Then report in 2 or 3 sentences in the user's language, and end with one line:
-Missing: <what the engine could not express, or none>`; };
+Missing: <what the engine could not express, or none>
+Your last compile is installed in the Studio once you report; when it should not be, put the line Install: no before the Missing line and say why.`; };
 
 export const SYSTEM_PROMPT = systemPrompt();

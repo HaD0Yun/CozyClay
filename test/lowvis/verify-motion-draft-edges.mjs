@@ -27,12 +27,17 @@ for (const how of ["infra", "stop", "refused"]) {
 	await t.tools.sculpt({ id: bench, recipe: look });
 	let error;
 	if (how === "stop") { assert.equal(await t.door.unfinished({ failed: true }), null); }
-	else { await writer.step(); error = await t.result().then(() => null, e => e); }
+	else { await writer.step(); error = await t.result().then(answer => answer, e => e); }
 	await tick();
 	assert.deepEqual(studio.rows().map(row => row.id), [bench], `${how}: the shaped bench stays, the untouched crate is gone`);
 	assert.equal(boxesOf(`fail-${how}`).size, 0, `${how}: the draft's boxes are dropped with it`);
-	if (error) {
-		assert.equal(error.code, how === "infra" ? "upstream" : "studio");
+	// a proxy that fails after a compile: nothing is installed and the answer says so, with what exists (rule 7)
+	if (how === "infra") {
+		assert.equal(error.installed, false);
+		assert.ok(error.notInstalled.startsWith("The motion writer failed (the proxy failed) before its report, so its last compiled motion (compile "), error.notInstalled);
+		assert.ok(error.notInstalled.endsWith(` The draft's stand-ins: removed ${crate} (not changed since the draft); left ${bench} (changed meanwhile).`), error.notInstalled);
+	} else if (error) {
+		assert.equal(error.code, "studio");
 		assert.ok(error.message.endsWith(` The draft's stand-ins: removed ${crate} (not changed since the draft); left ${bench} (changed meanwhile).`), error.message);
 	}
 }

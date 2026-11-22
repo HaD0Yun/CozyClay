@@ -30,6 +30,20 @@ export function keptMotion(kept, ids, prefer = null) {
 	return whole.find(motion => motion.name === prefer) ?? whole[0] ?? null;
 }
 
+/** What the installs of the playing takes put on a bone (install.js source attached): { objects: { <Studio object id>:
+ *  { characterId, bone, at, quat } }, its place and turn in that bone's frame as the install set them; older: the
+ *  characters whose kept source was written before it held that list (what their install put there is not known) }.
+ *  An attached object whose numbers differ from these, or that no install put there, was placed by the user or the
+ *  agent, and a later install keeps it (install.js keepsPlace). */
+export function attachedBefore(kept) {
+	const objects = {}, older = [];
+	for (const [characterId, entry] of Object.entries(kept ?? {})) {
+		if (!Array.isArray(entry?.attached)) { older.push(characterId); continue; }
+		for (const row of entry.attached) if (typeof row?.id === "string" && Array.isArray(row.at) && Array.isArray(row.quat)) objects[row.id] = { characterId, bone: row.bone, at: row.at, quat: row.quat };
+	}
+	return { objects, older };
+}
+
 /** Every motion keptMotion may start from, the latest first: [{ name, scene, spec, cast }]. */
 export function playingMotions(kept, ids) {
 	const byName = new Map();

@@ -109,6 +109,33 @@ function ownerOf(clip, prop) {
 	return best;
 }
 
+/** The turn of XYZ Euler degrees { rotX, rot, rotZ } as the quaternion scene.js reads off an object (6 decimals). */
+function quatXYZ({ rotX = 0, rot = 0, rotZ = 0 }) {
+	const h = [rotX, rot, rotZ].map(v => v / DEG / 2), [cx, cy, cz] = h.map(Math.cos), [sx, sy, sz] = h.map(Math.sin);
+	return [sx * cy * cz + cx * sy * sz, cx * sy * cz - sx * cy * sz, cx * cy * sz + sx * sy * cz, cx * cy * cz - sx * sy * sz].map(v => Math.round(v * 1e6) / 1e6);
+}
+const turnBetween = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]))) * DEG;
+
+/** True when a listed object attached to a body rides the same bone of the same body in this clip and its place or turn
+ *  there is not what the last install put (existing.attachedBefore, motion-kept.mjs), or no install put it there: the user
+ *  or the agent set it, so it stays. The clip still decides THAT it rides the bone; a detach resets it. On a body whose
+ *  take keeps a source older than that record (attachedBefore.older) the clip's place is taken, as before. */
+function keepsPlace(existing, clip, ride, id, known) {
+	const carrier = existing?.characters?.[clip.characters[ride.index]?.id];
+	return Boolean(carrier) && known.attach.characterId === carrier && (known.attach.bone ?? "root") === ride.bone && placeSetLater(existing.attachedBefore, id, known);
+}
+
+/** True when the place and turn on its bone of an attached object (known: a studioScene ids.props entry) were set after
+ *  the install that put it there, or no install put it there; before: motion-kept.mjs attachedBefore, or none (a caller
+ *  that does not know what installs put there: false). */
+export function placeSetLater(before, id, known) {
+	if (!before || !known?.attach) return false;
+	const set = before.objects?.[id];
+	if (!set) return !(before.older ?? []).includes(known.attach.characterId);
+	if (set.characterId !== known.attach.characterId || set.bone !== (known.attach.bone ?? "root")) return true;
+	return Math.hypot(set.at[0] - known.x, set.at[1] - known.y, set.at[2] - known.z) > 0.0005 || (Array.isArray(known.quat) && turnBetween(set.quat, known.quat) > 0.1);
+}
+
 /**
  * installClip(clip, run, { label, remove, existing, drafted }) -> { characterIds, objectIds, switched, placed, ok, bodies?,
  * moved?, moving?, attached? }: what it made, the Studio ids of the cast members whose model it changed and placed:
@@ -119,7 +146,10 @@ function ownerOf(clip, prop) {
  * object attached to a body (existing.props[id].attach: its numbers are in that bone's frame, quat its turn there) is
  * attached again at its new place when one bone carries it throughout; when this clip does not attach it, it is detached
  * (object.detach) and set to the prop's place and turn in the world. An object others are grouped under
- * (existing.props[id].group) is never attached.
+ * (existing.props[id].group) is never attached. One that rides the same bone again keeps the place and turn it has
+ * there when the user or the agent set them after an install (keepsPlace: existing.attachedBefore, what the installs of
+ * the playing takes put on a bone): no step is made for it and attached says kept: true. Each take keeps what this
+ * install puts on its bones (source attached: [{ id, bone, at, quat }], the clip's own place).
  * drafted: { <clip prop id>: { id, untouched, size, place? } }, the stand-in an earlier compile of the same motion added
  * for that prop (addStandIn, of the kind this prop's stand-in has): it is set to the prop's place and turn, and to its
  * size when untouched (its record is still what the draft made); place { x, y, z, rot }: where it stands now (no step
@@ -183,7 +213,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		placed[prop.id] = id;
 		// a prop one bone carries throughout rides that bone (attached with its character below); any other that moves, or a new
 		// one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
-		if (ride) rides.push({ id, ...ride });
+		if (ride) rides.push({ id, ...ride, ...(known?.attach && keepsPlace(existing, clip, ride, id, known) ? { kept: true } : {}) });
 		else if (moves(prop) || (!known && !upright)) {
 			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
 			for (let f = 0; f < F; f++) { const p = poseAt(f); pos.set(p.pos, f * 3); quat.set(p.quat, f * 4); }
@@ -213,13 +243,17 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		}
 		// what this body's bones carry throughout goes onto them before its take: the Studio's redo of a take install drops
 		// the steps made after it, so an attach after the take would not come back with a redo of the install
-		for (const { id, joint, bone, local, drift } of rides.filter(ride => ride.index === index)) {
-			if (!await run("object.attach", { objectId: id, characterId, bone, local })) return stop();
-			attached.push({ id, characterId, bone, joint, drift });
+		// one whose place on that same bone was set after an install (kept) is already there and stays as it is
+		const mine = rides.filter(ride => ride.index === index);
+		for (const { id, joint, bone, local, drift, kept } of mine) {
+			if (!kept && !await run("object.attach", { objectId: id, characterId, bone, local })) return stop();
+			attached.push({ id, characterId, bone, joint, drift, ...(kept ? { kept: true } : {}) });
 		}
 		const raw = clipTrack(clip, index);
 		raw.objects = Object.fromEntries(Object.entries(tracks).filter(([id]) => owners[id] === index)); // this character's take draws the props it handles
-		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80), ...(source ? { lowvis: source } : {}) })) return stop();
+		// the take keeps what this install puts on its bones, the clip's own place (attachedBefore of motion-kept.mjs reads it)
+		const kept = source ? { ...source, attached: mine.map(({ id, bone, local }) => ({ id, bone, at: [local.x, local.y, local.z], quat: quatXYZ(local) })) } : source;
+		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80), ...(kept ? { lowvis: kept } : {}) })) return stop();
 	}
 	const moving = Object.keys(tracks);
 	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}), ...(attached.length ? { attached } : {}) };

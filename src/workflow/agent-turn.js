@@ -188,8 +188,14 @@ export function changedLine(ids, context) {
 	return ko(`Changed ${shown || "the scene"}${more > 0 ? ` and ${more} more` : ""}`, `${shown || "장면"}${more > 0 ? ` 외 ${more}개` : ""} 변경`, `修改了 ${shown || "场景"}${more > 0 ? ` 以及另外 ${more} 项` : ""}`);
 }
 
-/** What a stopped turn left behind, as far as its steps tell: their edits stay (one undo entry), or none landed. */
+/** What a stopped turn left behind, as far as its steps tell: their edits stay (one undo entry), or none landed; and a
+ *  motion it started that no motion_result answered is still being written (bin/agent/motion-job.mjs). */
 export function stoppedNote(block) {
+	const note = stoppedEdits(block), started = block.steps.findLastIndex(step => step.kind === "tool" && step.name === "motion" && step.result?.started === true);
+	if (started < 0 || block.steps.slice(started + 1).some(step => step.kind === "tool" && step.name === "motion_result" && step.status === "done")) return note;
+	return `${note} ${ko("The motion is still being written: nothing of it is installed until your next message, which can take it in or ask to stop it.", "모션은 아직 작성 중이에요. 다음 메시지를 보내기 전까지는 아무것도 설치되지 않아요. 다음 메시지로 설치하거나 중지를 요청할 수 있어요.")}`;
+}
+function stoppedEdits(block) {
 	const authored = block.steps.some(step => step.result?.authored === true || (step.result?.calls ?? []).some(call => call?.revision && call.revision.after !== call.revision.before));
 	if (authored) return ko("Stopped by you. What already ran stays in the scene; Cmd+Z undoes this turn.", "직접 중지했어요. 이미 실행된 편집은 장면에 남아 있고, Cmd+Z로 이번 턴을 되돌릴 수 있어요.");
 	if (block.steps.some(step => step.kind === "tool" && step.status === "cancelled")) return ko("Stopped by you while a step was running; its result is unknown.", "단계 실행 중에 직접 중지했어요. 그 단계의 결과는 알 수 없어요.");
