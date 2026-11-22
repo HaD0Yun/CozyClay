@@ -218,7 +218,7 @@ const BROWSER_FILES = [
 	"test/qa-rail-lean-browser.mjs", "test/qa-sculpt-parts-browser.mjs",
 	"test/qa-export-recovery-browser.mjs", "test/qa-export-workspace-browser.mjs",
 	"test/verify-camera-mode-browser.mjs",
-	"test/verify-camera-rail-browser.mjs", "test/verify-camera-rail-controls-browser.mjs", "test/verify-rail-rotate-browser.mjs",
+	"test/verify-camera-rail-browser.mjs", "test/verify-camera-rail-controls-browser.mjs", "test/verify-rail-rotate-browser.mjs", "test/verify-fly-speed-browser.mjs",
 	"test/verify-cutout-browser.mjs",
 	"test/verify-mesh-browser.mjs",
 	"test/verify-ik-browser.mjs",

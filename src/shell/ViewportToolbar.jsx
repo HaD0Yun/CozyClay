@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStudioPlaybackFrame, useStudioShell } from "./studio-shell-context.js";
 import ShotPreviewHeader from "./ShotPreviewHeader.jsx";
-import RailIcon from "./RailIcon.jsx";
+import RailIcon from "./RailIcon.jsx"; import FlySpeedPill from "./FlySpeedPill.jsx";
 import { ko } from "../locale.js";
 import { PRESETS, SHOT_ASPECT_PRESETS } from "../app-stage.jsx";
 import { CAMERA_PRESETS } from "../camera-move.js";
@@ -35,8 +35,6 @@ const FOV_MIN = 14, FOV_MAX = 90;
 
 // "+ Add › Character" stands the new body one metre along X per existing
 // character, inside the same stage clamp the Content drag applies.
-
-const trimNumber = (value, digits = 2) => String(Number(value.toFixed(digits)));
 
 /** One open overlay menu at a time; outside pointerdown or Escape closes it. */
 function useOverlayMenu() {
@@ -83,7 +81,7 @@ export default function ViewportToolbar() {
 		setNonce, workspaceLayout, viewMenuTriggerRef, viewMenuOpen,
 		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode, toonLook, setToonLook,
 		autoColor, setAutoColor, isCharacterSelection, partColoursChoice, embedMode,
-		agentCollapsed, addSceneObject, flySpeed, frameAll, setAxisView,
+		agentCollapsed, addSceneObject, flySpeed, setFlySpeed, frameAll, setAxisView,
 		ikEditTool, setIkEditTool, motion, setRangePinPartPick,
 		sculptView, requestSculptView, sculptParts,
 		cameraReadoutAt,
@@ -531,14 +529,7 @@ export default function ViewportToolbar() {
 					</div>
 				</div>
 				<span className="vp-rail-divider" aria-hidden="true" />
-				<span
-					className="vp-pill vp-speed"
-					data-testid="fly-speed"
-					title={ko("Fly speed — scroll while right-dragging to change it", "비행 속도 — 오른쪽 드래그 중 스크롤로 조절")}
-				>
-					<RailIcon name="speed" size={14} />
-					<span className="vp-speed-value">{trimNumber(flySpeed, 1)}×</span>
-				</span>
+				<FlySpeedPill flySpeed={flySpeed} setFlySpeed={setFlySpeed} />
 			</div></div>
 
 			<ShotPreviewHeader name={activeShot?.name ?? ko("Shot", "샷")} lens={`${shot.focalMm}mm`} />
