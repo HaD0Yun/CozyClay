@@ -380,7 +380,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 			if (state.lastInput?.surface !== "studio" || state.lastInput?.contextView === "plain") return messages;
 			const head = messages[0]?.role === "system" ? messages[0] : null;
 			const prompt = typeof head?.content === "string" ? head.content : (head?.content ?? []).map((part) => part?.text ?? "").join("");
-			const view = budgetStudioRequest(studioContextDiet({ messages: head ? messages.slice(1) : messages, systemPrompt: prompt }));
+			const view = budgetStudioRequest({ ...studioContextDiet({ messages: head ? messages.slice(1) : messages, systemPrompt: prompt }), tools: state.agent?.state.tools });
 			return head ? [{ ...head, content: view.systemPrompt }, ...view.messages] : view.messages;
 		};
 

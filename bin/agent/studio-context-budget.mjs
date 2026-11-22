@@ -9,10 +9,20 @@
 // until its estimate passes `limit`; then every older result and image shrinks in one step (the newest stay whole) if
 // that takes at least `room` off, and the next step waits until the view has grown by `room` again. No view passes
 // `ceiling`: a step past it takes the view down to `limit`, oldest turns first, then the running turn's oldest calls.
-// Estimate: text, thinking and call arguments at 3.6 characters a token, an image at 1600 tokens, messages only (the
-// system prompt and the tool schemas are fixed for the session).
+// Estimate: text, thinking and call arguments at 3.6 characters a token, plus the system prompt and the tool
+// declarations; then scaled by what the provider counted: each answer's usage gives the prompt its request really had
+// (input, cache read and cache write), and the estimate of that same view turns into a ratio that holds for the
+// messages after it. An image counts apart, by its pixels as the provider counts it (1600 tokens when its size cannot
+// be read): the ratio is then one of text alone and stays put when a step takes images out (from one answer to the
+// next it moved by up to 38% with the images inside it, 10% apart). 3.6 characters a token alone took a 291k-token
+// view for 131k (Korean text, JSON results, and the running request's thinking, which the provider counts but whose
+// text is empty): 96 of one session's 220 requests passed the ceiling. Replayed with the measured count, the largest
+// view is 199k by the replay's token model, and its 5 steps (3 before) write 0.48M tokens again (0.46M before) while
+// the smaller views read 10M fewer: $19.3 of prompt cost against $21.3 for the same replay on the 3.6 estimate at
+// the 1-hour cache price that session paid ($16.3 against $19.9 at the 5-minute price), both with the marks of
+// anthropic-cache.mjs.
 const BUDGET = Object.freeze({ limit: 120_000, room: 40_000, ceiling: 200_000, keepResults: 10, keepImages: 3, bulky: 1200, head: 480, codeHead: 360 });
-const CHARS_PER_TOKEN = 3.6, IMAGE_TOKENS = 1600;
+const CHARS_PER_TOKEN = 3.6, IMAGE_TOKENS = 1600, AGREE = 0.3;
 
 const STUDIO_CONTEXT = /^<studio-context/;
 const LIVE_CONTEXT = /^<studio-context>\n[\s\S]*?\n<\/studio-context>/;
@@ -39,33 +49,59 @@ function shortCallArguments(args) {
 /** The characters of a text part once a newer prompt and a newer result exist: the context diet then supersedes a
  * prompt's studio context and drops an inspect_studio result's re-embedded `context`. Only the newest of each differs. */
 function settledChars(message, text) {
-	if (message.role === "user") { const block = LIVE_CONTEXT.exec(text); return block ? SUPERSEDED_CONTEXT.length + text.length - block[0].length : text.length; }
-	if (message.role !== "toolResult" || message.toolName !== "inspect_studio" || !text.includes("\"context\"")) return text.length;
+	if (message.role === "user") { const block = LIVE_CONTEXT.exec(text); return block ? SUPERSEDED_CONTEXT.length + weight(text) - weight(block[0]) : weight(text); }
+	if (message.role !== "toolResult" || message.toolName !== "inspect_studio" || !text.includes("\"context\"")) return weight(text);
 	try {
 		const value = JSON.parse(text);
-		if (!value || typeof value !== "object" || Array.isArray(value) || !Object.hasOwn(value, "context")) return text.length;
+		if (!value || typeof value !== "object" || Array.isArray(value) || !Object.hasOwn(value, "context")) return weight(text);
 		const { context: _context, ...rest } = value;
-		return JSON.stringify(rest).length;
-	} catch { return text.length; }
+		return weight(JSON.stringify(rest));
+	} catch { return weight(text); }
 }
 
-/** A part's estimated tokens as later requests will send it (settled). */
+/** A text's length in ASCII-character units: a non-ASCII character (Korean, Japanese, ...) is about one token on its
+ * own, as many as 3.6 ASCII characters (one long Studio session, by the provider's count: 1.9 ASCII and 0.57 non-ASCII
+ * characters a token). The measured ratio then corrects the whole estimate; this keeps it right as the mix changes. */
+function weight(text) {
+	let units = text.length;
+	for (let i = 0; i < text.length; i += 1) if (text.charCodeAt(i) > 127) units += CHARS_PER_TOKEN - 1;
+	return units;
+}
+
+/** A text, thinking or call part's estimated tokens as later requests will send it (settled); an image counts apart. */
 function partTokens(message, part) {
-	if (part?.type === "image") return IMAGE_TOKENS;
 	if (part?.type === "text" && typeof part.text === "string") return settledChars(message, part.text) / CHARS_PER_TOKEN;
-	if (part?.type === "thinking") return String(part.thinking ?? "").length / CHARS_PER_TOKEN;
-	if (part?.type === "toolCall") return (String(part.name ?? "").length + JSON.stringify(part.arguments ?? {}).length) / CHARS_PER_TOKEN;
+	if (part?.type === "thinking") return weight(String(part.thinking ?? "")) / CHARS_PER_TOKEN;
+	if (part?.type === "toolCall") return (weight(String(part.name ?? "")) + weight(JSON.stringify(part.arguments ?? {}))) / CHARS_PER_TOKEN;
 	return 0;
 }
 
-const callSaving = part => (JSON.stringify(part.arguments).length - JSON.stringify(shortCallArguments(part.arguments)).length) / CHARS_PER_TOKEN;
-const resultSaving = message => contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? part.text.length - shortResultText(part.text).length : 0), 0) / CHARS_PER_TOKEN;
-const IMAGE_SAVING = IMAGE_TOKENS - IMAGE_STAND_IN.length / CHARS_PER_TOKEN;
+const imageSizes = new WeakMap();
+/** An image as the provider counts it: its pixels / 750 once its longer side fits in 1568 (PNG and JPEG headers; the
+ * same parts come back on every request, so each is read once). A size that cannot be read counts IMAGE_TOKENS. */
+function imageTokens(part) {
+	if (imageSizes.has(part)) return imageSizes.get(part);
+	const bytes = Buffer.from(String(part.data ?? "").slice(0, 87_384), "base64");
+	let width = 0, height = 0;
+	if (bytes.length >= 24 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.toString("latin1", 12, 16) === "IHDR") { width = bytes.readUInt32BE(16); height = bytes.readUInt32BE(20); }
+	// JPEG: the frame header (SOF0..SOF15, but not the DHT, JPG and DAC markers in that range) holds height, then width
+	else if (bytes[0] === 0xff && bytes[1] === 0xd8) for (let i = 2; i + 9 < bytes.length && bytes[i] === 0xff; i += 2 + bytes.readUInt16BE(i + 2)) {
+		if (bytes[i + 1] >= 0xc0 && bytes[i + 1] <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(bytes[i + 1])) { height = bytes.readUInt16BE(i + 5); width = bytes.readUInt16BE(i + 7); break; }
+	}
+	const fit = Math.min(1, 1568 / Math.max(width, height, 1));
+	const tokens = width && height ? width * fit * height * fit / 750 : IMAGE_TOKENS;
+	if (part && typeof part === "object") imageSizes.set(part, tokens);
+	return tokens;
+}
+
+const callSaving = part => (weight(JSON.stringify(part.arguments)) - weight(JSON.stringify(shortCallArguments(part.arguments)))) / CHARS_PER_TOKEN;
+const resultSaving = message => contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? weight(part.text) - weight(shortResultText(part.text)) : 0), 0) / CHARS_PER_TOKEN;
+const STAND_IN_TOKENS = IMAGE_STAND_IN.length / CHARS_PER_TOKEN;
 const leftOutNote = count => `[The first ${count} messages of this session are left out of this request to save context.]`;
 const gapNote = count => `[The ${count} messages after this one, this turn's earlier calls and their results, are left out of this request to save context.]`;
 const NOTE_TOKENS = leftOutNote(1e6).length / CHARS_PER_TOKEN, GAP_NOTE_TOKENS = gapNote(1e6).length / CHARS_PER_TOKEN;
 // What the diet sends of a message beyond its settled size: the newest prompt's studio context, the newest result's context.
-const liveTokens = message => contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? part.text.length - settledChars(message, part.text) : 0), 0) / CHARS_PER_TOKEN;
+const liveTokens = message => contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? weight(part.text) - settledChars(message, part.text) : 0), 0) / CHARS_PER_TOKEN;
 
 /**
  * Which results, script calls and images the view shortens, where it starts, and which of the running turn's calls it
@@ -74,13 +110,21 @@ const liveTokens = message => contentOf(message).reduce((sum, part) => sum + (pa
  * with each message at its settled size, so a request reaches the same steps as the one before it plus at most a new one
  * at its end: between steps the view only grows at its end and the cached prefix holds.
  */
-function shortenedParts(messages) {
-	const results = [], images = [], calls = [], prompts = [], size = [];
-	let total = 0, live = 0, liveResult = 0, next = BUDGET.limit, cutResults = 0, cutImages = 0, cutCalls = 0, from = 0, gap = null, turn = [];
+function shortenedParts(messages, fixed) {
+	const results = [], images = [], calls = [], prompts = [], size = [], shots = [];
+	let total = 0, pictures = 0, live = 0, liveResult = 0, next = BUDGET.limit, cutResults = 0, cutImages = 0, cutCalls = 0, from = 0, gap = null, turn = [], scale = 1, measured = false, source = null;
 	const inView = index => index >= from && !(gap && index > gap.at && index < gap.end);
-	const over = bound => total + live + liveResult > bound;
-	const cut = item => { size[item.index] -= item.saving; if (inView(item.index)) total -= item.saving; };
-	const pending = (items, done, keep) => items.slice(done, Math.max(done, items.length - keep)).reduce((sum, item) => sum + (inView(item.index) ? item.saving : 0), 0);
+	// Estimated tokens in the provider's count: settled text sizes and the fixed part, times the latest measured ratio,
+	// plus the tokens of the whole images (`shown`), which the provider counts by their pixels whatever the text ratio
+	// is. That ratio already carries what the diet sent whole on the measured request (a studio context, an inspect
+	// context); a later request no longer sees those parts, so counting them again here would move earlier steps.
+	// Before any answer reports usage the estimate counts them itself.
+	const real = (tokens, shown) => (tokens + fixed) * scale + shown;
+	const whole = () => (measured ? 0 : live + liveResult);
+	const over = bound => real(total + whole(), pictures) > bound;
+	const cut = item => { size[item.index] -= item.saving; shots[item.index] -= item.shots ?? 0; if (inView(item.index)) { total -= item.saving; pictures -= item.shots ?? 0; } };
+	// what shortening the items past the newest `keep` takes off, in the provider's count
+	const pending = (items, done, keep) => items.slice(done, Math.max(done, items.length - keep)).reduce((sum, item) => sum + (inView(item.index) ? item.saving * scale + (item.shots ?? 0) : 0), 0);
 	const cutAll = (keepResults, keepImages) => {
 		for (; cutResults < results.length - keepResults; cutResults += 1) cut(results[cutResults]);
 		for (; cutImages < images.length - keepImages; cutImages += 1) cut(images[cutImages]);
@@ -98,29 +142,42 @@ function shortenedParts(messages) {
 			// The prompt and the newest call with its results pass the ceiling on their own: shrink the newest first, so no
 			// earlier turn or call leaves for a size the shrinking takes off anyway.
 			const newest = turn.at(-1) ?? prompts.at(-1);
-			let kept = live + liveResult + size[prompts.at(-1)];
-			for (let i = newest; i <= last; i += 1) if (i !== prompts.at(-1)) kept += size[i];
-			if (kept > BUDGET.ceiling) cutAll(0, 0);
+			let kept = whole() + size[prompts.at(-1)], keptShots = shots[prompts.at(-1)];
+			for (let i = newest; i <= last; i += 1) if (i !== prompts.at(-1)) { kept += size[i]; keptShots += shots[i]; }
+			if (real(kept, keptShots) > BUDGET.ceiling) cutAll(0, 0);
 			for (const at of prompts) {
 				if (!over(BUDGET.limit)) break;
 				if (!from && at) total += NOTE_TOKENS;
-				for (; from < at; from += 1) if (inView(from)) total -= size[from];
+				for (; from < at; from += 1) if (inView(from)) { total -= size[from]; pictures -= shots[from]; }
 				if (gap && from > gap.at) { total -= GAP_NOTE_TOKENS; gap = null; }
 			}
 			for (const at of turn) {
 				if (!over(BUDGET.limit) || from !== prompts.at(-1)) break;
 				if (at <= (gap?.end ?? turn[0])) continue;
 				if (!gap) { gap = { at: turn[0] - 1, end: turn[0] }; total += GAP_NOTE_TOKENS; }
-				for (; gap.end < at; gap.end += 1) total -= size[gap.end];
+				for (; gap.end < at; gap.end += 1) { total -= size[gap.end]; pictures -= shots[gap.end]; }
 			}
 			if (over(BUDGET.ceiling)) cutAll(0, 0);
 		}
-		next = over(BUDGET.ceiling) ? total + BUDGET.room : Math.min(BUDGET.ceiling, Math.max(BUDGET.limit, total + BUDGET.room));
+		next = over(BUDGET.ceiling) ? real(total, pictures) + BUDGET.room : Math.min(BUDGET.ceiling, Math.max(BUDGET.limit, real(total, pictures) + BUDGET.room));
 	};
 	messages.forEach((message, index) => {
+		// An answer's usage: the prompt its request had, by the provider's count, against this replay's estimate of that view
+		// (text only: the images leave both sides). The count is one of this view only when the request was built by these
+		// rules: a session recorded with other rules (an earlier budget, a view sent whole) counted a larger view, and that
+		// reading would raise the ratio, take a step, raise it again and empty the view (one such session: 1 message kept
+		// of 482). So a reading that leaves the last ratio by more than AGREE is not used; an answer by another model is
+		// (another tokenizer), and so is the first.
+		const counted = message?.role === "assistant" ? ["input", "cacheRead", "cacheWrite"].reduce((sum, key) => sum + (Number.isFinite(message.usage?.[key]) ? message.usage[key] : 0), 0) : 0;
+		const ratio = (counted - pictures) / (total + fixed);
+		if (counted > 0 && ratio > 0 && Number.isFinite(ratio)) {
+			const model = message.model ?? null;
+			if (!measured || model !== source || Math.abs(ratio / scale - 1) <= AGREE) { scale = ratio; source = model; }
+			measured = true;
+		}
 		// An assistant message of the running turn may carry signed thinking next to its calls: only earlier turns' scripts
-		// shrink, all at once when a turn starts, where the diet moves the prefix anyway. The ceiling also counts what the
-		// diet still sends whole: the running prompt's studio context, the newest result's re-embedded context.
+		// shrink, all at once when a turn starts, where the diet moves the prefix anyway. Until an answer reports usage the
+		// ceiling also counts what the diet still sends whole: the running prompt's studio context, the newest result's.
 		if (isPrompt(message) || (!index && message?.role === "user")) {
 			prompts.push(index);
 			turn = [];
@@ -129,15 +186,15 @@ function shortenedParts(messages) {
 		}
 		if (message?.role === "assistant") turn.push(index);
 		if (message?.role === "toolResult") liveResult = liveTokens(message);
-		size[index] = 0;
+		size[index] = 0; shots[index] = 0;
 		contentOf(message).forEach((part, j) => {
 			size[index] += partTokens(message, part);
-			if (part?.type === "image") images.push({ index, key: `${index}:${j}`, saving: IMAGE_SAVING });
+			if (part?.type === "image") { const seen = imageTokens(part); shots[index] += seen; images.push({ index, key: `${index}:${j}`, saving: -STAND_IN_TOKENS, shots: seen }); }
 			if (message.role === "assistant" && part?.type === "toolCall" && typeof part.arguments?.code === "string") calls.push({ index, key: `${index}:${j}`, saving: callSaving(part) });
 		});
-		total += size[index];
+		total += size[index]; pictures += shots[index];
 		if (message?.role === "toolResult") results.push({ index, saving: resultSaving(message) });
-		if (total > next || over(BUDGET.ceiling)) step(index);
+		if (real(total, pictures) > next || over(BUDGET.ceiling)) step(index);
 	});
 	const keys = (items, count) => new Set(items.slice(0, count).map(item => item.key ?? item.index));
 	return { from, gap, results: keys(results, cutResults), calls: keys(calls, cutCalls), images: keys(images, cutImages) };
@@ -145,8 +202,8 @@ function shortenedParts(messages) {
 
 /** The messages a Studio request sends: older tool results, script calls and images shortened (new objects only), and
  * past the ceiling the oldest turns and the running turn's oldest calls left out, each with a note on the prompt kept. */
-function budgetStudioMessages(messages) {
-	const old = shortenedParts(messages);
+function budgetStudioMessages(messages, fixed) {
+	const old = shortenedParts(messages, fixed);
 	if (!old.from && !old.gap && !old.results.size && !old.calls.size && !old.images.size) return messages;
 	const view = messages.map((message, index) => {
 		if (!Array.isArray(message?.content)) return message;
@@ -209,6 +266,11 @@ function withLanguageReminders(messages) {
 	});
 }
 
+const declaredChars = tools => (Array.isArray(tools) ? tools : []).reduce((sum, tool) => sum + weight(JSON.stringify({ name: tool?.name, description: tool?.description, parameters: tool?.parameters })), 0);
+
 /** The Studio request after the context diet: every prompt carrying its reply language, older bulk shortened (the budget
- * runs last, so its estimate counts the reminders). */
-export const budgetStudioRequest = ({ messages, systemPrompt }) => ({ messages: budgetStudioMessages(withLanguageReminders(messages)), systemPrompt });
+ * runs last, so its estimate counts the reminders; the system prompt and the tools count as its fixed part). */
+export function budgetStudioRequest({ messages, systemPrompt, tools }) {
+	const fixed = (weight(String(systemPrompt ?? "")) + declaredChars(tools)) / CHARS_PER_TOKEN;
+	return { messages: budgetStudioMessages(withLanguageReminders(messages), fixed), systemPrompt };
+}
