@@ -862,8 +862,10 @@ const implementations={
   const point=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-3,z:4},{x:3,z:4}],aim:{x:0,y:1,z:0},focalMm:null,height:[{t:0,height:0.6},{t:1,height:3}]});
   assert.match(point.summary,/height 0\.60-3\.00 m, aim \(0\.00, 1\.00, 0\.00\), scene lens\.$/,point.summary);
   read=await camera();assert.deepEqual([read.camera.aim,'focalMm' in read.camera],[{point:{x:0,y:1,z:0}},false]);
-  // Past the dolly's speed cap it warns; an aim that is not in the scene is refused.
-  const fast=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]});
+  // A 10 m/s rail rides at its own speed (no default cap); past the world's fastest dolly it warns; an aim that is not in the scene is refused.
+  const quick=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]});
+  assert.deepEqual(quick.warnings??[],[],JSON.stringify(quick));
+  const fast=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-50,z:4},{x:50,z:4}]});
   assert.deepEqual(fast.warnings.map(w=>w.code),['RAIL_TOO_FAST'],JSON.stringify(fast));
   const ghost=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-2,z:4},{x:2,z:4}],aim:['actor-ghost']});
   assert.equal(ghost.ok,false);assert.equal(ghost.code,'STALE_TARGET',JSON.stringify(ghost));

@@ -1,5 +1,6 @@
 import { timingProgress } from "./speed-envelope.js";
 import { monotoneCubicAt } from "./monotone-cubic.js";
+import { cappedSpringStep } from "./dolly-spring.js";
 
 /**
  * Follow camera: a real crew in three pieces of math.
@@ -29,16 +30,6 @@ function omegaFor(response) {
 function springStep(pos, vel, target, omega, dt) {
 	const acc = omega * omega * (target - pos) - 2 * omega * vel;
 	const nextVel = vel + acc * dt;
-	return [pos + nextVel * dt, nextVel];
-}
-
-/** scalar forward spring whose speed limit is applied before position integration */
-function cappedSpringStep(pos, vel, target, omega, dt, maxSpeed) {
-	const acc = omega * omega * (target - pos) - 2 * omega * vel;
-	const cap = Math.max(0, Number.isFinite(maxSpeed) ? maxSpeed : 0);
-	// Rail targets never move backward; discard incompatible spring velocity
-	// before integration so the authored arc remains a forward-only invariant.
-	const nextVel = Math.max(0, Math.min(vel + acc * dt, cap));
 	return [pos + nextVel * dt, nextVel];
 }
 
@@ -112,8 +103,8 @@ export const FOLLOW_DEFAULTS = {
 	maxSpeed: 2.8,
 	/** where a rail dolly opens: the authored head or legacy auto placement */
 	railStartMode: "head",
-	/** hard cap on rail-dolly travel in metres per second */
-	maxDollySpeed: 4,
+	/** optional cap on rail-dolly travel (m/s); none, so the rail's schedule sets the speed */
+	maxDollySpeed: Infinity,
 	/** EMA weight for the BEHIND direction; slow on purpose, so a corner
 	 * sweeps the trailing position gradually and the camera cuts the corner
 	 * the way a steadicam op does instead of whipping around the subject.
@@ -412,8 +403,9 @@ function nearestS(rail, point) {
  * arc positions can refine the timed target, but they can never make the
  * dolly stop at the first point that happens to match the preference.
  * The operator aims exactly as in the free follow. The timed target and its
- * local distance correction are both speed-capped, so the dolly never
- * teleports across the stage.
+ * local distance correction move through a critically damped spring
+ * (dolly-spring.js), so the dolly never teleports; a speed cap applies only
+ * when one is set.
  */
 export function buildRailFollowTrack(subject, fps, rail, params = {}) {
 	const p = { ...FOLLOW_DEFAULTS, searchWindow: 2.5, distanceInfluence: 0.35, ...params };
