@@ -160,8 +160,34 @@ const report = {};
 	const [d] = await look("new", [0], id);
 	report.newFigure = { top: d.skinTop, bottom: d.skinBottom };
 	assert.ok(Math.abs(d.skinTop - d.skinBottom - 1.49) < 0.02, `standing it is 1.49 m tall (${(d.skinTop - d.skinBottom).toFixed(3)} m)`);
-	await act("character.remove", { characterId: id });
 	console.log(`new figure at scale 1: ${(d.skinTop - d.skinBottom).toFixed(3)} m standing`);
+	// the scale knob of its gizmo reads and writes the character's scale: a small pull outwards makes it a little larger
+	await act("view.select", { selection: { kind: "character", id } });
+	const key = (type, code, k) => send("Input.dispatchKeyEvent", { type, code, key: k, windowsVirtualKeyCode: k.toUpperCase().charCodeAt(0) });
+	await key("keyDown", "KeyR", "r"); await key("keyUp", "KeyR", "r");
+	await sleep(800);
+	const knobs = await evaluate(`(async () => {
+		const { HANDLE_PROXY_FLAG } = await import("/src/gizmo-claim.js"), qa = window.__cozyclay;
+		let root = qa.rigs[${JSON.stringify(id)}]; while (root.parent) root = root.parent; root.updateMatrixWorld(true);
+		const r = document.elementFromPoint(innerWidth * 0.45, innerHeight * 0.4).getBoundingClientRect(), out = [];
+		root.traverse(n => { if (n.isMesh && n.userData?.[HANDLE_PROXY_FLAG]) { const at = n.getWorldPosition(new (n.position.constructor)()).project(qa.activeCam); out.push([r.x + (at.x + 1) / 2 * r.width, r.y + (1 - at.y) / 2 * r.height]); } });
+		return out;
+	})()`);
+	assert.ok(knobs.length > 0, "the scale gizmo is shown");
+	const scaleNow = () => evaluate(`window.__cozyclay.characters.find(c => c.id === ${JSON.stringify(id)}).scale`);
+	for (const [x, y] of knobs) {
+		await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+		await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+		for (let k = 1; k <= 3; k++) await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + k, y: y - k, button: "left" });
+		await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + 3, y: y - 3, button: "left", clickCount: 1 });
+		await sleep(400);
+		if (await scaleNow() !== 1) break;
+	}
+	report.knob = await scaleNow();
+	assert.ok(report.knob > 1 && report.knob <= 1.2, `a 3 px pull of the scale knob: scale 1 -> ${report.knob}`);
+	await key("keyDown", "KeyW", "w"); await key("keyUp", "KeyW", "w");
+	await act("character.remove", { characterId: id });
+	console.log(`scale knob: a 3 px pull takes scale 1 to ${report.knob}`);
 }
 
 // --- the spec kept with the take: install, reload, undo, duplicate, the describe answer ---

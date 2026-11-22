@@ -25,12 +25,11 @@ export const lookBody = (look = LAUNCHED) => BODY[look] ?? 1;
 export const bodyScale = (character, look = LAUNCHED) => (Number.isFinite(character?.scale) ? character.scale : 1) * (character?.model === LOOK_RIG ? lookBody(look) : 1);
 
 /** The scales a stored row may hold: the Studio's limits of a character's scale ({ min, max }), and for a character of
- *  the rig the looks are drawn over every size those limits give under any look's body, so a row carried over from
- *  another look (carriedOver) keeps its size at both ends of the range. */
+ *  the rig the looks are drawn over as far up as the largest body any look's limit allows, so a row carried over from a
+ *  look of a larger body (carriedOver) keeps its size up to that limit. Under the rig's own body: the limits themselves. */
 export function scaleRoom({ min, max }, model, look = LAUNCHED) {
 	if (model !== LOOK_RIG) return { min, max };
-	const to = lookBody(look), bodies = [1, ...Object.values(BODY)];
-	return { min: Math.min(min, min * Math.min(...bodies) / to), max: Math.max(max, max * Math.max(...bodies) / to) }; // as carriedOver multiplies
+	return { min, max: Math.max(max, max * Math.max(1, ...Object.values(BODY)) / lookBody(look)) }; // as carriedOver multiplies
 }
 
 /** A size the engine built (a share of the rig's own body) as a character's scale of the look's body `body`: the size

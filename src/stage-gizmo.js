@@ -36,17 +36,20 @@ function takeBodyOffset(clip, frame, rotDeg, scale = 1) {
 
 export function characterGizmoObject(gizmoView, entry) {
 	if (!gizmoView) return null;
+	// its box is the body at scale 1 (its look's body, figure.js) and its scale the character's own: the gizmo sits at the
+	// size the body stands at, and the scale knob reads and writes the character's scale
+	const unit = entry ? bodyScale({ model: entry.model }) : 1;
 	return {
 		id: "__character__",
 		x: gizmoView.position[0],
 		y: gizmoView.position[1],
 		z: gizmoView.position[2],
-		height: 1.15,
-		footprint: { width: 0.6, depth: 0.6 },
+		height: 1.15 * unit,
+		footprint: { width: 0.6 * unit, depth: 0.6 * unit },
 		rotY: gizmoView.rot ?? entry?.rot ?? 0,
-		scaleX: entry ? bodyScale(entry) : 1,
-		scaleY: entry ? bodyScale(entry) : 1,
-		scaleZ: entry ? bodyScale(entry) : 1,
+		scaleX: entry?.scale ?? 1,
+		scaleY: entry?.scale ?? 1,
+		scaleZ: entry?.scale ?? 1,
 	};
 }
 

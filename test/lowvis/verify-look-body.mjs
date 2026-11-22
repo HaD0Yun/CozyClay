@@ -128,22 +128,22 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 	console.log("ok stages: one stored under the cube's body opens with each rig character as large as before; the rig's own is byte-stable");
 }
 
-// --- 6: a stored scale at either end of the Studio's limits keeps its size through the carry ---
+// --- 6: a stored scale up to the Studio's largest keeps its size through the carry; the rig's own body keeps its limits ---
 {
 	const LIMITS = { min: 0.2, max: 3 }, room = look => scaleRoom(LIMITS, TRACK_RIG, look), inRoom = (v, r) => v >= r.min && v <= r.max;
-	assert.deepEqual(room(null), { min: LIMITS.min * B, max: 3 }, "the rig's own body: down to the smallest body of a look");
-	assert.equal(room("cube").min, 0.2, "the Studio's own limit is not moved by rounding");
+	assert.deepEqual(room(null), LIMITS, "the rig's own body: the Studio's limits, as before");
+	assert.deepEqual(room("block"), LIMITS);
+	assert.equal(room("cube").min, 0.2);
 	assert.ok(room("cube").max > 3.7 && room("cube").max < 3.71);
 	assert.deepEqual(scaleRoom(LIMITS, "y-bot-tpose", "cube"), LIMITS, "another model: the Studio's limits");
 	for (const s of [0.2, 0.5, 0.81, 2.43, 2.6, 3]) {
 		const over = carriedOver({ model: TRACK_RIG, scale: s }, undefined, "cube"), back = carriedOver({ model: TRACK_RIG, scale: over.scale }, B, null);
 		assert.ok(inRoom(over.scale, room("cube")), `a rig-body row at ${s} fits under the cube look (${over.scale})`);
 		assert.ok(Math.abs(bodyScale(over, "cube") - s) < 1e-12, "and stands as large");
-		const down = carriedOver({ model: TRACK_RIG, scale: s }, B, null);
-		assert.ok(inRoom(down.scale, room(null)) && inRoom(back.scale, room(null)), `a cube-body row at ${s} fits under the rig's body (${down.scale})`);
+		assert.ok(inRoom(back.scale, room(null)) && Math.abs(back.scale - s) < 1e-12, "and back under the rig's body");
 	}
 	assert.equal(scaleOf(0.81 * 0.9, B), 0.9); assert.equal(scaleOf(1.23456789, 1), 1.23456789, "the rig's own body: the size itself");
-	console.log("ok limits: a carried row keeps its size from 0.2 to 3 of either body");
+	console.log("ok limits: a carried row keeps its size from 0.2 to 3 of the rig's body");
 }
 rmSync(tmp, { recursive: true, force: true });
 console.log("PASS verify-look-body");
