@@ -6,12 +6,15 @@ const diff = (a, b, path = "", out = []) => {
 	out.push(`${path}: ${String(JSON.stringify(a)).slice(0, 120)} -> ${String(JSON.stringify(b)).slice(0, 120)}`);
 	return out;
 };
-const NOTE = { en: "The motion this turn started was not stopped: nothing more of it is installed until a later message of yours asks for it or asks to stop it.", ko: "이 턴에서 시작한 모션 작성은 중지되지 않았어요. 다음 메시지에서 모션을 요청하거나 중지를 요청하기 전까지는 더 설치되지 않아요." };
-const HINT = { en: /^This motion was made for scale 1; the body is now [\d.]+, so the motion plays scaled and its contacts may be off\. Ask the agent to fit the motion to this size\.$/, ko: /^이 모션은 크기 1에 맞춰 만든 거예요\. 지금 몸 크기\([\d.]+\)와 달라서 모션이 비율만 바뀐 채 재생되고 접촉이 어긋날 수 있어요\. 에이전트에게 모션을 이 크기에 맞춰 달라고 요청하세요\.$/ };
-const TOAST = { en: "The motion was made for the old size. Ask the agent to fit it to the new one.", ko: "모션은 이전 크기에 맞춰 만든 거예요. 에이전트에게 새 크기에 맞춰 달라고 요청하세요." };
 
 export async function scenarios(t) {
 	const { ID, turn, stop, act, snapshot, last, writer, agent, gate, sleep, click, say, idle, waitFor, evaluate, panelShot, shot, pass, report, wants, assert, send, locale } = t;
+	// the page's words in the language this check runs in (QA_LOCALE), as the Studio's own ko(...) picks them
+	const ko = (en, korean) => (locale === "ko" ? korean : en);
+	const NOTE = ko("The motion this turn started was not stopped: nothing more of it is installed until a later message of yours asks for it or asks to stop it.", "이 턴에서 시작한 모션 작성은 중지되지 않았어요. 다음 메시지에서 모션을 요청하거나 중지를 요청하기 전까지는 더 설치되지 않아요.");
+	const HINT = ko(/^This motion was made for scale 1; the body is now [\d.]+, so the motion plays scaled and its contacts may be off\. Ask the agent to fit the motion to this size\.$/, /^이 모션은 크기 1에 맞춰 만든 거예요\. 지금 몸 크기\([\d.]+\)와 달라서 모션이 비율만 바뀐 채 재생되고 접촉이 어긋날 수 있어요\. 에이전트에게 모션을 이 크기에 맞춰 달라고 요청하세요\.$/);
+	const TOAST = ko("The motion was made for the old size. Ask the agent to fit it to the new one.", "모션은 이전 크기에 맞춰 만든 거예요. 에이전트에게 새 크기에 맞춰 달라고 요청하세요.");
+	const TRANSFORM = ko("Transform", "변환"), SCALE = ko("Scale", "크기");
 	const equal = async (before, label) => { const d = diff(before, await snapshot()); assert.deepEqual(d, [], `${label}: ${d.join(" | ")}`); };
 	const answer = results => results.filter(r => r.name === "motion_result" && !r.isError && r.value.draft !== true).at(-1)?.value;
 	const undone = results => results.filter(r => r.name === "undo_edit");
@@ -102,7 +105,7 @@ export async function scenarios(t) {
 		const stopped = await startAndStop("he lifts it higher", "a1", { wind: false });
 		assert.equal(writer.runs, runs + 1);
 		const note = await stoppedNote();
-		assert.ok(note.endsWith(NOTE[locale]), `the stopped turn's note: ${note}`);
+		assert.ok(note.endsWith(NOTE), `the stopped turn's note: ${note}`);
 		await panelShot(`outlive-1-stopped-${locale}`);
 		report.stopNote = note;
 		await waitFor(() => writer.steps > 0, "the writer compiled after the Stop");
@@ -117,7 +120,7 @@ export async function scenarios(t) {
 		assert.ok(agent.contexts.at(-1).includes("Studio motion observation: a motion that an earlier turn of this conversation started has ended and nothing of it is installed; motion_result answers it."), agent.contexts.at(-1).slice(-400));
 		assert.equal(answer(r).installed, true);
 		assert.notEqual(takeOf(await snapshot()).name, takeOf(before).name);
-		pass(`outlive: Stop leaves the writer running (the panel: "${NOTE[locale].slice(0, 46)}..."); nothing is installed until the next turn's motion_result, which installs it`);
+		pass(`outlive: Stop leaves the writer running (the panel: "${NOTE.slice(0, 46)}..."); nothing is installed until the next turn's motion_result, which installs it`);
 		assert.ok(!agent.contexts.at(-1).includes("USER'S WORDS") && (await turn("thanks", [])) && !agent.contexts.at(-1).includes("Studio motion observation: a motion"), "collected: the next turn is told nothing of it");
 
 		// 2. two stops in a row, a new motion while the first is written, a stop on request before any compile
@@ -237,8 +240,7 @@ export async function scenarios(t) {
 		await startAndStop("he looks at a stool beside him", "a9");
 		const start = agent.results.length;
 		await turn("how far is it?", [["result"], ["result"]], { wait: false });
-		await waitFor("[...document.querySelectorAll('.agent-panel *')].some(node => /Motion result|모션 결과/i.test(node.textContent ?? ''))", "the motion_result row").catch(() => {});
-		await sleep(600);
+		await sleep(1200); // its motion_result waits for the writer
 		gate("w8").open();
 		await waitFor(() => agent.results.slice(start).some(x => x.name === "motion_result" && x.value?.draft === true), "the draft answered in the later turn");
 		const draft = agent.results.slice(start).find(x => x.value?.draft === true).value;
@@ -329,11 +331,11 @@ export async function scenarios(t) {
 		assert.equal(await hint(), "", "a body of the motion's size: no note");
 		await sleep(2600); // a toast of the resize above is gone (a toast with the same words does not start its time again)
 		// the Scale slider of the Character panel, with the pointer
-		const head = await evaluate(`(() => { const head = [...document.querySelectorAll('.foldout-head')].find(h => h.offsetParent !== null && /^(Transform|변환)$/.test(h.querySelector('.foldout-title')?.textContent ?? '')); if (!head) return 'none'; head.dataset.qa = 'transform'; return head.getAttribute('aria-expanded'); })()`);
+		const head = await evaluate(`(() => { const head = [...document.querySelectorAll('.foldout-head')].find(h => h.offsetParent !== null && h.querySelector('.foldout-title')?.textContent === ${JSON.stringify(TRANSFORM)}); if (!head) return 'none'; head.dataset.qa = 'transform'; return head.getAttribute('aria-expanded'); })()`);
 		assert.notEqual(head, "none", "the Transform foldout of the Character panel");
 		if (head !== "true") await click("[data-qa=transform]");
 		await sleep(700); // the foldout opens
-		const range = await waitFor(`(() => { const s = [...document.querySelectorAll('.cslider')].find(c => c.offsetParent !== null && /^(Scale|크기)/.test(c.querySelector('.cslider-head span')?.textContent ?? '')); if (!s) return null; const i = s.querySelector('input[type=range]'); i.scrollIntoView({ block: 'center' }); const r = i.getBoundingClientRect(); return { x: r.x, y: r.y + r.height / 2, w: r.width, at: (Number(i.value) - Number(i.min)) / (Number(i.max) - Number(i.min)) }; })()`, "the Scale slider");
+		const range = await waitFor(`(() => { const s = [...document.querySelectorAll('.cslider')].find(c => c.offsetParent !== null && c.querySelector('.cslider-head span')?.textContent === ${JSON.stringify(SCALE)}); if (!s) return null; const i = s.querySelector('input[type=range]'); i.scrollIntoView({ block: 'center' }); const r = i.getBoundingClientRect(); return { x: r.x, y: r.y + r.height / 2, w: r.width, at: (Number(i.value) - Number(i.min)) / (Number(i.max) - Number(i.min)) }; })()`, "the Scale slider");
 		// a drag of the thumb to the left, with the pointer: press on it, move, release
 		const thumb = { x: range.x + 8 + (range.w - 16) * range.at, y: range.y };
 		await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...thumb });
@@ -342,8 +344,8 @@ export async function scenarios(t) {
 		await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: thumb.x - range.w * 0.12, y: thumb.y, button: "left", clickCount: 1 });
 		await waitFor(async () => (await hint()) !== "", "the size note in the panel");
 		const text = await hint(), toast = await evaluate("document.querySelector('.toast')?.textContent ?? ''");
-		assert.match(text, HINT[locale]);
-		assert.equal(toast, TOAST[locale], "and said as a toast when the size changed");
+		assert.match(text, HINT);
+		assert.equal(toast, TOAST, "and said as a toast when the size changed");
 		await shot(`size-1-slider-${locale}`);
 		report.size = { hint: text, toast, scale: (await snapshot()).characters.find(c => c.id === ID).scale };
 		// the agent's refit (no model) takes it away
@@ -374,7 +376,7 @@ export async function scenarios(t) {
 			if (await scaleNow() !== was) break;
 		}
 		assert.notEqual(await scaleNow(), was, "the knob changed the scale");
-		assert.ok((await hint()) !== "" && (await evaluate("document.querySelector('.toast')?.textContent ?? ''")) === TOAST[locale], `the knob's resize is told too: ${await hint()}`);
+		assert.ok((await hint()) !== "" && (await evaluate("document.querySelector('.toast')?.textContent ?? ''")) === TOAST, `the knob's resize is told too: ${await hint()}`);
 		await shot(`size-2-knob-${locale}`);
 		report.size.knob = { from: was, to: await scaleNow(), hint: await hint() };
 		await key("keyDown", "KeyW", "w"); await key("keyUp", "KeyW", "w");
