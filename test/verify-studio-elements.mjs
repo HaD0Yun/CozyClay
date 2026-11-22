@@ -127,6 +127,7 @@ function makeCase(entry) {
 		if (field === "environment") input.environment = "a rainy rooftop at dusk";
 		if (field === "style") input.style = "handheld 16mm, sodium streetlight";
 		if (field === "hasEnvSheet") input.hasEnvSheet = true;
+		if (field === "floor") input.floor = false;
 		if (field.startsWith("keyLight.")) input.keyLight = { x: -1.5, y: 7.25, z: 2.5, intensity: 2.75, warmth: 0.25, color: "#9db6e6" };
 		if (field.startsWith("lighting.")) input.lighting = { preset: "night", sky: "#0b1426", skyTop: "#020408", ambient: 0.6, hemiSky: "#34507f", hemiGround: "#0a0c12", fill: 0.25, fog: 0.45, exposure: 1.4, shadowSoftness: 0.75, envLight: 1.3, ao: 0.8, hdr: "builtin:night-street", hdrRotation: 30, hdrIntensity: 1.5, hdrBackground: false };
 		return { input, output: createSceneStage(input), read: (output) => field.includes(".") ? get(output, field) : field === "camera" ? output.shotAspect : output[field] };
@@ -214,6 +215,7 @@ const expected = new Map([
 	["stage.environment", "a rainy rooftop at dusk"],
 	["stage.style", "handheld 16mm, sodium streetlight"],
 	["stage.hasEnvSheet", true],
+	["stage.floor", false],
 	["shot.targetModel", "seedance-2.5"],
 	["shot.cameraRail", rail],
 	["object.renderer", "sphere"],
