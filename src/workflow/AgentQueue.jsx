@@ -9,7 +9,8 @@ import "./agent-queue.css";
 // A row being handed to the running turn reads so until the turn's stream says the model has it; then it leaves the
 // queue and joins the conversation.
 function headLine({ held }, streaming) {
-	if (held) return ko("Held after Stop. Send now sends a message; the rest follow when its turn ends.", "멈춤 뒤 보류 중이에요. 지금 보내기를 누르면 보내고, 그 턴이 끝나면 나머지가 이어서 가요.", "停止后已暂停。点“立即发送”发送一条，其余在该轮结束后依次发送。");
+	// held: after Stop, a reload, a return to this chat, a rate limit or a turn the editor could not start; none goes by itself
+	if (held) return ko("Held: nothing goes by itself. Send now sends a message; the rest follow when its turn ends.", "보류 중: 저절로 가지 않아요. 지금 보내기를 누르면 보내고, 그 턴이 끝나면 나머지가 이어서 가요.", "已暂停：不会自动发送。点“立即发送”发送一条，其余在该轮结束后依次发送。");
 	return streaming ? ko("Queued: each goes as the next turn when this one ends.", "대기 중: 이 턴이 끝나면 하나씩 다음 턴으로 보내요.", "排队中：本轮结束后逐条作为下一轮发送。") : ko("Queued", "대기 중", "排队中");
 }
 

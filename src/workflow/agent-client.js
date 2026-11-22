@@ -1402,7 +1402,8 @@ export function createAgentChatStore({
 				return;
 			}
 			const startedAt = clock();
-			const turn = { produced: false, failure: null, reviewable: false };
+			// opened: the sidecar answered the turn (its first frame at the latest), so this browser holds the session's owner cookie a steer needs
+			const turn = { produced: false, failure: null, reviewable: false }; turn.opened = new Promise((resolve) => { turn.open = resolve; });
 			activeTurn = turn;
 			// What the author attached to THIS message: an explicit list wins, the
 			// composer's pending pictures otherwise. A message from the composer
@@ -1423,7 +1424,7 @@ export function createAgentChatStore({
 			const signal = controller.signal;
 			try {
 				await transport.turn({
-					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => set({ openSession: id }),
+					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => { turn.open(); set({ openSession: id }); },
 					...(studio ? { surface: "studio", turnId, context } : {}),
 					sessionId: state.sessionId,
 					text: trimmed,
@@ -1432,11 +1433,11 @@ export function createAgentChatStore({
 					model: options.model,
 					effort: options.effort ?? undefined,
 					...(typeof options.supervisor === "boolean" ? { supervisor: options.supervisor } : {}), ...(options.tasks ? { tasks: true } : {}),
-				}, (event) => { sculptSketchFrame(event); applyEvent(event); }, signal);
+				}, (event) => { if (event?.type !== "done") turn.open(); sculptSketchFrame(event); applyEvent(event); }, signal);
 			} catch (error) {
 				if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) });
 			} finally {
-				if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
+				turn.open(); if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
 			}
 		},
 		// After a reload mid-turn: show its message again and follow the turn to its end (the next message waits, not busy).
@@ -1460,8 +1461,10 @@ export function createAgentChatStore({
 		 * draft where it is and reports the code it was refused with. */
 		async steer(text, options = {}) {
 			const trimmed = String(text ?? "").trim();
-			if (!trimmed) return { ok: false, code: "EMPTY", message: "" };
-			if (!state.streaming || !wireTurnId || typeof transport.steer !== "function") return { ok: false, code: "NO_ACTIVE_TURN", message: STEER_ERROR_COPY.NO_ACTIVE_TURN };
+			if (!trimmed) return { ok: false, code: "EMPTY", message: "" }; const ended = () => ({ ok: false, code: "NO_ACTIVE_TURN", message: STEER_ERROR_COPY.NO_ACTIVE_TURN }), turn = activeTurn;
+			if (!state.streaming || !wireTurnId || typeof transport.steer !== "function") return ended();
+			// A new chat's first turn: the owner cookie arrives with the sidecar's answer, so a steer before it would be refused.
+			await turn?.opened; if (activeTurn !== turn || !state.streaming || !wireTurnId) return ended();
 			const attachments = messageAttachments(Array.isArray(options.attachments) ? options.attachments : state.pendingAttachments), id = options.id ?? newId();
 			steering.set(id, { text: trimmed, attachments }); // before the answer: the turn may take it before the answer arrives
 			try {

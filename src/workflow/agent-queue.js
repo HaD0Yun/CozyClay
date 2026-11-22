@@ -95,7 +95,8 @@ export function createMessageQueue({ store, send = null, storage = globalThis.se
 			if (!store.getState().streaming) { set({ held: false }); start(row); return { ok: true, code: null, message: "" }; }
 			patchRow(id, { status: "sending" });
 			const result = await store.steer(row.text, { id: row.id, attachments: row.options.attachments });
-			if (!result.ok && state.rows.some((entry) => entry.id === id && entry.status === "sending")) patchRow(id, { status: "queued" });
+			// refused: queued again; when the turn ended meanwhile (its end skipped this row while it was sending), it goes now
+			if (!result.ok && state.rows.some((entry) => entry.id === id && entry.status === "sending")) { patchRow(id, { status: "queued" }); if (!streaming) queueMicrotask(next); }
 			return result;
 		},
 		steered(event) {

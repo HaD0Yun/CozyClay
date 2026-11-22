@@ -43,6 +43,11 @@ fake.fauxProvider.setResponses(Array.from({ length: 60 }, () => async context =>
 		if (messages.at(-1)?.role === "toolResult") await gate("A").promise;
 		return fauxAssistantMessage([fauxToolCall("inspect_studio", { scope: "scene" }, { id: `qa-inspect-${calls.length}` })]);
 	}
+	// [[slow]]: the first model call waits on gate C, then one step; nothing reaches the browser before it
+	if (words.includes("[[slow]]")) {
+		if (messages.at(-1)?.role === "user") { await gate("C").promise; return fauxAssistantMessage([fauxToolCall("inspect_studio", { scope: "scene" }, { id: `qa-inspect-${calls.length}` })]); }
+		return fauxAssistantMessage([fauxText("QA: the slow turn ended.")]);
+	}
 	if (words.includes("[[hold]]")) { await gate("B").promise; return fauxAssistantMessage([fauxText("QA: the held turn ended.")]); }
 	return fauxAssistantMessage([fauxText(`QA heard: ${words}`)]);
 }));
@@ -204,6 +209,29 @@ try {
 	await waitFor("document.querySelector('.agent-panel')?.dataset.agentState !== 'streaming'", "idle again");
 	assert.ok(calls.some(call => call.words === "after the stop"));
 	pass("Send now on a held row (no turn running) starts it as a new turn");
+
+	// 6. a browser that holds no owner cookie yet (a new chat's first turn on a fresh profile): Send now before the turn's
+	// first frame waits for the sidecar's answer (which brings the cookie) instead of being refused
+	await send("Network.enable"); await send("Network.clearBrowserCookies");
+	await click(".agent-new");
+	await waitFor("document.querySelectorAll('.agent-row.user').length === 0 && !document.querySelector('.agent-input').disabled", "a new conversation");
+	const before = calls.length;
+	await say("A new chat's first turn [[slow]]");
+	await waitFor("document.querySelector('.agent-panel')?.dataset.agentState === 'streaming'", "slow turn runs");
+	await say("on the first turn");
+	await waitFor("document.querySelectorAll('.agent-queue-row').length === 1", "one row on the first turn");
+	await click(`${rowSelector("on the first turn")}.querySelector('.agent-queue-send')`);
+	await sleep(1500);
+	assert.equal(await evaluate("document.querySelector('.agent-steer-notice')?.textContent ?? ''"), "", "Send now is not refused before the first frame");
+	assert.deepEqual(await rows(), ["sending:on the first turn"]);
+	assert.equal(calls.length, before + 1, "the first model call still thinks");
+	gate("C").open();
+	await waitFor("document.querySelectorAll('.agent-queue-row').length === 0 && document.querySelector('.agent-panel')?.dataset.agentState !== 'streaming'", "first-turn row delivered, idle");
+	const took = calls.slice(before).filter(call => call.lastRole === "user" && call.words === "on the first turn");
+	assert.equal(took.length, 1, `the model got it once, in the turn: ${JSON.stringify(calls.slice(before).map(call => [call.roles.join(","), call.words]))}`);
+	assert.ok(took[0].roles.includes("toolResult") && took[0].roles.filter(role => role === "user").length === 2, "inside the same turn, after its first step");
+	assert.deepEqual(await bubbles(), ["A new chat's first turn [[slow]]", "on the first turn"]);
+	pass(`a new chat's first turn with no owner cookie yet: Send now before the first frame waits, then the same turn's loop takes it at a step boundary (call reads [${took[0].roles.join(", ")}]); no refusal shown`);
 
 	assert.deepEqual(errors, [], `page errors: ${errors.join("\n")}`);
 	pass("no page errors");

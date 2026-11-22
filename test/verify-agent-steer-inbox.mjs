@@ -4,7 +4,7 @@
 // (Stop) is reported steer.dropped and never reaches a later turn; a turn that already ended takes nothing.
 // Also the inbox on a bare pi Agent, the way the lowvis motion writer (src/lowvis/pi/harness.mjs) uses it.
 import { Agent } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createAgentRunner } from "../bin/agent/agent-runner.mjs";
 import { createSteerInbox } from "../bin/agent/steer-inbox.mjs";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
@@ -45,8 +45,6 @@ const textOf = (message) => JSON.stringify(message?.content ?? "");
 }
 
 // --- Stop while the model writes: the unread message is dropped and never reaches the next turn -----------------------
-// (Stopped during a tool instead, the loop still files the tool's result and reads the queue before it ends: such a
-// message is in the conversation, reported received, and the next turn's model reads it.)
 {
 	const started = deferred(), gate = deferred(), calls = [];
 	const fake = createFakeModel();
@@ -71,6 +69,36 @@ const textOf = (message) => JSON.stringify(message?.content ?? "");
 	for await (const frame of session.start({ text: "next request", model: "faux/scripted" })) second.push(frame);
 	const last = calls.at(-1)?.messages ?? [];
 	expect("the next turn's model call does not carry the dropped message", !JSON.stringify(last).includes("never read") && JSON.stringify(last).includes("next request"), JSON.stringify(last.map((message) => message.role)));
+	await runner.close();
+}
+
+// --- Stop while a tool runs: the loop files the tool's result and reads its steering queue on the way out, so the Stop
+// takes the unread message back first. The panel's stream is cut at Stop and puts the row back in the queue: the model
+// must not have it, or a second Send now would give it twice. Both ways of stopping: the turn's signal, session.abort().
+for (const how of ["signal", "abort"]) {
+	const started = deferred(), gate = deferred(), calls = [];
+	const fake = createFakeModel();
+	fake.fauxProvider.setResponses([
+		async (context) => { calls.push(context); return fauxAssistantMessage([fauxToolCall("work", {}, { id: "t1" })]); },
+		async (context) => { calls.push(context); return fauxAssistantMessage([fauxText("should not run")]); },
+		async (context) => { calls.push(context); return fauxAssistantMessage([fauxText("second turn answer")]); },
+	]);
+	const tools = [{ name: "work", parameters: { type: "object", properties: {}, additionalProperties: false }, handler: async () => { started.resolve(); await gate.promise; return { ok: true }; } }];
+	const controller = new AbortController();
+	const runner = createAgentRunner({ models: fake.models, fauxProvider: fake.fauxProvider, tools });
+	const session = await runner.openSession(`inbox-stop-tool-${how}`, { surface: "workflow" });
+	const frames = [];
+	const run = (async () => { for await (const frame of session.start({ text: "long tool", model: "faux/scripted", signal: controller.signal })) frames.push(frame); })();
+	await started.promise;
+	await session.steer("sent during the tool", [], "row-10");
+	if (how === "signal") controller.abort(); else await session.abort("studio stop");
+	gate.resolve();
+	await run;
+	expect(`Stop (${how}) during a tool: the unread message is reported dropped, never received`, frames.some((frame) => frame.type === "steer.dropped" && frame.id === "row-10") && !frames.some((frame) => frame.type === "steer.received"), JSON.stringify(frames.map((frame) => frame.type)));
+	expect(`Stop (${how}) during a tool: no model call of the stopped turn has it`, !JSON.stringify(calls).includes("sent during the tool"), String(calls.length));
+	for await (const frame of session.start({ text: "next request", model: "faux/scripted" })) void frame;
+	const last = calls.at(-1)?.messages ?? [];
+	expect(`Stop (${how}) during a tool: the next turn's model call does not carry it`, !JSON.stringify(last).includes("sent during the tool") && JSON.stringify(last).includes("next request"), JSON.stringify(last.map((message) => message.role)));
 	await runner.close();
 }
 

@@ -48,7 +48,7 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 	const signal = controller.signal;
 	// what the user sends while the motion writer works goes to it as typed, between its steps (the route's steer)
 	const inbox = createSteerInbox({ received: id => send({ type: "steer.received", id }), dropped: id => send({ type: "steer.dropped", id }) });
-	session.turnSteer = inbox.steer;
+	session.turnSteer = inbox.steer; signal.addEventListener("abort", inbox.close, { once: true }); // Stop: an unread one is dropped, never read on the way out
 	try {
 		try {
 			let compiles = 0;

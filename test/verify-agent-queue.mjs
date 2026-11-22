@@ -25,10 +25,13 @@ function scriptedTransport() {
 	return {
 		turns, steers,
 		answerSteer(fn) { steerAnswer = fn; },
+		// admit: the sidecar's answer (onOpen, as the HTTP transport calls it); held back while `transport.admit` is false
+		admit: true,
 		turn(request, onEvent, signal) {
 			request.onTurnId?.(`wire-${turns.length + 1}`);
+			if (this.admit) request.onOpen?.(request.sessionId);
 			return new Promise((resolve) => {
-				const turn = { request, emit: onEvent, end: () => { onEvent({ type: "done" }); resolve(); } };
+				const turn = { request, emit: onEvent, open: () => request.onOpen?.(request.sessionId), end: () => { onEvent({ type: "done" }); resolve(); } };
 				signal?.addEventListener("abort", () => resolve(), { once: true });
 				turns.push(turn);
 			});
@@ -195,6 +198,58 @@ const rowTexts = (queue) => queue.getState().rows.map((row) => `${row.status}:${
 	store.restore([], sessionId);
 	expect("back in the first conversation, its rows are there again", queue.getState().rows.length === 1);
 	expect("nothing was sent on its own", sent.length === 0);
+}
+
+// --- Send now before the sidecar answered the turn (a new chat's first turn: its owner cookie comes with that answer) --
+{
+	const { transport, store, queue } = setup();
+	transport.admit = false;
+	void store.send("first turn of a new chat", {});
+	queue.add("right away", {});
+	const pending = queue.sendNow(queue.getState().rows[0].id);
+	await tick(); await tick();
+	expect("Send now waits for the sidecar's answer: no steer request before it", transport.steers.length === 0 && queue.getState().rows[0].status === "sending", JSON.stringify(transport.steers));
+	transport.turns[0].open();
+	const result = await pending;
+	expect("then the steer goes, to the same turn", result.ok === true && transport.steers.length === 1 && transport.steers[0].turnId === "wire-1", JSON.stringify(result));
+	transport.turns[0].end();
+	await tick(); await tick();
+	transport.turns[1]?.end();
+	await tick();
+}
+{
+	const { transport, store, queue } = setup();
+	transport.admit = false;
+	void store.send("never admitted", {});
+	queue.add("waits", {});
+	const pending = queue.sendNow(queue.getState().rows[0].id);
+	await tick();
+	transport.turns[0].end();
+	const result = await pending;
+	expect("a turn that ends before the answer: no steer is sent, the Send now answers the turn ended", result.ok === false && result.code === "NO_ACTIVE_TURN" && transport.steers.length === 0, JSON.stringify(result));
+	await tick(); await tick();
+	expect("and the row goes as the next turn, once", transport.turns.length === 2 && transport.turns[1].request.text === "waits" && queue.getState().rows.length === 0, JSON.stringify({ turns: transport.turns.length, rows: rowTexts(queue) }));
+	transport.turns[1]?.end();
+	await tick();
+}
+
+// --- Send now as the turn ends: the refusal (409) arrives after the end, and the row still goes ------------------------
+{
+	const { transport, store, queue } = setup();
+	void store.send("ending", {});
+	queue.add("at the end", {});
+	let refuse;
+	transport.answerSteer(() => new Promise((_, reject) => { refuse = () => reject(Object.assign(new Error("409"), { status: 409, code: "NO_ACTIVE_TURN" })); }));
+	const pending = queue.sendNow(queue.getState().rows[0].id);
+	await tick();
+	transport.turns[0].end();
+	await tick(); await tick();
+	refuse();
+	await pending;
+	await tick(); await tick();
+	expect("a Send now refused after its turn ended goes as the next turn by itself, once", transport.turns.length === 2 && transport.turns[1].request.text === "at the end" && queue.getState().rows.length === 0, JSON.stringify({ turns: transport.turns.length, rows: rowTexts(queue) }));
+	transport.turns[1]?.end();
+	await tick();
 }
 
 if (failures) { console.error(`${failures} FAILURES`); process.exit(1); }

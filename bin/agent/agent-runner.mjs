@@ -537,8 +537,9 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 			const controller = input.signal ? null : new AbortController();
 			const signal = input.signal || controller.signal;
 			state.lastInput.signal = signal;
-			// The caller's own signal (a Stop, a disconnect, a deadline) aborts the turn exactly like session.abort() does.
-			const cancel = () => { if (state.active) state.active.abortRequested = true; state.agent?.abort(); };
+			// The caller's own signal (a Stop, a disconnect, a deadline) aborts the turn exactly like session.abort() does. A
+			// steer still unread is taken back first (dropped): a loop stopped during a tool would read it as it winds down.
+			const cancel = () => { if (state.active) state.active.abortRequested = true; inbox.close(); state.agent?.abort(); };
 			const run = (async () => {
 				let removeEventListeners;
 				try {
@@ -624,7 +625,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				// settled tool outcome to show instead (a Studio Stop that the motion
 				// runtime acknowledged) and is only using this abort to stop the model
 				// from being prompted again.
-				if (state.active) { state.active.abortRequested = true; if (quiet) state.active.quietAbort = true; }
+				if (state.active) { state.active.abortRequested = true; if (quiet) state.active.quietAbort = true; state.active.inbox.close(); } // as cancel above
 				if (!state.agent?.state.isStreaming) return { ok: false, reason };
 				state.agent.abort();
 				return { ok: true };
