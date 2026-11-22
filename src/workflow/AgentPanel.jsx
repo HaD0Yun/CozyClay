@@ -45,7 +45,7 @@ import { TurnSteps } from "./AgentTurnSteps.jsx";
 import { PlanCard } from "./AgentPlanCard.jsx";
 import { ReplyText } from "./AgentReplyText.jsx";
 import { stepLabel, turnLayout } from "./agent-turn.js"; import { createMessageQueue } from "./agent-queue.js"; import { AgentQueue } from "./AgentQueue.jsx";
-import { editableMessageId, resendEdited } from "./agent-edit.js"; import { AgentUserBubble } from "./AgentUserBubble.jsx";
+import { checkEdit, editableMessageId, resendEdited, steeredAfter } from "./agent-edit.js"; import { AgentUserBubble } from "./AgentUserBubble.jsx";
 import { connectAuthState, connectFinished, connectOpened, connectStarted, modelChanged } from "./connect-telemetry.js";
 import { noteChipDraft, noteDraftConsumed, noteDraftInput, stagePrompt } from "./prompt-telemetry.js";
 
@@ -637,7 +637,9 @@ export default function AgentPanel({
 	// at its next step; a refusal (the turn ended meanwhile) says so and the row stays queued.
 	const queueDraft = useCallback(() => { if (queue.add(draft, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, attachments: store.getState().pendingAttachments })) { setAttachNotice(null); store.setDraft(""); store.clearAttachments(); noteDraftConsumed(); } }, [attachFrame, draft, effort, model, queue, store, taskMode]);
 	const sendNow = useCallback(async (id) => { setSteerNotice(""); const result = await queue.sendNow(id); if (!result.ok && result.message) setSteerNotice(result.message); }, [queue]);
-	// The edit on the last message (agent-edit.js): sent with the composer's model and effort, the message's own frame switch and pictures; not in task mode.
+	// The edit on the last message (agent-edit.js): sent with the composer's model and effort, the message's own frame switch and pictures. The pencil
+	// asks the sidecar first: a message sent with Tasks on (or one that is not the last turn any more) says why it cannot be edited.
+	const canEdit = useCallback(async (item) => { setSteerNotice(""); const result = await checkEdit({ store, transport, itemId: item.id }); if (!result.ok && result.message) setSteerNotice(result.message); return result.ok; }, [store, transport]);
 	const editMessage = useCallback(async (item, text, attachments) => { setSteerNotice(""); const result = await resendEdited({ store, transport, itemId: item.id, text, attachments, options: { attachFrame: Boolean(item.attachFrame), model, effort: effort ?? undefined } }); if (!result.ok && result.message) setSteerNotice(result.message); return result; }, [effort, model, store, transport]);
 
 	// A sign-in that succeeds is an authentication transition, not a status
@@ -763,7 +765,7 @@ export default function AgentPanel({
 	// can send to: the composer stays shut instead of submitting a turn the
 	// provider would refuse.
 	const composerDisabled = panelState === "rate-limited" || !model || !modelIsSelectable(modelProviders, model);
-	const editableId = surface === "studio" && !taskMode && typeof transport.rewind === "function" ? editableMessageId(items) : null;
+	const editableId = surface === "studio" && typeof transport.rewind === "function" ? editableMessageId(items) : null;
 	useEffect(() => {
 		if (hidden) focusPendingRef.current = false;
 		if (hidden || composerDisabled || !focusPendingRef.current) return;
@@ -880,7 +882,7 @@ export default function AgentPanel({
 					<div className="agent-row"><TurnSteps block={entry} now={activityNow} toolLabels={presentation.toolLabels} formatClock={formatTurnClock} onRetry={() => runTurn(chat.lastPrompt, "retry_button")} /></div>{taskMode && layout[index + 1]?.item?.kind !== "assistant" && <TaskRows steps={entry.steps} />}
 				</Fragment>;
 				const { item } = entry;
-				if (item.kind === "user") return <AgentUserBubble key={item.id} item={item} editable={item.id === editableId} running={streaming} disabled={composerDisabled} onEdit={editMessage} onOpen={setLightbox} />;
+				if (item.kind === "user") return <AgentUserBubble key={item.id} item={item} editable={item.id === editableId} running={streaming} steered={item.id === editableId && steeredAfter(items, item.id)} disabled={composerDisabled} onCheck={canEdit} onEdit={editMessage} onOpen={setLightbox} />;
 				if (item.kind === "assistant") return <Fragment key={item.id}><div className="agent-row assistant"><div className="agent-assistant-text"><ReplyText text={item.text} tail={streaming && <span className="agent-caret">▌</span>} /></div></div>{taskMode && layout[index - 1]?.type === "steps" && <TaskRows steps={layout[index - 1].steps} />}</Fragment>;
 				if (item.kind === "job") return <div className="agent-row" key={item.id}><JobCard job={item} onStop={stopTurn} onAccept={(job) => store.acceptJob(job.jobId)} /></div>;
 				if (item.kind === "receipt") return <div className="agent-row" key={item.id}><ReceiptCard item={item} /></div>;

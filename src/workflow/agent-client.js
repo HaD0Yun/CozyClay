@@ -602,8 +602,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 		async loadSession(sessionId, { restore = false } = {}) {
 			return request(`/agent/sessions/${encodeURIComponent(sessionId)}${restore ? "?restore=1" : ""}`);
 		},
-		// The edit on the last message: turn turnId (stopped first if it runs) leaves the conversation (bin/agent/session-rewind.mjs).
-		rewind: (sessionId, turnId) => request(`/agent/sessions/${encodeURIComponent(sessionId)}/rewind`, { method: "POST", body: JSON.stringify({ turnId }) }),
+		// The edit on the last message: turn turnId (stopped first if it runs) leaves the conversation; check: only ask whether it would (bin/agent/session-rewind.mjs).
+		rewind: (sessionId, turnId, check = false) => request(`/agent/sessions/${encodeURIComponent(sessionId)}/rewind`, { method: "POST", body: JSON.stringify({ turnId, ...(check ? { check: true } : {}) }) }),
 		// Legacy callers pass a session id; a Studio host passes the frozen stop
 		// envelope so the sidecar can cancel one turn and one owned job.
 		async stop(target) {
