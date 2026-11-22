@@ -35,7 +35,7 @@ import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
 import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
-import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js";
+import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { unitScale } from "./motion3-scale.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -116,14 +116,6 @@ export function register(registry, ports) {
 		if (!sk) fail("TARGET_NOT_READY", `${characterName(character)} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
 		return sk;
 	};
-	// motion compile computes for the body at scale 1: an action that compiles is refused on a scaled character, with what
-	// that action does; reading the drawn bones (motion.sample) is not compiling and reads at the character's own scale
-	const unitScale = (character, action = null) => {
-		const s = character.scale ?? 1;
-		if (Math.abs(s - 1) <= 1e-6) return;
-		fail("TARGET_NOT_READY", action ? `${action} compiles the installed take's spec again, which motion compile does only for a body at scale 1; ${characterName(character)}'s scale is ${s}. motion.sample reads its bones as drawn, at that scale.`
-			: "Set the character's scale back to 1 before compiling motion.");
-	};
 	// the scene a compile sees: the objects, and the other characters' installed takes as moving bodies (people.js)
 	const sceneFor = character => {
 		const state = ports.state();
@@ -145,8 +137,7 @@ export function register(registry, ports) {
 	 * names), qa, ..., take when bake is given }, at once or as a promise. opts: probes, checks, lenient, repair.
 	 */
 	const compile = (character, spec, opts = {}, bake, taskId = null, scene = sceneFor(character)) => {
-		rigOf(character);
-		unitScale(character);
+		rigOf(character); unitScale(character); // motion compile computes for the body at scale 1 (motion3-scale.js)
 		const placed = bake && { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0, ...bake };
 		const rigs = rigsOf(character, scene);
 		return runner.run({ model: character.model, ...(Object.keys(rigs).length ? { rigs } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
@@ -256,8 +247,7 @@ export function register(registry, ports) {
 		})));
 	} });
 	registry.register({ ...declarations[1], available: mounted, run({ characterId, checks }) {
-		const character = characterOf(ports, characterId), take = installed(characterId);
-		unitScale(character, "motion.qa");
+		const character = characterOf(ports, characterId), take = installed(characterId); unitScale(character, "motion.qa");
 		return after(compile(character, take.spec, { checks }), r => { const qa = flag(r.qa, take); return { affectedIds: [], summary: `QA ${qaSay(qa)}, ${blockingSay(qa)}${adjustedSay(r.notes ?? [])}.`,
 			output: report({ ...r, qa }, adjustedOf(r.notes ?? [])), ...workerWarning() }; });
 	} });
@@ -298,15 +288,13 @@ export function register(registry, ports) {
 		if (wanted) return answer(store.parts(wanted) ?? unknownSpec("specId", wanted, "compile it again"), wanted);
 		if (!characterId) fail("INVALID_ARGUMENT", "motion.report needs specId (from a motion.compile or motion.qa answer) or characterId (its installed take).");
 		const take = installed(characterId), id = specIdOf(take.spec), kept = store.parts(id);
-		if (kept) return answer(kept, id);
-		unitScale(characterOf(ports, characterId), "motion.report");
+		if (kept) return answer(kept, id); else unitScale(characterOf(ports, characterId), "motion.report");
 		return after(compile(characterOf(ports, characterId), take.spec), r => { const out = report(r, {}); return answer(store.parts(out.specId), out.specId); });
 	} });
 	// motion.keyObject (C14): one key of a held object (or a hinge angle) in the installed take's spec, compiled
 	// and installed whatever QA says (a user edit), as one undo entry
 	registry.register({ ...declarations[5], available: mounted, target: args => args.characterId, run({ characterId, ...args }, context) {
-		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character);
-		unitScale(character, "motion.keyObject");
+		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character); unitScale(character, "motion.keyObject");
 		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args");
 		return after(compile(character, spec, { lenient: true }, { prompt: take.prompt }), r => {
 			const timing = put(character, r.take, context);
