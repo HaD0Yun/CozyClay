@@ -23,3 +23,11 @@ export const lookBody = (look = LAUNCHED) => BODY[look] ?? 1;
 /** How large a character stands in the world, as a share of its model's own body: its scale times its look's body
  *  (only a character of the rig the looks are drawn over has one). */
 export const bodyScale = (character, look = LAUNCHED) => (Number.isFinite(character?.scale) ? character.scale : 1) * (character?.model === LOOK_RIG ? lookBody(look) : 1);
+
+/** A stored character row whose scale is of the body `stored` (a stage's figureBody, scenes.js; 1 when not given) as a
+ *  row of this page's look: a character of the rig the looks are drawn over gets the scale that stands it as large as
+ *  before; any other row, or one of the same body, is the row itself. */
+export function carriedOver(row, stored, look = LAUNCHED) {
+	const from = Number.isFinite(stored) && stored > 0 ? stored : 1, to = lookBody(look);
+	return from === to || row?.model !== LOOK_RIG ? row : { ...row, scale: (Number.isFinite(row.scale) ? row.scale : 1) * from / to };
+}

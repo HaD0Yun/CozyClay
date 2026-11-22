@@ -7,8 +7,7 @@ import { shotAtFrame } from "./cuts.js";
 import { sampleAt } from "./sample-at.js";
 import { probeVisibility } from "./motion/playback-probe.js";
 import { RENDER_ACTIVITY_EVENT } from "./use-render-activity.js";
-import { reportGlLost } from "./crash-telemetry.js";
-import { bodyScale } from "./lowvis/studio/figure.js";
+import { reportGlLost } from "./crash-telemetry.js"; import { bodyScale } from "./lowvis/studio/figure.js";
 import { PRESETS, editorFrameForSubject } from "./stage-startup-defaults.js";
 
 /** Selection marker for the picked cast member: a Unity-style XYZ tripod

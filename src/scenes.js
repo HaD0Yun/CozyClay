@@ -11,8 +11,7 @@ import { normalizeTakeSource } from "./domains/motion/take-source.js"; import { 
 import { createKeyLight, normalizeLighting } from "./stage-lighting.js";
 // The timeline clock lives in timeline-fps.js (three-free, so the agent
 // sidecar can import it); re-exported here for every scene-side caller.
-import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js";
-import { bodyScale } from "./lowvis/studio/figure.js";
+import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js"; import { carriedOver, lookBody } from "./lowvis/studio/figure.js";
 
 const CHARACTER_POSITION_LIMITS = elementByPath("character.position");
 const CHARACTER_SCALE_LIMITS = elementByPath("character.scale");
@@ -255,15 +254,13 @@ const LEGACY_CAST_KEYS = Object.freeze(["charA", "charB", "showB", "poseA", "pos
 export function createSceneStage(stage = null) {
 	const source = plainObject(stage) ? stage : {};
 	// With no cast list, a pre-v3 envelope folds its fixed cast in; anything else is an empty stage.
-	const cast = Array.isArray(source.characters)
-		? source.characters.map((entry, index) => createCharacterEntry(entry, index))
-		: LEGACY_CAST_KEYS.some((key) => Object.hasOwn(source, key)) ? migrateLegacyCast(source) : [];
 	// figureBody: the body the stage's rig characters' scales are of (src/lowvis/studio/figure.js lookBody; 1, left out:
 	// the rig's own body). A stage stored under a look of another body than this page's is carried over: each such
 	// character gets the scale that stands it exactly as large as before, so it looks and plays the same (its take, the
 	// props on its bones and the tracked props are not touched; they are of the world size, which stays).
-	const body = bodyScale({ model: NEW_CHARACTER_MODEL }), stored = Number.isFinite(source.figureBody) && source.figureBody > 0 ? source.figureBody : 1;
-	const characters = stored === body ? cast : cast.map((entry, index) => entry.model === NEW_CHARACTER_MODEL ? createCharacterEntry({ ...entry, scale: entry.scale * stored / body }, index) : entry);
+	const characters = Array.isArray(source.characters)
+		? source.characters.map((entry, index) => createCharacterEntry(carriedOver(entry, source.figureBody), index))
+		: LEGACY_CAST_KEYS.some((key) => Object.hasOwn(source, key)) ? migrateLegacyCast(source) : [];
 	// Unknown extra keys (shotAspect was one, once) ride along so the envelope
 	// stays sealed-but-lossless; legacy cast keys are deliberately dropped.
 	const extras = {};
@@ -272,8 +269,7 @@ export function createSceneStage(stage = null) {
 	}
 	return {
 		...extras,
-		characters,
-		...(body === 1 ? {} : { figureBody: body }),
+		characters, ...(lookBody() === 1 ? {} : { figureBody: lookBody() }),
 		hasCharSheet: source.hasCharSheet === true,
 		// Persisted exactly like shotAspect: part of the stage envelope, written
 		// on every save and read back on load.
