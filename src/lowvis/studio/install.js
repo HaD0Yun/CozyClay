@@ -119,14 +119,16 @@ const turnBetween = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a
 /** True when a listed object attached to a body rides the same bone of the same body in this clip and its place or turn
  *  there is not what the last install put (existing.attachedBefore, motion-kept.mjs), or no install put it there: the user
  *  or the agent set it, so it stays. The clip still decides THAT it rides the bone; a detach resets it. On a body whose
- *  take keeps a source older than that record (attachedBefore.older) the clip's place is taken, as before. */
+ *  take does not say what its install attached (attachedBefore.older: a take with no kept source, or a source written
+ *  before the list was kept) the clip's place is taken, as before. */
 function keepsPlace(existing, clip, ride, id, known) {
 	const carrier = existing?.characters?.[clip.characters[ride.index]?.id];
 	return Boolean(carrier) && known.attach.characterId === carrier && (known.attach.bone ?? "root") === ride.bone && placeSetLater(existing.attachedBefore, id, known);
 }
 
 /** True when the place and turn on its bone of an attached object (known: a studioScene ids.props entry) were set after
- *  the install that put it there, or no install put it there; before: motion-kept.mjs attachedBefore, or none (a caller
+ *  the install that put it there, or no install put it there (it rides a character none of whose takes lists it, and
+ *  that take, when there is one, does list what it attached); before: motion-kept.mjs attachedBefore, or none (a caller
  *  that does not know what installs put there: false). */
 export function placeSetLater(before, id, known) {
 	if (!before || !known?.attach) return false;
