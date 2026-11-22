@@ -67,18 +67,21 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	// and the sentence on which of several actions an edit's entries name (verify-motion-edit.mjs), taken out
 	const EDIT_ORDER = " Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order.";
 	const withoutOrder = text => text.replace(EDIT_ORDER, "");
+	// and the jump row and the look's joint focus and outline props (verify-frame-jumps.mjs), taken out and put back to the old line
+	const withoutJumps = text => text.replace(/\n- jump between two frames: [^\n]*/, "").replace(/ \| \{ joint, of: "<characterId>" \}, props: "outline" \} adds a sheet of other frames, another view, a close framing on one character or prop, or on one joint \(joints as for a hand target\); props: "outline" draws every prop as its edges alone, so a body inside or behind it shows\. In the same call or alone\./, " } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone.");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : []))))))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutJumps(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : []))))))))))), variant))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");
 	assert.ok(studio.includes("characters: [{ id, at: [x, z], heading, scale?, tint? }]"), "the scene's characters may have a scale and a tint");
 	assert.ok(studio.includes(`from ${limits.min} to ${limits.max}`) && studio.includes('"#rrggbb"'), "the manual gives the range and the colour form");
 	assert.ok(!systemPrompt("studio", ["body"]).includes("tint"), "with the step off the manual has no word of it");
-	// the tool's parameters: 1695 characters (description and schema) before; a character's scale and tint add to them
+	// the tool's parameters: 1695 characters (description and schema) before; a character's scale and tint add to them.
+	// 2088 since look takes a joint focus and props "outline" (verify-frame-jumps.mjs): +393
 	const chars = async off => (await runScene({ name: "body-schema", request: "x", variant: "studio", off, env: {}, outDir: join(TMP, "schema") })).prompt.toolChars;
-	assert.equal(await chars(["body"]), 1695, "with the step off the tool's schema is the one of before");
-	assert.ok(await chars([]) > 1695, "with it a character has the two fields");
+	assert.equal(await chars(["body"]), 2088, "with the step off the tool's schema is the one of before");
+	assert.ok(await chars([]) > 2088, "with it a character has the two fields");
 	console.log("ok manual: every variant without the body step is byte for byte the manual of before; with it the scene has scale and tint");
 }
 

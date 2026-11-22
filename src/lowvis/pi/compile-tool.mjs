@@ -7,7 +7,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
-import { JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
+import { JOINTS, JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
 import { badness, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
@@ -21,7 +21,7 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:)/; // the rows that are a difference between what the spec asked and what came out
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:|jump:)/; // the rows that are a difference between what the spec asked and what came out (no spec asks for a jump of one frame)
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -198,7 +198,9 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		if (look?.view !== undefined && !VIEWS[look.view]) return reject(`look.view "${look.view}"`, [`look.view: want one of ${Object.keys(VIEWS).join(", ")}, got ${JSON.stringify(look.view)}`]);
 		if (look?.frames !== undefined && (!Array.isArray(look.frames) || !look.frames.length || look.frames.length > MAX_LOOK || !look.frames.every(Number.isInteger))) return reject("look.frames", [`look.frames: want 1 to ${MAX_LOOK} whole frame numbers, got ${JSON.stringify(look.frames)}`]);
 		const ids = [...state.scene.characters, ...(state.scene.props ?? [])].map(e => e.id), focus = look?.focus == null ? null : [].concat(look.focus);
-		if (focus?.some(id => !ids.includes(id))) return reject("look.focus", [`look.focus: no character or prop has the id ${JSON.stringify(look.focus)} (scene ids: ${ids.join(", ")})`]);
+		const joint = e => isObject(e) && state.scene.characters.some(c => c.id === e.of) && JOINTS.includes(e.joint);
+		if (focus?.some(e => !ids.includes(e) && !joint(e))) return reject("look.focus", [`look.focus: want ids or { joint, of } of a character's joint, got ${JSON.stringify(look.focus)} (scene ids: ${ids.join(", ")}; joints: ${JOINTS.join(" ")})`]);
+		if (look?.props !== undefined && !["solid", "outline"].includes(look.props)) return reject("look.props", [`look.props: want "solid" or "outline", got ${JSON.stringify(look.props)}`]);
 
 		const moved = withMovers(withBodies(state.scene, bodies, !!feature.body), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, built = compile(state.spec, def, name);
 		if (built.error) {
@@ -221,9 +223,9 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			if (main.figurePx < SMALL_FIGURE) add(`sheet-${n}-close.png`, { frames, view: "three", focus: parsed.characters.map(c => c.id) }, "the overview's frames framed on the characters (the figure is small in the overview)");
 		}
 		if (look) {
-			const view = look.view ?? "three", asked = drawSheet(parsed, { frames: look.frames ?? boundaryFrames(state.spec, F), view, focus: focus ?? undefined });
-			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${focus.join(" and ")}` : "the whole scene in frame"}` });
-			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
+			const view = look.view ?? "three", asked = drawSheet(parsed, { frames: look.frames ?? boundaryFrames(state.spec, F), view, focus: focus ?? undefined, props: look.props }), named = focus?.map(e => isObject(e) ? `${e.of}'s ${e.joint}` : e);
+			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${named.join(" and ")}` : "the whole scene in frame"}${look.props === "outline" ? ", props as outlines" : ""}` });
+			shown.push({ frames: asked.frames, view, focus: named ?? [] });
 		}
 		// the reach rows: measured for every variant (the run record keeps them), told only where the variant has them and over 10 mm
 		const told = rows.filter(r => r.key.startsWith("inside:") ? !!feature.inside : feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && r.key.startsWith("reach:") && r.value > 10) : !r.key.startsWith("reach:"));

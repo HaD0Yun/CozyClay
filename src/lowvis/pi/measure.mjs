@@ -5,6 +5,7 @@
 // The `inside:` rows are not in checks.js: a body or a moving prop inside another prop past a limit (inside.mjs).
 // The `reach:` rows are not in checks.js either: a hand, a foot or an elbow that is not where its action put it (aux.reach).
 // Nor the `seat:` rows: a sit on a prop whose hips end off the prop's top or whose feet stand inside it (aux.seats).
+// Nor the `jump:` rows: a joint or a moving prop whose step between two frames is far from the steps around it (jumps.js).
 //
 // row: { key, label, short, value, unit, frame?, who?, prop?, note?, worse, spike?, word? }
 //   short: the row's name on a sheet label
@@ -16,6 +17,7 @@ import { MAX_STEP, SOLE, TOE } from "../engine-simple/solve.js";
 import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
 import { insideRows } from "./inside.mjs";
+import { JUMP, groupJumps } from "../jumps.js";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
 const MM = 1000, DEG = 180 / Math.PI;
@@ -171,7 +173,26 @@ export function measure(clip, aux, { stretch = 0, inside = null } = {}) {
 		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}${worst.v > 0.01 ? `; ${reachWhy(list, worst.f, i, c.scale ?? 1)}` : ""}`;
 		if (worst) row(`reach:${c.id}:${i}`, `${PART[i >> 1]} off its target`, worst, "mm", MM, { short: `${PART[i >> 1]} off`, worse: 1, spike: 60 });
 	});
+	rows.push(...jumpRows(clip));
 	return rows;
+}
+
+/** A step of one frame far outside the steps before and after it (jumps.js), over JUMP times the body's scale: one row
+ *  per body (its joints) and one for the props that move, at the largest. */
+function jumpRows(clip) {
+	const F = clip.frameCount, cm = v => (v * 100).toFixed(1), out = [], at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
+	const list = (g, what) => g.parts.length > 1 ? `, ${what} ${g.parts.slice(0, 4).join(", ")}${g.parts.length > 4 ? ` and ${g.parts.length - 4} more` : ""}` : "";
+	const add = (key, tracks, min, tag, what) => {
+		const g = groupJumps(tracks, F, min);
+		if (g) out.push({ key, label: "jump between two frames", short: "jump", value: g.size * 100, unit: "cm", frame: g.f, ...tag(g), worse: 1, spike: min * 100,
+			note: `${g.part}; steps into f${g.f - 1}, f${g.f}, f${g.f + 1}: ${g.steps.map(cm).join(", ")} cm; ${g.frames} frame${g.frames === 1 ? "" : "s"} with a jump over ${cm(min)} cm, f${g.first}-f${g.last}${list(g, what)}` });
+	};
+	for (const c of clip.characters) {
+		const min = JUMP * (c.scale ?? 1);
+		add(`jump:${c.id}`, JOINTS.map((part, j) => ({ part, at: f => at(c, f, j) })), min, () => ({ who: c.id }), "in");
+	}
+	add("jump:props", clip.props.filter(p => p.pos.length > 3).map(p => ({ part: p.id, at: f => Array.from(p.pos.slice(f * 3, f * 3 + 3)) })), JUMP, g => ({ prop: g.part }), "props");
+	return out;
 }
 
 /** A difference's own identity: the check (the row key, which names the limb, the cut or the release where it has

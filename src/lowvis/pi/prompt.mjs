@@ -8,6 +8,7 @@ import { elementByPath } from "../../studio-elements.js";
 import { BALANCE } from "./balance.mjs";
 import { CLIP_FPS } from "../clip.js";
 import { POINT } from "../studio/scene.js";
+import { JUMP } from "../jumps.js";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {
@@ -65,6 +66,7 @@ const INSIDE = `\n- inside: how deep a body (its drawn parts, the hands left out
 const HOLLOW = ` hollow: true marks a prop that things may be inside: it is left out of the inside numbers.`;
 const KINDS = ` A prop the Studio lists with kind is a Studio object that has no box of its own (an effect, a light, a group of objects; kind says which): a ${POINT} m box centred on its place, hollow. A motion moves it as any prop (a hand holds it, ride puts it on a joint or a prop, keys move it) and the Studio object goes with the box's centre on every frame, keeping its kind and its own turn against the box. Every prop you add is a plain box or ball.`;
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
+const JUMPS = `\n- jump between two frames: a joint of a body or a moving prop whose step from one frame to the next is far from the steps before and after it (a stop of one frame inside a move, a hop), told over ${JUMP * 100} cm (times the body's scale): the part, the steps into the frame before, the frame and the one after, how many frames have one.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order. The reply says what the edit did.`;
@@ -107,10 +109,10 @@ ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {heigh
 ease names: ${Object.keys(EASE).join(", ")}.
 
 THE TOOL
-motion({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${f.edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone. Only the images of your latest call stay visible to you; the text of every call stays.
+motion({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${f.edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" | { joint, of: "<characterId>" }, props: "outline" } adds a sheet of other frames, another view, a close framing on one character or prop, or on one joint (joints as for a hand target); props: "outline" draws every prop as its edges alone, so a body inside or behind it shows. In the same call or alone. Only the images of your latest call stay visible to you; the text of every call stays.
 
 THE NUMBERS
-${NUMBERS[f.text]}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.pace ? PACE : ""}${f.balance ? BAL : ""}
+${NUMBERS[f.text]}${JUMPS}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.pace ? PACE : ""}${f.balance ? BAL : ""}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.
