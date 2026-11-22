@@ -93,7 +93,7 @@ const facing = union(object({ yawDeg: number() }), object({ towardId: ref }), ob
 // size is the one word a framing needs; view, level and side default to a frontal eye-level shot (#1042).
 const framing = union(object({ intent: object({ size: choices(STUDIO_VARIANTS.framingSizes) }, { view: { ...choices(STUDIO_VARIANTS.framingViews), default: "front" }, level: { ...choices(STUDIO_VARIANTS.framingLevels), default: "eye" }, side: { ...choices(STUDIO_VARIANTS.framingSides), default: "left", description: "Which way the view turns from the subject's facing: left (toward the subject's left, +X at yaw 0) or right" }, focalMm: { ...positive, description: "Lens focal length in mm; the lens must give a field of view between 14 and 90 degrees" } }) }),
 	object({ exact: object({ position: vec3, lookAt: vec3, focalMm: positive }) }));
-const localSpace = { ...choices(["parent"]), description: "\"parent\" reads position.world, rotationDeg and facing.yawDeg in the parent's local frame (its pivot and rotation, not its scale); omit for world space." };
+const localSpace = { ...choices(["parent"]), description: "\"parent\" reads position.world, rotationDeg and facing.yawDeg in the frame that carries the object: its parent's pivot and rotation (not its scale; a parent on a route or a take carries it along), or for an object attached to a character that bone's frame; omit for world space." };
 const objectOp = union(
 	object({ op: literal("create"), source: object({ kind: id }), position }, { name, facing, scale: positiveVec3,
 		rotationDeg: { ...vec3, description: "Euler XYZ degrees (x pitch, y yaw, z roll), as in update. Exclusive with facing. A pitched/rolled part rests its lowest corner on its support." },

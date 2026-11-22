@@ -16,7 +16,7 @@ const inputs = {
   'shot.setCameraRail': { shotId: 'shot-a', points: [{ x: -2, z: 4 }, { x: 2, z: 4 }] },
   'shot.clearCameraRail': { shotId: 'shot-a' },
   'shot.rename': { shotId: 'shot-a', name: 'Wide' }, 'shot.setCameraMode': { shotId: 'shot-a', mode: 'follow' },
-  'shot.set': { id: 'shot-a', set: { targetModel: 'seedance-2.5' } },
+  'shot.set': { id: 'shot-a', set: { targetModel: 'seedance-2.5' } }, 'shot.setTimeline': { frameCount: 96 },
   'shot.frame': { subjectIds: ['actor-a'], keyAtFrame: 5, framing: { exact: { position: { x: 1, y: 2, z: 6 }, lookAt: { x: 0, y: 1, z: 0 }, focalMm: 35 } } },
 };
 assert.deepEqual(Object.keys(inputs).sort(), declarations.filter(row => row.kind === 'mutation' && row.exposure !== 'ui-only').map(row => row.id).sort());
@@ -62,7 +62,8 @@ test('1: every shot action and origin runs the six parity checks through real Ap
       const job = f.run('fixture.shotJob', {}, origin);
       f.run(command, args, origin);
       release();
-      assert.equal((await job).code, 'STALE_TARGET');
+      // A length that leaves shot-a whole touches no shot, so the job on shot-a is not stale.
+      assert.equal((await job).code, command === 'shot.setTimeline' ? undefined : 'STALE_TARGET');
       console.log(`PASS real shots parity ${command} ${origin}: receipt, undo, expiry, cancel, stale revision, concurrent job`);
     } finally { f.dispose(); }
   }

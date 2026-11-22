@@ -34,7 +34,8 @@ const extra = [
   mutation('shot.moveKey', 'Move camera key', input({ shotId: id, keyId: id, frame })),
   mutation('shot.removeKey', 'Remove camera key', input({ shotId: id, keyId: id })),
   mutation('shot.clearKeys', 'Clear camera keys', input({ shotId: id })),
-  mutation('shot.setTimeline', 'Set shot timeline', input({ frameCount: { type: 'integer', minimum: 24, maximum: TAKE_FRAME_MAX } })),
+  mutation('shot.setTimeline', 'Set shot timeline', input({ frameCount: { type: 'integer', minimum: 24, maximum: TAKE_FRAME_MAX } }),
+    `Set the timeline length in frames (${TIMELINE_FPS} fps), as the timeline's length field does: the frames playback runs and shots can lie in. A shorter length cuts or moves the shots past it to fit inside it and removes one left without a frame; the answer names it.`),
   mutation('shot.setLens', 'Set camera lens', input({ fovDeg: { ...number, minimum: 14, maximum: 90 } })),
   mutation('shot.frame', 'Frame the shot', { ...input({ ...STUDIO_TOOL_SCHEMAS.frame_shot.properties, preset: { type: 'string' } }, []), oneOf: [STUDIO_TOOL_SCHEMAS.frame_shot, input({ preset: { type: 'string' } })] },
     'Frame a shot on its named characters together (the frame_shot tool): framing.intent { size, level, view, side, focalMm } or framing.exact { position, lookAt, focalMm }. Without keyAtFrame a shot that holds one framing is reframed whole: a held shot. keyAtFrame adds a camera key there; every key eases in and out, so the camera slows to a stop at each one: key a pan or zoom from one spot with two keys (its start and end), lay a moving camera as a rail (shot.setCameraRail) and cut to a new shot for a new view. On a rail shot it puts the shot back on keys. over: "shot" (with intent, after a take is installed) fits one held camera to every pose of the shot and turns it off the asked view only as far as walls need. Answers checks { derivedSize, screenFraction, clipped, behindCamera, occluded, cameraSide } for the subjects at that frame, and checks.held { frames, hidden, outOfFrame, askedDeg, chosenDeg } and a HELD_SHOT warning for what a camera holding still misses over the shot.'),
@@ -42,7 +43,7 @@ const extra = [
   { ...mutation('shot.captureCamera', 'Capture camera framing', input({ shotId: id }, [])), exposure: 'ui-only' },
   { ...mutation('shot.placeCamera', 'Place camera', input(Object.fromEntries(['x', 'y', 'z', 'lookAtX', 'lookAtY', 'lookAtZ', 'focalMm'].map(key => [key, number])), [])), exposure: 'ui-only' },
 ];
-export const declarations = Object.freeze([extra[0], ...existing, ...extra.slice(1).map(entry => entry.id === 'shot.frame' ? entry : { ...entry, exposure: 'ui-only' })]);
+export const declarations = Object.freeze([extra[0], ...existing, ...extra.slice(1).map(entry => ['shot.frame', 'shot.setTimeline'].includes(entry.id) ? entry : { ...entry, exposure: 'ui-only' })]);
 
 // shot.setRange also takes range: [startFrame, endFrameExclusive] or flat startFrame/endFrameExclusive
 // fields; both become range: { startFrame, endFrameExclusive } before validation (registry normalizeArgs).
@@ -148,7 +149,15 @@ export function register(registry, ports) {
       cameraKeys: moveCameraKey(shot.cameraKeys, keyId, Math.max(shot.startFrame, Math.min(shot.endFrame, frame))) })),
     'shot.removeKey': ({ shotId, keyId }) => patchShot(shotId, shot => ({ ...shot, cameraKeys: removeCameraKey(shot.cameraKeys, keyId) })),
     'shot.clearKeys': ({ shotId }) => patchShot(shotId, shot => ({ ...shot, cameraKeys: [] })),
-    'shot.setTimeline': ({ frameCount }) => owner().writeState(before => ({ ...before, frameCount })),
+    'shot.setTimeline': ({ frameCount }) => {
+      const before = owner().read();
+      owner().writeState(state => ({ ...state, frameCount }));
+      // What a shorter length did to the shots is read off the document: the owner refits them (shot-authoring.js repairShots),
+      // and of the shots that start past the new end only the last keeps a frame.
+      const after = owner().read(), kept = owner().state().frameCount, count = n => `${n} shot${n === 1 ? '' : 's'}`;
+      const gone = before.filter(shot => !after.some(row => row.id === shot.id)), fitted = after.filter(row => before.some(shot => shot.id === row.id && (shot.startFrame !== row.startFrame || shot.endFrame !== row.endFrame))).length;
+      return { note: `the timeline is ${kept} frames (${(kept / TIMELINE_FPS).toFixed(2)} s)${gone.length ? `; ${count(gone.length)} left without a frame removed (${gone.slice(0, 3).map(shot => shot.name).join(', ')}${gone.length > 3 ? ', ...' : ''})` : ''}${fitted ? `; ${count(fitted)} cut or moved to fit inside it` : ''}.` };
+    },
     'shot.setLens': ({ fovDeg }) => owner().setLens(fovDeg),
     'shot.replace': ({ shots }) => owner().write(shots),
     'shot.captureCamera': args => owner().captureCamera(args.shotId),

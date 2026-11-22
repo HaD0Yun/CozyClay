@@ -1,6 +1,6 @@
 // Studio composites prepare private domain drafts; the App owns publication,
 // history, gesture fences and semantic revision/telemetry. No UI callbacks here.
-import { Euler, Vector3, Quaternion, PerspectiveCamera } from 'three';
+import { Euler, Vector3, PerspectiveCamera } from 'three';
 import { createSceneObject, updateSceneObject, removeSceneObject, setSceneObjectParent, descendantsOf, isEffectivelyHidden, supportHeightForObject, OBJECT_MENU_ENTRIES } from './scene-objects.js';
 import { createCharacterEntry, NEW_CHARACTER_MODEL } from './scenes.js'; import { characterName } from './character-name.js';
 import { createShot, shotAtFrame } from './cuts.js';
@@ -13,6 +13,7 @@ import { axisSubjects, occludersOf, sideOfAxis, framingCodes, subjectIssues, out
 import { frameSubject } from './studio-frame-subject.js'; import { subjectsCenter } from './shot-subjects.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
+import { attachedFrameOp, attachedPlace, parentFrameOp, writeAttached } from './studio-local-frame.js';
 import { supportGaps, liftOffDeck, floorLiftWarnings, placedTogether } from './studio-support-gap.js';
 import { contactBody, interpenetration } from './solid-contact.js';
 
@@ -160,63 +161,7 @@ function place(entity, op, state, ports) {
   }
   return { entity: result, relation: { id: result.id, spec, axis, support: surface.label, baseY: surface.y, ...(axis ? { actualGapM, requestedGapM: spec.gapM, basis: spec.basis } : {}) } };
 }
-// Parent-relative (local) space. Object rows are flat world-space; `parent` only
-// groups. A parent's frame is its stored pivot (base, y = bottom) and Euler XYZ
-// degrees; parent SCALE is deliberately not part of the frame.
-const objectQuat = o => new Quaternion().setFromEuler(new Euler((o.rotX ?? 0) * DEG, (o.rot ?? 0) * DEG, (o.rotZ ?? 0) * DEG, 'XYZ'));
-const wrapDeg = a => ((a + 540) % 360 + 360) % 360 - 180;
-// XYZ Euler angles come in two equal-orientation spellings, (x,y,z) and
-// (x+180, 180-y, z+180). Report the one with the least pitch/roll, so a pure
-// yaw of 135 reads back as yaw 135 rather than (180, 45, 180).
-function eulerDegOf(q) {
-  const e = new Euler().setFromQuaternion(q, 'XYZ'), a = { x: e.x / DEG, y: e.y / DEG, z: e.z / DEG };
-  const b = { x: wrapDeg(a.x + 180), y: wrapDeg(180 - a.y), z: wrapDeg(a.z + 180) };
-  return Math.abs(b.x) + Math.abs(b.z) < Math.abs(a.x) + Math.abs(a.z) - 1e-9 ? b : a;
-}
-const eulerQuat = r => new Quaternion().setFromEuler(new Euler(r.x * DEG, r.y * DEG, r.z * DEG, 'XYZ'));
-/** world = parentPivot + R_parent * local; orientation = R_parent * R_local. */
-export function localToWorld(parent, local) {
-  const p = vector(local.position ?? { x: 0, y: 0, z: 0 }).applyQuaternion(objectQuat(parent)).add(vector(pos(parent)));
-  const q = objectQuat(parent).multiply(eulerQuat(local.rotationDeg ?? { x: 0, y: 0, z: 0 }));
-  return { position: { x: p.x, y: p.y, z: p.z }, rotationDeg: eulerDegOf(q) };
-}
-/** Inverse of localToWorld for an object row under its parent row. */
-export function worldToLocal(parent, object) {
-  const inverse = objectQuat(parent).invert();
-  const p = vector(pos(object)).sub(vector(pos(parent))).applyQuaternion(inverse);
-  return { position: { x: p.x, y: p.y, z: p.z }, rotationDeg: eulerDegOf(inverse.multiply(objectQuat(object))) };
-}
-const tidy = v => Math.round(v * 1e4) / 1e4 + 0;
-/** Compact readback: the object's transform in its parent's frame, or null for
- * a root, a missing parent or a parent whose stored pose is not its world pose. */
-export function localTransformReadback(object, objects) {
-  const parent = object.parent ? objects.find(o => o.id === object.parent) : null;
-  if (!parent || parent.attach || parent.path || object.attach || object.path) return null;
-  const { position, rotationDeg } = worldToLocal(parent, object);
-  const round = v => ({ x: tidy(v.x), y: tidy(v.y), z: tidy(v.z) });
-  return { position: round(position), rotationDeg: round(rotationDeg) };
-}
-const resolveParentRef = (ref, rows, createdByName) => rows.some(e => e.id === ref) ? ref : createdByName.get(normalizedName(ref));
-/** Rewrites an op given in the parent's local frame into the equivalent world op. */
-function parentFrameOp(op, entity, rows, createdByName) {
-  const create = op.op === 'create';
-  if (create && op.parent === undefined) fail('INVALID_ARGUMENT', 'space "parent" needs `parent` on a create: an existing object id, or the name of an object created earlier in this batch.');
-  if (!create && !entity.parent) fail('INVALID_ARGUMENT', 'space "parent" needs an object that already has a parent; group it under one first, or omit space for world coordinates.');
-  const parentId = create ? resolveParentRef(op.parent, rows, createdByName) : entity.parent;
-  const parent = rows.find(e => e.id === parentId);
-  if (!parent) fail('AMBIGUOUS_TARGET', 'space "parent": the parent is neither an existing object id nor an object created earlier in this batch.');
-  if (parent.attach || parent.path) fail('CAPABILITY_MISSING', 'space "parent": an attached or routed parent has no fixed pose to place against.');
-  if (!op.position && !op.rotationDeg && !op.facing) fail('INVALID_ARGUMENT', 'space "parent" applies to position, rotationDeg or facing; none was given.');
-  if (op.position && !op.position.world) fail('INVALID_ARGUMENT', 'space "parent" takes position {world:{x,y,z}} as local metres from the parent pivot; relativeTo, between and onObject resolve in world space, so omit space for them.');
-  if (op.facing && !('yawDeg' in op.facing)) fail('INVALID_ARGUMENT', 'space "parent" takes facing {yawDeg} only (local yaw); towardId, awayFromId and sameAsId are world-space.');
-  const current = create ? { position: { x: 0, y: 0, z: 0 }, rotationDeg: { x: 0, y: 0, z: 0 } } : worldToLocal(parent, entity);
-  // Local rotation: rotationDeg, else the current local one with its yaw set by
-  // facing; a new child with neither takes the parent's orientation (local zero).
-  const rotation = op.rotationDeg ?? (op.facing ? { ...current.rotationDeg, y: op.facing.yawDeg } : create ? current.rotationDeg : null);
-  const world = localToWorld(parent, { position: op.position ? op.position.world : current.position, rotationDeg: rotation ?? current.rotationDeg });
-  const { space, facing, ...rest } = op;
-  return { ...rest, ...(op.position ? { position: { world: world.position } } : {}), ...(rotation ? { rotationDeg: world.rotationDeg } : {}) };
-}
+export { localToWorld, worldToLocal, localTransformReadback } from "./studio-local-frame.js";
 function groupRootOf(id, objects) {
   const seen = new Set();
   let current = objects.find(o => o.id === id);
@@ -230,10 +175,10 @@ function groupRootOf(id, objects) {
 const pieceOf = (e, corners, state, ports) => (e.renderer ? { body: contactBody(e, () => entityWorldBounds(e, state, ports), state) } : { points: corners.body, bones: corners.bones, radii: corners.radii });
 function overlapsFor(entity, state, ports) {
   const corners = geometry(entity, state, ports), own = aabb(corners), mine = pieceOf(entity, corners, state, ports), root = groupRootOf(entity.id, state.objects);
-  // Parts of one grouped object are built to touch; only other bodies count. Boxes that cross count only where the drawn
-  // shapes or the posed body stand inside each other (solid-contact.js): a chair under a table, a body on a seat touch.
+  // Parts of one grouped object are built to touch, and an object attached to a character is on that body; only other bodies
+  // count. Boxes that cross count only where the drawn shapes or the posed body stand inside each other (solid-contact.js): a chair under a table, a body on a seat touch.
   // What one character places with the other (attached to it, moved by its take) touches as that take says (studio-support-gap.js).
-  return [...state.objects, ...state.characters].filter(e => e.id !== entity.id && !isEffectivelyHidden(e, state.objects, state.characters) && groupRootOf(e.id, state.objects) !== root && !placedTogether(entity, e, state, ports.takes)).map(other => {
+  return [...state.objects, ...state.characters].filter(e => e.id !== entity.id && e.attach?.characterId !== entity.id && entity.attach?.characterId !== e.id && !isEffectivelyHidden(e, state.objects, state.characters) && groupRootOf(e.id, state.objects) !== root && !placedTogether(entity, e, state, ports.takes)).map(other => {
     const theirs = geometry(other, state, ports), bounds = aabb(theirs), depth = overlap(own, bounds);
     return { id: other.id, bounds, of: entity.id, depth: depth > EPS && interpenetration(mine, pieceOf(other, theirs, state, ports), own, bounds) === 0 ? 0 : depth };
   }).filter(o => o.depth > EPS);
@@ -295,12 +240,13 @@ export function arrangement(command, before, ports) {
       if (parentId) { rows = setSceneObjectParent(rows, entity.id, parentId); entity = rows.find(e => e.id === entity.id); }
     }
     if (['create', 'update'].includes(op.op)) {
-      if (entity.attach) fail('CAPABILITY_MISSING', 'Attached transforms require a world-preserving attachment adapter.');
-      if (op.space === 'parent') op = parentFrameOp(op, entity, rows, createdByName);
+      const attached = Boolean(entity.attach);
+      if (attached) op = attachedFrameOp(op, entity);
+      else if (op.space === 'parent') op = parentFrameOp(op, entity, rows, createdByName);
       entity = patchEntity(entity, transformPatch(op, isObject));
       const placed = place(entity, op, draft(), ports);
-      // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (studio-support-gap.js).
-      entity = liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
+      // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (studio-support-gap.js); a bone-frame place is not on the deck.
+      entity = attached ? attachedPlace(placed.entity, op) : liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
       // What was asked against what the domain kept: scale and position limits move values silently; the lift is FLOOR_LIFT, not a clamp.
       const asked = isObject ? { ...(op.position?.world ?? {}), ...(liftedIds.has(entity.id) ? { y: undefined } : {}), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
         : { ...(op.position?.world ?? {}), ...(op.scale === undefined ? {} : { scale: op.scale }) };
@@ -314,7 +260,7 @@ export function arrangement(command, before, ports) {
         if (placed.relation.actualGapM < op.position.gapM - EPS) fail('VERIFICATION_FAILED', 'Avoidance cannot preserve the requested facing and minimum clearance.');
       }
       const patch = Object.fromEntries(Object.entries(entity).filter(([k, v]) => !equal(v, rows.find(e => e.id === entity.id)[k])));
-      rows = isObject ? updateSceneObject(rows, entity.id, patch) : rows.map(e => e.id === entity.id ? entity : e);
+      rows = attached ? writeAttached(rows, entity.id, patch, updateSceneObject) : isObject ? updateSceneObject(rows, entity.id, patch) : rows.map(e => e.id === entity.id ? entity : e);
       if (placed.relation) relations.push(placed.relation);
       if (op.op === 'create' && op.name) createdByName.set(normalizedName(op.name), entity.id);
     } else if (op.op === 'remove') {
