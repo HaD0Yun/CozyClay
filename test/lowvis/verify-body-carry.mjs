@@ -3,11 +3,16 @@
 // 1. A move or tip key starts where the key before it has the prop on its frame: a prop keyed key after key never stands
 //    still for a frame between two keys (before: the key's first frame repeated the frame before, so every key stopped
 //    the prop, and what rode it, for one frame); a key cut into goes on from where the one before has it; a key after a
-//    gap starts from the target before as it did; over 0 is there at once.
+//    gap starts from the target before as it did; over 0 is there at once. A key that takes over from a ride starts
+//    where the ride has the prop on the key's frame (the prop does not fall behind its carrier for a frame); of keys
+//    written on one frame the last drives, and starts as any other. Hands that take a prop a chain of keys moves get
+//    the clip one key of the same path gives.
 // 2. A body-layer action with `on: propId` is done on that prop and goes with it: the Hips joint keeps its place in the
 //    prop's frame on every frame while the prop is keyed (moved and turned), carried by another body's hands, or ridden;
-//    walking on it, getting on after it moved and getting off keep the body where it is; a sit's height with on; a body
-//    of another scale; `on` a prop that does not move and a spec with no `on` build exactly as before.
+//    walking on it, getting on after it moved and getting off keep the body where it is, also where the prop has risen
+//    or lies tipped by then (the body goes to its place over half a second, no jump); a sit's height with on; a body
+//    of another scale; `on` a prop that does not move and a spec with no `on` build exactly as before; the tool says
+//    when a prop's own track depends on the body on it (that body's hands move it), by how far.
 // 3. hide / show keys: the clip's per-frame `shown`, kept apart from the motion keys (a prop only shown or hidden is not a
 //    mover); the install writes a vis track (with the track of a moving prop, alone for a still one and for one attached
 //    to a bone) that the Studio's trackShown reads, through the raw-track codec, the placed take and a timing edit;
@@ -27,6 +32,9 @@ import { trackShown } from "../../src/object-travel.js";
 import { objectTracksOf } from "../../src/motion3/object-tracks.js";
 import { insideRows } from "../../src/lowvis/pi/inside.mjs";
 import { specFormat, systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
+import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const v3 = (a, i) => [a[i * 3], a[i * 3 + 1], a[i * 3 + 2]], q4 = (a, i) => [a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]];
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -65,6 +73,24 @@ const steps = (p, from, to) => Array.from({ length: to - from }, (_, i) => dist(
 	const handed = buildClip({ a: [[0, "pose", { R: { prop: "crate" }, over: 10 }], [10, "hold", { prop: "crate", hand: "R" }], [20, "pose", { R: [0.3, 0.3, 0.4], over: 8 }], [30, "release", { prop: "crate" }]], crate: [[5, "move", { to: [0, 0.65, 0.2], over: 4 }], [32, "move", { to: [-1, 0.15, 0], over: 10 }]] }, { ...def, characters: [{ id: "a", at: [0, -0.5], heading: 0 }] }).clip;
 	const cr = propOf(handed, "crate");
 	assert.ok(dist(at(cr, 32), at(cr, 31)) < 1e-6, "a key after a release starts where the hand left the prop");
+	// a key that takes over from a ride: on its own frame the prop is still where the ride has it, so it does not fall
+	// behind a carrier that moves on (before: it stood still for that frame and was a cart's step behind for the key's length)
+	const cartKeys = []; for (let f = 10, x = 0; f < 50; f += 5) { x += 1; cartKeys.push([f, "move", { to: [x, 0.25, 0], over: 5, ease: "linear" }]); }
+	const off = buildClip({ cart: cartKeys, crate: [[0, "ride", { on: "cart" }], [30, "move", { to: [5, 0.65, 0], over: 5, ease: "linear" }], [35, "move", { to: [6, 0.65, 0], over: 5, ease: "linear" }]] }, def).clip;
+	const lag = f => at(propOf(off, "cart"), f)[0] - at(propOf(off, "crate"), f)[0];
+	assert.ok([29, 30, 31, 33, 35, 39].every(f => Math.abs(lag(f)) < 1e-5), `a key after a ride: the crate stays over the cart as its own keys take it on (${[29, 30, 31, 35].map(f => lag(f).toFixed(3))})`);
+	assert.deepEqual(off.props.find(p => p.id === "crate").by.slice(29, 32), [["cart"], ["cart"], []], "the ride carries it on the key's frame, the key from the next");
+	const jump = buildClip({ cart: cartKeys, crate: [[0, "ride", { on: "cart" }], [30, "move", { to: [0, 0.65, 2], over: 0 }]] }, def).clip;
+	assert.ok(dist(at(propOf(jump, "crate"), 30), [0, 0.65, 2]) < 1e-6, "a key with over 0 after a ride is there at once");
+	// keys written on one frame: the last drives, and starts where the key before has the prop
+	const twice = buildClip({ cart: [[10, "move", { to: [1, 0.25, 0], over: 10, ease: "linear" }], [20, "move", { to: [9, 0.25, 9], over: 10 }], [20, "move", { to: [2, 0.25, 0], over: 10, ease: "linear" }], [30, "move", { to: [3, 0.25, 0], over: 10, ease: "linear" }]] }, def).clip;
+	assert.ok(steps(propOf(twice, "cart"), 11, 40).every(d => Math.abs(d - 0.1) < 1e-5), "two keys on one frame in a chain: no frame stands still");
+	// hands take a prop that a chain of keys moves: the clip is the one a single key of the same path gives
+	const reach = keys => buildClip({ a: [[0, "idle"], [30, "hold", { prop: "crate", hand: "both", at: { L: [-0.2, 0, 0], R: [0.2, 0, 0] }, over: 10 }], [41, "pose", { L: [0.2, 0.1, 0.4], R: [-0.2, 0.1, 0.4], over: 10 }]], crate: keys }, { ...def, characters: [{ id: "a", at: [0.6, -0.55], heading: 0 }] });
+	const chain = []; for (let f = 12; f < 52; f += 5) chain.push([f, "move", { to: [0.02 * (f + 5 - 12), 0.65, 0], over: 5, ease: "linear" }]);
+	const many = reach(chain), single = reach([[12, "move", { to: [0.8, 0.65, 0], over: 40, ease: "linear" }]]);
+	const apart = Math.max(...Array.from({ length: 70 }, (_, f) => Math.max(dist(at(propOf(many.clip, "crate"), f), at(propOf(single.clip, "crate"), f)), dist(v3(many.clip.characters[0].pos, f * 17 + INDEX.LeftHand), v3(single.clip.characters[0].pos, f * 17 + INDEX.LeftHand)))));
+	assert.ok(apart < 1e-5 && many.aux.holders.crate[40] && dist(at(propOf(many.clip, "crate"), 39), [0.54, 0.65, 0]) < 1e-5, `hands that take a prop keyed key after key: as with one key of that path (${apart} m apart)`);
 }
 
 // --- 2. a body on a moving prop ---
@@ -109,6 +135,23 @@ const report = (clip, who, on, from, to) => {
 	// on a still prop, and with no on: exactly as before (one build)
 	const chair = { frames: 60, characters: [{ id: "a", at: [0, 0.6], heading: 180 }], props: [{ id: "chair", size: [0.45, 0.45, 0.45], at: [0, 0.225, 0.3] }] };
 	assert.equal(serializeClip(buildClip({ a: [[0, "sit", { on: "chair", over: 20 }]] }, chair).clip), serializeClip(buildClip({ a: [[0, "sit", { on: "chair", over: 20 }]] }, { ...chair, props: [{ ...chair.props[0], moves: false }] }).clip), "on a prop that does not move: the same clip");
+	// getting on and off a prop that has risen, or lies tipped, by then: no jump; half a second later the body is on it
+	const most = (clip, from = 1, to = clip.frameCount) => { let m = 0; for (let f = from; f < to; f++) m = Math.max(m, dist(hips(clip.characters[0], f), hips(clip.characters[0], f - 1))); return m; };
+	const lift = { frames: 160, characters: [{ id: "a", at: [0, 0], heading: 0 }], props: [{ id: "lift", size: [2, 0.1, 2], at: [0, 0.05, 0], moves: true }] };
+	const risen = buildClip({ a: [[0, "idle"], [50, "idle", { on: "lift" }], [100, "walk", { to: [0, 1.5] }]], lift: [[10, "move", { to: [0, 0.65, 0], over: 30 }]] }, lift).clip, y = f => hips(risen.characters[0], f)[1];
+	assert.ok(most(risen) < 0.1 && Math.abs(y(50) - y(49)) < 0.01 && Math.abs(y(62) - y(49) - 0.6) < 1e-3 && Math.abs(y(99) - y(62)) < 0.01 && Math.abs(y(100) - y(99)) < 0.02 && Math.abs(y(130) - y(49)) < 0.05,
+		`on a lift that rose 0.6 m, and off it: the hips go up and down over half a second (largest step ${most(risen)} m; y ${[49, 50, 62, 99, 100, 130].map(f => y(f).toFixed(3))})`);
+	const tipped = buildClip({ a: [[0, "idle"], [50, "walk", { to: [0, 0.6], on: "lift" }], [110, "sit", { height: 0.4, on: "lift" }]], lift: [[10, "tip", { pivot: [0, 0, 0], axis: [1, 0, 0], deg: 20, over: 30 }]] }, lift).clip;
+	assert.ok(most(tipped) < 0.07, `on a prop that lies tipped: no jump (largest hips step ${most(tipped)} m)`);
+	const twiceOn = buildClip({ a: [[0, "idle"], [50, "idle", { on: "lift" }], [54, "idle"], [58, "idle", { on: "lift" }]], lift: [[10, "move", { to: [0, 0.65, 0], axis: [0, 1, 0], deg: 40, over: 30 }]] }, lift).clip;
+	assert.ok(most(twiceOn) < 0.08 && Math.abs(hips(twiceOn.characters[0], 80)[1] - hips(twiceOn.characters[0], 49)[1] - 0.6) < 1e-3, `on, off and on again before the first has settled: no jump (${most(twiceOn)} m)`);
+	// a prop whose own track depends on the body on it (its hands move it): the tool says by how far the two differ
+	const dir = join(tmpdir(), `lowvis-carry-${process.pid}`), seat = { frames: 80, characters: [{ id: "a", at: [0, 0.75], heading: 180 }], props: [{ id: "box", size: [0.45, 0.45, 0.45], at: [0, 0.225, 0.3], moves: true }] };
+	const told = spec => createCompileTool({ name: "carry", outDir: dir, clipFile: join(dir, "clip.json"), variant: "studio" }).call({ scene: seat, spec }).text.split("\n").filter(l => l.startsWith("carried:"));
+	const own = told({ a: [[0, "sit", { on: "box", over: 0 }], [20, "hold", { prop: "box", hand: "both", at: { L: [-0.26, 0.1, 0], R: [0.26, 0.1, 0] }, over: 10 }], [40, "pose", { L: [0.3, -0.5, 0.15], R: [-0.3, -0.5, 0.15], over: 20 }]] });
+	const pushed = buildClip({ a: [[0, "sit", { on: "box", over: 0 }], [20, "hold", { prop: "box", hand: "both", at: { L: [-0.26, 0.1, 0], R: [0.26, 0.1, 0] }, over: 10 }], [40, "pose", { L: [0.3, -0.5, 0.15], R: [-0.3, -0.5, 0.15], over: 20 }]] }, seat).aux.carried;
+	assert.ok(pushed?.box > 0.05 && own.length === 1 && own[0].startsWith(`carried: box ends up to ${Math.round(pushed.box * 1000)} mm from where the body on it followed it`), `a body whose hands move the prop it is on: told (${own[0]})`);
+	assert.deepEqual(told({ a: [[0, "sit", { on: "box", over: 0 }]], box: [[10, "move", { to: [0, 0.225, 2], over: 40 }]] }), [], "a prop that moves by itself under a body: no such line");
 }
 
 // --- 3. hide / show ---
@@ -160,9 +203,9 @@ const report = (clip, who, on, from, to) => {
 // --- 4. the manual says the new words ---
 {
 	const spec = specFormat();
-	assert.match(spec, /on: propId, on any body action: done on that prop, going with it where the prop moves/, "SPEC: on for any body action");
-	assert.match(spec, /a key starts\n {6}where the key before it has the prop on its frame/, "SPEC: where a prop key starts");
+	assert.match(spec, /on: propId, on any body action: the body goes with that prop however it is moved \(moves: true\)/, "SPEC: on for any body action");
+	assert.match(spec, /a key starts\n {6}where the key or the ride before it has the prop on its frame/, "SPEC: where a prop key starts");
 	assert.match(spec, /hide \| show {3}from this frame the prop is not drawn/, "SPEC: hide / show");
-	assert.match(systemPrompt("studio"), /sit \{height\}[^\n]*with on as well, at that height on that prop\./, "studio: a sit's height on a prop");
+	assert.match(systemPrompt("studio"), /sit \{height\}[^\n]*with on as well: at that height instead of the prop's top\./, "studio: a sit's height on a prop");
 }
 console.log("ok body carry: prop keys start where the key before has the prop; a body on a moving prop goes with it; hide / show reach the Studio");

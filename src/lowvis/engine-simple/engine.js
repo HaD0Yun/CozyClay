@@ -8,9 +8,9 @@
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.
-//     on: propId, on any body action: done on that prop, going with it where the prop moves (moves: true). Its places
-//     and headings are written as if the prop stood where the scene puts it; on every frame the body keeps that place
-//     and turn on the prop, however keys, hands or a ride move it. The next action without that `on` goes on from there.
+//     on: propId, on any body action: the body goes with that prop however it is moved (moves: true). Its places and
+//     headings are written as if the prop stood where the scene puts it. Getting on, and off with the next action
+//     without that `on`, goes on from where the body is (over 12 frames where the prop has risen or tipped).
 //     Consecutive walk / run actions are one flowing path. `heading` is the arrival heading (the path curves, or a
 //     turn on the spot is added). `facing` keeps the body facing that way (back / side steps). `steps: 1` is a lunge.
 //     `push` is a low, leaning, short-step gait; `push {to: <where it stands>}` braces in place.
@@ -85,7 +85,7 @@
 //     place {prop, at:[x,y,z] world, over}   the hands take the prop there and let go
 //   Prop layer: <propId>: [[frame, verb, options], ...] moves a free prop by keys:
 //     tip {pivot:[x,y,z], axis:[x,y,z], deg, over, ease} | move {to:[x,y,z], axis?, deg?, over, ease}   a key starts
-//       where the key before it has the prop on its frame (ended there or still moving), else where the prop is
+//       where the key or the ride before it has the prop on its frame
 //     launch {vel:[x,y,z] m/s, bounce?: 0.5, friction?: 1.5}   a kicked / thrown prop: it is still in place on the key's
 //       frame and flies from the next one under gravity, bounces off the floor and off static props (as a ball of
 //       diameter size[1]; bounce = speed kept), rolls with `friction` (m/s2) and stops. A later key of the prop ends it.
@@ -96,7 +96,7 @@
 //       {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at); no at =
 //       the place and turn it has on the carrier on the frame before the ride begins. Until a later key of its own or a
 //       hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
-//     hide | show   from this frame the prop is not drawn / drawn again (drawn until a hide); it moves and carries as before
+//     hide | show   from this frame the prop is not drawn / drawn again; nothing else about it changes
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
@@ -122,7 +122,7 @@ const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 /** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks.
  *  aux.reach[characterId][frame] = [L hand, R hand, L foot, R foot], each null or { key, d }: d metres between the limb
  *  and the target the action of frame `key` gave it, on the frames after that action's blend has ended. A spec with a
- *  body on a prop that moves is built again with that body carried (carry.js; aux.carried when they still differ). */
+ *  body on a prop that moves is built again with that body carried (carry.js; aux.carried where the two do not settle). */
 export function buildClip(written, def = DEMOS[written.demo]) { return carriedBuild(written, def, buildOnce, bodyCarriers(written, def)); }
 function buildOnce(written, def, carrier) {
 	const repeat = expandRepeats(written, def.frames), spec = repeat.spec;

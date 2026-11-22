@@ -2,50 +2,66 @@
 // The body layer works such an action out against the prop as the scene places it (as a sit or a lie on a prop always
 // has), so its places (`to`, the seat, where it lies) and headings are the prop's as it stands in the scene, and each
 // frame is then carried to where the prop is on that frame: turned and moved as the prop is turned and moved from its
-// scene place. Where the body gets on or off, the state between two actions is carried over the same way, so the
-// body goes on from where it is. The prop's place on each frame comes from a first build of the clip (the props'
-// tracks, carriedBuild); the body then follows it on every frame of the second.
-import { add, qConj, qMul, qRotate, qY, sub } from "./math.js";
+// scene place. Where the body gets on or off, the state between two actions is carried over by the level part of that
+// move (a turn about the vertical and a move over the floor, which the body layer's state can hold), so the body goes on
+// from where it is; what the level part leaves out (the prop has risen, sunk or tipped by then) is the rest of the
+// getting on or off: the body has all of it on that frame and none BLEND frames later, so it never jumps there.
+// The prop's place on each frame comes from a first build of the clip (the props' tracks, carriedBuild); the body
+// then follows it on every frame of the second.
+import { add, mul, qConj, qMul, qRotate, qSlerp, qY, sub } from "./math.js";
 
-/** A carrier's motion on one frame: x (its scene frame) -> q (x - c0) + c (the world), from its scene place
- *  { c, q } and its place on that frame. */
-const motionOf = (scene, at) => ({ q: qMul(at.q, qConj(scene.q)), c0: scene.c, c: at.c });
-const out = (D, x) => add(qRotate(D.q, sub(x, D.c0)), D.c);
-const back = (D, x) => add(qRotate(qConj(D.q), sub(x, D.c)), D.c0);
+/** Frames the rest of a getting on or off takes to go (half a second). */
+const BLEND = 12;
+// A rigid move { q, t }: x -> q x + t.
+const ID = { q: [0, 0, 0, 1], t: [0, 0, 0] };
+const apply = (T, x) => add(qRotate(T.q, x), T.t);
+const then = (A, B) => ({ q: qMul(A.q, B.q), t: apply(A, B.t) }); // x -> A(B(x))
+const inverse = T => { const q = qConj(T.q); return { q, t: qRotate(q, mul(T.t, -1)) }; };
 const yawOf = q => { const z = qRotate(q, [0, 0, 1]); return Math.atan2(z[0], z[2]); };
-const ID = { q: [0, 0, 0, 1], c0: [0, 0, 0], c: [0, 0, 0] };
 
-/** carrier ({ scene(id), at(id, f) } -> { c, q }): the motion of prop id on frame f, the identity for none (the world). */
-const motionAt = (carrier, id, f) => (id == null ? ID : motionOf(carrier.scene(id), carrier.at(id, f)));
-/** The map of a point from frame `from` to frame `to` (prop ids or null) on frame f. */
-const across = (carrier, from, to, f) => { const A = motionAt(carrier, from, f), B = motionAt(carrier, to, f); return { point: x => back(B, out(A, x)), turn: qMul(qConj(B.q), A.q) }; };
+/** carrier ({ scene(id), at(id, f) } -> { c, q }): the move of prop id on frame f from its scene place, none for the world (null). */
+function motionAt(carrier, id, f) {
+	if (id == null) return ID;
+	const scene = carrier.scene(id), at = carrier.at(id, f), q = qMul(at.q, qConj(scene.q));
+	return { q, t: sub(at.c, qRotate(q, scene.c)) };
+}
+/** What is left on frame f of the rest of a getting on or off (rest: { q, d, f0 }: at f0 a turn q about the floor point
+ *  under the body and a move d), about floor point a. */
+function restAt(rest, f, a) {
+	const u = rest ? Math.min(1, (f - rest.f0) / BLEND) : 1, w = 1 - u * u * (3 - 2 * u);
+	if (!(w > 0)) return ID;
+	const q = qSlerp([0, 0, 0, 1], rest.q, w);
+	return { q, t: add(sub(a, qRotate(q, a)), mul(rest.d, w)) };
+}
+/** Where the body layer's frame of a body on prop `on` (null: the world) is in the world on frame f: a floor point under the body. */
+const worldOf = (carrier, on, rest, f, a) => (on == null && !rest ? ID : then(motionAt(carrier, on, f), restAt(rest, f, a)));
 
-/** Body state B (solve.js) moved by map m ({ point, turn }); the floor under each foot moves with it. */
-function moveB(B, m) {
-	const yaw = yawOf(m.turn);
+/** Body state B (solve.js) moved by T; the floor under each foot moves with it. */
+function moveB(B, T) {
+	if (T === ID) return B;
 	return {
-		...B, p: m.point(B.p), q: qMul(m.turn, B.q), yaw: B.yaw + yaw,
-		feet: B.feet.map(ft => ({ ...ft, a: m.point(ft.a), q: qMul(m.turn, ft.q), floor: m.point([ft.a[0], ft.floor ?? 0, ft.a[2]])[1] })),
+		...B, p: apply(T, B.p), q: qMul(T.q, B.q), yaw: B.yaw + yawOf(T.q),
+		feet: B.feet.map(ft => ({ ...ft, a: apply(T, ft.a), q: qMul(T.q, ft.q), floor: apply(T, [ft.a[0], ft.floor ?? 0, ft.a[2]])[1] })),
 	};
 }
 
-/** The body layer's state between actions (gait.js: p and feet g are [x, z] on the floor) carried from frame `from`
- *  to frame `to` on frame f. */
-export function carryState(st, carrier, from, to, f) {
-	if (from === to) return st;
-	const m = across(carrier, from, to, f), flat = g => { const p = m.point([g[0], 0, g[1]]); return [p[0], p[2]]; }, turn = yawOf(m.turn);
-	return { ...st, p: flat(st.p), yaw: st.yaw + turn, feet: st.feet.map(ft => ({ ...ft, g: flat(ft.g), yaw: ft.yaw + turn })), ...(st.lastB ? { lastB: moveB(st.lastB, m) } : {}) };
+/** The body layer's state between actions (gait.js: p and feet g are [x, z] on the floor) as the body goes from being
+ *  on prop `from` to being on prop `to` (null: the world) on frame f; rest: what is left of an earlier getting on or
+ *  off. -> { st, rest }: the state in the new frame, moved by the level part of the move between the two at the body,
+ *  and the rest of that move ({ q, d, f0 }, null when there is none), which the body's frames give back over BLEND frames. */
+export function carryState(st, carrier, from, to, f, rest) {
+	const a = [st.p[0], 0, st.p[1]], M = then(inverse(motionAt(carrier, to, f)), worldOf(carrier, from, rest, f, a));
+	const turn = yawOf(M.q), at = apply(M, a), q = qY(turn), level = { q, t: sub([at[0], 0, at[2]], qRotate(q, a)) };
+	const flat = g => { const p = apply(level, [g[0], 0, g[1]]); return [p[0], p[2]]; }, tilt = qMul(M.q, qConj(q));
+	const none = Math.abs(at[1]) < 1e-9 && Math.hypot(tilt[0], tilt[1], tilt[2]) < 1e-9;
+	return {
+		st: { ...st, p: flat(st.p), yaw: st.yaw + turn, feet: st.feet.map(ft => ({ ...ft, g: flat(ft.g), yaw: ft.yaw + turn })), ...(st.lastB ? { lastB: moveB(st.lastB, level) } : {}) },
+		rest: none ? null : { q: tilt, d: [0, at[1], 0], f0: f },
+	};
 }
 
-/** The body layer's frames (out[f].on: the prop whose frame it is in, else the world) with the pelvis heights blurred
- *  as the body layer blurs them, each frame's neighbours read in that frame's own, then all carried to the world. */
-export function carriedFrames(out, F, carrier) {
-	for (let pass = 0; pass < 3; pass++) {
-		const p = out.map(B => B.p.slice()), y = (n, f) => (out[n].on === out[f].on ? p[n][1] : across(carrier, out[n].on, out[f].on, n).point(p[n])[1]);
-		out.forEach((B, f) => { B.p[1] = 0.25 * y(Math.max(0, f - 1), f) + 0.5 * p[f][1] + 0.25 * y(Math.min(F - 1, f + 1), f); });
-	}
-	return out.map((B, f) => (B.on == null ? B : moveB(B, across(carrier, B.on, null, f))));
-}
+/** The body layer's frames (out[f].on: the prop whose frame it is in, else the world; out[f].rest: carryState's) carried to the world. */
+export const carriedFrames = (out, carrier) => out.map((B, f) => moveB(B, worldOf(carrier, B.on, B.rest, f, [B.p[0], 0, B.p[2]])));
 
 /** carrier of the props ids (a Set) from a built clip (clip.js): each one's scene place (def.props) and its place on a
  *  frame, from its track. */

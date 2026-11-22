@@ -14,12 +14,16 @@ import { solveSized } from "./size.js";
 
 /** The key that drives free prop p on frame f (null while a hand holds it or while it rides) and its ride in p.ride.
  *  k.off: the frame a hand took the prop off that ride (it rode the frame before); the ride is over from then on. On
- *  that frame the ride that carried it the frame before carries it once more (moveRiders), whatever key starts there. */
+ *  that frame the ride that carried it the frame before carries it once more (moveRiders), whatever key starts there.
+ *  A key of the prop's own that moves it over some frames (tip, move) and starts on a frame the prop rode into: the
+ *  ride carries the prop on that frame as well and the key drives it from the next one, from where the ride left it
+ *  (prop-keys.js), so the prop does not stand still for a frame while its carrier moves on. */
 export function propKey(p, f) {
 	const k = p.keys.findLast(k => k.f <= f), riding = k?.verb === "ride", took = p.holder && p.rideAt === f - 1 ? p.rel?.k : null;
 	if (took) took.off ??= f;
-	p.ride = took?.off === f ? took : riding && !p.holder && k.off == null ? k : null;
-	return p.holder || riding ? null : k;
+	const into = !p.holder && !riding && k?.f === f && k.verb !== "launch" && (k.over ?? 12) > 0 && p.rideAt === f - 1 && p.rel.k.off == null ? p.rel.k : null;
+	p.ride = took?.off === f ? took : into ?? (riding && !p.holder && k.off == null ? k : null);
+	return p.holder || riding || into ? null : k;
 }
 
 /** A joint's place and turn { c, q } as the current pass reads body o (a character of engine.js): on the first pass its

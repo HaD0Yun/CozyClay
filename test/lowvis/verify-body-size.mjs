@@ -69,7 +69,7 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	const withoutOrder = text => text.replace(EDIT_ORDER, "");
 	// and the SPEC words for a body on a moving prop, a prop key that starts where the key before has the prop, hide / show
 	// and a sit's height on a prop (verify-body-carry.mjs), taken out
-	const withoutCarry = text => text.replace(/\n {4}on: propId, on any body action:[^]*?goes on from there\./, "").replace(/ {3}a key starts\n {6}where the key before it has the prop[^\n]*/, "").replace(/\n {4}hide \| show {3}[^\n]*/, "").replace("; with on as well, at that height on that prop.", ".");
+	const withoutCarry = text => text.replace(/\n {4}on: propId, on any body action:[^]*?has risen or tipped\)\./, "").replace(/ {3}a key starts\n {6}where the key or the ride before it has the prop[^\n]*/, "").replace(/\n {4}hide \| show {3}[^\n]*/, "").replace("; with on as well: at that height instead of the prop's top.", ".");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
 	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");

@@ -1,9 +1,9 @@
 // The prop layer's own keys (engine.js): where a move or tip key puts a free prop on a frame, and whether a prop is
-// shown. A key starts from where the key before it puts the prop on the key's own frame when that key drove the prop
-// on the frame before (it ended there or is cut into), as the upper layer's fields start from the key before (flow.js),
-// so a prop keyed key after key never stands still for a frame between them; after anything else (a hold, a ride, a
-// flight, the scene) it starts from where the prop is. hide / show keys are kept apart from the motion keys: they say
-// only whether the prop is drawn from their frame on.
+// shown. A key starts from where the key that drove the prop on the frame before puts it on the key's own frame (it
+// ended there or is cut into), as the upper layer's fields start from the key before (flow.js), so a prop keyed key
+// after key never stands still for a frame between them; after a ride it starts from where the ride has the prop on
+// the key's own frame (ride.js propKey); after anything else (a hold, a flight, the scene) from where the prop is.
+// hide / show keys are kept apart from the motion keys: they say only whether the prop is drawn from their frame on.
 import { qAxisAngle } from "../rig17.js";
 import { EASE, add, mixV, norm, qMul, qRotate, rad, sub } from "./math.js";
 
@@ -25,7 +25,7 @@ function placeOf(k, f) {
 /** The place and turn { c, q } that key k (one of p.keys, driving free prop p on frame f) gives p on frame f. */
 export function keyPose(p, k, f) {
 	if (!k.c0) {
-		const prev = p.keys[p.keys.indexOf(k) - 1], from = prev && p.drove === prev && p.droveAt === f - 1 ? placeOf(prev, f) : { c: p.c, q: p.q };
+		const prev = p.droveAt === f - 1 && p.drove !== k ? p.drove : null, from = prev ? placeOf(prev, f) : { c: p.c, q: p.q }; // prev: the key that drove it on the frame before
 		k.c0 = from.c.slice(); k.q0 = from.q.slice();
 	}
 	p.drove = k; p.droveAt = f;

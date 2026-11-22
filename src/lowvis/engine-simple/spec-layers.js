@@ -17,11 +17,11 @@ export function buildBody(c, acts, F, ctx) {
 	if (moving(list[0])) st.full = true; // gait.js: a move that begins the clip
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
-	let frame = null;
+	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length;
 		if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
-		if (ctx.carrier && on(a) !== frame) { st = carryState(st, ctx.carrier, frame, on(a), a.f); frame = on(a); }
+		if (ctx.carrier && on(a) !== frame) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
 		let r;
 		if (moving(a)) {
 			const segs = [seg(a, N)];
@@ -39,7 +39,7 @@ export function buildBody(c, acts, F, ctx) {
 			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
 		}
 		out.push(...r.frames); st = r.st;
-		if (ctx.carrier) for (let f = first; f < out.length; f++) out[f].on = frame;
+		if (ctx.carrier) for (let f = first; f < out.length; f++) Object.assign(out[f], { on: frame, rest });
 	}
 	// soften pelvis height and lean so action boundaries have no kinks (the solver still guarantees leg reach)
 	const blur = (get, set) => {
@@ -48,9 +48,9 @@ export function buildBody(c, acts, F, ctx) {
 			out.forEach((B, f) => set(B, 0.25 * v[Math.max(0, f - 1)] + 0.5 * v[f] + 0.25 * v[Math.min(F - 1, f + 1)]));
 		}
 	};
-	if (!ctx.carrier) blur(B => B.p[1], (B, v) => { B.p[1] = v; });
+	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
 	blur(B => B.lean, (B, v) => { B.lean = v; });
-	return ctx.carrier ? carriedFrames(out, F, ctx.carrier) : out; // carry.js: blurs the heights in each frame's own
+	return ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
 }
 
 /** The ids of the props that move (scene `moves: true`) on which some body-layer action of a character is done (`on`). */
