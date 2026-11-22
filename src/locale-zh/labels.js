@@ -137,6 +137,7 @@ export const ZH_LABELS = {
 	"Effects": "效果",
 	"Point light": "点光源",
 	"Spot light": "聚光灯",
+	"Directional light": "平行光",
 	"Effect": "效果",
 	"Cast": "角色",
 	"Frame selection": "将所选内容适配到画面",

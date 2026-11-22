@@ -5,10 +5,10 @@
  * Pure on purpose: no three.js and no React, so the agent sidecar, the record
  * normalizer and Node tests all read the same rules.
  *
- * A light is a record with renderer "light". It is created from one of two
- * catalogue kinds, `point-light` and `spot-light`, which differ only in the
- * `light.type` they start with. Like an Empty it has no size: no collision, no
- * surface, no footprint on the plan.
+ * A light is a record with renderer "light". It is created from one of three
+ * catalogue kinds, `point-light`, `spot-light` and `directional-light`, which
+ * differ only in the `light.type` they start with. Like an Empty it has no
+ * size: no collision, no surface, no footprint on the plan.
  *
  * `glow` can sit on any record. It makes the record's materials emissive and
  * adds a camera-facing additive halo, so an ember or a bulb reads as a light
@@ -20,31 +20,46 @@ import { objectMaterialFields, objectMaterialPatch } from "./material-presets.js
 
 export const LIGHT_KIND = "light";
 
-/** three.js intensity per authored unit. Authored values are candela-like
+/** three.js intensity per authored unit of a point or spot light. Authored values are candela-like
  * (decay 2: lighter flame 0.3-0.6, candle 0.3, desk lamp 5, street lamp 40).
+ * A directional light has no falloff: its authored intensity is three.js's own,
+ * the unit of stage.keyLight.intensity (0.9 is the default key), 0..DIRECTIONAL_MAX.
  * The scale is tuned against the default stage key (directional, 1.12) so a
  * street lamp's pool at 4 m reads about as bright as half the key, and a
  * lighter 25 cm from a face lifts it to roughly the key. */
 export const LIGHT_INTENSITY_SCALE = 0.35;
 
-/** At most this many practical lights render shadows (each point shadow is six
- * extra depth passes). The rest still light the scene and are reported. */
-export const PRACTICAL_SHADOW_CAP = 2;
+const DIRECTIONAL_MAX = 4;
 
+/** At most this many shown practical lights are drawn, in record order; the rest
+ * keep their marker but light nothing and are reported. Measured 2026-11-22 (GPU
+ * time of one 1920x1080 frame of the stage with two figures): no light 0.69 ms,
+ * 16 spots 0.84 ms, 32 spots 4.2 ms, 32 points 1.14 ms. */
+export const PRACTICAL_LIGHT_CAP = 16;
+/** Of the drawn lights, at most this many render shadows (each is one depth map
+ * and one texture unit in every lit material; a point light's map is six depth
+ * passes). The rest still light the scene and are reported. Measured the same
+ * way: 4 spot shadows 0.89 ms, 8 spot 1.33 ms, 4 point 1.51 ms, 8 point 2.22 ms;
+ * 16 spot shadows fail to compile (16 texture units on that GPU). */
+export const PRACTICAL_SHADOW_CAP = 4;
+
+const LIGHT_TYPES = ["point", "spot", "directional"];
 const LIGHT_DEFAULTS = Object.freeze({
 	point: Object.freeze({ type: "point", color: "#ffc787", intensity: 5, range: 0, angle: 30, softness: 0.3, shadow: false, flicker: 0, aim: null }),
 	spot: Object.freeze({ type: "spot", color: "#ffe0b2", intensity: 40, range: 0, angle: 30, softness: 0.3, shadow: true, flicker: 0, aim: null }),
+	directional: Object.freeze({ type: "directional", color: "#fff4e0", intensity: 1, range: 0, angle: 30, softness: 0.3, shadow: true, flicker: 0, aim: null }),
 });
 const GLOW_DEFAULTS = Object.freeze({ color: "#ff9a3c", intensity: 4, halo: 1.5 });
 
 const LIGHT_SIZE = { footprint: { width: 0, depth: 0 }, height: 0 };
 /** The record entry every light normalizes through. */
 const LIGHT_ENTRY = Object.freeze({ kind: LIGHT_KIND, label: "Light", group: "Lights", ...LIGHT_SIZE, color: "#ffd38a" });
-/** The two creatable kinds: the add menu and the agent catalogue list these.
+/** The three creatable kinds: the add menu and the agent catalogue list these.
  * `placeY` is where a fresh one hangs, so it lights something on arrival. */
 export const LIGHT_MENU_ENTRIES = Object.freeze([
 	Object.freeze({ kind: "point-light", renderer: LIGHT_KIND, label: "Point light", group: "Lights", ...LIGHT_SIZE, color: "#ffc787", placeY: 1.5, light: LIGHT_DEFAULTS.point }),
 	Object.freeze({ kind: "spot-light", renderer: LIGHT_KIND, label: "Spot light", group: "Lights", ...LIGHT_SIZE, color: "#ffe0b2", placeY: 3, light: LIGHT_DEFAULTS.spot }),
+	Object.freeze({ kind: "directional-light", renderer: LIGHT_KIND, label: "Directional light", group: "Lights", ...LIGHT_SIZE, color: "#fff4e0", placeY: 6, light: LIGHT_DEFAULTS.directional }),
 ]);
 
 /** The library entry for a light kind or the light renderer, or null. */
@@ -64,23 +79,30 @@ const point = (value) => {
 	const out = { x: Number(value.x), y: Number(value.y), z: Number(value.z) };
 	return Object.values(out).every(Number.isFinite) ? out : null;
 };
+/** An aim: a world point, or { id } of a character or scene object the light turns to every frame. A set merges its
+ * members over the stored aim (commands/elements.js), so a value holding both forms is a switch from one to the other:
+ * the member written last is the new one. */
+const aimOf = (value) => {
+	const id = typeof value?.id === "string" && value.id.length > 0 && value.id.length <= 80 ? { id: value.id } : null, at = point(value);
+	return id && at ? (Object.keys(value).at(-1) === "id" ? id : at) : id ?? at;
+};
 
 /** A stored or requested light repaired into the full record. `type` falls back
  * to `typeHint` (the kind it was created as), then to "point". */
 export function normalizeObjectLight(value, typeHint = "point") {
 	const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-	const type = source.type === "spot" || source.type === "point" ? source.type : typeHint === "spot" ? "spot" : "point";
+	const type = LIGHT_TYPES.includes(source.type) ? source.type : LIGHT_TYPES.includes(typeHint) ? typeHint : "point";
 	const base = LIGHT_DEFAULTS[type];
 	return {
 		type,
 		color: hex(source.color, base.color),
-		intensity: finite(source.intensity, base.intensity, 0, 1000),
+		intensity: finite(source.intensity, base.intensity, 0, type === "directional" ? DIRECTIONAL_MAX : 1000),
 		range: finite(source.range, base.range, 0, 100),
 		angle: finite(source.angle, base.angle, 1, 89),
 		softness: finite(source.softness, base.softness, 0, 1),
 		shadow: typeof source.shadow === "boolean" ? source.shadow : base.shadow,
 		flicker: finite(source.flicker, base.flicker, 0, 1),
-		aim: point(source.aim),
+		aim: aimOf(source.aim),
 	};
 }
 
@@ -166,29 +188,45 @@ export function flickerAt(id, frame, amount, fps = 24) {
 }
 
 /**
- * Which shown lights that ask for a shadow get one: the first
- * PRACTICAL_SHADOW_CAP in record order. `capped` lists the rest by id.
+ * Which shown lights are drawn and which of those get a shadow: the first
+ * PRACTICAL_LIGHT_CAP lights in record order are drawn (`unlit` lists the
+ * rest), and of the drawn ones that ask for a shadow the first
+ * PRACTICAL_SHADOW_CAP cast one (`capped` lists the rest), all by id.
  * `isHidden(record)` drops records the stage does not draw.
  */
 export function practicalShadows(objects, isHidden = (object) => object?.hidden === true) {
-	const asking = (objects ?? []).filter((object) => object?.renderer === LIGHT_KIND && object.light?.shadow === true && !isHidden(object));
-	return { casting: asking.slice(0, PRACTICAL_SHADOW_CAP).map((object) => object.id), capped: asking.slice(PRACTICAL_SHADOW_CAP).map((object) => object.id) };
+	const shown = (objects ?? []).filter((object) => object?.renderer === LIGHT_KIND && !isHidden(object));
+	const asking = shown.slice(0, PRACTICAL_LIGHT_CAP).filter((object) => object.light?.shadow === true);
+	return { casting: asking.slice(0, PRACTICAL_SHADOW_CAP).map((object) => object.id), capped: asking.slice(PRACTICAL_SHADOW_CAP).map((object) => object.id),
+		unlit: shown.slice(PRACTICAL_LIGHT_CAP).map((object) => object.id) };
 }
 
 /** The records as the stage draws them: lights past the shadow cap render with
- * `shadow: false` and `shadowCapped: true`. The same array when none is capped. */
-export function capPracticalShadows(objects) {
-	const capped = new Set(practicalShadows(objects).capped);
-	if (!capped.size) return objects;
-	return objects.map((object) => (capped.has(object.id) ? { ...object, light: { ...object.light, shadow: false }, shadowCapped: true } : object));
+ * `shadow: false` and `shadowCapped: true`, lights past the light cap with
+ * `lightCapped: true` (their marker only). The same array when none is capped. */
+export function capPracticalLights(objects) {
+	const { capped, unlit } = practicalShadows(objects);
+	if (!capped.length && !unlit.length) return objects;
+	const dark = new Set(unlit), shadowless = new Set(capped);
+	return objects.map((object) => (dark.has(object.id) ? { ...object, light: { ...object.light, shadow: false }, lightCapped: true }
+		: shadowless.has(object.id) ? { ...object, light: { ...object.light, shadow: false }, shadowCapped: true } : object));
 }
 
-/** Receipt warnings, one per light that asked for a shadow but is past the cap,
- * limited to `ids` when given (the records an edit touched). */
+/** Receipt warnings, one per light past either cap, limited to `ids` when
+ * given (the records an edit touched). */
 function shadowCapWarnings(objects, ids = null, isHidden = undefined) {
-	const { casting, capped } = practicalShadows(objects, isHidden);
-	return capped.filter((id) => !ids || ids.includes(id)).slice(0, 4).map((id) => ({ code: "SHADOW_CAP", id,
-		message: `Renders without a shadow: only ${PRACTICAL_SHADOW_CAP} lights cast shadows (${casting.join(", ")}).`.slice(0, 120) }));
+	const { casting, capped, unlit } = practicalShadows(objects, isHidden);
+	const touched = (id) => !ids || ids.includes(id);
+	return [
+		...unlit.filter(touched).map((id) => ({ code: "LIGHT_CAP", id, message: `Lights nothing: only the first ${PRACTICAL_LIGHT_CAP} shown lights are drawn.` })),
+		...capped.filter(touched).map((id) => ({ code: "SHADOW_CAP", id, message: `Renders without a shadow: only ${PRACTICAL_SHADOW_CAP} lights cast shadows (${wholeIds(casting, 56)}).` })),
+	].slice(0, 4);
+}
+/** The ids joined, as many whole ones as fit `room` characters, then how many more: an id is never cut. */
+function wholeIds(ids, room) {
+	let shown = 0, length = 0;
+	while (shown < ids.length && length + ids[shown].length + 2 <= room) length += ids[shown++].length + 2;
+	return [...ids.slice(0, shown), ...(shown < ids.length ? [`${ids.length - shown} more`] : [])].join(", ");
 }
 
 /** A command result with the shadow-cap warnings for the records it touched

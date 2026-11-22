@@ -7,7 +7,7 @@
  * reaches the set through shadow-map leaks: thin streaks on the ground, and a
  * brighter light changes nothing the agent can measure (session 1e3d1adc).
  *
- * `blockedLights` finds each light that renders a shadow and sits inside such
+ * `blockedLights` finds each point or spot light that renders a shadow and sits inside such
  * a record, from the authored records, and `withLightWarnings` reports it in
  * the receipt of the edit that placed, switched or moved either of them, beside
  * the shadow-cap warning. A record with `glow` is self-lit and casts no shadow
@@ -68,7 +68,8 @@ export function blockedLights(objects = []) {
 	const solids = casters(objects);
 	const out = [];
 	for (const light of objects) {
-		if (!casting.has(light?.id) || light.attach) continue;
+		// A directional light's place only starts its shadow box: a solid around it shades what lies behind it, no more.
+		if (!casting.has(light?.id) || light.attach || light.light?.type === "directional") continue;
 		const at = { x: light.x ?? 0, y: light.y ?? 0, z: light.z ?? 0 };
 		const by = solids.find((object) => object.id !== light.id && insideShape(object, toLocal(object, at)));
 		if (by) out.push({ light, by });

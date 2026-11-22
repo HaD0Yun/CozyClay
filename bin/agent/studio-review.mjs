@@ -6,7 +6,7 @@ import { layerOf } from "../../src/bus-task-scopes.js";
 import { findingItems, findingLines, itemKey } from "./review-findings.mjs";
 
 const MAX_REVIEWS = 3;
-const MAX_TARGETS = 32, LOOK_KIND = /"kind":"(?:point-light|spot-light|effect)"/;
+const MAX_TARGETS = 32, LOOK_KIND = /"kind":"(?:point-light|spot-light|directional-light|effect)"/;
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const changed = r => Number.isSafeInteger(r?.revision?.after) && r.revision.after !== r.revision.before;
 

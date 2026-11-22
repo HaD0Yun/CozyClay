@@ -67,7 +67,7 @@ export function axisSubjects(ids, cameraPosition, state) {
 
 /** The subject as points: the posed body's bones its bounds carry (the editor's bounds port), thinned to one per
  * BODY_GAP of its height so a hand's finger bones count as one point, not twenty; else a 3 x 3 x 3 grid inside its box. */
-function bodyPoints(subject, state, ports, bounds) {
+export function bodyPoints(subject, state, ports, bounds) {
   let posed = bounds.points;
   if (!posed && !subject.renderer && ports?.bounds) try { posed = ports.bounds({ entity: subject, frame: state.frame, state })?.points; } catch { posed = null; }
   const gap = (bounds.max.y - bounds.min.y) * BODY_GAP, kept = [];
