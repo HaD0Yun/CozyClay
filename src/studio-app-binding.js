@@ -15,7 +15,7 @@ import { verifyInstalledTake } from "./studio-agent-motion.js"; import { objectR
 import { shotGeometryFacts } from "./studio-geometry-facts.js"; import { KIT_CATALOGUE } from "./kits/index.js";
 import { STUDIO_TOOL_FAMILIES, StudioProtocolError, validateReceipt, validateStudioCommand, validateStudioIdentity, refusalCode } from "./studio-agent-protocol.js";
 import { studioVisual, verifyLighting } from "./studio-motion-visual.js"; import { studioRelations } from "./studio-relations.js";
-import { withEffectState } from "./effects/state.js"; import { hdrEnvironmentCatalogue } from "./stage-hdr-library.js";
+import { withEffectState } from "./effects/state.js"; import { hdrEnvironmentCatalogue } from "./stage-hdr-library.js"; import { contentKey, sameData } from "./content-key.js";
 
 // App-owned adapter: the shared command modules remain the only
 // planners and validators. Ports below publish through the native editor stores.
@@ -43,7 +43,7 @@ export function createStudioAppBinding(ports) {
 	const tokens = new Map(), receipts = new Map(), images = new Map();
 	let owner = null, journal = null, actionBus = null;
 	const domainKeys = new Map(), domainRevisions = {};
-	let authoredKey, physicsKey, viewKey, observedSceneRevision = ports.revision.current;
+	let authoredKey, physicsKey, physicsInput, viewKey, observedSceneRevision = ports.revision.current;
 	let physicsRevision = 0, viewRevision = 0;
 	function refresh() {
 		const document = Object.assign({}, ...(ports.storeDomains?.() ?? []).map(domain => domain.document()));
@@ -51,7 +51,7 @@ export function createStudioAppBinding(ports) {
 		const host = validateStudioIdentity(raw.host);
 		if (!same(owner, host)) {
 			owner = host; tokens.clear(); receipts.clear(); images.clear();
-			authoredKey = physicsKey = viewKey = undefined;
+			authoredKey = physicsKey = physicsInput = viewKey = undefined;
 			journal = createStudioCommandJournal({ host, isRetained: receipt => ports.isRetained(receipt) });
 		}
 		const characters = raw.characters.map(character => {
@@ -65,7 +65,9 @@ export function createStudioAppBinding(ports) {
 		const authoredCharacters = raw.characters.map(({ sessionMotion, ik, rig, ...character }) => character);
 		// The stage is authored state too: a key-light or environment edit from any
 		// surface bumps the scene revision exactly like a cast or object edit.
-		const authored = JSON.stringify([raw.objects, authoredCharacters, raw.shots, raw.frameCount, raw.stage, document]);
+		// Keyed through contentKey: a refresh runs several times per bus command (a camera drag sends one per pointer move)
+		// and every unchanged document value keeps its text from the last time instead of being written out again.
+		const authored = contentKey([raw.objects, authoredCharacters, raw.shots, raw.frameCount, raw.stage, document]);
 		if (authoredKey !== undefined && authoredKey !== authored && observedSceneRevision === ports.revision.current) ports.revision.current++;
 		authoredKey = authored; observedSceneRevision = ports.revision.current;
 		const liveIds = new Set([...raw.objects, ...raw.characters, ...raw.shots].map(row => row.id));
@@ -73,10 +75,10 @@ export function createStudioAppBinding(ports) {
 		for (const entry of [...raw.objects, ...characters, ...raw.shots]) {
 			// Display-only name/tint changes never revoke a motion target.
 			const { name, subject, tint, identityImage, ...content } = entry;
-			const key = JSON.stringify(content), previous = tokens.get(entry.id);
+			const key = contentKey(content), previous = tokens.get(entry.id);
 			if (!previous || previous.key !== key) tokens.set(entry.id, { key, token: `target-${++tokenSequence}`, incarnation: previous?.incarnation ?? crypto.randomUUID() });
 		}
-		const physical = physicsFingerprintInput({ floor: { model: "flat", y: 0 }, frameCount: raw.frameCount,
+		const input = { floor: { model: "flat", y: 0 }, frameCount: raw.frameCount,
 			objects: raw.objects.map(o => ({ id: o.id, renderer: o.renderer,
 				position: { x: o.x, y: o.y ?? 0, z: o.z }, rotationDeg: { x: o.rotX ?? 0, y: o.rot ?? 0, z: o.rotZ ?? 0 },
 				scale: { x: o.scaleX, y: o.scaleY, z: o.scaleZ }, footprint: o.footprint, height: o.height,
@@ -91,15 +93,18 @@ export function createStudioAppBinding(ports) {
 					motionRevision: stableStamp(motionStamps, motionKey), calibrationRevision: stableStamp(calibrationStamps, calibrationKey),
 					ikRevision: ports.ikRevision(c.id, summary.ik),
 					waypoints: (c.layer?.waypoints ?? []).map(p => ({ frame: p.frame, position: { x: p.x, y: p.y ?? 0, z: p.z } })) };
-			}) });
-		const physicalKey = JSON.stringify(physical);
-		if (physicsKey !== undefined && physicsKey !== physicalKey) physicsRevision++;
-		physicsKey = physicalKey;
+			}) };
+		// The fingerprint is a pure function of its input; its schema check throws and catches on every alternative it
+		// tries, so it runs only when the input differs from the last refresh.
+		if (!physicsInput || !sameData(input, physicsInput.input)) {
+			const physicalKey = JSON.stringify(physicsFingerprintInput(input));
+			if (physicsKey !== undefined && physicsKey !== physicalKey) physicsRevision++;
+			physicsKey = physicalKey; physicsInput = { input }; }
 		const nextViewKey = JSON.stringify([raw.selection, raw.activeCharacterId, raw.selectedShotId, raw.view, raw.camera]);
 		if (viewKey !== undefined && viewKey !== nextViewKey) viewRevision++;
 		viewKey = nextViewKey;
 		for (const [domain, value] of Object.entries({ objects: raw.objects, shot: raw.shots, stage: raw.stage, cast: authoredCharacters, motion: characters, ...document })) {
-			const key = JSON.stringify(value);
+			const key = contentKey(value);
 			if (domainKeys.get(domain) !== key) domainRevisions[domain] = (domainRevisions[domain] ?? 0) + 1;
 			domainKeys.set(domain, key);
 		}
