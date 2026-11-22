@@ -66,7 +66,8 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	const withoutFlow = text => text.replace(/\n {4}Where a hands, L, R, lean, bow[^]*?a hold's blend of a hand to its place stops on it\./, "");
 	// and the sentence on which of several actions an edit's entries name (verify-motion-edit.mjs), taken out
 	const EDIT_ORDER = " Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order.";
-	const withoutOrder = text => text.replace(EDIT_ORDER, "");
+	// and the line on when the last compile is installed (motion-run.mjs notInstalled), taken out
+	const withoutOrder = text => text.replace(EDIT_ORDER, "").replace("\nYour last compile is installed once you report; to keep it out, put the line Install: no before the Missing line and say why.", "");
 	// and the SPEC words for a body on a moving prop, a prop key that starts where the key before has the prop, hide / show
 	// and a sit's height on a prop (verify-body-carry.mjs), taken out
 	const withoutCarry = text => text.replace(/\n {4}on: propId, on any body action:[^]*?has risen or tipped\)\./, "").replace(/ {3}a key starts\n {6}where the key or the ride before it has the prop[^\n]*/, "").replace(/\n {4}hide \| show {3}[^\n]*/, "").replace("; with on as well: at that height instead of the prop's top.", ".");

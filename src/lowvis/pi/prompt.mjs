@@ -88,6 +88,9 @@ const WORK = {
 3. Stop when the action reads. A difference that two fixes have not removed (a spike says 3 compiles in a row) is the engine's: leave it and name it in the Missing line.`,
 };
 export const VARIANTS = Object.keys(FEATURES);
+// The Studio variant only (bin/agent/motion-run.mjs installs the last compile of a run that ends on its report): the
+// report line that keeps it out.
+const INSTALL = "\nYour last compile is installed once you report; to keep it out, put the line Install: no before the Missing line and say why.";
 
 /** The system prompt of a variant (VARIANTS), without the flags listed in off. body: the figure at scale 1 as a share of
  *  the rig's own body (src/lowvis/studio/figure.js lookBody: the body of the look the Studio draws; any value that is not
@@ -118,6 +121,6 @@ HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.
 ${WORK[f.text]}
 4. Then report in 2 or 3 sentences in the user's language, and end with one line:
-Missing: <what the engine could not express, or none>`; };
+Missing: <what the engine could not express, or none>${variant === "studio" ? INSTALL : ""}`; };
 
 export const SYSTEM_PROMPT = systemPrompt();

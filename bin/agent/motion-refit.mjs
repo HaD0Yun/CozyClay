@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionOff } from "./motion-engine.mjs";
 import { bodiesOf } from "./motion-fit.mjs";
-import { keptTakes, playingMotions } from "./motion-kept.mjs";
+import { attachedBefore, keptTakes, playingMotions } from "./motion-kept.mjs";
 import { beforeOf } from "./motion-run.mjs";
 import { lookBody } from "../../src/lowvis/studio/figure.js";
 
@@ -34,6 +34,8 @@ const bodiesOnly = (differs, characters) => differs.every(text => { const [id, f
  * changed). skipped: [{ name, characters, why }], a motion the refit cannot take over (the scene changed otherwise, or
  * the engine refused): the writer is needed for it. keptNone: the listed characters whose take keeps no spec (made
  * before specs were kept, or by another tool): they keep their take as it is.
+ * undo (when it installed one): the receipt ids of its edits, newest first; in the same message undo_edit of each in
+ * that order takes them back.
  * memoryKey: the conversation, whose remembered bodies (motion-fit.mjs) become the refit ones.
  * Throws an Error with code "studio" when the Studio refused a step of an install.
  */
@@ -45,9 +47,10 @@ export async function refitMotion({ hub, workspaceHandle, invoke, memoryKey = nu
 	const out = { ok: true, refit: [], kept: [], skipped: [] }, bare = takes.bare.filter(id => listed.has(id));
 	if (bare.length) out.keptNone = bare;
 	let refused = null;
+	const receipts = []; // the edits of this call's installs (a step that changed nothing is no edit of the turn): undo names them newest first
 	const run = async (action, args) => {
 		for (let tries = 0; ; tries++) {
-			try { return await invoke(action, args); } catch (error) {
+			try { const receipt = await invoke(action, args); if (receipt?.authored === true && receipt.receiptId) receipts.push(receipt.receiptId); return receipt; } catch (error) {
 				if (error?.code === "STALE_SCENE" && tries < 2) continue;
 				refused = error;
 				return null;
@@ -65,7 +68,7 @@ export async function refitMotion({ hub, workspaceHandle, invoke, memoryKey = nu
 		const was = tool.call({}), got = was.status === "ok" ? tool.call({ scene }) : was;
 		if (got.status !== "ok") { out.skipped.push({ ...who, why: `the engine did not compile it: ${got.error}` }); continue; }
 		const clip = readClip(tool.clipFile);
-		const done = await installClip(clip, run, { label: `refit of ${motion.name}`, existing: studio.ids, turn, body: lookBody(figure), source: { name, scene, spec: motion.spec } });
+		const done = await installClip(clip, run, { label: `refit of ${motion.name}`, existing: { ...studio.ids, attachedBefore: attachedBefore(takes) }, turn, body: lookBody(figure), source: { name, scene, spec: motion.spec } });
 		if (!done.ok) throw failure("studio", `The motion was compiled again (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 		const sizes = motion.scene.characters.map(c => ({ id: studio.ids.characters[c.id], was: c.scale ?? 1, now: now(c).scale })).filter(s => s.id && s.was !== s.now);
 		// the body this conversation's fit lines measure a later edit of one against (motion-fit.mjs) is the refit one
@@ -73,5 +76,6 @@ export async function refitMotion({ hub, workspaceHandle, invoke, memoryKey = nu
 		for (const c of motion.scene.characters) { const id = studio.ids.characters[c.id]; if (known.has(id)) known.set(id, { id, scale: now(c).scale, tint: now(c).tint ?? null }); }
 		out.refit.push({ name, from: motion.name, characters: motion.cast, sizes, frames: clip.frameCount, rows: got.told.filter(t => !t.was || t.worse).map(t => t.line) });
 	}
+	if (receipts.length) out.undo = receipts.reverse();
 	return out;
 }

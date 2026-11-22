@@ -95,7 +95,7 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 	const adds = steps.filter(([a]) => a === "character.add").map(([, args]) => args.character.scale);
 	assert.deepEqual(adds, [undefined, 0.95], "a body of the cube's scale 1 is a new character at scale 1; one of 0.95 at 0.95");
 	const installs = steps.filter(([a]) => a === "motion.v4.install").map(([, args]) => args);
-	assert.deepEqual(installs.map(a => a.lowvis), [{ name: "agent-x", scene, spec: {} }, { name: "agent-x", scene, spec: {} }], "the source goes with every take");
+	assert.deepEqual(installs.map(a => a.lowvis), [{ name: "agent-x", scene, spec: {}, attached: [] }, { name: "agent-x", scene, spec: {}, attached: [] }], "the source goes with every take, with what its install put on its bones (none)");
 	assert.deepEqual(installs.map(a => decodeRawTrack(a.raw, skeletonFor(TRACK_RIG)).scale), [B, 0.95 * B], "each take is of the engine's size");
 	assert.equal(clipTrack(built, 0).scale, B);
 	const DESCRIBE = { characters: [{ id: "c1", model: TRACK_RIG, x: 0, z: 0, rot: 0, scale: 0.8, tint: "#aa3311" }, { id: "c2", model: TRACK_RIG, x: 1, z: 0, rot: 90, scale: 1, tint: null }], objects: [] };
