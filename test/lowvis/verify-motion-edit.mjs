@@ -2,11 +2,13 @@
 // A change to a motion stated against the motion before it (src/lowvis/pi/edit.mjs, compile-tool.mjs kept, harness.mjs
 // kept). Scenes and specs are made here.
 // 1. applyEdit: the edited spec equals the whole spec written by hand; every action the edit does not name is the same
-//    object text, in its place; several actions of one id with one frame and verb are named in their order; a bad
-//    entry or a removal of an action that is not there refuses the whole edit with a message that names the entry.
+//    object text, in its place; several actions of one id with one frame and verb are named in their order; an id
+//    left with no action leaves the spec; a bad entry or a removal of an action that is not there refuses the whole
+//    edit with a message that names the entry.
 // 2. The tool started from a kept motion compiles an edit-only first call to the same clip bytes and the same told
 //    lines as a fresh tool sent the whole edited spec: the whole clip is compiled and checked either way. A whole spec
-//    sent ends the kept state; without a kept motion an edit is refused as before.
+//    sent ends the kept state; without a kept motion an edit is refused as before; from a kept spec without its scene
+//    the first call must send the scene.
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,10 +45,15 @@ try {
 	// an id with no actions yet; an entry with no options
 	r = applyEdit(spec, { c: [[5, "idle"]] });
 	assert.deepEqual(r.spec.c, [[5, "idle"]]);
+	// an id the edit leaves with no action leaves the spec (so a character taken out of the scene can be edited out); an edit that names an id and nothing of it adds no id
+	r = applyEdit(spec, { b: [[0, "idle", null], [20, "walk", null]] });
+	assert.deepEqual(r.spec, { a: spec.a }); assert.equal(r.said, "edit: 0 replaced, 0 added, 2 removed; the spec now has 5 actions");
+	assert.deepEqual(applyEdit(spec, { c: [] }).spec, spec);
 	// refused whole, the entry named
 	for (const [edit, want] of [
 		[{ a: [[10, "walk", { to: [0, 3] }], [61, "turn", null]] }, /^edit\.a: \[61,"turn",null\] removes an action that is not there: a has no actions at frame 61 with verb "turn"$/],
 		[{ a: [[40, "pose", null], [40, "pose", null], [40, "pose", null]] }, /^edit\.a: \[40,"pose",null\] removes an action that is not there: a has only 2 actions at frame 40 with verb "pose"$/],
+		[{ a: [[60, "turn", { heading: 0 }], [60, "turn", { heading: 10 }], [60, "turn", null]] }, /^edit\.a: \[60,"turn",null\] removes an action that is not there: a has only 1 action at frame 60 with verb "turn"$/],
 		[{ a: [["10", "walk", {}]] }, /^edit\.a: want \[frame, verb, options\] \(options an object, or null to remove\), got \["10","walk",\{\}\]$/],
 		[{ b: [[10, "walk", [1, 2]]] }, /^edit\.b: want \[frame, verb, options\].*got \[10,"walk",\[1,2\]\]$/],
 		[{ b: [[10, "walk", {}, 3]] }, /^edit\.b: want \[frame, verb, options\].*got \[10,"walk",\{\},3\]$/],
@@ -93,7 +100,15 @@ try {
 	const none = tool(), refused = none.call({ edit });
 	assert.equal(refused.status, "rejected"); assert.match(refused.text, /edit: there is no spec yet\. Send spec first/); assert.equal(refused.kept, false);
 	assert.equal(tool({ scene }).call({ edit }).status, "rejected", "a kept scene without a spec is not kept");
-	console.log("PASS kept motion: an edit-only call compiles the same clip and checks as the whole spec; untouched actions byte-equal; kept ends with a whole spec");
+	// a kept spec without its scene (the Studio scene is no longer that scene): the scene must be sent, then as above
+	const bare = tool({ spec: first }), early = bare.call({ edit });
+	assert.equal(early.status, "rejected"); assert.match(early.text, /^scene: missing\. Send scene: /m); assert.match(early.text, /The edit was not kept/); assert.deepEqual(bare.state.spec, first);
+	const then = bare.call({ scene, edit });
+	assert.equal(then.status, "ok", then.text); assert.equal(then.kept, true); assert.equal(clipText(bare.clipFile), clipText(fresh.clipFile), "the same clip as the whole spec sent");
+	// a character taken out of the scene: its actions go by an edit, and the scene without it compiles
+	const alone = tool({ spec: first }), solo = alone.call({ scene: { ...scene, characters: scene.characters.slice(0, 1) }, edit: { b: first.b.map(a => [a[0], a[1], null]) } });
+	assert.equal(solo.status, "ok", solo.text); assert.deepEqual(alone.state.spec, { a: first.a });
+	console.log("PASS kept motion: an edit-only call compiles the same clip and checks as the whole spec; untouched actions byte-equal; kept ends with a whole spec; a kept spec without its scene waits for the scene");
 } finally {
 	rmSync(TMP, { recursive: true, force: true });
 }

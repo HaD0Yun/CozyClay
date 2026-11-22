@@ -174,11 +174,12 @@ function travelLines(clip, aux, spec) {
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
  *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look the Studio
  *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's).
- *  kept: { scene, spec } of an earlier motion the tool starts from, as if they had been sent (nothing is compiled until a call);
- *  state.kept stays true while the spec descends from it by edits alone (no whole spec sent), and each result carries it. */
+ *  kept: { scene?, spec } of an earlier motion the tool starts from, as if they had been sent (nothing is compiled until a call;
+ *  without its scene the first call must send one); state.kept stays true while the spec descends from it by edits alone
+ *  (no whole spec sent), and each result carries it. */
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null, kept = null }) {
 	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
-	const seed = isObject(kept?.scene) && isObject(kept?.spec) ? structuredClone(kept) : null;
+	const seed = isObject(kept?.spec) ? structuredClone({ scene: isObject(kept.scene) ? kept.scene : null, spec: kept.spec }) : null;
 	const feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
 	mkdirSync(outDir, { recursive: true });
 
