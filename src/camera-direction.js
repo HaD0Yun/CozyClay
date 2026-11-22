@@ -17,6 +17,7 @@ import { fk } from "./motion3/compiler/skeleton.js";
 import { holdBody } from "./camera-hold-body.js";
 import { shotSubjects, subjectsCenter } from "./shot-subjects.js";
 import { applyRailHead, railTurnAt } from "./camera-rail-head.js";
+import { contentKey } from "./content-key.js";
 import { carriedPointAt, sceneObjectCarryMatrixAt } from "./object-travel.js";
 
 const DEG = Math.PI / 180;
@@ -34,50 +35,63 @@ const CHEST = 0.75, HIPS_TO_CHEST = 0.35;
  * bodyAt(frame) answers the shot subjects' posed joints at a frame (or null): a follow camera, and a rail camera
  * that frames the subjects, keep them in the picture of fovDeg (the lens a sample without its own renders with).
  */
-export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, yawDegOf = () => yawDeg, aimAt = () => null, filmback = {}, bodyAt = () => null, fovDeg = 45 }) {
+export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, yawDegOf = () => yawDeg, aimAt = () => null, filmback = {}, bodyAt = () => null, fovDeg = 45, reuse = null }) {
 	const combined = new Array(subjectTrack.length).fill(null);
 	const held = (track, from, dolly) => holdBody(track, track.map((_, offset) => bodyAt(from + offset)), { fovDeg, aspect: filmback.aspectRatio, dolly, fps });
 	for (const shot of shots) {
 		const camera = createCameraBlock(shot.camera);
 		if (camera.mode === "keys") continue;
-		const start = shot.startFrame, subjectSlice = subjectTrack.slice(start, Math.min(subjectTrack.length, shot.endFrame + 1));
-		const yaw = yawDegOf(shot) * DEG, initialDir = { x: Math.sin(yaw), z: Math.cos(yaw) };
-		const params = { ...camera.followCam, craneHeight: camera.craneHeight, dollyTiming: camera.dollyTiming, initialDir };
-		const rail = camera.mode === "rail" ? buildRail(camera.cameraRail) : null;
-		if (!rail) {
-			if (!subjectSlice.length || subjectSlice.some(point => !point)) continue;
-			held(buildFollowTrack(subjectSlice, fps, params), start, true).forEach((sample, offset) => { combined[start + offset] = sample; });
-			continue;
-		}
-		let schedule = resolveRailSchedule({ railFollow: camera.railFollow, cameraRail: camera.cameraRail, frameCount: subjectSlice.length });
-		if (schedule.kind === RAIL_SCHEDULE_TOO_SHORT && camera.aimTake && camera.railFollow?.mode !== "off") {
-			const endFrame = Math.min(subjectSlice.length - 1, camera.aimTake.startFrame + camera.aimTake.samples.length - 1);
-			if (camera.aimTake.startFrame > endFrame) continue;
-			schedule = { kind: RAIL_SCHEDULE_RANGE, startFrame: camera.aimTake.startFrame, endFrame };
-		}
-		if (schedule.kind !== RAIL_SCHEDULE_RANGE && schedule.kind !== RAIL_SCHEDULE_LEGACY) continue;
-		const from = start + schedule.startFrame, length = schedule.endFrame - schedule.startFrame + 1;
-		const aim = camera.aim ? Array.from({ length }, (_, offset) => railAimPoint(camera.aim, from + offset, aimAt)) : null;
-		const aimed = aim?.every(Boolean) ? aim : null, follows = camera.head?.follow !== false;
-		const subject = subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1);
-		// A cast aim that lost a member turns to the follow subject, as it always has; a cast the user picked by
-		// hand (aim.picked) holds still instead, like a picked subject (shot-subjects.js).
-		if (follows && (camera.aim?.picked && !aimed || !aimed && subjectSlice.some(point => !point))) continue;
-		// A head that turns to nothing still rides the rail: without a subject the dolly keeps its schedule alone.
-		const lone = !aimed && subjectSlice.some(point => !point);
-		const track = aimed
-			? buildRailFollowTrack(aimed, fps, rail, { ...params, aimPerFrame: true, distanceInfluence: 0, pitchOffsetDeg: 0 })
-			: lone ? buildRailFollowTrack(subject.map(() => rail.points[0]), fps, rail, { ...params, distanceInfluence: 0 })
-				: buildRailFollowTrack(subject, fps, rail, params);
-		const lensDeg = camera.focalMm ? focalMmToFov(camera.focalMm, filmback.sensorId, filmback.aspectRatio) / DEG : null;
-		const lens = { ...(lensDeg ? { fovDeg: lensDeg } : {}), ...(camera.rollDeg ? { rollDeg: camera.rollDeg } : {}) };
-		// a rail aimed at a cast or a point holds what it was asked to; an aimless following rail frames the subject's body;
-		// the hand angle comes last, so the picture is the one the user turned to
-		const framed = track.map((sample) => ({ ...sample, ...lens }));
+		// reuse (a Map the caller keeps while every other input above stays the same): a shot whose camera changed only
+		// in its rail head's angle or its crane marks' turns keeps the samples it was built with, and only the angles
+		// are applied again (the marks' heights still rebuild: they move the dolly)
+		const marks = camera.craneHeight && { points: camera.craneHeight.points.map(({ t, height }) => ({ t, height })) };
+		const key = reuse && contentKey([{ ...shot, camera: { ...shot.camera, head: undefined, craneHeight: marks } }, camera.head?.follow !== false]);
+		const kept = reuse?.get(shot.id);
+		const built = kept?.key === key ? kept : { key, ...shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback, held }) };
+		reuse?.set(shot.id, built);
+		if (!built.samples) continue;
 		// a crane mark's turn applies where the dolly is on the rail (its arc progress), not by frame
-		(aimed || !follows ? framed : held(framed, from, false)).forEach((sample, offset) => { combined[from + offset] = applyRailHead(sample, camera.head, railTurnAt(camera.craneHeight, sample.s / rail.length)); });
+		built.samples.forEach((sample, offset) => { combined[built.from + offset] = built.rail ? applyRailHead(sample, camera.head, railTurnAt(camera.craneHeight, sample.s / built.rail)) : sample; });
 	}
 	return combined;
+}
+
+/** One shot's follow or rail samples before its rail head's angle ({ from, samples, rail: the rail's length or false }), or {} when it has none. */
+function shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback, held }) {
+	const start = shot.startFrame, subjectSlice = subjectTrack.slice(start, Math.min(subjectTrack.length, shot.endFrame + 1));
+	const yaw = yawDegOf(shot) * DEG, initialDir = { x: Math.sin(yaw), z: Math.cos(yaw) };
+	const params = { ...camera.followCam, craneHeight: camera.craneHeight, dollyTiming: camera.dollyTiming, initialDir };
+	const rail = camera.mode === "rail" ? buildRail(camera.cameraRail) : null;
+	if (!rail) {
+		if (!subjectSlice.length || subjectSlice.some(point => !point)) return {};
+		return { from: start, samples: held(buildFollowTrack(subjectSlice, fps, params), start, true), rail: false };
+	}
+	let schedule = resolveRailSchedule({ railFollow: camera.railFollow, cameraRail: camera.cameraRail, frameCount: subjectSlice.length });
+	if (schedule.kind === RAIL_SCHEDULE_TOO_SHORT && camera.aimTake && camera.railFollow?.mode !== "off") {
+		const endFrame = Math.min(subjectSlice.length - 1, camera.aimTake.startFrame + camera.aimTake.samples.length - 1);
+		if (camera.aimTake.startFrame > endFrame) return {};
+		schedule = { kind: RAIL_SCHEDULE_RANGE, startFrame: camera.aimTake.startFrame, endFrame };
+	}
+	if (schedule.kind !== RAIL_SCHEDULE_RANGE && schedule.kind !== RAIL_SCHEDULE_LEGACY) return {};
+	const from = start + schedule.startFrame, length = schedule.endFrame - schedule.startFrame + 1;
+	const aim = camera.aim ? Array.from({ length }, (_, offset) => railAimPoint(camera.aim, from + offset, aimAt)) : null;
+	const aimed = aim?.every(Boolean) ? aim : null, follows = camera.head?.follow !== false;
+	const subject = subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1);
+	// A cast aim that lost a member turns to the follow subject, as it always has; a cast the user picked by
+	// hand (aim.picked) holds still instead, like a picked subject (shot-subjects.js).
+	if (follows && (camera.aim?.picked && !aimed || !aimed && subjectSlice.some(point => !point))) return {};
+	// A head that turns to nothing still rides the rail: without a subject the dolly keeps its schedule alone.
+	const lone = !aimed && subjectSlice.some(point => !point);
+	const track = aimed
+		? buildRailFollowTrack(aimed, fps, rail, { ...params, aimPerFrame: true, distanceInfluence: 0, pitchOffsetDeg: 0 })
+		: lone ? buildRailFollowTrack(subject.map(() => rail.points[0]), fps, rail, { ...params, distanceInfluence: 0 })
+			: buildRailFollowTrack(subject, fps, rail, params);
+	const lensDeg = camera.focalMm ? focalMmToFov(camera.focalMm, filmback.sensorId, filmback.aspectRatio) / DEG : null;
+	const lens = { ...(lensDeg ? { fovDeg: lensDeg } : {}), ...(camera.rollDeg ? { rollDeg: camera.rollDeg } : {}) };
+	// a rail aimed at a cast or a point holds what it was asked to; an aimless following rail frames the subject's body;
+	// the hand angle comes last (the caller), so the picture is the one the user turned to
+	const framed = track.map((sample) => ({ ...sample, ...lens }));
+	return { from, samples: aimed || !follows ? framed : held(framed, from, false), rail: rail.length };
 }
 
 /** Sample every named visible member through its own take, placement and parent carry. */
