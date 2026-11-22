@@ -7,7 +7,8 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
-const panel = readFileSync(new URL("../src/workflow/AgentPanel.jsx", import.meta.url), "utf8");
+// The panel with its user message rows, which live in AgentUserBubble.jsx (the edit on the last message).
+const panel = readFileSync(new URL("../src/workflow/AgentPanel.jsx", import.meta.url), "utf8") + readFileSync(new URL("../src/workflow/AgentUserBubble.jsx", import.meta.url), "utf8");
 // Connect a model is pi's own login (#pi-login): the list and the flow live in LoginPanel.jsx and login-client.js.
 const login = readFileSync(new URL("../src/workflow/LoginPanel.jsx", import.meta.url), "utf8");
 const loginClient = readFileSync(new URL("../src/workflow/login-client.js", import.meta.url), "utf8");

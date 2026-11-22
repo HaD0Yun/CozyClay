@@ -37,7 +37,7 @@ function warnLegacySession(sessionId) {
 	console.warn(`[agent] skipping legacy session ${sessionId}`);
 }
 
-function v2HeaderLine(sessionId) {
+export function v2HeaderLine(sessionId) {
 	return JSON.stringify({ format: V2_FORMAT, version: V2_VERSION, sessionId });
 }
 
