@@ -52,6 +52,24 @@ assert.ok(close(both[mid].yaw, ride[mid].yaw + 12 * DEG), "head and mark turn ad
 const off = build(updateCameraBlock(turned, { head: { follow: false, yawDeg: 90, pitchDeg: 0 } }));
 assert.ok(close(off[0].yaw, 90 * DEG) && close(off[mid].yaw, (90 + railTurnAt(turned.craneHeight, plain[mid].s / rail.length).yawDeg) * DEG), "follow off: the held angle, turned by the mark where it passes");
 
+// The eight-mark cap keeps the turns of the marks it keeps.
+{
+	const nine = Array.from({ length: 9 }, (_, i) => ({ t: i / 8, height: 1.6, yawDeg: i * 2 }));
+	const capped = updateCameraBlock(base, { craneHeight: { points: nine } }).craneHeight.points;
+	assert.equal(capped.length, 8);
+	assert.deepEqual(capped.slice(0, 7).map((m) => m.yawDeg), [undefined, 2, 4, 6, 8, 10, 12], "kept marks keep their turns");
+}
+
+// A rail held on an aim (a point here; a cast the same way) turns off it by the marks too, frame by frame.
+{
+	const aimPlain = build(updateCameraBlock(base, { aim: { point: { x: 0, y: 1.2, z: 0 } } }));
+	const aimTurned = build(updateCameraBlock(turned, { aim: { point: { x: 0, y: 1.2, z: 0 } } }));
+	for (let f = 0; f < frames; f += 1) {
+		const turn = railTurnAt(turned.craneHeight, aimPlain[f].s / rail.length);
+		assert.ok(close(aimTurned[f].yaw, aimPlain[f].yaw + turn.yawDeg * DEG) && close(aimTurned[f].pitch, aimPlain[f].pitch + turn.pitchDeg * DEG), `an aimed rail turns by the marks (frame ${f})`);
+	}
+}
+
 // Turning the camera by hand where a mark turns it changes the head by the hand's turn only (not the mark's twice).
 for (const head of [null, { follow: false, yawDeg: 90, pitchDeg: 0 }]) {
 	const camera = updateCameraBlock(turned, { head });
