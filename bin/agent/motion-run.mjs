@@ -2,7 +2,8 @@
 // The flow: the editor's describe answer -> the Studio scene as a lowvis scene (src/lowvis/studio/scene.js) -> the
 // request text -> the motion writer (src/lowvis/pi/harness.mjs: claude-opus-5-5 at effort medium on CLIProxyAPI with
 // one tool, motion) -> the clip it ended with -> installed as scene content (src/lowvis/studio/install.js).
-// The scene and spec the motion writer wrote last are kept per memoryKey, so the next request can change or continue them.
+// The scene and spec the motion writer wrote last are kept per memoryKey, so the next request can change or continue them:
+// the next writer's tool starts from them (harness.mjs kept) and takes a change as an edit of their actions.
 // Used by the motion tool of the Studio agent (motion-door.mjs) and by the direct key (lowvis-turn.mjs).
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -54,7 +55,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (studio.others?.length) parts.push(`These characters cannot be animated by the engine and stand as they are: ${studio.others.map(other => `${other.id} (${other.why})`).join(", ")}.`);
 	parts.push(`${ADDED}${body ? ` ${BODIES}` : ""}${note ? ` ${DRESSED}` : ""}`);
 	if (before) {
-		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
+		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look. When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");
 }
@@ -113,8 +114,9 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		}
 	};
 	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
-	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body, has["*"]?.scale ?? 1);
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
+	const before = memoryKey == null ? null : last.get(memoryKey) ?? null, request = requestOf({ words, wordsOf, note }, images.length, studio.scene, before, body, has["*"]?.scale ?? 1);
+	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before } : {}), env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });

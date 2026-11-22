@@ -36,7 +36,7 @@ const MOTION_PARAMETERS = Type.Object({
 	}, { description: "Other frames (at most 12), another view (three, side, front, top) or a close framing on one id, in place of the default sheet." })),
 });
 const MOTION_DESCRIPTION = "Compiles the scene and the motion spec, checks the clip and returns the check numbers and contact sheets. Keeps the last scene and spec, so send only what changed.";
-const EDIT_PARAMETER = Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "Changes to the kept spec, in place of spec: { <id>: [[frame, verb, options], ...] }. An entry replaces the action of that id with the same frame and verb, or adds it when there is none; [frame, verb, null] removes it." }));
+const EDIT_PARAMETER = Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "Changes to the kept spec, in place of spec: { <id>: [[frame, verb, options], ...] }. An entry replaces the action of that id with the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. Where an id has several actions with one frame and verb, the entries with that frame and verb name them in their order. Actions it does not name stay as they are; an entry that cannot apply refuses the whole edit." }));
 const BODY_CHARACTER = Type.Object({ id: Type.String(), at: Type.Array(Type.Number()), heading: Type.Number(), scale: Type.Optional(Type.Number()), tint: Type.Optional(Type.String()) });
 /** The tool parameters of a variant: the edit argument, and a character's scale and tint, only where the variant has them. */
 function motionParameters(variant, off = []) {
@@ -87,10 +87,12 @@ function markCache(payload) {
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
  * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs); "*":
  * the scale a new character starts at, which the system prompt also states (prompt.mjs systemPrompt start).
+ * kept: { scene, spec } of the motion before this one, which the tool starts from (compile-tool.mjs kept): a call may then
+ * send only an edit or a scene. A compile whose spec came from it by edits alone logs "kept-spec".
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
@@ -111,7 +113,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const { models, model, entry } = resolved;
 	record.modelEntry = entry;
 
-	const motion = createCompileTool({ name, outDir, variant, off, bodies }), t0 = performance.now(), now = () => performance.now() - t0;
+	const motion = createCompileTool({ name, outDir, variant, off, bodies, kept }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map();
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };
@@ -128,10 +130,10 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			const started = now();
 			let r;
 			try { r = motion.call(params ?? {}); } catch (error) { r = { n: motion.state.calls, status: "rejected", error: `harness error: ${error?.message ?? error}`, text: `harness error (not yours): ${error?.message ?? error}`, images: [], files: [], scene: motion.state.scene, spec: motion.state.spec, shown: null, harnessError: true }; }
-			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, text: scrub(r.text) };
+			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, kept: r.kept, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, text: scrub(r.text) };
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
-			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}`);
+			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}${r.kept ? `, kept-spec${r.edit ? ` edit ${r.edit.replaced} replaced, ${r.edit.added} added, ${r.edit.removed} removed` : ""}` : ""}`);
 			if (r.status === "ok") try { onCompiled({ n: r.n, scene: motion.state.last.scene, clip: motion.clipFile }); } catch { /* a failing listener never fails the run */ }
 			return { content: [{ type: "text", text: r.text }, ...r.images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))], details: { n: r.n, status: r.status } };
 		},

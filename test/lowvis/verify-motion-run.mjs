@@ -57,8 +57,12 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	await runMotion({ ...base, words: "now slower", memoryKey: "conv-1" });
 	const second = seen.runs[1].request;
 	assert.ok(second.includes(`scene: ${JSON.stringify(SCENE)}`) && second.includes(`spec: ${JSON.stringify(SPEC)}`), "the second call carries the last scene and spec");
+	assert.match(second, /The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look\./);
+	assert.equal("kept" in run, false, "the first run's tool starts empty");
+	assert.deepEqual(seen.runs[1].kept, { scene: SCENE, spec: SPEC }, "the second run's tool starts from the last scene and spec");
 	await runMotion({ ...base, words: "another", memoryKey: "conv-2" });
 	assert.doesNotMatch(seen.runs[2].request, /Your last scene and spec/, "another conversation does not");
+	assert.equal("kept" in seen.runs[2], false);
 	console.log("PASS runMotion: report, missing, heights and others lines, memory per conversation");
 }
 

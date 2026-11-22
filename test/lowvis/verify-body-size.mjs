@@ -64,8 +64,11 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	const withoutBalance = text => text.replace("nothing moves a body to keep its balance (where\n      the tool has a balance row, that row says what it measures of a body at rest).", "nothing checks the balance.");
 	// and the SPEC lines on keys that flow on into the next (verify-smooth-flow.mjs), taken out
 	const withoutFlow = text => text.replace(/\n {4}Where a hands, L, R, lean, bow[^]*?a hold's blend of a hand to its place stops on it\./, "");
+	// and the sentences on an edit's order and refusal (verify-motion-edit.mjs), taken out
+	const EDIT_ORDER = " Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order. Actions the edit does not name stay as they are; an entry that cannot apply refuses the whole edit.";
+	const withoutOrder = text => text.replace(EDIT_ORDER, "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance"] : variant === "base" ? ["inside"] : [])))))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance"] : variant === "base" ? ["inside"] : []))))))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");
@@ -74,7 +77,9 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	assert.ok(!systemPrompt("studio", ["body"]).includes("tint"), "with the step off the manual has no word of it");
 	// the tool's parameters: 1695 characters (description and schema) before; a character's scale and tint add to them
 	const chars = async off => (await runScene({ name: "body-schema", request: "x", variant: "studio", off, env: {}, outDir: join(TMP, "schema") })).prompt.toolChars;
-	assert.equal(await chars(["body"]), 1695, "with the step off the tool's schema is the one of before");
+	// the edit's description later said how entries name several actions of one frame and verb and that a bad entry refuses the edit (verify-motion-edit.mjs)
+	const editOrder = JSON.stringify(" Where an id has several actions with one frame and verb, the entries with that frame and verb name them in their order. Actions it does not name stay as they are; an entry that cannot apply refuses the whole edit.").length - 2;
+	assert.equal(await chars(["body"]) - editOrder, 1695, "with the step off the tool's schema is the one of before");
 	assert.ok(await chars([]) > 1695, "with it a character has the two fields");
 	console.log("ok manual: every variant without the body step is byte for byte the manual of before; with it the scene has scale and tint");
 }
