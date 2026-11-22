@@ -29,6 +29,7 @@ assert.deepEqual(turnEdits(tool("a", { authored: true }, { action: "motion.compi
 assert.equal(turnEdits(tool("a", { authored: true }, { action: "stage.set" })).stage, true, "a stage action asks for the lighting check");
 assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.effect", args: { id: "smoke-1" } })).stage, true, "an effect object is a look change");
 assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.add", args: { kind: "point-light" } })).stage, true, "a practical light is a look change");
+assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.add", args: { kind: "directional-light" } })).stage, true, "so is a directional one");
 assert.equal(turnEdits(tool("a", { authored: true }, { ops: [{ op: "create", kind: "spot-light" }] })).stage, true, "a light made through arrange_objects too");
 assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.add", args: { kind: "cube" } })).stage, false, "a cube is measured by placement, not looked at");
 const nested = turnEdits(tool("a", { calls: [{ ok: true, action: "motion.compile", authored: true, affectedIds: ["char-b"] }, { ok: true, action: "stage.set", authored: true, affectedIds: [] }] }, { code: "..." }));

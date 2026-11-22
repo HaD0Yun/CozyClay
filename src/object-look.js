@@ -79,8 +79,13 @@ const point = (value) => {
 	const out = { x: Number(value.x), y: Number(value.y), z: Number(value.z) };
 	return Object.values(out).every(Number.isFinite) ? out : null;
 };
-/** An aim: a world point, or { id } of a character or scene object the light turns to every frame. */
-const aimOf = (value) => (typeof value?.id === "string" && value.id.length > 0 && value.id.length <= 80 ? { id: value.id } : point(value));
+/** An aim: a world point, or { id } of a character or scene object the light turns to every frame. A set merges its
+ * members over the stored aim (commands/elements.js), so a value holding both forms is a switch from one to the other:
+ * the member written last is the new one. */
+const aimOf = (value) => {
+	const id = typeof value?.id === "string" && value.id.length > 0 && value.id.length <= 80 ? { id: value.id } : null, at = point(value);
+	return id && at ? (Object.keys(value).at(-1) === "id" ? id : at) : id ?? at;
+};
 
 /** A stored or requested light repaired into the full record. `type` falls back
  * to `typeHint` (the kind it was created as), then to "point". */
@@ -214,9 +219,14 @@ function shadowCapWarnings(objects, ids = null, isHidden = undefined) {
 	const touched = (id) => !ids || ids.includes(id);
 	return [
 		...unlit.filter(touched).map((id) => ({ code: "LIGHT_CAP", id, message: `Lights nothing: only the first ${PRACTICAL_LIGHT_CAP} shown lights are drawn.` })),
-		...capped.filter(touched).map((id) => ({ code: "SHADOW_CAP", id,
-			message: `Renders without a shadow: only ${PRACTICAL_SHADOW_CAP} lights cast shadows (${casting.join(", ")}).`.slice(0, 120) })),
+		...capped.filter(touched).map((id) => ({ code: "SHADOW_CAP", id, message: `Renders without a shadow: only ${PRACTICAL_SHADOW_CAP} lights cast shadows (${wholeIds(casting, 56)}).` })),
 	].slice(0, 4);
+}
+/** The ids joined, as many whole ones as fit `room` characters, then how many more: an id is never cut. */
+function wholeIds(ids, room) {
+	let shown = 0, length = 0;
+	while (shown < ids.length && length + ids[shown].length + 2 <= room) length += ids[shown++].length + 2;
+	return [...ids.slice(0, shown), ...(shown < ids.length ? [`${ids.length - shown} more`] : [])].join(", ");
 }
 
 /** A command result with the shadow-cap warnings for the records it touched

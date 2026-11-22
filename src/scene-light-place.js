@@ -36,12 +36,13 @@ const DIRECTIONAL_REACH = 10;
 
 const aimFrame = new THREE.Matrix4();
 /** The aimAt a SceneObject's place pass hands placeObjectLook: a record's middle (its pivot raised half its authored
- * height, as placed now; `registryRef` holds each record's { world(out) }, `recordsRef` the records by id) or a
- * character's hips (`attachFrameRef`, stage-attach-frames.js); null when neither is on stage. */
-export const aimAtFor = (registryRef, recordsRef, attachFrameRef) => (id, out) => {
+ * height, as placed now; `registryRef` holds each record's { world(out) }, `recordsRef` the records by id) or a rig
+ * character's hips (`attachFrameRef`, stage-attach-frames.js); null when neither is on stage. `cast` is the characters
+ * on stage when the set is given them: one that left the cast is not aimed at, though its rig may still be held. */
+export const aimAtFor = (registryRef, recordsRef, attachFrameRef, cast = null) => (id, out) => {
 	const placed = registryRef?.current?.get(id)?.world(aimFrame);
 	if (placed) return out.set(0, (recordsRef?.current?.get(id)?.height ?? 0) / 2, 0).applyMatrix4(placed);
-	const frame = attachFrameRef?.current?.(id, null, aimFrame);
+	const frame = cast && !cast.some((character) => character.id === id) ? null : attachFrameRef?.current?.(id, null, aimFrame);
 	return frame ? out.setFromMatrixPosition(frame) : null;
 };
 

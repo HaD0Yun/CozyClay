@@ -1,16 +1,17 @@
 // What the drawn lights do to a subject, for verify_result checks ["lighting"] (studio-lighting-check.js): read from the
-// three.js scene the stage draws (stage-scene-ref.js) right after the shot frame is rendered, so a light's place, aim,
+// three.js scene the stage draws (stage-scene-ref.js) while it stands as the shot frame drew it, so a light's place, aim,
 // range, cone, level and shadow switch are the ones that frame used, and from that frame's pixels. A fact is stated only
-// where it is the same arithmetic the renderer does: a light reaches a point when the point is inside its range and its
-// cone and, for a light that casts a shadow, nothing that casts a shadow stands between them inside its shadow map.
+// where it is the same arithmetic the renderer does: a light reaches a point when the point is nearer than where its
+// light ends (its range, or the nearer end the frame's finish gives a lamp) and inside its cone and, for a light that
+// casts a shadow, nothing that casts a shadow stands between them inside its shadow map.
 import { Raycaster, Vector3 } from "three";
 import { bodyPoints } from "./studio-geometry-facts.js";
 
 /** Light rows per subject in an answer; the rest are counted in `moreLights`. */
 const MAX_LIGHT_ROWS = 8;
 /** Side words: within FRONT_DEG of the direction to the camera is front, past BACK_DEG is back; screen left or right past
- * ACROSS (the sine of the angle off the camera's vertical plane); above or below past LEVEL (sine of 15 degrees). */
-const FRONT_DEG = 60, BACK_DEG = 120, ACROSS = 0.25, LEVEL = Math.sin((15 * Math.PI) / 180);
+ * ACROSS (the sine of the angle off the camera's vertical plane); above or below past LEVEL: both the sine of 15 degrees. */
+const FRONT_DEG = 60, BACK_DEG = 120, LEVEL = Math.sin((15 * Math.PI) / 180), ACROSS = LEVEL;
 /** The pixel mask: a line of this radius (m) along the middle of each bone longer than MIN_BONE_M, leaving out
  * MASK_TRIM of its length at each end, where a figure's joints can show gaps between its parts. */
 const MASK_RADIUS_M = 0.015, MIN_BONE_M = 0.05, MASK_TRIM = 0.25, MIN_MASK_PIXELS = 40;
@@ -26,18 +27,30 @@ function ownerOf(node) {
 	return null;
 }
 
+/** Where a point or spot light's light ends in this draw (m; 0: nowhere). Stock three.js ends it at its range; a finish
+ * whose surface look pools lamp light (stage-finish-surface.js: bands.pool, bands.reach) ends it at that share of its
+ * range, or of the look's reach when it has none. `bands` is the look the scene carries (scene.userData.finishLook). */
+function endOf(light, bands) {
+	if (light.isDirectionalLight) return 0;
+	return Number.isFinite(bands?.pool) && Number.isFinite(bands?.reach) ? bands.pool * (light.distance > 0 ? light.distance : bands.reach) : light.distance;
+}
+
 /** The lights the stage draws, as three.js does: shown with every parent, on layer 0. A record's light is named by its
- * record; the shadow-casting directional light standing at stage.keyLight is "key"; other stage lights are left out. */
+ * record; the stage's own shadow-casting directional light is "key" (the one nearest stage.keyLight if the stage has
+ * several); other stage lights are left out. */
 function drawnLights(scene, keyLight) {
-	const out = [];
+	const records = [], stage = [], bands = scene.userData?.finishLook?.surface?.bands;
 	scene.traverseVisible((node) => {
 		if (!(node.isPointLight || node.isSpotLight || node.isDirectionalLight) || !(node.layers.mask & 1)) return;
 		node.updateWorldMatrix(true, false);
-		const position = new Vector3().setFromMatrixPosition(node.matrixWorld);
-		const id = node.userData.sceneObjectId ?? (node.isDirectionalLight && node.castShadow && keyLight && position.distanceTo(vec(keyLight)) < 1e-3 ? "key" : null);
-		if (id) out.push({ id, light: node, position, type: node.isSpotLight ? "spot" : node.isPointLight ? "point" : "directional" });
+		const position = new Vector3().setFromMatrixPosition(node.matrixWorld), id = node.userData.sceneObjectId;
+		const entry = { id: id ?? "key", light: node, position, end: endOf(node, bands), type: node.isSpotLight ? "spot" : node.isPointLight ? "point" : "directional" };
+		if (id) records.push(entry);
+		else if (node.isDirectionalLight && node.castShadow && !node.userData.sceneLight) stage.push(entry);
 	});
-	return out;
+	const at = keyLight ? vec(keyLight) : null;
+	if (at) stage.sort((a, b) => a.position.distanceTo(at) - b.position.distanceTo(at));
+	return stage.length ? [stage[0], ...records] : records;
 }
 
 /** Meshes the frame draws on layer 0 as { mesh, owner }; with `casting`, only the ones that cast shadows. */
@@ -96,17 +109,18 @@ function sideOf(toLight, toCamera, right) {
 
 /**
  * One light against one subject: { id, type, reach (0..1 of the body points it lights), side, distanceM (point, spot),
- * shadow { share (0..1 of the points inside its range and cone that a shadow-casting body hides from it), by [ids] } when
- * one does, why ("off", "range", "cone" or "shadow": what keeps most points unlit) when it reaches none }.
+ * endsAtM (point, spot: where its light ends in this draw, when it ends), shadow { share (0..1 of the points before its
+ * end and inside its cone that a shadow-casting body hides from it), by [ids] } when one does, why ("off", "range", "cone"
+ * or "shadow": what keeps most points unlit) when it reaches none }.
  */
 function lightOnSubject(entry, points, centre, view, casters, receives) {
-	const { light, position, type } = entry, aim = aimOf(entry);
+	const { light, position, type, end } = entry, aim = aimOf(entry);
 	const count = { range: 0, cone: 0, shadow: 0 }, by = {};
 	let lit = 0;
 	for (const p of light.intensity > 0 ? points : []) {
 		const toLight = light.isDirectionalLight ? aim.clone().negate() : position.clone().sub(p);
 		const d = toLight.length();
-		if (!light.isDirectionalLight && light.distance > 0 && d >= light.distance) { count.range++; continue; }
+		if (end > 0 && d >= end) { count.range++; continue; }
 		if (light.isSpotLight && position.clone().sub(p).negate().normalize().dot(aim) <= Math.cos(light.angle)) { count.cone++; continue; }
 		if (light.castShadow && receives && inShadowMap(entry, p)) {
 			// A directional light's map starts at the plane through the light, square to its aim.
@@ -119,6 +133,7 @@ function lightOnSubject(entry, points, centre, view, casters, receives) {
 	const toLight = light.isDirectionalLight ? aim.clone().negate() : position.clone().sub(centre).normalize();
 	const row = { id: entry.id, type, reach: round(lit / points.length), side: sideOf(toLight, view.toCamera, view.right) };
 	if (!light.isDirectionalLight) row.distanceM = round(position.distanceTo(centre));
+	if (end > 0) row.endsAtM = round(end);
 	if (count.shadow) row.shadow = { share: round(count.shadow / (points.length - count.range - count.cone)), by: Object.keys(by).sort((a, b) => by[b] - by[a]) };
 	if (!lit) row.why = !(light.intensity > 0) ? "off" : ["range", "cone", "shadow"].reduce((a, b) => (count[b] > count[a] ? b : a));
 	return row;
@@ -177,7 +192,8 @@ export function stageLightFacts(scene, { subjects, keyLight, view, image, state,
 
 function subjectLightFacts(scene, lights, { subjects, view, image, state, ports }) {
 	const casters = meshesOf(scene, true), seen = meshesOf(scene, false);
-	const right = new Vector3().crossVectors(view.camera.getWorldDirection(new Vector3()), new Vector3(0, 1, 0)).normalize();
+	// screen right: the camera's own x axis, so a rolled camera reads left and right as its frame shows them
+	const right = new Vector3().setFromMatrixColumn(view.camera.matrixWorld, 0).normalize();
 	const facts = {};
 	for (const { subject, bounds } of subjects) {
 		if (!bounds) continue;

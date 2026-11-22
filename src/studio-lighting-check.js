@@ -87,9 +87,14 @@ export function lightingChecks(ids, state, ports) {
 	if (!state.camera || !(state.camera.focalMm > 0)) throw new StudioProtocolError("TARGET_NOT_READY", "The shot camera must be available.");
 	const named = state.characters.filter((character) => ids.includes(character.id));
 	const characters = named.length ? named : state.characters.filter((character) => !character.hidden);
-	let image;
-	try { image = ports.renderFrameBuffer(state.frame); }
+	// The light facts are read while the scene still stands as the frame drew it (the port's inspect), so a light's aim
+	// and level and every body's pose are that frame's even when the editor shows another one (playback, a hidden tab).
+	let image, lights;
+	const read = (drawn) => { try { lights = drawnLightFacts(characters, state, ports, drawn); } catch (error) { lights = { error: String(error?.message ?? error).slice(0, 120) }; } };
+	try { image = ports.renderFrameBuffer(state.frame, null, read); }
 	catch (error) { throw new StudioProtocolError("TARGET_NOT_READY", `The shot frame could not be rendered: ${error.message}`); }
+	// a port that does not inspect: read right after the frame
+	if (lights === undefined) read(image);
 	const boxes = characters.map((character) => {
 		const bounds = entityWorldBounds(character, state, ports);
 		return { id: character.id, ...(bounds && !character.hidden ? pixelBox(bounds, state, image.width, image.height) : {}) };
@@ -97,21 +102,33 @@ export function lightingChecks(ids, state, ports) {
 	// What lit the frame beyond the lights: the look, its environment light and its occlusion pass.
 	// An HDR environment is named with whether its map had loaded for this frame (until then the look's sky lit it).
 	const { preset, envLight, ao, hdr, hdrRotation, hdrIntensity, hdrBackground } = normalizeLighting(state.stage?.lighting);
-	const measured = frameLighting(image, boxes), lights = drawnLightFacts(characters, state, ports, image);
-	if (lights) measured.subjects = measured.subjects.map((row) => ({ ...row, ...lights.subjects[row.id] }));
+	const measured = frameLighting(image, boxes);
+	if (lights?.subjects) measured.subjects = measured.subjects.map((row) => ({ ...row, ...lights.subjects[row.id] }));
 	return { coverage: "rendered-shot-frame", frame: state.frame, ...measured,
-		...(lights?.notDrawn ? { lightsNotDrawn: lights.notDrawn } : {}), ...(lights?.aimNotFound ? { aimNotFound: lights.aimNotFound } : {}),
+		...(lights?.notDrawn ? { lightsNotDrawn: lights.notDrawn } : {}), ...(lights?.aimNotFound ? { aimNotFound: lights.aimNotFound } : {}), ...(lights?.error ? { lightsError: lights.error } : {}),
 		look: { preset, envLight, ao, ...(hdr ? { hdr, hdrLoaded: Boolean(readyHdrMap(hdr)), hdrRotation, hdrIntensity, hdrBackground } : {}) } };
 }
 
-/** The drawn lights against each shown subject (stage-light-facts.js), read from the stage scene the frame was just
- * rendered from; null when no stage canvas is mounted. */
-function drawnLightFacts(characters, state, ports, image) {
+/** The camera a frame was drawn through, as the capture made it (stage-capture.jsx): a copy of the shot camera at the
+ * frame's aspect, unless a view offset already fixes it. */
+function drawnView(camera, width, height) {
+	const view = camera.clone();
+	if (!view.view?.enabled) view.aspect = width / height;
+	view.updateProjectionMatrix();
+	view.updateMatrixWorld(true);
+	return view;
+}
+
+/** The drawn lights against each shown subject (stage-light-facts.js), read from the stage scene the frame `drawn`
+ * { data, width, height, camera: the shot camera as it stood for the frame, when the port hands it } was rendered
+ * from; null when no stage canvas is mounted. */
+function drawnLightFacts(characters, state, ports, drawn) {
 	const scene = stageScene();
 	if (!scene || typeof ports.bounds !== "function") return null;
 	const boundsOf = (subject) => { try { return ports.bounds({ entity: subject, frame: state.frame, state }); } catch { return null; } };
 	const subjects = characters.filter((character) => !character.hidden).map((subject) => ({ subject, bounds: boundsOf(subject) }));
-	return stageLightFacts(scene, { subjects, keyLight: state.stage?.keyLight, view: { camera: shotView(state, image.width, image.height), width: image.width, height: image.height }, image, state, ports });
+	const { width, height } = drawn, camera = drawn.camera ? drawnView(drawn.camera, width, height) : shotView(state, width, height);
+	return stageLightFacts(scene, { subjects, keyLight: state.stage?.keyLight, view: { camera, width, height }, image: drawn, state, ports });
 }
 
 /** Puts the lighting check on a verify_result answer, or its reason in unsupportedReasons. */

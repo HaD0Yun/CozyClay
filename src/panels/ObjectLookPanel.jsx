@@ -4,17 +4,19 @@ import { useStudioShell } from "../shell/studio-shell-context.js";
 import Foldout from "./Foldout.jsx";
 import { Field, Slider } from "../ui.jsx";
 import { ko } from "../locale.js";
-import { LIGHT_KIND, PRACTICAL_SHADOW_CAP, practicalShadows } from "../object-look.js";
+import { LIGHT_KIND, PRACTICAL_LIGHT_CAP, PRACTICAL_SHADOW_CAP, practicalShadows } from "../object-look.js";
 import { TEXT_KIND } from "../text/text-record.js";
+import { isProxyFigure } from "../scenes.js";
 
 /** A light's aim as the Aim select's value: "down", "point" or "id:<id>". */
 const aimValue = (aim) => (!aim ? "down" : aim.id === undefined ? "point" : `id:${aim.id}`);
 const aimFromValue = (value, aim) => (value === "down" ? null : value === "point" ? aim : { id: value.slice(3) });
-/** What a light can follow: the cast, then the records that are not lights; an aimed-at id no longer on stage stays listed. */
+/** What a light can follow: the cast's rig characters (a proxy figure has no hips to follow), then the records that are
+ * not lights; an aimed-at id the light cannot find stays listed. */
 function aimTargets(characters, objects, ownId, aim) {
-	const targets = [...characters.map((c) => ({ id: c.id, label: c.subject || c.id })),
+	const targets = [...characters.filter((c) => !isProxyFigure(c)).map((c) => ({ id: c.id, label: c.subject || c.id })),
 		...objects.filter((o) => o.id !== ownId && o.renderer !== LIGHT_KIND).map((o) => ({ id: o.id, label: o.name || o.id }))];
-	if (aim?.id !== undefined && !targets.some((t) => t.id === aim.id)) targets.push({ id: aim.id, label: `${aim.id} (${ko("not on stage", "무대에 없음")})` });
+	if (aim?.id !== undefined && !targets.some((t) => t.id === aim.id)) targets.push({ id: aim.id, label: `${aim.id} (${ko("not found", "찾을 수 없음")})` });
 	return targets;
 }
 
@@ -54,7 +56,7 @@ export default function ObjectLookPanel() {
 	const light = object.renderer === LIGHT_KIND ? object.light : null;
 	const glow = object.glow ?? null;
 	const text = object.renderer === TEXT_KIND ? object.text : null;
-	const capped = light?.shadow && practicalShadows(sceneObjects).capped.includes(object.id);
+	const caps = light ? practicalShadows(sceneObjects) : null, capped = light?.shadow && caps.capped.includes(object.id), unlit = Boolean(light) && caps.unlit.includes(object.id);
 	const ends = { onPointerUp: commit, onPointerCancel: commit, onKeyUp: commit, onBlur: commit };
 	const lightSlider = (field, label, min, max, step, unit = "") => (
 		<Slider label={label} min={min} max={max} step={step} unit={unit} softMax value={light[field]} onChange={(value) => drag(`light.${field}`, { light: { [field]: value } })} />
@@ -82,6 +84,7 @@ export default function ObjectLookPanel() {
 			{light && (
 				<Foldout title={ko("Light", "조명")}>
 					<div {...ends}>
+						{unlit && <p className="inspector-hint" data-field="light-capped">{ko(`Not drawn: only the first ${PRACTICAL_LIGHT_CAP} lights light the scene`, `그려지지 않음: 처음 ${PRACTICAL_LIGHT_CAP}개 조명만 장면을 비춥니다`)}</p>}
 						<Field label={ko("Type", "종류")}>
 							<select data-field="light-type" value={light.type} onChange={(event) => set({ light: { type: event.target.value } })}>
 								<option value="point">{ko("Point", "점 조명")}</option>

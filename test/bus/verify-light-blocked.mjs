@@ -41,6 +41,7 @@ test("only a light that renders a shadow, inside a shown record that casts one, 
 	assert.deepEqual(ids(blockedLights([{ ...bulb, glow: undefined }, inBulb])), ["in-bulb in sphere-3"], "the same bulb without glow blocks it");
 	assert.deepEqual(ids(blockedLights([pole, { ...lamp, light: { ...lamp.light, shadow: false } }])), [], "a light without a shadow passes through");
 	assert.deepEqual(ids(blockedLights([{ ...pole, hidden: true }, lamp])), [], "a hidden record draws nothing");
+	assert.deepEqual(ids(blockedLights([pole, { ...lamp, light: { ...lamp.light, type: "directional" } }])), [], "a directional light's place only starts its shadow box");
 	const parked = ["a", "b", "c", "d"].map((id, i) => shadowLight(id, { x: 9 - i, y: 1, z: 9 }));
 	assert.deepEqual(ids(blockedLights([...parked, pole, lamp])), [], "a light past the shadow cap renders without one");
 	const plane = record("plane", "floor", { scaleX: 5, scaleZ: 5 });

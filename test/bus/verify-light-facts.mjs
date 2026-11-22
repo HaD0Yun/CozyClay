@@ -252,7 +252,7 @@ test("400 random lights and walls: reach, shadow share, why and side agree with 
 		const c = [0, 0.9, 0], toL = L.map((v, a) => v - c[a]), n = Math.hypot(...toL), toC = [0, 1.2 - 0.9, 5], m = Math.hypot(...toC);
 		const deg = (Math.acos(toL.reduce((s, v, a) => s + v * toC[a], 0) / (n * m)) * 180) / Math.PI;
 		const right = [1, 0, 0], across = toL[0] * right[0] / n, up = toL[1] / n;
-		const want = [deg < 60 ? "front" : deg > 120 ? "back" : "side", across > 0.25 ? "right" : across < -0.25 ? "left" : null, up > Math.sin(Math.PI / 12) ? "above" : up < -Math.sin(Math.PI / 12) ? "below" : null].filter(Boolean).join("-");
+		const want = [deg < 60 ? "front" : deg > 120 ? "back" : "side", across > Math.sin(Math.PI / 12) ? "right" : across < -Math.sin(Math.PI / 12) ? "left" : null, up > Math.sin(Math.PI / 12) ? "above" : up < -Math.sin(Math.PI / 12) ? "below" : null].filter(Boolean).join("-");
 		assert.equal(got.side, want);
 		sides.add(want);
 		if (hidden) shadowed++;

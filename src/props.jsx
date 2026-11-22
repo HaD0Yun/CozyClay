@@ -279,7 +279,7 @@ const placeLocal = new THREE.Matrix4();
 const placeWorld = new THREE.Matrix4();
 const placeFrame = new THREE.Matrix4();
 
-function SceneObject({ object, selected, frameRef = null, take = null, attachFrameRef = null, registryRef = null, travelLookupRef = null, fadeOpacity = null, depthRank = 0 }) {
+function SceneObject({ object, selected, frameRef = null, take = null, attachFrameRef = null, registryRef = null, travelLookupRef = null, cast = null, fadeOpacity = null, depthRank = 0 }) {
 	const groupRef = useRef(null);
 	const attach = object.attach ?? null;
 	// An object on a travel path — or one CARRIED by a character — is placed
@@ -341,7 +341,7 @@ function SceneObject({ object, selected, frameRef = null, take = null, attachFra
 		}
 		applyPoseFade(group, fadeOpacity, object.opacity ?? 1);
 		// A light's level, flicker and aim, and a glow, for this frame (scene-light-place.js).
-		placeObjectLook(group, object, frame, take, aimAtFor(registryRef, travelLookupRef, attachFrameRef));
+		placeObjectLook(group, object, frame, take, aimAtFor(registryRef, travelLookupRef, attachFrameRef, cast));
 	};
 	useFrame(place);
 	useLookRefresh(object);
@@ -394,8 +394,8 @@ function SceneObject({ object, selected, frameRef = null, take = null, attachFra
  * prop now" callback for the offscreen export, which renders outside the frame
  * loop and would otherwise record props one frame stale; `worldRef` with a
  * "where is this prop" lookup, so a reparent converts from the transform on
- * screen instead of from a second computation of it. */
-export function SetProps({ objects = [], authoredObjects = null, selectedId = null, frameRef = null, take = null, attachFrameRef = null, syncRef = null, worldRef = null, fadeOpacity = null }) {
+ * screen instead of from a second computation of it. `cast` is the characters on stage: a light aims only at one of them. */
+export function SetProps({ objects = [], authoredObjects = null, selectedId = null, frameRef = null, take = null, attachFrameRef = null, cast = null, syncRef = null, worldRef = null, fadeOpacity = null }) {
 	const registryRef = useRef(null);
 	// The authored records by id: a child's travel is its routed parent's
 	// route against the parent's AUTHORED pose, which the display copies in
@@ -421,7 +421,7 @@ export function SetProps({ objects = [], authoredObjects = null, selectedId = nu
 					take={take}
 					attachFrameRef={attachFrameRef}
 					registryRef={registryRef}
-					travelLookupRef={travelLookupRef}
+					travelLookupRef={travelLookupRef} cast={cast}
 					fadeOpacity={fadeOpacity}
 					depthRank={depthRanks.get(object.id) ?? 0}
 				/>

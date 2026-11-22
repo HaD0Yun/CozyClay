@@ -2885,7 +2885,7 @@ export default function App() {
 				node.updateMatrixWorld(true);
 			}
 			const plate = applyExportFrame(frame);
-			return render ? render() : plate;
+			return render ? render(plate) : plate;
 		} catch (error) {
 			throw Object.assign(new Error(error?.message || String(error), { cause: error }), { exportFailureCode: exportFailureCode(error, "render_failed") });
 		} finally {
@@ -4167,8 +4167,15 @@ export default function App() {
 		// path captureShotFramePng uses; an export in flight renders at its output.
 		// With a view (verify_result's own cameras) the posed frame is seen by that
 		// camera instead, at view.output; the shot camera is left as it is.
-		renderFrameBuffer: (frame, view = null) => {
-			const output = view?.output ?? (recRef.current?.capture ? recRef.current.request.context.output : shotOutput), data = withExportFrame(frame, view && (() => captureRef.current.renderView(view)));
+		// inspect({ data, width, height, camera }) runs while the scene still stands as that frame drew it
+		// (the cast's poses, every record's place), before the editor's own state is put back.
+		renderFrameBuffer: (frame, view = null, inspect = null) => {
+			const output = view?.output ?? (recRef.current?.capture ? recRef.current.request.context.output : shotOutput);
+			const data = withExportFrame(frame, (view || inspect) && ((plate) => {
+				const drawn = view ? captureRef.current.renderView(view) : plate;
+				if (drawn) inspect?.({ data: drawn, width: output.width, height: output.height, camera: view ? null : shotCamRef.current });
+				return drawn;
+			}));
 			if (!data) throw new Error("The shot renderer is not ready");
 			return { data, width: output.width, height: output.height };
 		},
@@ -4470,6 +4477,7 @@ export default function App() {
 								frameRef={propFrameRef}
 								take={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }}
 								attachFrameRef={attachFrameRef}
+								cast={characters}
 								syncRef={propSyncRef}
 								worldRef={propWorldRef}
 								fadeOpacity={workflowMode === "pose" ? poseObjectOpacity : null}
