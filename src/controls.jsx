@@ -52,7 +52,7 @@ export function aimAt(position, target) {
  * clientX remains the fallback when lock is denied.
  *
  * `getPivot()` is optional and returns a world point to orbit; without one,
- * Alt-drag orbits a point straight ahead of the lens. `speed`/`onSpeedChange` let the caller own the fly speed.
+ * Alt-drag orbits a point straight ahead of the lens. `speed`/`onSpeedChange` let the caller own the fly speed; `onSpeedChange` gets an updater, like a state setter.
  */
 export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPivot, onFlyStateChange, onCameraChange, speed, onSpeedChange }) {
 	const { gl, invalidate } = useThree();
@@ -296,7 +296,8 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 			e.preventDefault();
 			if (gesture.current?.kind === "fly") {
 				// Unity: the wheel sets the flythrough speed, it does not dolly.
-				speedScale.current = stepFlySpeed(speedScale.current, e.deltaY); onSpeedChange?.(speedScale.current);
+				// The caller steps its own value: a copy of `speed` that this canvas has not rendered yet would lose notches.
+				speedScale.current = stepFlySpeed(speedScale.current, e.deltaY); onSpeedChange?.((current) => stepFlySpeed(current, e.deltaY));
 				return;
 			}
 			cam.position.addScaledVector(forwardFrom(look.current.yaw, look.current.pitch), -e.deltaY * DOLLY_STEP);
