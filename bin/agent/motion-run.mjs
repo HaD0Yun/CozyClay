@@ -86,7 +86,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	parts.push(`${ADDED}${body ? ` ${BODIES}` : ""}${note ? ` ${DRESSED}` : ""}`);
 	if (before) {
 		// the tool starts from them (harness.mjs kept); from the spec alone where the Studio scene is no longer that scene
-		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it, but not the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them.";
+		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look.";
 		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");

@@ -58,7 +58,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	await runMotion({ ...base, words: "now slower", memoryKey: "conv-1" });
 	const second = seen.runs[1].request;
 	assert.ok(second.includes(`scene: ${JSON.stringify(SCENE)}`) && second.includes(`spec: ${JSON.stringify(SPEC)}`), "the second call carries the last scene and spec");
-	assert.ok(second.includes("(the Studio plays them now). The motion tool already holds them, as if you had sent them. When the request changes"), second);
+	assert.ok(second.includes("(the Studio plays them now). The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look. When the request changes"), second);
 	assert.equal("kept" in run, false, "the first run's tool starts empty");
 	assert.deepEqual(seen.runs[1].kept, { scene: SCENE, spec: SPEC }, "the second run's tool starts from the last scene and spec");
 	await runMotion({ ...base, words: "another", memoryKey: "conv-2" });
@@ -82,12 +82,12 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	now = AFTER;
 	let run = await ask();
 	assert.deepEqual(run.kept, { scene: final.scene, spec: final.spec }, "the Studio scene is the motion's scene (a moving prop it does not list, a character's place and what it has more are not compared): scene and spec");
-	assert.ok(run.request.includes("The motion tool already holds them, as if you had sent them."));
+	assert.ok(run.request.includes("The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look."));
 	// a prop resized and turned, a prop moved, a character rescaled and tinted, a prop and a character taken out, in the Studio since
 	now = { ...AFTER, characters: [DESCRIBE.characters[0], { ...guest, scale: 1, tint: "#336699" }], objects: [{ ...DESCRIBE.objects[0], height: 0.7, rot: 45 }, { ...mat, x: 3.2 }] };
 	run = await ask();
 	assert.deepEqual(run.kept, { spec: final.spec }, "the Studio scene differs: the tool starts from the spec alone, so the scene must be sent");
-	assert.ok(run.request.includes("(the Studio plays them now). The motion tool already holds the spec, as if you had sent it, but not the scene: the Studio scene above differs from it (guest: scale, tint; box: size, turn, place; mat: place). When the request changes"), run.request);
+	assert.ok(run.request.includes("(the Studio plays them now). The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (guest: scale, tint; box: size, turn, place; mat: place). When the request changes"), run.request);
 	// not this scene's installed motion: another scene is open; another conversation's motion came after; no character of it is left
 	now = { ...AFTER, document: { activeSceneId: "scene-b" } };
 	run = await ask();
