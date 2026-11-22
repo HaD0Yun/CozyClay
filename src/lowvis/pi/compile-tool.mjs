@@ -15,6 +15,7 @@ import { BODY_SCALE, features } from "./prompt.mjs";
 import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
 import { insideText } from "./inside.mjs";
 import { applyEdit } from "./edit.mjs";
+import { lookBody } from "../studio/figure.js";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -82,14 +83,17 @@ function withMovers(scene, spec) {
 }
 
 /** The scene as the engine builds its bodies. on (feature body): a scale or tint the scene leaves out is the one the
- *  character already has (known: { <id>: { scale?, tint? } }), else, for a new character, the scale new figures start at
- *  (known["*"].scale, 1 when not given) and no tint. Off: neither is read. */
+ *  character already has (known: { <id>: { scale?, tint? } }), else, for a new character, scale 1 and no tint. Off:
+ *  neither is read. */
 const withBodies = (scene, known, on) => ({ ...scene, characters: scene.characters.map(({ scale, tint, ...c }) => {
-	const s = on ? scale ?? known[c.id]?.scale ?? known["*"]?.scale ?? 1 : 1, t = on ? tint ?? known[c.id]?.tint : null;
+	const s = on ? scale ?? known[c.id]?.scale ?? 1 : 1, t = on ? tint ?? known[c.id]?.tint : null;
 	return { ...c, ...(s === 1 ? {} : { scale: s }), ...(t ? { tint: t } : {}) };
 }) });
+/** The scene in the engine's own sizes: a character's scale times the body of the look (figure.js lookBody), a share of
+ *  the rig's own body; the scene itself when that body is the rig's. */
+const inWorld = (def, body) => (body === 1 ? def : { ...def, characters: def.characters.map(c => ({ ...c, scale: (c.scale ?? 1) * body })) });
 /** The bodies line: every character that has a scale or a tint, as the engine built and drew it; "" when none has. */
-const bodiesText = def => { const list = def.characters.filter(c => c.scale || c.tint).map(c => `${c.id}: scale ${c.scale ?? 1} = ${num(TIPS.Head[1] * (c.scale ?? 1))} m tall${c.tint ? `, tint ${c.tint}` : ""}`); return list.length ? `bodies (as built and drawn): ${list.join("; ")}` : ""; };
+const bodiesText = (def, body = 1) => { const list = def.characters.filter(c => c.scale || c.tint).map(c => `${c.id}: scale ${c.scale ?? 1} = ${num(TIPS.Head[1] * (c.scale ?? 1) * body)} m tall${c.tint ? `, tint ${c.tint}` : ""}`); return list.length ? `bodies (as built and drawn): ${list.join("; ")}` : ""; };
 
 /** Builds and validates. Returns { clip, aux, parsed, valid, buildMs } or { error, where }. */
 function compile(spec, def, name) {
@@ -173,14 +177,15 @@ function travelLines(clip, aux, spec) {
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
  *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look the Studio
- *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's).
+ *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's),
+ *  and a character of scale 1 is its body (lookBody): the engine builds, measures and draws each body that large.
  *  kept: { scene?, spec } of an earlier motion the tool starts from, as if they had been sent (nothing is compiled until a call;
  *  without its scene the first call must send one); state.kept stays true while the spec descends from it by edits alone
  *  (no whole spec sent), and each result carries it. */
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null, kept = null }) {
 	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
 	const seed = isObject(kept?.spec) ? structuredClone({ scene: isObject(kept.scene) ? kept.scene : null, spec: kept.spec }) : null;
-	const feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
+	const body = lookBody(figure), feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
@@ -200,12 +205,12 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		const ids = [...state.scene.characters, ...(state.scene.props ?? [])].map(e => e.id), focus = look?.focus == null ? null : [].concat(look.focus);
 		if (focus?.some(id => !ids.includes(id))) return reject("look.focus", [`look.focus: no character or prop has the id ${JSON.stringify(look.focus)} (scene ids: ${ids.join(", ")})`]);
 
-		const moved = withMovers(withBodies(state.scene, bodies, !!feature.body), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, built = compile(state.spec, def, name);
+		const moved = withMovers(withBodies(state.scene, bodies, !!feature.body), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, world = inWorld(def, body), built = compile(state.spec, world, name);
 		if (built.error) {
-			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, def, name)]);
+			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, world, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: asBuilt, look: figure } }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, def) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
+		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def: world, spec: asBuilt, look: figure } }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, world) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });
@@ -246,7 +251,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			edited?.said ?? "",
 			aux.repeat?.added || aux.repeat?.dropped ? `repeat: ${aux.repeat.added} actions added by the repeats${aux.repeat.dropped ? `, ${aux.repeat.dropped} left out because they fall after the last frame` : ""}` : "",
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
-			bodiesText(def) !== state.bodiesSaid ? bodiesText(def) || "bodies: every character at scale 1, none with a tint" : "",
+			bodiesText(def, body) !== state.bodiesSaid ? bodiesText(def, body) || "bodies: every character at scale 1, none with a tint" : "",
 			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)), ...fresh.map(k => about[k]),
 			...(feature.pace ? travelLines(parsed, aux, asBuilt) : []),
@@ -254,9 +259,11 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,
 		].filter(Boolean).join("\n");
-		state.notesSaid = true; fresh.forEach(k => state.rowsSaid.add(k)); state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def); state.prevRows = told; state.streak = streak; state.compiles++;
+		state.notesSaid = true; fresh.forEach(k => state.rowsSaid.add(k)); state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def, body); state.prevRows = told; state.streak = streak; state.compiles++;
 		state.last = { key, scene: def, spec: state.spec, rows, frames: F, buildMs };
-		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, shown, ms: performance.now() - t0 };
+		// told: the rows this call tells, each as its line, whether the previous compile told it too (was) and got worse
+		const toldLines = told.map((r, k) => ({ key: r.key, line: `- ${rowText(r)}${marks[k].text}`, was: Boolean(prev?.[r.key]), worse: marks[k].worse }));
+		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, told: toldLines, shown, ms: performance.now() - t0 };
 	}
 	return { call, state, clipFile, outDir };
 }

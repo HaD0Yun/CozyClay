@@ -8,6 +8,7 @@ import { sampleAt } from "./sample-at.js";
 import { probeVisibility } from "./motion/playback-probe.js";
 import { RENDER_ACTIVITY_EVENT } from "./use-render-activity.js";
 import { reportGlLost } from "./crash-telemetry.js";
+import { bodyScale } from "./lowvis/studio/figure.js";
 import { PRESETS, editorFrameForSubject } from "./stage-startup-defaults.js";
 
 /** Selection marker for the picked cast member: a Unity-style XYZ tripod
@@ -69,7 +70,7 @@ export function ShotRig({ preset, nonce, fovDeg, subject, subjectsAt, frameRef, 
 		// During motion playback the probe follows the played root, so the
 		// "subject out of frame" caption stays honest.
 		const frame = frameRef.current;
-		const visible = subjectsAt(frame).every(current => probeVisibility(probe.current, cam, current, SUBJECT_HEIGHT_M * (current.scale ?? 1)));
+		const visible = subjectsAt(frame).every(current => probeVisibility(probe.current, cam, current, SUBJECT_HEIGHT_M * bodyScale(current)));
 		const previous = lastMetrics.current;
 		if (
 			Math.abs(previous.x - cam.position.x) +
@@ -326,7 +327,7 @@ export function EditorCamSeed({ camRef, lookRef, subject }) {
 		// The selected character owns the first read. The shot camera remains a
 		// useful reference in the inset; mixing its position into this seed pushed
 		// the editor eye several metres back and made the mannequin look tiny.
-		const frame = editorFrameForSubject(subject);
+		const frame = editorFrameForSubject(subject && { ...subject, scale: bodyScale(subject) }); // as large as it stands (figure.js)
 		const { target, position } = frame;
 		cam.position.set(position.x, position.y, position.z);
 		const angles = aimAt(cam.position, target);

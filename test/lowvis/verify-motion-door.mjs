@@ -25,7 +25,7 @@ const call = async (tool, args) => {
 {
 	const { tool, calls } = door({ run: async ({ onCompile }) => { onCompile({ n: 1, ok: false, line: "motion 1: problems" }); onCompile({ n: 2, ok: true, line: "motion 2: ok" }); return DONE; } });
 	assert.equal(tool.name, "motion");
-	assert.deepEqual(tool.parameters.required, ["request"]);
+	assert.deepEqual(tool.parameters.required, [], "a call without request refits (motion-refit.mjs)");
 	assert.match(tool.description, /The user's message of this turn reaches it by itself, as typed; request is your note:/, "request is the agent's note");
 	const frames = [];
 	const answer = await tool.handler({ request: "she waves" }, { toolCallId: "call-1", emit: frame => frames.push(frame) });
@@ -212,4 +212,21 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	assert.equal(task("motion").reason, "criteria unmet: a true running pace", "what it could not do stays in its reason");
 	assert.equal(task("motion").summary.missing, "Missing: a true running pace");
 	console.log("PASS a motion task ends done on the motion tool's report, with verify or an unmet line; its dependents start without an accept");
+}
+
+// a call without request is the refit (motion-refit.mjs): no motion run, under a mark, rolled back when the Studio refused a step
+{
+	for (const background of [false, true]) {
+		const calls = { mark: 0, rollback: 0, runs: 0, refits: 0 };
+		let refuse = false;
+		const tool = createMotionDoor({ background, run: async () => { calls.runs++; return DONE; }, mark: async () => { calls.mark++; return null; }, rollback: async () => { calls.rollback++; return null; },
+			refit: async () => { calls.refits++; if (refuse) throw Object.assign(new Error("refused"), { code: "studio" }); return { ok: true, refit: [], kept: [], skipped: [] }; } });
+		assert.deepEqual(await tool.handler({}), { ok: true, refit: [], kept: [], skipped: [] });
+		assert.deepEqual(await tool.handler({ images: true }), { ok: true, refit: [], kept: [], skipped: [] }, "no request: the refit, whatever else is sent");
+		refuse = true;
+		await assert.rejects(tool.handler({}), error => error.code === "studio");
+		assert.deepEqual(calls, { mark: 3, rollback: 1, runs: 0, refits: 3 }, `background ${background}: no motion run, a mark per refit, one rollback`);
+		assert.match(tool.description, /Called without request, it writes nothing and uses no model/);
+	}
+	console.log("PASS a call without request refits: no motion writer, under the turn's mark, rolled back when refused");
 }

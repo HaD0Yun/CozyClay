@@ -5,6 +5,7 @@ import { VIDEO_MODEL_PRESETS } from "../model-presets.js";
 import { useBus } from "../app-context.js";
 import { useStudioPlaybackFrame, useStudioShell } from "../shell/studio-shell-context.js";
 import { focusDistance } from "../camera-optics.js";
+import { bodyScale } from "../lowvis/studio/figure.js";
 import CameraTransformPanel from "./CameraTransformPanel.jsx";
 import { CameraFollowControls, RailAimFeelControls } from "./CameraRailControls.jsx";
 
@@ -21,7 +22,7 @@ export default function CameraPanel({ isCameraSelection, shot: sceneShot, moveSe
 	const focusCharacter = characters.find(entry => entry.id === focusId);
 	const focusObject = sceneObjects.find(entry => entry.id === focusId);
 	const cameraPosition = readout.camera?.pos ?? shotsDomain.state().camera?.position;
-	const focusTarget = focusCharacter ? { x: focusCharacter.x, y: 1.3 * (focusCharacter.scale ?? 1), z: focusCharacter.z }
+	const focusTarget = focusCharacter ? { x: focusCharacter.x, y: 1.3 * bodyScale(focusCharacter), z: focusCharacter.z }
 		: focusObject ? { x: focusObject.x, y: (focusObject.y ?? 0) + (focusObject.height ?? 0) / 2, z: focusObject.z } : null;
 	const focusMeters = focusDistance(cameraPosition, focusTarget);
 	// Transform first, as on every scene object, then the camera's own controls.

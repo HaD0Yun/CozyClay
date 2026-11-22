@@ -10,6 +10,7 @@ import { shotAtFrame } from "./cuts.js";
 import { objectTransformAt } from "./object-path.js";
 import { placementAt } from "./root-path.js";
 import { sampleAt } from "./sample-at.js";
+import { bodyScale } from "./lowvis/studio/figure.js";
 import { SUBJECT_HEIGHT_M, focalMmToFov } from "./shot.js";
 import { takeHips } from "./motion3/take.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
@@ -142,7 +143,7 @@ function railAimPoint(aim, frame, aimAt) {
 export function castAimPoint(id, frame, { characters = [], objects = [], shots = [], clipOf = () => null, frameCount, fps }) {
 	const character = characters.find((entry) => entry.id === id);
 	if (character) {
-		const clip = clipOf(character), scale = character.scale ?? 1, yaw = (character.rot ?? 0) * DEG;
+		const clip = clipOf(character), scale = bodyScale(character), yaw = (character.rot ?? 0) * DEG;
 		// A take v3 moves the hips in the character's placement frame (motion3/take.js), not its root.
 		if (clip?.hips) {
 			const [x, y, z] = takeHips(clip, frame);
@@ -150,7 +151,7 @@ export function castAimPoint(id, frame, { characters = [], objects = [], shots =
 		}
 		const at = placementAt(character, frame, { shotAt: (at) => shotAtFrame(shots, at),
 			takeRoot: clip ? sampleAt({ frameCount: clip.frames, motion: clip }, null, frame).subject : null });
-		return { x: at.x, y: (character.y ?? 0) + CHEST * SUBJECT_HEIGHT_M * (character.scale ?? 1), z: at.z };
+		return { x: at.x, y: (character.y ?? 0) + CHEST * SUBJECT_HEIGHT_M * scale, z: at.z };
 	}
 	const object = objects.find((entry) => entry.id === id);
 	if (!object) return null;
@@ -165,7 +166,7 @@ export function castBodyPoints(id, frame, { characters = [], clipOf = () => null
 	if (!sk || sk.names.length !== clip.bones.length) return null;
 	const B = clip.bones.length, f = Math.max(0, Math.min(clip.frameCount - 1, Math.round(frame)));
 	const quats = Array.from({ length: B }, (_, b) => Array.from(clip.rot.subarray((f * B + b) * 4, (f * B + b) * 4 + 4)));
-	const scale = character.scale ?? 1, yaw = (character.rot ?? 0) * DEG, c = Math.cos(yaw), s = Math.sin(yaw);
+	const scale = bodyScale(character), yaw = (character.rot ?? 0) * DEG, c = Math.cos(yaw), s = Math.sin(yaw);
 	return fk(sk, quats, takeHips(clip, f)).P.filter(Boolean).map(([x, y, z]) => [character.x + (x * c + z * s) * scale, (character.y ?? 0) + y * scale, character.z + (-x * s + z * c) * scale]);
 }
 

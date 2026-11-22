@@ -55,64 +55,81 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	assert.deepEqual(seen.installs[0].existing.characters, { c1: "c1" });
 	assert.doesNotMatch(run.request, /Your last scene and spec/);
 
+	assert.deepEqual(seen.installs[0].source, { name: done.name, scene: SCENE, spec: SPEC }, "the writer's scene and spec go with the takes");
+	// the sidecar keeps no spec of its own: a Studio whose takes keep none gives the next request nothing to start from
 	await runMotion({ ...base, words: "now slower", memoryKey: "conv-1" });
-	const second = seen.runs[1].request;
-	assert.ok(second.includes(`scene: ${JSON.stringify(SCENE)}`) && second.includes(`spec: ${JSON.stringify(SPEC)}`), "the second call carries the last scene and spec");
-	assert.ok(second.includes("(the Studio plays them now). The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look. When the request changes"), second);
-	assert.equal("kept" in run, false, "the first run's tool starts empty");
-	assert.deepEqual(seen.runs[1].kept, { scene: SCENE, spec: SPEC }, "the second run's tool starts from the last scene and spec");
-	await runMotion({ ...base, words: "another", memoryKey: "conv-2" });
-	assert.doesNotMatch(seen.runs[2].request, /Your last scene and spec/, "another conversation does not");
-	assert.equal("kept" in seen.runs[2], false);
-	console.log("PASS runMotion: report, missing, heights and others lines, memory per conversation");
+	assert.doesNotMatch(seen.runs[1].request, /Your last scene and spec/, "nothing kept with a take: a first request");
+	assert.equal("kept" in seen.runs[1], false);
+	console.log("PASS runMotion: report, missing, heights and others lines; the scene and spec go to the install");
 }
 
-// the motion before is the tool's start only while the Studio scene still plays it, and its scene only while the Studio
-// scene is still that scene
+// the motion before is the one a take of the open scene plays (its scene and spec kept with the take, in the Studio's
+// document), whatever conversation made it; its scene only while the Studio scene is still that scene
 {
 	const final = { clip: "clip.json", scene: { frames: 48, characters: [{ id: "c1", at: [0, 0], heading: 0 }, { id: "guest", at: [1, 1], heading: 0, scale: 0.8 }], props: [{ id: "box", size: [1, 0.9, 0.5], at: [1, 0.45, 2], turn: 30 }, { id: "cup", size: [0.1, 0.1, 0.1], at: [1, 0.95, 2], moves: true }, { id: "mat", size: [1, 0.05, 1], at: [3, 0.025, 3] }] }, spec: { c1: [[0, "idle"]], guest: [[0, "idle"]] } };
 	const clip = { frameCount: 48, characters: [{ id: "c1" }, { id: "guest", scale: 0.8 }], props: [{ id: "box" }, { id: "cup" }, { id: "mat" }] };
 	const guest = { id: "lowvis-guest", model: "x-bot-tpose", x: 1, z: 1, rot: 0, scale: 0.8 }, mat = { id: "obj-mat", name: "mat", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 1 }, height: 0.05 };
-	const AFTER = { document: { activeSceneId: "scene-a" }, characters: [...DESCRIBE.characters, guest], objects: [...DESCRIBE.objects, mat] }; // the scene once the motion is in; the cup moves with a take and is not listed
-	let refuse = false;
-	const { seen, base } = harness({ clip, record: { final }, install: async () => ({ characterIds: ["lowvis-guest"], objectIds: [], switched: [], ok: !refuse }) });
-	let now = { ...DESCRIBE, document: { activeSceneId: "scene-a" } };
-	base.hub = { command: async () => now };
-	const ask = async (key = "conv-kept") => { await runMotion({ ...base, words: "x", memoryKey: key }); return seen.runs.at(-1); };
-	await ask();
-	now = AFTER;
+	// the Studio: per scene, the source each character's take keeps (motion.v4.install lowvis), as the describe document has it
+	// (null: a take that keeps none)
+	const kept = { "scene-a": {}, "scene-b": {} };
+	const takeOf = (scene, id) => (kept[scene][id] === null ? { motionTake: { spec: {} } } : kept[scene][id] ? { motionTake: { spec: { lowvis: kept[scene][id] } } } : {});
+	const docOf = (open, rows) => ({ activeSceneId: open, scenes: Object.keys(kept).map(id => ({ id, stage: { characters: rows.map(r => ({ id: r.id, ...takeOf(id, r.id) })) } })) });
+	let refuse = false, open = "scene-a", rows = DESCRIBE.characters, objects = DESCRIBE.objects;
+	const { seen, base } = harness({ clip, record: { final }, install: async (c, run, options) => {
+		if (refuse) return { characterIds: [], objectIds: [], switched: [], ok: false };
+		for (const id of ["c1", "lowvis-guest"]) kept[open][id] = options.source;
+		return { characterIds: ["lowvis-guest"], objectIds: [], switched: [], ok: true };
+	} });
+	base.hub = { command: async () => ({ document: docOf(open, rows), characters: rows, objects }) };
+	const ask = async (key = "conv-kept") => { const done = await runMotion({ ...base, words: "x", memoryKey: key }); return { ...seen.runs.at(-1), done }; };
+	const first = await ask();
+	assert.ok(!("kept" in first) && !("kept" in first.done), "nothing plays yet: a first request");
+	rows = [...DESCRIBE.characters, guest]; objects = [...DESCRIBE.objects, mat]; // the scene once the motion is in; the cup moves with a take and is not listed
 	let run = await ask();
 	assert.deepEqual(run.kept, { scene: final.scene, spec: final.spec }, "the Studio scene is the motion's scene (a moving prop it does not list, a character's place and what it has more are not compared): scene and spec");
 	assert.ok(run.request.includes("The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look."));
-	// a run that failed (the Studio refused its install) leaves the motion before as the next request's start
+	assert.deepEqual(run.done.kept, { name: first.done.name, characters: ["c1", "lowvis-guest"] }, "the agent is told which motion it started from");
+	// a new conversation starts from the motion that plays, too
+	assert.deepEqual((await ask("conv-new")).kept, { scene: final.scene, spec: final.spec }, "another conversation: the motion that plays");
+	// a run that failed (the Studio refused its install) leaves the motion that plays as the next request's start
+	const playing = kept["scene-a"].c1;
 	refuse = true;
 	await assert.rejects(ask(), error => error.code === "studio");
 	refuse = false;
+	assert.equal(kept["scene-a"].c1, playing);
 	assert.deepEqual((await ask()).kept, { scene: final.scene, spec: final.spec }, "after a failed run the tool starts from the motion that is installed");
-	// a prop resized and turned, a prop moved, a character rescaled and tinted, a prop and a character taken out, in the Studio since
-	now = { ...AFTER, characters: [DESCRIBE.characters[0], { ...guest, scale: 1, tint: "#336699" }], objects: [{ ...DESCRIBE.objects[0], height: 0.7, rot: 45 }, { ...mat, x: 3.2 }] };
+	// an undo in the Studio puts the take before back: its kept spec is the start
+	const older = { name: "agent-20200101-000000-aaaa", scene: final.scene, spec: { c1: [[0, "wave"]], guest: [[0, "idle"]] } };
+	kept["scene-a"] = { c1: older, "lowvis-guest": older };
+	assert.deepEqual((await ask()).kept.spec, older.spec, "after an undo: the spec of the take that plays");
+	// a prop resized and turned, a prop moved, a character rescaled and tinted, in the Studio since
+	rows = [DESCRIBE.characters[0], { ...guest, scale: 1, tint: "#336699" }]; objects = [{ ...DESCRIBE.objects[0], height: 0.7, rot: 45 }, { ...mat, x: 3.2 }];
 	run = await ask();
-	assert.deepEqual(run.kept, { spec: final.spec }, "the Studio scene differs: the tool starts from the spec alone, so the scene must be sent");
+	assert.deepEqual(run.kept, { spec: final.spec }, "the Studio scene differs (the last ask installed its motion): the tool starts from the spec alone, so the scene must be sent");
 	assert.ok(run.request.includes("(the Studio plays them now). The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (guest: scale, tint; box: size, turn, place; mat: place). When the request changes"), run.request);
-	// not this scene's installed motion: another scene is open; another conversation's motion came after; no character of it is left
-	now = { ...AFTER, document: { activeSceneId: "scene-b" } };
+	rows = [...DESCRIBE.characters, guest]; objects = [...DESCRIBE.objects, mat];
+	// another scene is open: its takes keep nothing
+	open = "scene-b";
 	run = await ask();
 	assert.ok(!("kept" in run) && !run.request.includes("Your last scene and spec"), "another scene is open: a first request");
-	now = AFTER;
-	assert.ok("kept" in await ask(), "back in its scene (the motion of scene-b went into scene-b)");
-	now = AFTER;
-	await ask("conv-other");
+	open = "scene-a";
+	// a character of the motion plays another take now (a motion of its own): that motion is the one that plays whole
+	const solo = { name: "agent-20991231-235959-bbbb", scene: { frames: 10, characters: [{ id: "guest", at: [1, 1], heading: 0, scale: 0.8 }], props: [] }, spec: { guest: [[0, "jump"]] } };
+	kept["scene-a"] = { c1: older, "lowvis-guest": solo };
+	assert.deepEqual((await ask()).kept, { scene: solo.scene, spec: solo.spec }, "the motion that plays whole: guest's own");
+	// takes that keep no spec (an old scene): a first request, and the agent is told
+	kept["scene-a"] = { c1: null, "lowvis-guest": null };
 	run = await ask();
-	assert.ok(!("kept" in run) && !run.request.includes("Your last scene and spec"), "another conversation's motion was installed on its characters since: a first request");
-	assert.ok("kept" in await ask(), "and the motion that request installed is the next one's start");
-	now = { ...AFTER, characters: [guest], objects: [DESCRIBE.objects[0]] };
+	assert.ok(!("kept" in run) && !run.request.includes("Your last scene and spec"));
+	assert.deepEqual(run.done.keptNone, ["c1", "lowvis-guest"], "the agent is told which takes keep no spec");
+	kept["scene-a"] = { c1: older, "lowvis-guest": older };
+	rows = [guest]; objects = [DESCRIBE.objects[0]];
 	run = await ask();
 	assert.ok(run.request.includes("the Studio scene above differs from it (c1: not in it; mat: not in it)."), run.request);
-	assert.deepEqual(run.kept, { spec: final.spec });
-	now = { ...AFTER, characters: [DESCRIBE.characters[1]] };
+	rows = [DESCRIBE.characters[1]];
 	run = await ask();
 	assert.ok(!("kept" in run) && !run.request.includes("Your last scene and spec"), "no character of the motion is left: a first request");
-	console.log("PASS runMotion: the tool starts from the motion before only while the Studio scene plays it, from its scene only while the Studio scene is that scene");
+	console.log("PASS runMotion: the tool starts from the motion a take plays (any conversation, after a failed run, after an undo), from its scene only while the Studio scene is that scene");
 }
 
 // the user's words verbatim, then the agent's note, each under its own label; a task's words say they came from the coordinator's message

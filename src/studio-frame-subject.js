@@ -8,6 +8,7 @@ import { createShotSubjectSampler } from './camera-direction.js';
 import { subjectsCenter } from './shot-subjects.js';
 import { shotAtFrame } from './cuts.js';
 import { SUBJECT_HEIGHT_M } from './shot.js';
+import { bodyScale } from './lowvis/studio/figure.js';
 
 const fail = (code, message, details) => { throw new StudioProtocolError(code, message, details); };
 
@@ -20,7 +21,7 @@ export function presetFrameArgs(presetId, raw, shots, fps) {
   const shot = shotAtFrame(shots, raw.view.frame) ?? shots.find(shot => shot.id === raw.selectedShotId);
   const members = frameSubjectsAt(raw, shots, fps)(shot, raw.view.frame), subject = subjectsCenter(members);
   if (!subject) fail('TARGET_NOT_READY', 'No named visible character is available to frame.');
-  const height = SUBJECT_HEIGHT_M * (members[0].scale ?? 1), framing = cameraPresetFraming(presetId, { ...subject, height }, raw.filmback);
+  const height = SUBJECT_HEIGHT_M * bodyScale(members[0]), framing = cameraPresetFraming(presetId, { ...subject, height }, raw.filmback);
   return { namedSubjectIds: shot?.subjectIds, args: { subjectIds: members.map(member => member.id), framing: members.length > 1
     ? { intent: { size: preset.subjectFraction >= 0.5 ? 'medium-wide shot' : 'wide shot', level: 'high', view: 'front three-quarter', side: 'left', focalMm: preset.focalMm } }
     : { exact: { position: { ...framing.pos, y: framing.pos.y + subject.y }, lookAt: { x: subject.x, y: subject.y + height * 0.52, z: subject.z }, focalMm: framing.focalMm } } } };

@@ -16,6 +16,7 @@ import { cliproxyBase, cliproxyLiveModel, cliproxyProvider, fetchModelList } fro
 import { auditCalls } from "./audit.mjs";
 import { VARIANTS, features, systemPrompt } from "./prompt.mjs";
 import { createCompileTool } from "./compile-tool.mjs";
+import { lookBody } from "../studio/figure.js";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 export const DEFAULT_MODEL = "claude-fable-5-2", DEFAULT_EFFORT = "medium";
@@ -85,8 +86,9 @@ function markCache(payload) {
  * variant: one of VARIANTS (default "base"): the system prompt and the numbers the model is told (prompt.mjs, compile-tool.mjs).
  * off: the feature flags of the variant switched off by name (prompt.mjs OFF).
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
- * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs); "*":
- * the scale a new character starts at, which the system prompt also states (prompt.mjs systemPrompt start).
+ * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs).
+ * env.COZYCLAY_FIGURE: the look the Studio draws characters in (src/lowvis/studio/figure.js): its body is the figure at
+ * scale 1, which the system prompt states (prompt.mjs systemPrompt body) and the tool builds (compile-tool.mjs figure).
  * inbox: a steer inbox (bin/agent/steer-inbox.mjs): what the user sends while the run goes reaches the model as a user
  * message between its steps; the inbox is closed when the run ends. The record does not keep these messages.
  * kept: { scene?, spec } of the motion before this one, which the tool starts from (compile-tool.mjs kept): a call may then
@@ -99,7 +101,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
 	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
-	const SYSTEM_PROMPT = systemPrompt(variant, off, bodies?.["*"]?.scale), PARAMETERS = motionParameters(variant, off);
+	const figure = env.COZYCLAY_FIGURE || null, SYSTEM_PROMPT = systemPrompt(variant, off, lookBody(figure)), PARAMETERS = motionParameters(variant, off);
 	const record = { name, request, images: images.length, variant, off, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
@@ -115,7 +117,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const { models, model, entry } = resolved;
 	record.modelEntry = entry;
 
-	const motion = createCompileTool({ name, outDir, variant, off, bodies, kept }), t0 = performance.now(), now = () => performance.now() - t0;
+	const motion = createCompileTool({ name, outDir, variant, off, bodies, figure, kept }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map();
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };

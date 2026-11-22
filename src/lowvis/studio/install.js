@@ -4,8 +4,11 @@
 // the take of the character that handles it (ownerOf), as any object a Studio take moves, so a timing edit of that
 // take moves it with that character. Everything goes through editor actions, so the Studio's undo, save, selection,
 // cameras and export see ordinary scene content.
-// A clip character's scale and tint (clip.js) are the cast member's own scale and tint fields: set when it is added, or
-// with character.update when the Studio holds other values; its take is of a body of that scale (take.js).
+// A clip character's tint (clip.js) is the cast member's own tint field, and its scale (the size the engine built, a
+// share of the rig's own body) is the cast member's scale times the body of the look it is drawn in (figure.js): set
+// when it is added, or with character.update when the Studio holds other values; its take is of that size (take.js).
+// The motion writer's scene and spec a clip was compiled from (source) go with each take it installs (motion.v4.install
+// lowvis), so the motion that plays is the one a follow-up starts from, after a new chat, a reload or an undo too.
 // A prop that is a Studio object with no box of its own (scene.js kinds: an effect, a light, a group's Empty) is that
 // object: a track moves the object itself, its place the prop's centre, its own turn kept against the prop's box, so an
 // effect emits from where the prop is on every frame and keeps its kind.
@@ -129,11 +132,12 @@ function ownerOf(clip, prop) {
  * A listed object with point: true (scene.js kinds) stands at the prop's centre and keeps its own turn (quat) against the
  * prop's box: a track moves it when the prop moves.
  * existing.bodies: { <Studio id>: { scale, tint } } as the Studio holds them (1 and none when it is not listed).
- * existing.start: the scale the Studio gives a new character it is not told one for (src/lowvis/studio/figure.js; 1). 
+ * body: the look's body (src/lowvis/studio/figure.js lookBody; 1): a clip character's scale over it is the cast member's.
+ * source: { name, scene, spec }, the writer's run, scene and spec the clip was compiled from, kept with every take.
  * turn: the clip was written over studioScene(describe, { turn: true }), so a listed object's box stands turned as the
  * object does and the clip's rotation already holds that turn (it is not added again; a turn the model changed is set).
  */
-export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false, drafted = null } = {}) {
+export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false, drafted = null, body: look = 1, source = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
 	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, owners = {}, rides = [], attached = [], F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
@@ -190,7 +194,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 	for (const [index, figure] of clip.characters.entries()) {
 		const known = existing?.characters?.[figure.id], characterId = known ?? `lowvis-${safe(figure.id ?? index)}`;
 		// the body the clip is of, against the one the Studio holds: only what differs is set
-		const has = (known && existing?.bodies?.[known]) || { scale: existing?.start ?? 1, tint: null }, scale = figure.scale ?? 1, body = {};
+		const has = (known && existing?.bodies?.[known]) || { scale: 1, tint: null }, scale = Math.round((figure.scale ?? 1) / look * 1e6) / 1e6, body = {};
 		if (Math.abs(scale - (has.scale ?? 1)) > 1e-6) body.scale = scale;
 		if (figure.tint && figure.tint.toLowerCase() !== String(has.tint ?? "").toLowerCase()) body.tint = figure.tint;
 		const sized = Object.keys(body).length > 0;
@@ -214,7 +218,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		}
 		const raw = clipTrack(clip, index);
 		raw.objects = Object.fromEntries(Object.entries(tracks).filter(([id]) => owners[id] === index)); // this character's take draws the props it handles
-		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
+		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80), ...(source ? { lowvis: source } : {}) })) return stop();
 	}
 	const moving = Object.keys(tracks);
 	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}), ...(attached.length ? { attached } : {}) };

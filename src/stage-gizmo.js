@@ -1,6 +1,7 @@
 import { placementAt } from "./root-path.js";
 import { shotAtFrame } from "./cuts.js";
 import { sampleAt } from "./sample-at.js";
+import { bodyScale } from "./lowvis/studio/figure.js";
 
 /**
  * Where the selected cast member's gizmo stands. A character with a take is drawn where the take puts it at this
@@ -18,7 +19,7 @@ export function characterGizmoView({ selected, characters, activeCharacterId, ac
 		return { position: [placement.x, entry.y ?? 0, placement.z], rot: placement.rot, offset: [0, 0] };
 	}
 	const at = placementAt(entry, frame, { takeRoot: sampleAt({ frameCount: clip.frames, motion: clip }, null, frame).subject });
-	const body = takeBodyOffset(clip, frame, at.rot ?? 0, entry.scale ?? 1);
+	const body = takeBodyOffset(clip, frame, at.rot ?? 0, bodyScale(entry));
 	const x = at.x + body[0], z = at.z + body[1];
 	return { position: [x, entry.y ?? 0, z], rot: at.rot, offset: [x - entry.x, z - entry.z] };
 }
@@ -43,9 +44,9 @@ export function characterGizmoObject(gizmoView, entry) {
 		height: 1.15,
 		footprint: { width: 0.6, depth: 0.6 },
 		rotY: gizmoView.rot ?? entry?.rot ?? 0,
-		scaleX: entry?.scale ?? 1,
-		scaleY: entry?.scale ?? 1,
-		scaleZ: entry?.scale ?? 1,
+		scaleX: entry ? bodyScale(entry) : 1,
+		scaleY: entry ? bodyScale(entry) : 1,
+		scaleZ: entry ? bodyScale(entry) : 1,
 	};
 }
 

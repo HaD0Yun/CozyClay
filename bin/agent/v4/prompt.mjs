@@ -1,5 +1,6 @@
 // The v4 engine's system prompt (motion only) and the scene brief that opens a conversation.
 import { motionScene } from "../../../src/motion3/scene.js";
+import { bodyScale } from "../../../src/lowvis/studio/figure.js";
 
 export const V4_SYSTEM_PROMPT = `You animate one character in CozyClay, a 3D previs studio. The user asks for a motion. Make it physically believable and easy to read from a side view and a front view.
 
@@ -32,10 +33,12 @@ export function sceneBrief({ character, sk, records = [], installed = null, fram
 	const byId = new Map(records.filter(Boolean).map(record => [record.id, record]));
 	const scene = motionScene(records);
 	const top = sk?.index?.HeadTop_End;
-	const height = Number.isInteger(top) ? sk.restWorldPos[top][1] * (character?.scale ?? 1) : null;
+	// as large as it stands: its scale times its look's body (figure.js; the look the sidecar was launched with)
+	const stands = bodyScale({ model: character?.model, scale: character?.scale }, process.env.COZYCLAY_FIGURE || null);
+	const height = Number.isInteger(top) ? sk.restWorldPos[top][1] * stands : null;
 	const head = [
 		"Scene (metres, degrees; a record sits on its base pivot, the bottom centre; size is local; euler [rotX, rot, rotZ] means R = Rx * Ry * Rz).",
-		`Subject: ${character?.id}, ${character?.model}, position ${vec(character?.position)}, yaw ${num(character?.yaw)}${height ? `, standing height ${num(height)} m (rest head top)` : ""}${character?.scale && character.scale !== 1 ? `, scale ${num(character.scale)} (a raw take installs only at scale 1)` : ""}, ${sk?.names?.length ?? 0} bones.`,
+		`Subject: ${character?.id}, ${character?.model}, position ${vec(character?.position)}, yaw ${num(character?.yaw)}${height ? `, standing height ${num(height)} m (rest head top)` : ""}${Math.abs(stands - 1) > 1e-6 ? `, scale ${num(character?.scale ?? 1)} (a raw take installs only on a body of the rig's own size, which this one is not)` : ""}, ${sk?.names?.length ?? 0} bones.`,
 		installedLine(installed),
 		`Timeline: ${Number.isFinite(frameCount) ? frameCount : "unknown"} frames at 24 fps.`,
 	];
