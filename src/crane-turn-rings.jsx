@@ -112,6 +112,9 @@ export function CraneTurnRings({ rail, crane, selectedIndex, enabled, view, pane
 			gl.domElement.style.cursor = "";
 			setLit(null);
 		};
+		// Escape or a cancelled pointer ends the drag here too: the shots domain takes its writes back, and a move
+		// after that must not open a new one
+		const onKey = (event) => { if (event.key === "Escape") onUp(); };
 		const onHover = (event) => {
 			if (dragRef.current || event.buttons !== 0 || event.target !== gl.domElement) return;
 			const key = ringUnder(event);
@@ -124,11 +127,15 @@ export function CraneTurnRings({ rail, crane, selectedIndex, enabled, view, pane
 		el.addEventListener("pointerdown", onDown, true);
 		window.addEventListener("pointermove", onMove, true);
 		window.addEventListener("pointerup", onUp, true);
+		window.addEventListener("pointercancel", onUp, true);
+		window.addEventListener("keydown", onKey, true);
 		window.addEventListener("pointermove", onHover);
 		return () => {
 			el.removeEventListener("pointerdown", onDown, true);
 			window.removeEventListener("pointermove", onMove, true);
 			window.removeEventListener("pointerup", onUp, true);
+			window.removeEventListener("pointercancel", onUp, true);
+			window.removeEventListener("keydown", onKey, true);
 			window.removeEventListener("pointermove", onHover);
 			delete window.__craneRingAt;
 		};

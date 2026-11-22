@@ -68,4 +68,34 @@ const view = railViewAt(ride, shotWith(turned), rail, 0.5);
 assert.ok(close(view.yaw, ride[mid].yaw) && close(view.pitch, ride[mid].pitch), "the view at a mark is the camera's where it passes the mark");
 assert.equal(railViewAt(null, shotWith(turned), rail, 0.5), null);
 
-console.log("PASS crane mark turn: untouched marks byte-stable, a mark's pan/tilt eased along the ride by the dolly's place, adds to the head, a hand turn not counted twice, the rings' view line");
+// The camera tracks' reuse cache (camera-direction.js reuse): a ring drag that only turns a mark rebuilds no samples
+// (no posed body is read again), like a head turn; a mark added, slid, removed or raised rebuilds. Every step, undo and
+// redo included, equals a build from nothing on every frame.
+let bodies = 0;
+const bodyAt = (frame) => { bodies++; const p = subjectTrack[frame]; return [[p.x, 0, p.z], [p.x, 1.7, p.z]]; };
+const cached = (camera, reuse) => buildShotCameraTracks({ shots: [shotWith(camera)], subjectTrack, fps: 24, bodyAt, filmback: { aspectRatio: 16 / 9 }, fovDeg: 45, reuse });
+const reuse = new Map(), steps = [];
+const step = (label, camera, rebuilds) => {
+	bodies = 0;
+	const kept = cached(camera, reuse), work = bodies;
+	if (rebuilds != null) assert.equal(work > 0, rebuilds, `${label}: ${rebuilds ? "rebuilds" : "reuses the samples"} (${work} bodies read)`);
+	assert.deepEqual(kept, cached(camera, null), `${label}: equals a build from nothing on every frame`);
+	steps.push({ label, camera });
+};
+const withPoints = (points, extra = {}) => updateCameraBlock(base, { craneHeight: { points }, ...extra });
+step("first build", base, true);
+for (let move = 1; move <= 30; move += 1) step(`mark pan ${move}`, withPoints(marks.map((m, i) => (i === 1 ? { ...m, yawDeg: move * 1.5, pitchDeg: -move * 0.3 } : m))), false);
+step("head turn on top", withPoints(turnedMarks, { head: { yawDeg: 8, pitchDeg: 2 } }), false);
+step("end mark turned with the head", withPoints(turnedMarks.map((m, i) => (i === 2 ? { ...m, yawDeg: -20 } : m)), { head: { yawDeg: 8, pitchDeg: 2 } }), false);
+step("mark added", withPoints([...turnedMarks.slice(0, 2), { t: 0.75, height: 1.9, ...railTurnAt(turned.craneHeight, 0.75) }, turnedMarks[2]]), true);
+step("mark slid", withPoints([...turnedMarks.slice(0, 2), { t: 0.8, height: 1.9, ...railTurnAt(turned.craneHeight, 0.75) }, turnedMarks[2]]), true);
+step("mark removed", withPoints(turnedMarks), true);
+step("height changed", withPoints(turnedMarks.map((m, i) => (i === 1 ? { ...m, height: 2.6 } : m))), true);
+step("follow off (a rebuild that frames no body)", withPoints(turnedMarks, { head: { follow: false, yawDeg: 40, pitchDeg: 0 } }), null);
+step("follow off, mark turned", withPoints(turnedMarks.map((m, i) => (i === 1 ? { ...m, yawDeg: 45 } : m)), { head: { follow: false, yawDeg: 40, pitchDeg: 0 } }), false);
+// undo and redo walk the same cameras back and forth (whether each step rebuilds depends on its neighbour)
+const walked = steps.map((entry) => entry);
+for (const back of [...walked].reverse().slice(1)) step(`undo to ${back.label}`, back.camera, null);
+for (const forward of walked.slice(1)) step(`redo to ${forward.label}`, forward.camera, null);
+
+console.log("PASS crane mark turn: untouched marks byte-stable, a mark's pan/tilt eased along the ride by the dolly's place, adds to the head, a hand turn not counted twice, the rings' view line; a mark ring drag reuses the built samples, a mark added, slid, removed or raised rebuilds, each step equal to a fresh build");
