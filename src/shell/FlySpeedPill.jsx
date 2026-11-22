@@ -24,12 +24,13 @@ export default function FlySpeedPill({ flySpeed, setFlySpeed }) {
 	const field = useRef(null);
 	// The handlers read this, not a render's values: two of them can run before
 	// the next render (two wheel notches; a key that closes and the blur it causes).
-	const live = useRef({ open: false, typed: null, byKey: false });
-	const type = (text) => { live.current.typed = text; setTyped(text); };
-	const show = (next) => { live.current.open = next; setOpen(next); type(null); };
+	// (Not named `live`: the App source checks keep that name for the app context's live model.)
+	const held = useRef({ open: false, typed: null, byKey: false });
+	const type = (text) => { held.current.typed = text; setTyped(text); };
+	const show = (next) => { held.current.open = next; setOpen(next); type(null); };
 
 	const close = (commit) => {
-		const { open: wasOpen, typed: text } = live.current;
+		const { open: wasOpen, typed: text } = held.current;
 		if (!wasOpen) return;
 		show(false);
 		const next = commit && text !== null ? parse(text) : Number.NaN;
@@ -38,7 +39,7 @@ export default function FlySpeedPill({ flySpeed, setFlySpeed }) {
 	// A step starts from the typed number when there is one, else from the speed
 	// itself, as an updater: no notch is lost to a value a render has not delivered.
 	const step = (deltaY) => {
-		const from = live.current.typed === null ? Number.NaN : parse(live.current.typed);
+		const from = held.current.typed === null ? Number.NaN : parse(held.current.typed);
 		setFlySpeed(Number.isFinite(from) ? stepFlySpeed(from, deltaY) : (speed) => stepFlySpeed(speed, deltaY));
 		type(null);
 	};
@@ -70,7 +71,7 @@ export default function FlySpeedPill({ flySpeed, setFlySpeed }) {
 			return;
 		}
 		handlers.current.close(false);
-		if (!live.current.byKey) pill.current?.blur();
+		if (!held.current.byKey) pill.current?.blur();
 	}, [open]);
 	// A press anywhere outside the pill and its field applies what is typed. The
 	// stage's pickers stop presses on window capture (object-gizmo.jsx), which
@@ -87,14 +88,14 @@ export default function FlySpeedPill({ flySpeed, setFlySpeed }) {
 	}, [open]);
 
 	const onKeyDown = (event) => {
-		if (!live.current.open) return;
+		if (!held.current.open) return;
 		const inField = event.target === field.current;
 		if (inField && (event.key === "ArrowUp" || event.key === "ArrowDown")) step(event.key === "ArrowUp" ? -1 : 1);
 		else if (event.key === "Escape" || (inField && event.key === "Enter")) {
 			// A keyboard user goes back to the pill. A pointer user's focus leaves the
 			// rail: a focused button owns Space, so the pill would open again instead
 			// of the playback toggle (timeline.jsx skips its keys on a focused button).
-			const toPill = live.current.byKey;
+			const toPill = held.current.byKey;
 			close(event.key === "Enter");
 			if (toPill) pill.current?.focus();
 			else if (document.activeElement instanceof HTMLElement && wrap.current?.contains(document.activeElement)) document.activeElement.blur();
@@ -121,8 +122,8 @@ export default function FlySpeedPill({ flySpeed, setFlySpeed }) {
 				title={ko("Fly speed — click to type or step it, scroll over it, or scroll while right-dragging", "비행 속도 — 클릭해 입력하거나 화살표로 조절, 위에서 스크롤, 또는 오른쪽 드래그 중 스크롤")}
 				onMouseDown={(event) => open && event.preventDefault()}
 				onClick={(event) => {
-					if (live.current.open) return close(true);
-					live.current.byKey = event.detail === 0; // a keyboard activation has no click count
+					if (held.current.open) return close(true);
+					held.current.byKey = event.detail === 0; // a keyboard activation has no click count
 					return show(true);
 				}}
 			>
