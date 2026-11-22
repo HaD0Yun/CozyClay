@@ -38,6 +38,21 @@ assert.ok(aimsAt(tracks(aimedPick)[frames - 1], 4), "aim.ids is the rail's pick"
 const aimedOld = railShot({}, updateCameraBlock(createCameraBlock({ mode: "rail", cameraRail: rail }), { aim: { ids: ["char-b"] } }));
 assert.deepEqual(tracks(aimedOld), tracks(aimedPick), "the mark changes nothing while the cast is there");
 
+// Three characters: the picked one is followed whichever of the three is selected, on a rail, a rail with a
+// picked aim and a follow shot; without a pick the camera goes with the selection.
+{
+	const three = [...characters, { id: "char-c", name: "Cy", x: 0, z: -3, rot: 0 }];
+	const yaws = (shot, activeId) => tracks(shot, three, activeId).map(sample => sample.yaw);
+	for (const shot of [picked, aimedPick, follow]) {
+		assert.deepEqual(yaws(shot, "char-a"), yaws(shot, "char-c"), "the pick does not change with the selection");
+		assert.deepEqual(yaws(shot, "char-a"), yaws(shot, "char-b"));
+	}
+	assert.ok(aimsAt(tracks(picked, three, "char-c")[frames - 1], 4), "Bo is followed while Cy is selected");
+	const toCy = tracks(railShot({ subjectIds: ["char-c"] }), three, "char-a")[frames - 1];
+	assert.ok(Math.abs(toCy.yaw - Math.atan2(-(0 - toCy.pos.x), -(-3 - toCy.pos.z))) < 0.05, "picking the third character follows the third");
+	assert.notDeepEqual(yaws(railShot(), "char-a"), yaws(railShot(), "char-c"), "no pick: the selected character");
+}
+
 // Saved and duplicated with the shot.
 const stored = createShotAuthoringDocument({ frameCount: 200, shots: [picked, { ...aimedPick, id: "shot-2", startFrame: 60, endFrame: 107 }] }).shots;
 assert.deepEqual(stored[0].subjectIds, ["char-b"], "save and load keep subjectIds");
