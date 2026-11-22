@@ -187,14 +187,29 @@ export function worldToLocal(parent, object) {
   return { position: { x: p.x, y: p.y, z: p.z }, rotationDeg: eulerDegOf(inverse.multiply(objectQuat(object))) };
 }
 const tidy = v => Math.round(v * 1e4) / 1e4 + 0;
-/** Compact readback: the object's transform in its parent's frame, or null for
- * a root, a missing parent or a parent whose stored pose is not its world pose. */
+/** Compact readback: the object's transform in the frame that carries it, or null
+ * for a root, a missing parent, a routed child or a child of an attached record.
+ * An attached record's stored channels ARE its place and turn in the bone frame;
+ * a parent that travels (a route or a take) carries its children rigidly from its
+ * authored pose (object-travel.js), so the local pose against that pose holds on every frame. */
 export function localTransformReadback(object, objects) {
-  const parent = object.parent ? objects.find(o => o.id === object.parent) : null;
-  if (!parent || parent.attach || parent.path || object.attach || object.path) return null;
-  const { position, rotationDeg } = worldToLocal(parent, object);
   const round = v => ({ x: tidy(v.x), y: tidy(v.y), z: tidy(v.z) });
+  if (object.attach) return { position: round(pos(object)), rotationDeg: round({ x: object.rotX ?? 0, y: object.rot ?? 0, z: object.rotZ ?? 0 }) };
+  const parent = object.parent ? objects.find(o => o.id === object.parent) : null;
+  if (!parent || parent.attach || object.path) return null;
+  const { position, rotationDeg } = worldToLocal(parent, object);
   return { position: round(position), rotationDeg: round(rotationDeg) };
+}
+// An attached record's frame is the bone it rides: its channels are written as given.
+function attachedFrameOp(op, entity) {
+  const frame = `${entity.attach.characterId}'s ${entity.attach.bone ?? 'root'}`;
+  if (op.space !== 'parent' && (op.position || op.rotationDeg || op.facing)) fail('INVALID_ARGUMENT', `${entity.id} rides ${frame}: its position and rotation are stored in that frame. Give space "parent" to set them there (metres and degrees, the bone's unscaled frame), or object.detach it first.`);
+  if (op.space !== 'parent') return op;
+  if (op.position && !op.position.world) fail('INVALID_ARGUMENT', `space "parent" takes position {world:{x,y,z}} as metres in ${frame} frame; relativeTo, between and onObject resolve in world space.`);
+  if (op.facing && !('yawDeg' in op.facing)) fail('INVALID_ARGUMENT', 'space "parent" takes facing {yawDeg} only (local yaw); towardId, awayFromId and sameAsId are world-space.');
+  if (!op.position && !op.rotationDeg && !op.facing && !op.scale) fail('INVALID_ARGUMENT', 'space "parent" applies to position, rotationDeg, facing or scale; none was given.');
+  const { space, facing, ...rest } = op;
+  return { ...rest, ...(facing && !op.rotationDeg ? { rotationDeg: { x: entity.rotX ?? 0, y: facing.yawDeg, z: entity.rotZ ?? 0 } } : {}) };
 }
 const resolveParentRef = (ref, rows, createdByName) => rows.some(e => e.id === ref) ? ref : createdByName.get(normalizedName(ref));
 /** Rewrites an op given in the parent's local frame into the equivalent world op. */
@@ -205,7 +220,8 @@ function parentFrameOp(op, entity, rows, createdByName) {
   const parentId = create ? resolveParentRef(op.parent, rows, createdByName) : entity.parent;
   const parent = rows.find(e => e.id === parentId);
   if (!parent) fail('AMBIGUOUS_TARGET', 'space "parent": the parent is neither an existing object id nor an object created earlier in this batch.');
-  if (parent.attach || parent.path) fail('CAPABILITY_MISSING', 'space "parent": an attached or routed parent has no fixed pose to place against.');
+  // A routed or take-moved parent carries its children from its authored pose (object-travel.js); one that rides a character carries none.
+  if (parent.attach) fail('CAPABILITY_MISSING', `space "parent": ${parent.id} rides ${parent.attach.characterId}'s ${parent.attach.bone ?? 'root'}, and a record grouped under it does not follow it; put the object on that frame with object.attach { local }.`);
   if (!op.position && !op.rotationDeg && !op.facing) fail('INVALID_ARGUMENT', 'space "parent" applies to position, rotationDeg or facing; none was given.');
   if (op.position && !op.position.world) fail('INVALID_ARGUMENT', 'space "parent" takes position {world:{x,y,z}} as local metres from the parent pivot; relativeTo, between and onObject resolve in world space, so omit space for them.');
   if (op.facing && !('yawDeg' in op.facing)) fail('INVALID_ARGUMENT', 'space "parent" takes facing {yawDeg} only (local yaw); towardId, awayFromId and sameAsId are world-space.');
@@ -294,12 +310,13 @@ export function arrangement(command, before, ports) {
       if (parentId) { rows = setSceneObjectParent(rows, entity.id, parentId); entity = rows.find(e => e.id === entity.id); }
     }
     if (['create', 'update'].includes(op.op)) {
-      if (entity.attach) fail('CAPABILITY_MISSING', 'Attached transforms require a world-preserving attachment adapter.');
-      if (op.space === 'parent') op = parentFrameOp(op, entity, rows, createdByName);
+      const attached = Boolean(entity.attach);
+      if (attached) op = attachedFrameOp(op, entity);
+      else if (op.space === 'parent') op = parentFrameOp(op, entity, rows, createdByName);
       entity = patchEntity(entity, transformPatch(op, isObject));
       const placed = place(entity, op, draft(), ports);
-      // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (studio-support-gap.js).
-      entity = liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
+      // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (studio-support-gap.js); a bone-frame place is not on the deck.
+      entity = attached ? placed.entity : liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
       // What was asked against what the domain kept: scale and position limits move values silently; the lift is FLOOR_LIFT, not a clamp.
       const asked = isObject ? { ...(op.position?.world ?? {}), ...(liftedIds.has(entity.id) ? { y: undefined } : {}), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
         : { ...(op.position?.world ?? {}), ...(op.scale === undefined ? {} : { scale: op.scale }) };
