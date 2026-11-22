@@ -40,7 +40,8 @@ const clipJoint = (c, f, j) => c.pos.slice((f * JOINT_COUNT + j) * 3, (f * JOINT
 for (const [scale, at, heading] of [[0.81, [0.4, -1.2], 35], [0.95, [-2, 3], -120]]) {
 	const clip = clipAt(scale, at, heading), { registry, character } = studioWith(clip), c = clip.characters[0];
 	assert.equal(character.scale, scale);
-	const rows = registry.run("motion.sample", { characterId: "S1", frames: FRAMES, bones: JOINTS.slice() }).output.frames;
+	const answer = registry.run("motion.sample", { characterId: "S1", frames: FRAMES, bones: JOINTS.slice() }), rows = answer.output.frames;
+	assert.equal(answer.summary, `Sampled ${FRAMES.length} frames at scale ${scale}, as drawn.`, "the receipt says the scale it read at");
 	let worst = 0;
 	for (const row of rows) JOINTS.forEach((joint, j) => { const p = row.bones[joint], q = clipJoint(c, row.frame, j); worst = Math.max(worst, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])); });
 	assert.ok(worst < 1e-3, `scale ${scale}: motion.sample is within 1 mm of the drawn joints (worst ${(worst * 1000).toFixed(3)} mm)`);
@@ -69,6 +70,7 @@ console.log("ok the actions that compile refuse a scaled character with what the
 		return { frame: f, bones: Object.fromEntries(bones.map(n => [n, add(take.placement.position, apply(yaw, state.P[sk.index[name(n)]])).map(v => Math.round(v * 1e4) / 1e4)])) };
 	});
 	assert.equal(JSON.stringify(answer.output), JSON.stringify({ frames: before }), "at scale 1 the answer is the one of before");
+	assert.equal(answer.summary, `Sampled ${FRAMES.length} frames.`, "and so is its summary");
 	console.log("ok motion.sample at scale 1: the answer of before, byte for byte");
 }
 

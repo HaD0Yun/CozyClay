@@ -266,7 +266,7 @@ export function register(registry, ports) {
 				return [name, add(at, apply(yaw, drawn(state.P[sk.index[bone]]))).map(v => Math.round(v * 1e4) / 1e4)];
 			})) };
 		});
-		return { affectedIds: [], summary: `Sampled ${rows.length} frames.`, output: { frames: rows } };
+		return { affectedIds: [], summary: `Sampled ${rows.length} frames${s === 1 ? "" : ` at scale ${s}, as drawn`}.`, output: { frames: rows } };
 	} });
 	registry.register({ ...declarations[3], available: always, run({ topic, name, topics }) {
 		if (topic === undefined && topics === undefined) fail("INVALID_ARGUMENT", "Send topic (and name) for one answer, or topics: [{ topic, name? }] for several in one call.");
