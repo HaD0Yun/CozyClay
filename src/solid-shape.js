@@ -4,11 +4,14 @@
 // an imported model's loaded scene fitted the way imported-mesh.jsx fits it, and the round primitives' geometries with
 // props.jsx's arguments. A cube is its box; so is a model whose file has not loaded here (node, or still loading).
 // Built only when a sight line first crosses the box, then cached: sculpts by recipe content, models by scene and height.
+// A sight line passes what the viewport draws see-through (a glass part, a glass primitive, a model's transmissive or
+// mostly transparent mesh): it still counts for contact (depth, top), never for hiding.
 import * as THREE from "three";
 import { MeshBVH } from "three-mesh-bvh";
 import { buildSculptGroup } from "./sculpt-geometry.js";
 import { loadedMeshScene } from "./scene-mesh-cache.js";
 import { MESH_KIND, SCULPT_KIND } from "./scene-objects.js";
+import { MATERIAL_LOOKS } from "./material-presets.js";
 
 // The same geometries and lifts as props.jsx's Primitive: keep the two in step.
 const PRIMITIVES = {
@@ -22,14 +25,20 @@ const SURFACE_M = 0.02;
 const SCULPT_CACHE = 32, TOP_STEPS = 20;
 const AXES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(a => new THREE.Vector3(...a));
 const sculpts = new Map(), recipeKeys = new WeakMap(), models = new WeakMap(), primitives = new Map();
-const flat = new THREE.MeshBasicMaterial();
+const flat = new THREE.MeshBasicMaterial(), clear = new THREE.MeshBasicMaterial();
+/** A preset the viewport draws light through (material-presets.js: glass). */
+const seeThroughLook = name => MATERIAL_LOOKS[name]?.physical?.transmission > 0;
+/** A loaded material a sight line passes: light through it, or mostly transparent. */
+const seeThroughMaterial = m => m === clear || m?.transmission > 0 || (m?.transparent === true && m.opacity < 0.5);
 
-/** Every drawn triangle under root, in root's parent frame (root's own transform applied), as one BVH; null when none. */
-function bvhOf(root, transform = new THREE.Matrix4()) {
+/** Every drawn triangle under root, in root's parent frame (root's own transform applied), as one BVH; null when none.
+ * opaque: the see-through meshes left out (the sight-line shape). */
+function bvhOf(root, transform = new THREE.Matrix4(), opaque = false) {
 	root.updateMatrixWorld(true);
 	const out = [], m = new THREE.Matrix4(), instance = new THREE.Matrix4(), v = new THREE.Vector3();
 	root.traverse(node => {
 		if (!node.isMesh || !node.geometry?.attributes?.position) return;
+		if (opaque && [node.material].flat().every(seeThroughMaterial)) return;
 		const position = node.geometry.attributes.position, index = node.geometry.index, n = index ? index.count : position.count;
 		for (let k = 0; k < (node.isInstancedMesh ? node.count : 1); k++) {
 			m.multiplyMatrices(transform, node.matrixWorld);
@@ -43,14 +52,23 @@ function bvhOf(root, transform = new THREE.Matrix4()) {
 	return new MeshBVH(geometry);
 }
 
+/** { full, opaque } BVHs of root (opaque: what hides a sight line; the same BVH when nothing is see-through), or null. */
+function shapes(root, transform) {
+	const full = bvhOf(root, transform);
+	if (!full) return null;
+	let clearMesh = false;
+	root.traverse(node => { if (node.isMesh && [node.material].flat().some(seeThroughMaterial)) clearMesh = true; });
+	return { full, opaque: clearMesh ? bvhOf(root, transform, true) : full };
+}
+
 function sculptBvh(recipe) {
 	let key = recipeKeys.get(recipe);
 	if (key === undefined) { key = JSON.stringify(recipe); recipeKeys.set(recipe, key); }
 	if (sculpts.has(key)) return sculpts.get(key);
 	let bvh;
 	try {
-		const group = buildSculptGroup(recipe, { materialFor: () => flat });
-		bvh = bvhOf(group);
+		const group = buildSculptGroup(recipe, { materialFor: part => (seeThroughLook(part.material) ? clear : flat) });
+		bvh = shapes(group);
 		group.traverse(node => { if (node.isMesh) node.geometry.dispose(); });
 	} catch { bvh = null; }
 	sculpts.set(key, bvh);
@@ -67,7 +85,7 @@ function modelBvh(scene, height) {
 	const box = new THREE.Box3().setFromObject(scene), size = box.getSize(new THREE.Vector3()), root = scene.position;
 	const k = Number.isFinite(height) && height > 0 && size.y > 1e-8 ? height / size.y : 1, floor = root.y + k * (box.min.y - root.y);
 	const fit = new THREE.Matrix4().makeTranslation(root.x, root.y - floor, root.z).multiply(new THREE.Matrix4().makeScale(k, k, k)).multiply(new THREE.Matrix4().makeTranslation(-root.x, -root.y, -root.z));
-	const bvh = Number.isFinite(box.min.y) ? bvhOf(scene, fit) : null;
+	const bvh = Number.isFinite(box.min.y) ? shapes(scene, fit) : null;
 	byHeight.set(height, bvh);
 	return bvh;
 }
@@ -80,7 +98,7 @@ function sourceOf(record) {
 	}
 	const make = PRIMITIVES[record.renderer];
 	if (!make) return null;
-	return () => { if (!primitives.has(record.renderer)) primitives.set(record.renderer, new MeshBVH(make())); return primitives.get(record.renderer); };
+	return () => { if (!primitives.has(record.renderer)) { const full = new MeshBVH(make()); primitives.set(record.renderer, { full, opaque: full }); } return primitives.get(record.renderer); };
 }
 
 const triangle = new THREE.Triangle(), normal = new THREE.Vector3();
@@ -101,15 +119,18 @@ function faceNormal(geometry, face) {
 export function solidOf(record) {
 	const size = [record?.footprint?.width, record?.height, record?.footprint?.depth];
 	if (!record || !size.every(v => v > 0)) return null;
+	// a primitive drawn in a see-through preset: its box still stands in for contact, it hides no sight line
+	if (seeThroughLook(record.material)) return { hits: () => false, depth: () => null, top: () => null };
 	const source = sourceOf(record);
 	if (!source) return null;
-	let bvh;
-	const built = () => { if (bvh === undefined) bvh = source(); return bvh; };
+	let shape;
+	const built = () => { if (shape === undefined) shape = source(); return shape?.full ?? null; };
 	const scaleOf = box => size.map((v, i) => (2 * box.half[i]) / v);
 	const local = (box, scale, q) => [0, 1, 2].map(i => (box.R[0][i] * (q[0] - box.pos[0]) + box.R[1][i] * (q[1] - box.pos[1]) + box.R[2][i] * (q[2] - box.pos[2])) / scale[i]);
 	const world = (box, scale, l) => [0, 1, 2].map(i => box.pos[i] + box.R[i][0] * l.x * scale[0] + box.R[i][1] * l.y * scale[1] + box.R[i][2] * l.z * scale[2]);
 	const depth = (box, p) => {
-		if (!built()) return null;
+		const bvh = built();
+		if (!bvh) return null;
 		const scale = scaleOf(box), q = new THREE.Vector3(...local(box, scale, p)), hit = bvh.closestPointToPoint(q);
 		if (!hit || q.clone().sub(hit.point).dot(faceNormal(bvh.geometry, hit.faceIndex)) >= 0) return 0;
 		// behind the nearest face, and walled in on every side: under an open-bottomed lathe base is outside
@@ -120,15 +141,16 @@ export function solidOf(record) {
 	return {
 		hits(box, eye, p) {
 			if (!built()) return true;
-			const scale = scaleOf(box);
+			const bvh = shape.opaque, scale = scaleOf(box);
 			const a = new THREE.Vector3(...local(box, scale, eye)), b = new THREE.Vector3(...local(box, scale, p)), along = b.clone().sub(a), length = along.length();
 			const span = Math.hypot(p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]);
-			if (!(length > 0) || span <= SURFACE_M) return false;
+			if (!bvh || !(length > 0) || span <= SURFACE_M) return false;
 			return Boolean(bvh.raycastFirst(new THREE.Ray(a, along.divideScalar(length)), THREE.DoubleSide, 0, length * (1 - SURFACE_M / span)));
 		},
 		depth,
 		top(box, region) {
-			if (!built()) return null;
+			const bvh = built();
+			if (!bvh) return null;
 			const scale = scaleOf(box), m = new THREE.Matrix4().set(...[0, 1, 2].flatMap(i => [box.R[i][0] * scale[0], box.R[i][1] * scale[1], box.R[i][2] * scale[2], box.pos[i]]), 0, 0, 0, 1).invert();
 			const meets = lo => bvh.intersectsBox(new THREE.Box3(new THREE.Vector3(region.min[0], lo, region.min[2]), new THREE.Vector3(region.max[0], region.max[1], region.max[2])), m);
 			if (!meets(region.min[1])) return null;

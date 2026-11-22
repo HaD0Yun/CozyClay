@@ -147,7 +147,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-mesh-graph-clone.mjs",
 	"test/verify-scene-objects.mjs",
 	"test/verify-studio-agent-geometry.mjs",
-	"test/verify-studio-geometry-facts.mjs", "test/verify-studio-occlusion-solid.mjs", "test/verify-studio-contact.mjs", "test/verify-review-settled.mjs", "test/verify-review-text.mjs", "test/verify-review-repair.mjs",
+	"test/verify-studio-geometry-facts.mjs", "test/verify-studio-occlusion-solid.mjs", "test/verify-review-measures.mjs", "test/verify-studio-contact.mjs", "test/verify-review-settled.mjs", "test/verify-review-text.mjs", "test/verify-review-repair.mjs",
 	"test/verify-plan-diagram.mjs",
 	"test/verify-agent-plan-attach.mjs",
 	"test/verify-local-placement.mjs",

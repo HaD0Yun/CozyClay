@@ -50,7 +50,7 @@ const imagePart = captured => { const m = /^data:([^;]+);base64,(.*)$/.exec(capt
 // unfinished request (an undo of the lighting re-added a character and reframed the shot: 7 more minutes of a locked panel).
 export function reviewContent({ findings, relations = [], images = [], revision = null, request = "" }) {
 	const asks = findings.length
-		? `These checks failed:\n${findings.map(line => `- ${line}`).join("\n")}\nRepair what belongs to this request and stop when they pass. If one should stay or you cannot fix it, say why in one line.`
+		? `Measured on the scene after your edits:\n${findings.map(line => `- ${line}`).join("\n")}\nRepair what belongs to this request and stop when these are gone. If one is what the request means or you cannot fix it, say why in one line.`
 		: `The checks that ran passed. Look at the picture: if the light and look do not show what ${request ? "this request" : "was"} asked, fix it${request ? "; an earlier request is not this turn's to finish" : ""}. If they do, do not repeat your answer; finish in one short line.`;
 	const asked = request ? `\nThis turn's request: ${JSON.stringify(request.length > 300 ? `${request.slice(0, 299)}…` : request)}` : "";
 	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}${images.length ? ": the shot camera" : ""}.${asked}\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
@@ -121,7 +121,7 @@ export function settledEdits(board, pending) {
 	pending.clear();
 	return { edited: true, ids: [...new Set(keys.map(idOf))].slice(0, MAX_TARGETS), motionIds: [...new Set(keys.filter(key => key.startsWith("character:")).map(idOf))], stage: false };
 }
-const settledNote = findings => `\n<scene-review>The tasks of this request are all done. Checks on the finished scene failed:\n${findings.map(line => `- ${line}`).join("\n")}\nDispatch one repair task for what a task can fix, or tell the user plainly what stays as it is.</scene-review>`;
+const settledNote = findings => `\n<scene-review>The tasks of this request are all done. Measured on the finished scene:\n${findings.map(line => `- ${line}`).join("\n")}\nDispatch one repair task for what a task can fix, or tell the user plainly what stays as it is.</scene-review>`;
 
 /**
  * start, wrapped: the model's runs and the reviews between them read as one run with one done frame. A failed or stopped run is not reviewed.
