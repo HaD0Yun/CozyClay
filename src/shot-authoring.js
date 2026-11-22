@@ -18,21 +18,23 @@ const VIDEO_MODEL_IDS = new Set(VIDEO_MODEL_PRESETS.map((preset) => preset.id));
 const CAMERA_KEY_LIMITS = elementByPath("shot.cameraKeys");
 
 // v7 drops the storyboard fields (kind, caption, cast, stylizedAssetId); an
-// older body is read as migrated and written back without them.
-export const SHOT_AUTHORING_VERSION = 7;
-export const SHOT_AUTHORING_KEY = "cozyclay.shot-authoring.v7";
+// older body is read as migrated and written back without them. v8 lifts the
+// 4 m/s rail-dolly cap every older body stored as its default (see below).
+export const SHOT_AUTHORING_VERSION = 8;
+export const SHOT_AUTHORING_KEY = "cozyclay.shot-authoring.v8";
 // The single-key alias points at the newest legacy body for older callers.
 // New readers should walk the list so a user can still arrive directly from v1.
-export const SHOT_AUTHORING_LEGACY_KEY = "cozyclay.shot-authoring.v6";
+export const SHOT_AUTHORING_LEGACY_KEY = "cozyclay.shot-authoring.v7";
 export const SHOT_AUTHORING_LEGACY_KEYS = Object.freeze([
 	SHOT_AUTHORING_LEGACY_KEY,
+	"cozyclay.shot-authoring.v6",
 	"cozyclay.shot-authoring.v5",
 	"cozyclay.shot-authoring.v4",
 	"cozyclay.shot-authoring.v3",
 	"cozyclay.shot-authoring.v2",
 	"cozyclay.shot-authoring.v1",
 ]);
-export const SHOT_AUTHORING_QUARANTINE_KEY = "cozyclay.shot-authoring.v7.quarantine";
+export const SHOT_AUTHORING_QUARANTINE_KEY = "cozyclay.shot-authoring.v8.quarantine";
 
 /** clip length sanity bounds, frames @ 24 fps: 1 s .. 20 min */
 const FRAME_COUNT_MIN = 24;
@@ -90,11 +92,26 @@ const FOLLOW_DEFAULTS = {
 	response: 0.7,
 	lead: 0.25,
 	railStartMode: "head",
-	maxDollySpeed: 4,
+	// No cap below the world's fastest dolly: the rail's schedule sets the speed.
+	maxDollySpeed: WORLD.dollySpeed,
 	pitchOffsetDeg: 0,
 	orbitOffsetDeg: 0,
 };
 const CAMERA_MODES = new Set(["keys", "follow", "rail"]);
+
+/** Bodies before v8 wrote a 4 m/s dolly cap into every camera as its default,
+ * so a camera of a fast subject lagged behind its own rail. That stored 4 is the
+ * old default, not a choice: it is read as no cap. Any other stored cap stays. */
+const OLD_DOLLY_CAP = 4;
+const liftOldDollyCap = (followCam) => (followCam && typeof followCam === "object" && followCam.maxDollySpeed === OLD_DOLLY_CAP
+	? { ...followCam, maxDollySpeed: undefined } : followCam);
+const liftCameraCap = (camera) => (camera && typeof camera === "object" && !Array.isArray(camera)
+	? { ...camera, followCam: liftOldDollyCap(camera.followCam) } : camera);
+function liftOldDollyCaps(parsed) {
+	const next = { ...parsed, followCam: liftOldDollyCap(parsed.followCam) };
+	if (Array.isArray(parsed.shots)) next.shots = parsed.shots.map((shot) => (shot && typeof shot === "object" ? { ...shot, camera: liftCameraCap(shot.camera) } : shot));
+	return next;
+}
 
 function validFraming(framing) {
 	return (
@@ -293,8 +310,9 @@ export function readShotAuthoringDocument(raw) {
 	if (!Number.isInteger(version) || version < 1) return { status: "corrupt", state: null };
 	if (version > SHOT_AUTHORING_VERSION) return { status: "future", state: null };
 
-	// One conversion at the door: everything below reads one clock.
-	const parsed = version < 4 ? rescaleShotAuthoringFrames(raw) : raw;
+	// One conversion at the door: everything below reads one clock and no old default cap.
+	const retimed = version < 4 ? rescaleShotAuthoringFrames(raw) : raw;
+	const parsed = version < 8 ? liftOldDollyCaps(retimed) : retimed;
 	const frameCount = repairFrameCount(parsed.frameCount);
 	const effectiveFrameCount = frameCount ?? DEFAULT_FRAME_COUNT;
 	if (version === 1) {

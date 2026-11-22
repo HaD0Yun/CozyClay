@@ -34,23 +34,23 @@ for (const version of [4, 5, 6]) {
 	const extra = version >= 5 ? { kind: "still", caption: "She looks up.", cast: { "char-a": { x: 1, z: 2, rot: 3 } }, stylizedAssetId: imageId } : {};
 	const body = { version, frameCount: 240, waypoints: [{ id: "wp-a", frame: 0, x: 1, z: 2, heading: null }], shots: current.shots.map((shot) => ({ ...shot, ...extra })) };
 	const migrated = readShotAuthoringDocument(JSON.parse(JSON.stringify(body)));
-	assert.equal(migrated.status, "migrated", `a v${version} body is rewritten as v7, so it reports migrated`);
+	assert.equal(migrated.status, "migrated", `a v${version} body is rewritten as v8, so it reports migrated`);
 	assert.equal(JSON.stringify(migrated.state.waypoints), JSON.stringify(body.waypoints));
 	migrated.state.shots.forEach((shot, index) => {
 		assert.equal(JSON.stringify(shot), JSON.stringify(current.shots[index]), `v${version}: ${shot.id} keeps every other field and drops the storyboard fields`);
 	});
 	const rewritten = JSON.parse(serializeShotAuthoring(migrated.state));
-	assert.equal(rewritten.version, 7);
+	assert.equal(rewritten.version, 8);
 	assert.equal(readShotAuthoring(JSON.stringify(rewritten)).status, "valid");
 	assert.deepEqual(readShotAuthoring(JSON.stringify(rewritten)).state.shots, migrated.state.shots);
 }
 
-// Keys step with the version; v6 is the newest legacy body.
-assert.equal(SHOT_AUTHORING_VERSION, 7);
-assert.equal(SHOT_AUTHORING_KEY, "cozyclay.shot-authoring.v7");
-assert.equal(SHOT_AUTHORING_QUARANTINE_KEY, "cozyclay.shot-authoring.v7.quarantine");
-assert.deepEqual([...SHOT_AUTHORING_LEGACY_KEYS], ["cozyclay.shot-authoring.v6", "cozyclay.shot-authoring.v5", "cozyclay.shot-authoring.v4", "cozyclay.shot-authoring.v3", "cozyclay.shot-authoring.v2", "cozyclay.shot-authoring.v1"]);
-assert.equal(readShotAuthoringDocument({ version: 8, shots: [] }).status, "future");
+// Keys step with the version; v7 is the newest legacy body.
+assert.equal(SHOT_AUTHORING_VERSION, 8);
+assert.equal(SHOT_AUTHORING_KEY, "cozyclay.shot-authoring.v8");
+assert.equal(SHOT_AUTHORING_QUARANTINE_KEY, "cozyclay.shot-authoring.v8.quarantine");
+assert.deepEqual([...SHOT_AUTHORING_LEGACY_KEYS], ["cozyclay.shot-authoring.v7", "cozyclay.shot-authoring.v6", "cozyclay.shot-authoring.v5", "cozyclay.shot-authoring.v4", "cozyclay.shot-authoring.v3", "cozyclay.shot-authoring.v2", "cozyclay.shot-authoring.v1"]);
+assert.equal(readShotAuthoringDocument({ version: 9, shots: [] }).status, "future");
 
 // A single-frame shot survives with its range.
 const single = readShotAuthoringDocument({ version: SHOT_AUTHORING_VERSION, frameCount: 240, waypoints: [], shots: [{ id: "shot-one", name: "Beat", startFrame: 10, endFrame: 10 }] }).state.shots[0];

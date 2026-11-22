@@ -354,7 +354,7 @@ export function useShots(appContext) {
     changeCameraRail(simplified); setRailDraw(false);
     const curve = buildRail(simplified);
     if (appContext.shared.playgroundMode && activeShot && curve) {
-      const speed = Math.max(0.2, activeCamera.followCam?.maxDollySpeed ?? 4);
+      const speed = Math.max(0.2, Math.min(activeCamera.followCam?.maxDollySpeed ?? 4, 4)); // the landing rail is ridden at an easy 4 m/s, or a lower cap
       const travel = Math.ceil(curve.length / speed * tlFps) + Math.round(tlFps * 0.5);
       const endFrame = Math.min(tlFrameCount - 1, activeShot.startFrame + Math.max(travel, activeShot.endFrame - activeShot.startFrame));
       setTimelineShotRange(activeShot.id, activeShot.startFrame, endFrame);

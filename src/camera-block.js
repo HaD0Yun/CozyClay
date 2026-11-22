@@ -1,5 +1,6 @@
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
 import { cloneRailHead, craneMarkTurn } from "./camera-rail-head.js";
+import { WORLD } from "./world-scale.js";
 
 // Pure Camera Block model. A shot owns one complete camera instruction, like
 // the camera card clipped to a single strip of film.
@@ -12,7 +13,8 @@ const CAMERA_FOLLOW_DEFAULTS = Object.freeze({
 	response: 0.7,
 	lead: 0.25,
 	railStartMode: "head",
-	maxDollySpeed: 4,
+	// No cap below the world's fastest dolly: the rail's schedule sets the speed.
+	maxDollySpeed: WORLD.dollySpeed,
 	pitchOffsetDeg: 0,
 	orbitOffsetDeg: 0,
 });

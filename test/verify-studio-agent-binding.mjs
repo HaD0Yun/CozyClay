@@ -40,7 +40,7 @@ import { createStudioAppActions, commandDeclarations } from '../src/commands/ind
 import { HISTORY_LIMIT } from '../src/history.js';
 import { focalMmToFov, fovToFocalMm, IMAGE_MODELS, CUSTOM_MOVE, SUBJECT_HEIGHT_M, composePrompt, deriveShot } from '../src/shot.js';
 import { PART_COLOURS } from '../src/part-colours.js';
-import { objectTransformAt } from '../src/object-path.js'; import { createShotSubjectSampler } from '../src/camera-direction.js'; import { subjectsCenter } from '../src/shot-subjects.js';
+import { objectTransformAt } from '../src/object-path.js'; import { buildShotCameraTracks, createShotSubjectSampler } from '../src/camera-direction.js'; import { subjectsCenter } from '../src/shot-subjects.js';
 import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
 import { characterRowId } from '../src/hierarchy-model.js';
@@ -863,9 +863,26 @@ const implementations={
   const point=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-3,z:4},{x:3,z:4}],aim:{x:0,y:1,z:0},focalMm:null,height:[{t:0,height:0.6},{t:1,height:3}]});
   assert.match(point.summary,/height 0\.60-3\.00 m, aim \(0\.00, 1\.00, 0\.00\), scene lens\.$/,point.summary);
   read=await camera();assert.deepEqual([read.camera.aim,'focalMm' in read.camera],[{point:{x:0,y:1,z:0}},false]);
-  // Past the dolly's speed cap it warns; an aim that is not in the scene is refused.
-  const fast=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]});
-  assert.deepEqual(fast.warnings.map(w=>w.code),['RAIL_TOO_FAST'],JSON.stringify(fast));
+  // A 10 m/s rail rides at its own speed (no default cap); past the world's fastest dolly it warns; an aim that is not in the scene is refused.
+  const quick=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]});
+  assert.deepEqual(quick.warnings??[],[],JSON.stringify(quick));
+  const fast=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-50,z:4},{x:50,z:4}]});
+  // The answer states the lag a cap leaves: its numbers are the gap between this shot's own camera track with and without the cap, in 120 characters.
+  const lagOf=async answer=>{const laid=await camera(),track=cap=>buildShotCameraTracks({shots:[{...laid,camera:{...laid.camera,followCam:{...laid.camera.followCam,maxDollySpeed:cap}}}],subjectTrack:Array.from({length:48},()=>({x:0,z:0})),fps:24}).map(sample=>sample.s);
+   const cap=laid.camera.followCam.maxDollySpeed,held=track(cap),free=track(Infinity),gaps=free.map((s,i)=>s-held[i]),worst=Math.max(...gaps);
+   return {cap,worst,text:`Dolly cap ${cap} m/s, rail asks ${answer.summary.match(/\(([\d.]+) m\/s\)/)[1]}: rail alone, the cap holds the dolly ${worst.toFixed(1)} m back at frame ${gaps.indexOf(worst)}, ${gaps.at(-1).toFixed(1)} m at the end.`};};
+  const worldBound=await lagOf(fast);assert.equal(worldBound.cap,40);assert.ok(worldBound.worst>15,JSON.stringify(worldBound));
+  assert.deepEqual(fast.warnings,[{code:'RAIL_TOO_FAST',id:shot.id,message:worldBound.text}],JSON.stringify(fast));assert.ok(worldBound.text.length<=120);
+  const setCap=async followCam=>{const stored=f.scope.shotsDomain.read()[0],next={...stored,camera:updateCameraBlock(stored.camera,{followCam})};f.scope.setShots([next]);f.live.current.shots=[next];};
+  await setCap({maxDollySpeed:2.5});
+  const lagged=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:4,z:4},{x:10,z:9}]}),userCap=await lagOf(lagged);
+  assert.equal(userCap.cap,2.5,'a re-laid rail keeps the cap someone set');assert.ok(userCap.worst>10,JSON.stringify(userCap));
+  assert.deepEqual(lagged.warnings,[{code:'RAIL_TOO_FAST',id:shot.id,message:userCap.text}],JSON.stringify(lagged));assert.ok(userCap.text.length<=120);
+  // Under the cap nothing is held back and nothing is said; a rail that opens nearest its subject has no lag to state without the subject: the two speeds only.
+  assert.deepEqual((await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-2,z:4},{x:2,z:4}]})).warnings??[],[]);
+  await setCap({railStartMode:'nearest'});
+  assert.deepEqual((await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]})).warnings,[{code:'RAIL_TOO_FAST',id:shot.id,message:'Dolly cap 2.5 m/s, rail asks 10.00 m/s.'}]);
+  await setCap({railStartMode:'head',maxDollySpeed:40});
   const ghost=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-2,z:4},{x:2,z:4}],aim:['actor-ghost']});
   assert.equal(ghost.ok,false);assert.equal(ghost.code,'STALE_TARGET',JSON.stringify(ghost));
   // frame_shot answers what it measured; on a rail shot it says the rail stopped driving it.

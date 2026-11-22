@@ -98,7 +98,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-blocking-depth.mjs", "test/verify-prompt-cast-pin.mjs", "test/verify-prompt-cast-list.mjs", "test/verify-prompt-cast-mcp.mjs", "test/verify-prompt-cast-subjects.mjs", "test/verify-prompt-defaults.mjs",
 	"test/verify-render-passes-video.mjs",
 	"test/verify-camera-block.mjs", "test/verify-camera-direction.mjs", "test/verify-camera-record.mjs", "test/verify-camera-record-lifecycle.mjs", "test/verify-camera-rail-head.mjs", "test/verify-camera-follow-pick.mjs", "test/verify-rail-aim-feel.mjs", "test/verify-crane-mark-turn.mjs", "test/verify-camera-drag-work.mjs",
-	"test/verify-camera-follow.mjs",
+	"test/verify-camera-follow.mjs", "test/verify-camera-rail-fast-subject.mjs",
 	"test/verify-camera-move.mjs",
 	"test/verify-camera-rail-schedule.mjs",
 	"test/verify-camera-pointer-lock.mjs", "test/verify-camera-pointer-capture.mjs",
