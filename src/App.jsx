@@ -4366,7 +4366,7 @@ export default function App() {
 		spawnCharacter, stopShotRecording, retryExport, poseRefusal: poseEntry.blocked ? poseEntry.plan.reason : null,
 		beginWorkspaceResize, frameAll, setAxisView,
 		preferencesOpen, setPreferencesOpen,
-		flySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
+		flySpeed, setFlySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
 		agentOpen: !agentCollapsed,
 		toggleAgent: () => window.dispatchEvent(new CustomEvent("cozyclay:agent-panel-toggle")),
 		saveStatus: { state: projectSaveState, text: projectStatus, dirty: projectDirty, name: projectName },
@@ -4384,14 +4384,7 @@ export default function App() {
 		<StudioShellContext.Provider value={shellContext}>
 		<StudioShell className={"app" + (renderActive ? "" : " render-idle")} style={workspaceStyle} data-workflow-mode={workflowMode} data-lowvis-skins={characterViews.filter((view) => view.model === TRACK_RIG && rigs[view.id]).length || undefined} data-embed-mode={embedMode ? "playview" : playgroundMode ? "playground" : undefined} data-rail-draw={railDraw ? 1 : undefined} data-shot-look={lookThroughShot && !embedMode ? 1 : undefined} data-plan-draw={railDraw || pathDraw || waypointMode ? 1 : undefined}
 			viewport={
-				<div className="viewport" data-drop={viewportDrop.over ? "over" : undefined} {...viewportDrop.handlers}
-					onWheel={(event) => {
-						// Read-only UI mirror of FlyControls' persistent wheel multiplier.
-						// Its native canvas listener handles navigation before this bubbles.
-						if (flyingRef.current && event.target.tagName === "CANVAS") {
-							setFlySpeed((speed) => THREE.MathUtils.clamp(speed * (event.deltaY > 0 ? 0.9 : 1.1), 0.15, 6));
-						}
-					}}>
+				<div className="viewport" data-drop={viewportDrop.over ? "over" : undefined} {...viewportDrop.handlers}>
 				<ViewportToolbar />
 				<ReviewOverlay />
 				{(embedMode || playgroundMode) && <CompositionGuideButton guideMode={guideMode} onCycle={(mode) => runStudioAction("view.setGuideMode", { mode })} />}
@@ -4658,6 +4651,8 @@ export default function App() {
 								if (flying) trackFeature("camera_fly");
 							}}
 								onCameraChange={lookThroughShot && !ikMode ? commitManualCameraFraming : undefined}
+								speed={flySpeed}
+								onSpeedChange={setFlySpeed}
 							/>
 							<PoseHandles
 								root={posedRig()}

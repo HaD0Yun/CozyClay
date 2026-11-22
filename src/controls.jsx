@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { noteCameraGesture } from "./thrash-friction.js"; import { announceNav } from "./nav-signal.js";
+import { noteCameraGesture } from "./thrash-friction.js"; import { announceNav } from "./nav-signal.js"; import { stepFlySpeed } from "./fly-speed.js";
 
 const MOVE_SPEED = 2.6; // metres per second
 const CRANE_SPEED = 1.3; // Q/E up/down runs at half walk speed — fine
@@ -52,13 +52,13 @@ export function aimAt(position, target) {
  * clientX remains the fallback when lock is denied.
  *
  * `getPivot()` is optional and returns a world point to orbit; without one,
- * Alt-drag orbits a point straight ahead of the lens.
+ * Alt-drag orbits a point straight ahead of the lens. `speed`/`onSpeedChange` let the caller own the fly speed.
  */
-export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPivot, onFlyStateChange, onCameraChange }) {
+export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPivot, onFlyStateChange, onCameraChange, speed, onSpeedChange }) {
 	const { gl, invalidate } = useThree();
 	const keys = useRef(new Set());
 	const gesture = useRef(null); // { kind: "fly" | "pan" | "orbit", pointerId, x, y, ... }
-	const speedScale = useRef(1);
+	const speedScale = useRef(1); useEffect(() => { if (Number.isFinite(speed)) speedScale.current = speed; }, [speed]);
 	const invalidateRaf = useRef(0);
 	const flyStateRef = useRef(onFlyStateChange);
 	flyStateRef.current = onFlyStateChange;
@@ -296,7 +296,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 			e.preventDefault();
 			if (gesture.current?.kind === "fly") {
 				// Unity: the wheel sets the flythrough speed, it does not dolly.
-				speedScale.current = THREE.MathUtils.clamp(speedScale.current * (e.deltaY > 0 ? 0.9 : 1.1), 0.15, 6);
+				speedScale.current = stepFlySpeed(speedScale.current, e.deltaY); onSpeedChange?.(speedScale.current);
 				return;
 			}
 			cam.position.addScaledVector(forwardFrom(look.current.yaw, look.current.pitch), -e.deltaY * DOLLY_STEP);
@@ -349,7 +349,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 			document.removeEventListener("pointerlockerror", onPointerLockError);
 			window.removeEventListener("blur", endGesture);
 		};
-	}, [enabled, gl, camRef, look]);
+	}, [enabled, gl, camRef, look, onSpeedChange]);
 
 	useFrame((_, delta) => {
 		const cam = camRef.current;

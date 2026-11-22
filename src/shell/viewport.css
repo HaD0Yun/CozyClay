@@ -133,7 +133,35 @@
 		padding: 0 10px;
 		font-family: var(--mono);
 		color: var(--text-2);
-		cursor: default;
+		cursor: pointer;
+	}
+	.viewport-titlebar .vp-speed:hover,
+	.viewport-titlebar .vp-speed[aria-expanded="true"] { background: var(--surface-raised); color: var(--text-1); }
+	/* The fly speed field: − [value] × + on one row under its label. */
+	.viewport-titlebar .vp-menu.vp-speed-menu { min-width: 0; gap: 4px; }
+	.vp-speed-edit { display: flex; align-items: center; gap: 4px; padding: 0 4px 4px; }
+	.vp-speed-edit input {
+		box-sizing: border-box;
+		width: 52px;
+		height: 24px;
+		padding: 0 6px;
+		border: 1px solid var(--row-divider);
+		border-radius: 4px;
+		background: var(--field-deep);
+		color: var(--text-1);
+		font: inherit;
+		font-family: var(--mono);
+		text-align: right;
+	}
+	.vp-speed-edit button {
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: 0;
+		border-radius: 4px;
+		background: var(--surface-raised);
+		color: var(--text-1);
+		cursor: pointer;
 	}
 
 	/* G1: one 32px pill, top-centre. The grid columns keep it centred until
