@@ -6,7 +6,8 @@
 // several frames, inspect_studio's effect.emitter (the point the particles are born at) is read and measured against the
 // drawn bone (its attach frame times the attached place) and against the engine's own prop pose, and particles are alive
 // next to it; with the playhead on one frame, the emitter the effects use for other frames (where a particle born then
-// starts, src/effects/attach-history.js) is where the bone was drawn on those frames; again after a timing edit of the take, a scale change of the character, a duplicate, and a reload; and a
+// starts, src/effects/attach-history.js) is where the bone was drawn on those frames; again after the same clip is
+// installed a second time over the scene as it then stands, a timing edit of the take, a scale change of the character, a duplicate, and a reload; and a
 // shot capture (the export's render) draws the exhale's particles at the mouth.
 //
 // Run: `COZYCLAY_LIVE_PORT=5397 node tools/dev-full.mjs --host 127.0.0.1 --port 5197` in one shell, then
@@ -127,6 +128,21 @@ const report = {};
 try {
 	report.installed = await measure("installed");
 	report.history = await history("birth places", 0, [10, 30, 60, 90]);
+	// 2b. the same motion again over the scene as it now stands (a later motion call reads the attached objects back in
+	// their bones' frames): each rides its bone at the same numbers, and the emitters are still on the engine's points
+	const numbers = () => evaluate(`window.__cozyclay.objects.filter(o => o.attach).map(o => ({ id: o.id, attach: o.attach, at: [o.x, o.y, o.z, o.rotX, o.rot, o.rotZ].map(v => Math.round(v * 1e4) / 1e4) }))`);
+	const once = await numbers(), again = studioScene(JSON.parse(execFileSync("node", ["bin/cozyclay.mjs", "live", "describe", "--live-port", livePort], { encoding: "utf8", maxBuffer: 1 << 28 })), { turn: true, kinds: true, body: true });
+	assert.deepEqual(again.scene.attached.map(a => [a.id, a.bone, a.kind ?? "solid"]), [["Tip_smoke", "rightHand", "effect smoke"], ["Exhale", "head", "effect exhale"], ["cig", "rightHand", "solid"]], "the scene of a later motion lists the attached objects");
+	const twice = await evaluate(`(async () => {
+		const { installClip } = await import("/src/lowvis/studio/install.js");
+		const run = async (id, args) => { const r = await window.__cozyclay.runStudioAction(id, args); return r?.ok === true ? r : null; };
+		return installClip(${JSON.stringify(clip)}, run, { existing: ${JSON.stringify(again.ids)}, turn: true, label: "qa attach again" });
+	})()`);
+	assert.equal(twice.ok, true, "the clip installs again");
+	assert.deepEqual(await numbers(), once, "installed twice: the same bones, the same numbers");
+	report.twice = await measure("installed twice", [0, 48, 95]);
+	for (const r of report.twice) assert.ok(r.toEngine < 2, `installed twice f${r.f}: ${r.id} is on the engine's point (${r.toEngine.toFixed(2)} mm)`);
+	for (const r of report.installed) assert.ok(r.toEngine < 2, `installed f${r.f}: ${r.id} is on the engine's point (${r.toEngine.toFixed(2)} mm)`);
 	// 3. a timing edit of the take: the emitters stay on the drawn bones (the engine's frame no longer matches the timeline)
 	const receipt = await evaluate(`window.__cozyclay.runStudioAction("motion.setSegmentSpeed", { characterId: "lowvis-a", segmentId: "motion-0", speed: 2 })`);
 	assert.equal(receipt?.ok, true, "the take's speed is set");

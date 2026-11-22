@@ -685,7 +685,8 @@ export function useObjects(appContext) {
 			// Back to the world means "world-anchored again", which drops the
 			// grouping parent too — attach and parent are the same slot.
 			if (attach === null) next = setSceneObjectParent(next, id, null);
-			if (next === objects) return objects;
+			// already on that frame: nothing to do, unless its place there was given (a motion install puts it there anew)
+			if (next === objects && !(attach && local)) return objects;
 			return placeSceneObject(next, id, placement);
 		});
 	}

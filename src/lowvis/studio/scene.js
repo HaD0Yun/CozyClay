@@ -77,8 +77,11 @@ const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${ro
  * entry has point: true, kind, and quat: the object's own turn, which it keeps against the prop's box (install.js).
  * Without it neither is offered, as before.
  * An object attached to a bone of an offered character (object.attach; a motion's install attaches a prop one bone
- * carries throughout, install.js) is no prop: scene.attached lists it { id, on: <character id>, bone } and ids.props has
- * it with attach, so a clip prop of that id is that object (re-attached, or detached and moved by a track).
+ * carries throughout, install.js) is no prop: scene.attached lists it { id, on: <character id>, bone, size | kind } (its
+ * own box, or what it is when it has none) and ids.props has it with attach and quat (its turn in that bone's frame;
+ * point and kind when it has no box), so a clip prop of that id is that object (re-attached, or detached and moved by a
+ * track). group: true in ids.props marks an object other objects are grouped under: they go with it when a track moves
+ * it and stay behind when it is attached to a bone, so the install keeps it on a track.
  */
 export function studioScene(describe, { turn = false, tops = false, body = false, kinds = false } = {}) {
 	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [], attached = [];
@@ -93,20 +96,24 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		if (body) (ids.bodies ??= {})[row.id] = { scale, tint };
 		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)), ...(body && scale !== 1 ? { scale } : {}), ...(body && tint ? { tint } : {}) });
 	}
-	const rows = Array.isArray(describe?.objects) ? describe.objects : [];
+	const rows = Array.isArray(describe?.objects) ? describe.objects : [], parents = new Set(rows.map(row => row?.parent).filter(Boolean));
 	for (const row of rows) {
 		if (props.length >= MAX_PROPS) break;
 		if (!row || row.hidden) continue;
+		const w = finite(row.footprint?.width, 1) * finite(row.scaleX, 1), h = finite(row.height, 1) * finite(row.scaleY, 1), d = finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1);
+		const point = w === 0 && h === 0 && d === 0, group = parents.has(row.id) ? { group: true } : {};
 		if (row.attach) {
 			// it rides a bone of a body the clip may animate: no prop (its place is in the bone's frame), but the install knows it
 			const who = Object.entries(ids.characters).find(([, studioId]) => studioId === row.attach.characterId)?.[0];
-			if (who) { const id = idFor(row.name, taken, "object"); ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), attach: { ...row.attach } }; attached.push({ id, on: who, bone: row.attach.bone ?? "root" }); }
+			if (!who) continue;
+			const id = idFor(row.name, taken, "object"), what = point ? { kind: kindOf(row, rows) } : { size: row.renderer === "sphere" ? [round(w), round(w), round(w)] : [round(w), round(h), round(d)] };
+			ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), attach: { ...row.attach }, quat: quatOf(row), ...(point ? { point: true, ...what } : {}), ...group };
+			attached.push({ id, on: who, bone: row.attach.bone ?? "root", ...what });
 			continue;
 		}
-		const w = finite(row.footprint?.width, 1) * finite(row.scaleX, 1), h = finite(row.height, 1) * finite(row.scaleY, 1), d = finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1);
-		if (kinds && w === 0 && h === 0 && d === 0 && !row.parent) {
+		if (kinds && point && !row.parent) {
 			const id = idFor(row.name, taken, "object"), kind = kindOf(row, rows);
-			ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), point: true, kind, quat: quatOf(row) };
+			ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), point: true, kind, quat: quatOf(row), ...group };
 			props.push({ id, size: [POINT, POINT, POINT], at: [round(finite(row.x)), round(finite(row.y)), round(finite(row.z))], kind, hollow: true });
 			continue;
 		}
@@ -114,7 +121,7 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		if (h < FLAT && !(kinds && h > 0 && w < FLAT && d < FLAT && w > 0 && d > 0)) continue;
 		const cs = Math.abs(Math.cos(finite(row.rot) * RAD)), sn = Math.abs(Math.sin(finite(row.rot) * RAD));
 		const id = idFor(row.name, taken, "prop");
-		ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot) };
+		ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), ...group };
 		const sphere = row.renderer === "sphere", own = turn && !sphere, yaw = round(finite(row.rot));
 		props.push({ id, size: sphere ? [round(w), round(w), round(w)] : own ? [round(w), round(h), round(d)] : [round(w * cs + d * sn), round(h), round(w * sn + d * cs)],
 			at: [round(finite(row.x)), round(finite(row.y) + h / 2), round(finite(row.z))], ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
