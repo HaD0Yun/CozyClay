@@ -75,7 +75,7 @@ export function CraneTurnRings({ rail, crane, selectedIndex, enabled, view, pane
 		};
 		const onDown = (event) => {
 			const s = stateRef.current;
-			if (event.button !== 0 || !s.point) return;
+			if (event.button !== 0 || !s.point || event.target !== gl.domElement) return;
 			const key = ringUnder(event);
 			if (!key) return;
 			const ring = RINGS.find((entry) => entry.key === key);
@@ -123,15 +123,17 @@ export function CraneTurnRings({ rail, crane, selectedIndex, enabled, view, pane
 		};
 		// QA hook (harmless in use): which ring a press at these client pixels would take
 		window.__craneRingAt = (x, y) => ringUnder({ clientX: x, clientY: y });
-		const el = gl.domElement;
-		el.addEventListener("pointerdown", onDown, true);
+		// On the window, in capture: a ring press must reach this before the canvas's own listeners (the crane dots'
+		// and rail points' drags, CraneHandles), whichever of them was registered last. The object gizmo, also on the
+		// window, yields a press on a ring (object-gizmo.jsx).
+		window.addEventListener("pointerdown", onDown, true);
 		window.addEventListener("pointermove", onMove, true);
 		window.addEventListener("pointerup", onUp, true);
 		window.addEventListener("pointercancel", onUp, true);
 		window.addEventListener("keydown", onKey, true);
 		window.addEventListener("pointermove", onHover);
 		return () => {
-			el.removeEventListener("pointerdown", onDown, true);
+			window.removeEventListener("pointerdown", onDown, true);
 			window.removeEventListener("pointermove", onMove, true);
 			window.removeEventListener("pointerup", onUp, true);
 			window.removeEventListener("pointercancel", onUp, true);

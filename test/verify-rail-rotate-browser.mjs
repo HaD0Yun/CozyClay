@@ -174,6 +174,33 @@ try {
 	assert.deepEqual(reloaded.camera.craneHeight.points.map((p) => p.yawDeg), [undefined, midTurn, endTurn], "the turns survive a reload");
 	assert.ok(Math.abs((await angleAt(119)).yaw - end.yaw) < 0.05 * DEG, "and play the same after it");
 
+	// The camera selected and standing on the end mark, seen along the line through both: the camera's own rings and
+	// the end dot's rail drag lie under the mark's ring. A press there is the ring's: only the mark turns.
+	await b.click('[data-mode="camera"]');
+	await sleep(800);
+	await b.click('[data-node-id="camera"]');
+	await b.change("document.querySelector('[data-tool-key].active')?.dataset.tool === 'rotate'", () => key("e", "KeyE", 69));
+	await seek(119);
+	await b.evaluate(`(() => { const c = window.__cozyclay.shotCam.position, M = { x: 3, y: 1.6, z: 4 };
+		const d = { x: M.x - c.x, y: M.y - c.y, z: M.z - c.z }, n = Math.hypot(d.x, d.y, d.z) || 1;
+		window.__cozyclay.frameEditorCam({ x: M.x + d.x / n * 3.5, y: M.y + d.y / n * 3.5 + 0.4, z: M.z + d.z / n * 3.5 }, M); })()`);
+	await settle();
+	await clickAt((await geometry(2)).dot);
+	await screenshot("6-ring-over-camera-gizmo");
+	const g = await geometry(2), shared = [];
+	for (const p of g.pan) if (await b.evaluate(`window.__craneRingAt?.(${p.x}, ${p.y})`) === "yawDeg" && await b.evaluate(`window.__gizmoPick?.(${p.x}, ${p.y}) ?? null`)) shared.push(p);
+	assert.ok(shared.length > 0, "the mark's pan ring and the camera's gizmo overlap on screen in this view");
+	const overlapBefore = await stored();
+	await b.mouse("mouseMoved", shared[0]);
+	await b.mouse("mousePressed", { ...shared[0], button: "left", buttons: 1, clickCount: 1 });
+	for (let i = 1; i <= 6; i += 1) { await b.mouse("mouseMoved", { x: shared[0].x + i * 6, y: shared[0].y + i * 2, button: "left", buttons: 1 }); await settle(); }
+	await b.mouse("mouseReleased", { x: shared[0].x + 36, y: shared[0].y + 12, button: "left", buttons: 0, clickCount: 1 });
+	await waitShot(`s.camera.craneHeight.points[2].yawDeg !== ${endTurn}`);
+	const overlapAfter = await stored();
+	assert.deepEqual({ ...overlapAfter.camera, craneHeight: null }, { ...overlapBefore.camera, craneHeight: null }, "the press turned neither the camera (head, framing) nor moved the rail");
+	assert.deepEqual(overlapAfter.camera.craneHeight.points.slice(0, 2), overlapBefore.camera.craneHeight.points.slice(0, 2), "only the end mark turned");
+	log.push({ overlap: { shared: shared.length, endBefore: endTurn, endAfter: overlapAfter.camera.craneHeight.points[2].yawDeg } });
+
 	writeFileSync(join(dir, "results.json"), JSON.stringify({ pass: true, viewport: [1438, 979], log }, null, 2));
 	console.log(`PASS rail rotate: a rail dot clicked with Props in the Outliner, E shows pan/tilt rings; the end dot's ring turned ${endTurn} deg at the ride's end only, one undo step, redo; the middle dot ${midTurn} deg; the camera's own rings still there; kept over a reload`);
 	console.log(`EVIDENCE ${dir}/results.json`);
