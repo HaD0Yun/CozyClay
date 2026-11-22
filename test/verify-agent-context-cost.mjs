@@ -3,14 +3,17 @@
 // (220 requests) wrote the whole earlier conversation to the prompt cache again on 14 of its first 23 new requests,
 // and its budget took a 291k-token view (by the provider's count) for a 131k one. Checked here:
 //   - marks: the first request of a turn marks the last block before the previous prompt (where the previous turn
-//     wrote what is still shared) and before the newest one, within four marks;
-//   - a small simulator of the provider's cache rules (a mark finds an earlier entry by walking back at most 20
-//     positions; thinking is no position, a run of tool calls or tool results is one): with those marks every new
-//     request reads everything up to the previous prompt; without the read mark a previous turn of 30 calls leaves
-//     only the system prompt readable;
+//     wrote what is still shared) and before the newest one, within four marks; a payload the context diet did not
+//     write (no superseded prompt: an append-only view, a first turn, no Studio prompt) is marked as before;
+//   - a small simulator of the provider's cache rules (a mark checks at most 20 positions, itself the first; thinking
+//     is no position, a run of tool calls or tool results is one): with those marks every new request reads
+//     everything up to the previous prompt; without the read mark a previous turn of 30 calls leaves only the system
+//     prompt readable;
 //   - the budget reads the provider's count from each answer's usage: on a conversation counted at 1.9 ASCII and 0.57
 //     Korean characters a token, no view passes the 200k ceiling, steps stay rare and spaced; the 3.6 estimate alone
-//     lets the same conversation pass it.
+//     lets the same conversation pass it; images count as the provider counts them, so a view full of them is not
+//     shortened early; usage counted on larger views (a session recorded with other budget rules, then continued)
+//     does not empty the view.
 import assert from "node:assert/strict";
 import { withAnthropicCacheBreakpoints } from "../bin/agent/anthropic-cache.mjs";
 import { budgetStudioRequest } from "../bin/agent/studio-context-budget.mjs";
@@ -73,6 +76,42 @@ check("two prompts with no answer between them: the read mark goes before the pr
 	const [answered, , newest] = prompts(payload).slice(-3);
 	assert.deepEqual(markedMessages(payload).filter(i => i < newest), [answered - 1, newest - 1]);
 });
+check("an append-only Studio view (no prompt superseded) is marked as before: the tool mark stays, one mark before the newest prompt", () => {
+	// contextView "plain": every context stays whole, and a steer counts as the newest prompt, as it did
+	const live = t => ({ role: "user", content: [{ type: "text", text: `<studio-context>\n{"scene":${t}}\n</studio-context>\nrequest ${t}` }] });
+	const done = t => ({ role: "assistant", content: [{ type: "text", text: `done ${t}` }] });
+	const base = { system: [{ type: "text", text: "rules", cache_control: mark }], tools: [{ name: "script", input_schema: { type: "object" }, cache_control: mark }] };
+	const turnStart = withAnthropicCacheBreakpoints({ ...base, messages: [live(0), done(0), live(1), done(1), { role: "user", content: [{ type: "text", text: "<studio-context>\n{}\n</studio-context>\nrequest 2", cache_control: mark }] }] }, model);
+	assert.deepEqual(markedMessages(turnStart), [3, 4]);
+	assert.ok(marked(turnStart.tools[0]) && marked(turnStart.system[0]) && marksOf(turnStart) === 4);
+	const steered = withAnthropicCacheBreakpoints({ ...base, messages: [live(0), done(0), live(1), { role: "assistant", content: [{ type: "tool_use", id: "u", name: "script", input: {} }] }, { role: "user", content: [{ type: "tool_result", tool_use_id: "u", content: "r" }] }, { role: "user", content: [{ type: "text", text: "steer", cache_control: mark }] }] }, model);
+	assert.deepEqual(markedMessages(steered), [4, 5], "the mark before the steer, as before");
+	assert.ok(marked(steered.tools[0]));
+	const firstTurn = { ...base, messages: [{ role: "user", content: [{ type: "text", text: "<studio-context>\n{}\n</studio-context>\nrequest 0", cache_control: mark }] }] };
+	assert.equal(withAnthropicCacheBreakpoints(firstTurn, model), undefined, "a first request already carries its three marks");
+});
+check("four marks already there: a payload the diet did not write is left alone, a dieted one trades the spare marks for the two read points", () => {
+	const two = [{ type: "text", text: "identity", cache_control: mark }, { type: "text", text: "rules", cache_control: mark }];
+	const plain = { system: two, tools: [{ name: "a", cache_control: mark }], messages: [{ role: "user", content: [{ type: "text", text: "a" }] }, { role: "assistant", content: [{ type: "text", text: "b" }] }, { role: "user", content: [{ type: "text", text: "c", cache_control: mark }] }] };
+	assert.equal(withAnthropicCacheBreakpoints(plain, model), undefined);
+	const dieted = conversation(3, 30);
+	const out = withAnthropicCacheBreakpoints({ ...dieted, system: [{ type: "text", text: "identity", cache_control: mark }, ...dieted.system] }, model);
+	const [previous, newest] = prompts(out).slice(-2);
+	assert.deepEqual(markedMessages(out), [previous - 1, newest - 1, out.messages.length - 1]);
+	assert.equal(marksOf(out), 4);
+	assert.ok(marked(out.system.at(-1)) && !marked(out.system[0]) && !marked(out.tools[0]), "the last system block keeps its mark, the first one and the tools give theirs");
+});
+check("no mark lands on a thinking block or on empty text, and a model that takes no mark on tools gets none", () => {
+	const base = conversation(3, 4);
+	const before = prompts(base).at(-1) - 1;
+	base.messages[before] = { role: "assistant", content: [{ type: "text", text: "done" }, { type: "thinking", thinking: "", signature: "s" }, { type: "text", text: "" }] };
+	const out = withAnthropicCacheBreakpoints({ ...base, tools: [{ name: "script", input_schema: { type: "object" } }] }, { api: "anthropic-messages", compat: { supportsCacheControlOnTools: false } });
+	assert.deepEqual(out.messages[before].content.map(marked), [true, false, false], "the mark sits on the last block that takes one");
+	assert.ok(!marked(out.tools[0]) && marksOf(out) <= 4);
+	base.messages[before] = { role: "assistant", content: [{ type: "thinking", thinking: "", signature: "s" }] };
+	const none = withAnthropicCacheBreakpoints(base, model) ?? base;
+	assert.ok(!none.messages[before].content.some(marked), "a message of thinking only takes no mark");
+});
 check("a conversation with no Studio prompt is marked as before: only the last block before the newest prompt", () => {
 	const payload = { system: [{ type: "text", text: "s" }], tools: [{ name: "a" }], messages: [{ role: "user", content: [{ type: "text", text: "a" }] }, { role: "assistant", content: [{ type: "text", text: "b" }] }, { role: "user", content: [{ type: "text", text: "c" }] }, { role: "assistant", content: [{ type: "text", text: "d" }] }, { role: "user", content: [{ type: "text", text: "e" }] }] };
 	const out = withAnthropicCacheBreakpoints(payload, model);
@@ -82,8 +121,9 @@ check("a conversation with no Studio prompt is marked as before: only the last b
 
 // --- the provider's cache rules, from its prompt-caching documentation ----------------------------------------------
 // Blocks in order (tools, system, messages); an entry is stored at each marked block under its prefix; a request reads
-// the longest stored prefix one of its marks finds walking back at most 20 positions; written: from there to the last
-// mark. Tokens: a block's text length / 4 (the simulator compares requests, not exact counts).
+// the longest stored prefix one of its marks finds within the 20 positions it checks, itself the first (one long
+// session's usage fits one position more; the shorter, documented reach is the one tested); written: from there to the
+// last mark. Tokens: a block's text length / 4 (the simulator compares requests, not exact counts).
 const strip = ({ cache_control: _mark, ...block }) => block;
 function blocks(payload) {
 	const out = [];
@@ -103,7 +143,7 @@ function simulate(payloads) {
 		list.forEach((block, i) => { total += block.tokens; cum[i] = total; });
 		const marks = list.flatMap((block, i) => block.marked ? [i] : []);
 		let hit = -1;
-		for (const j of marks) for (let i = j; i >= 0 && list[i].position >= list[j].position - 20; i -= 1) if (entries.has(list[i].key)) { hit = Math.max(hit, i); break; }
+		for (const j of marks) for (let i = j; i >= 0 && list[j].position - list[i].position < 20; i -= 1) if (entries.has(list[i].key)) { hit = Math.max(hit, i); break; }
 		for (const j of marks) entries.add(list[j].key);
 		const read = hit < 0 ? 0 : cum[hit];
 		return { read, write: cum[marks.at(-1)] - read, total };
@@ -140,25 +180,32 @@ const nonAscii = text => [...text].filter(ch => ch.charCodeAt(0) > 127).length;
 // The provider's count of a text: 1.9 ASCII characters a token, 0.57 non-ASCII ones (the long session's own ratios).
 const counted = text => (text.length - nonAscii(text)) / 1.9 + nonAscii(text) / 0.57;
 const SYSTEM = "rules ".repeat(2000);
-const viewCount = view => counted(SYSTEM) + view.flatMap(m => m.content ?? []).reduce((sum, p) => sum + (p.type === "image" ? 1600 : p.type === "text" ? counted(p.text) : p.type === "toolCall" ? counted(p.name + JSON.stringify(p.arguments)) : 0), 0);
+// A PNG's opening bytes (signature, IHDR, width, height) and a tail that makes each one its own image.
+const png = (width, height, tag) => { const head = Buffer.alloc(24); Buffer.from("89504e470d0a1a0a0000000d49484452", "hex").copy(head); head.writeUInt32BE(width, 16); head.writeUInt32BE(height, 20); return Buffer.concat([head, Buffer.from(tag)]).toString("base64"); };
+const pixels = new Map();
+// The provider's count of an image: its pixels / 750; the stand-in images of the other sessions here count 1600.
+const viewCount = view => counted(SYSTEM) + view.flatMap(m => m.content ?? []).reduce((sum, p) => sum + (p.type === "image" ? pixels.get(p.data) ?? 1600 : p.type === "text" ? counted(p.text) : p.type === "toolCall" ? counted(p.name + JSON.stringify(p.arguments)) : 0), 0);
 const prompt = (text, live) => ({ role: "user", content: [{ type: "text", text: `${live ? `<studio-context>\n${JSON.stringify({ scene: { name: "운전석 세트", pad: "c".repeat(6000) } })}\n</studio-context>` : "<studio-context superseded/>"}\n${text}` }] });
-// A session of `turns` turns of 10 calls; each result 5k characters (half Korean when `korean`), every third with an image.
-function run(turns, { korean = false, usage = true } = {}) {
+// A session of `turns` turns of 10 calls; each result 5k characters (half Korean when `korean`), every third with an
+// image (`images` real 600x400 ones on every result when given). usage "whole": each answer reports the count of the
+// whole dieted history, as a session recorded with no budget step would hold it.
+function run(turns, { korean = false, usage = true, images = 0, chars = 5000 } = {}) {
 	const history = [], views = [];
 	const send = () => {
 		const newest = history.findLastIndex(m => m.role === "user" && m.content[0].text.startsWith("<studio-context"));
 		const dieted = history.map((m, i) => m.role === "user" && i !== newest && m.content[0].text.startsWith("<studio-context>") ? prompt(m.content[0].text.split("\n").at(-1), false) : m);
 		const view = budgetStudioRequest({ messages: dieted, systemPrompt: SYSTEM }).messages;
 		views.push(view);
-		return usage ? { input: Math.round(viewCount(view)), cacheRead: 0, cacheWrite: 0 } : undefined;
+		return usage ? { input: Math.round(viewCount(usage === "whole" ? dieted : view)), cacheRead: 0, cacheWrite: 0 } : undefined;
 	};
 	for (let t = 0; t < turns; t += 1) {
 		history.push(prompt(korean ? `장면 ${t}: 의자를 끌어와서 앉아줘` : `scene ${t}: pull the chair and sit`, true));
 		for (let i = 0; i < 10; i += 1) {
 			const id = `c${t}_${i}`;
 			history.push({ role: "assistant", content: [{ type: "toolCall", id, name: "script", arguments: { code: `return ${i}; // ${korean ? "의자" : "chair"}` } }], usage: send() });
-			const body = korean ? `${"결과 ".repeat(500)}${"x".repeat(2500)}` : "x".repeat(5000);
-			history.push({ role: "toolResult", toolCallId: id, toolName: "script", isError: false, content: [{ type: "text", text: `{"ok":true,"specId":"spec-${String(t * 10 + i).padStart(12, "0")}","pad":"${body}"}` }, ...(i % 3 ? [] : [{ type: "image", data: `iVBOR${id}`, mimeType: "image/png" }])] });
+			const body = korean ? `${"결과 ".repeat(500)}${"x".repeat(2500)}` : "x".repeat(chars);
+			const shots = images ? Array.from({ length: images }, (_, n) => { const data = png(600, 400, `${id}.${n}`); pixels.set(data, 600 * 400 / 750); return { type: "image", data, mimeType: "image/png" }; }) : i % 3 ? [] : [{ type: "image", data: `iVBOR${id}`, mimeType: "image/png" }];
+			history.push({ role: "toolResult", toolCallId: id, toolName: "script", isError: false, content: [{ type: "text", text: `{"ok":true,"specId":"spec-${String(t * 10 + i).padStart(12, "0")}","pad":"${body}"}` }, ...shots] });
 		}
 		history.push({ role: "assistant", content: [{ type: "text", text: "done" }], usage: send() });
 	}
@@ -185,6 +232,23 @@ for (const korean of [false, true]) {
 		assert.ok(largest > 200_000, `largest view ${Math.round(largest)} tokens`);
 	});
 }
+
+check("a view full of small images is not shortened early: an image counts by its pixels, as the provider counts it", () => {
+	// 3 images of 600x400 (320 tokens each, not 1600) and 3k characters a result
+	const views = run(40, { images: 3, chars: 3000 });
+	const first = views.findIndex((view, k) => k && viewCount(view) < viewCount(views[k - 1]));
+	assert.ok(first > 0, "the session takes a step");
+	assert.ok(viewCount(views[first - 1]) > 110_000, `the first step comes at ${Math.round(viewCount(views[first - 1]))} tokens by the provider's count`);
+	assert.ok(Math.max(...views.map(viewCount)) <= 200_000);
+});
+check("usage counted on larger views (a session recorded with other rules) does not empty the view", () => {
+	for (const korean of [false, true]) {
+		const views = run(14, { korean, usage: "whole" });
+		const last = views.at(-1), whole = 14 * 22;
+		assert.ok(viewCount(last) > 90_000 && last.length > 60, `the last view holds ${last.length} of ${whole} messages, ${Math.round(viewCount(last))} tokens`);
+		assert.ok(Math.min(...views.slice(60).map(viewCount)) > 50_000, "past its first 60 requests no view falls under 50k tokens (a step leaves about 60k)");
+	}
+});
 
 if (failures) { console.error(`${failures} context cost check(s) failed`); process.exit(1); }
 console.log("agent context cost: all checks passed");
