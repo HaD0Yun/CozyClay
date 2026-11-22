@@ -6,7 +6,7 @@
 
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
 import { createShot } from "./cuts.js";
-import { cameraRoll, railShotFields } from "./camera-block.js";
+import { cameraRoll, railShotFields } from "./camera-block.js"; import { craneMarkTurn } from "./camera-rail-head.js";
 import { normalizeStableItems } from "./stable-items.js";
 import { VIDEO_MODEL_PRESETS } from "./model-presets.js";
 import { elementByPath } from "./studio-elements.js"; import { WORLD } from "./world-scale.js";
@@ -220,7 +220,7 @@ function repairCraneHeight(value) {
 	if (!raw) return null;
 	const cleaned = raw
 		.filter((point) => point && finite(point.t) && finite(point.height))
-		.map((point) => ({ t: Math.max(0, Math.min(1, point.t)), height: Math.max(0.1, point.height) }))
+		.map((point) => ({ t: Math.max(0, Math.min(1, point.t)), height: Math.max(0.1, point.height), ...craneMarkTurn(point) }))
 		.sort((a, b) => a.t - b.t)
 		.filter((point, i, arr) => i === arr.length - 1 || arr[i + 1].t - point.t > 1e-6)
 		.slice(0, 8);

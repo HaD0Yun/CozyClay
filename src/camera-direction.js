@@ -16,7 +16,7 @@ import { skeletonFor } from "./motion3/rigs/index.js";
 import { fk } from "./motion3/compiler/skeleton.js";
 import { holdBody } from "./camera-hold-body.js";
 import { shotSubjects, subjectsCenter } from "./shot-subjects.js";
-import { applyRailHead } from "./camera-rail-head.js";
+import { applyRailHead, railTurnAt } from "./camera-rail-head.js";
 import { carriedPointAt, sceneObjectCarryMatrixAt } from "./object-travel.js";
 
 const DEG = Math.PI / 180;
@@ -74,7 +74,8 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ya
 		// a rail aimed at a cast or a point holds what it was asked to; an aimless following rail frames the subject's body;
 		// the hand angle comes last, so the picture is the one the user turned to
 		const framed = track.map((sample) => ({ ...sample, ...lens }));
-		(aimed || !follows ? framed : held(framed, from, false)).forEach((sample, offset) => { combined[from + offset] = applyRailHead(sample, camera.head); });
+		// a crane mark's turn applies where the dolly is on the rail (its arc progress), not by frame
+		(aimed || !follows ? framed : held(framed, from, false)).forEach((sample, offset) => { combined[from + offset] = applyRailHead(sample, camera.head, railTurnAt(camera.craneHeight, sample.s / rail.length)); });
 	}
 	return combined;
 }
