@@ -64,7 +64,15 @@ const DESCRIBE = {
 	assert.deepEqual(scene.attached, [{ id: "Cap", on: "a", bone: "head", size: [0.2, 0.2, 0.2] }], "an attached solid is listed with its box's size");
 	assert.deepEqual(ids.props.Cap.attach, { characterId: "a", bone: "head" });
 	assert.equal(ids.props.Kit.group, true, "an object others are grouped under is marked: the install keeps it on a track");
-	console.log("ok studioScene kinds: effects, a light and a group offered with their kind, a 1 cm solid offered, an attached object listed as attached");
+	// a set of 45 crates and 50 lamps: the first 40 crates are offered as without the flag, and the first 40 lamps beside them
+	const crate = n => ({ id: `cube-${n}`, name: `Crate ${n}`, renderer: "cube", x: n, y: 0, z: 0, rot: 0, footprint: { width: 0.4, depth: 0.4 }, height: 0.4 });
+	const lamp = n => ({ id: `light-${n}`, name: `Lamp ${n}`, renderer: "light", light: { type: "point" }, x: n, y: 2, z: 0, rot: 0, footprint: { width: 0, depth: 0 }, height: 0 });
+	const big = { characters: [], objects: Array.from({ length: 95 }, (_, n) => (n % 2 || n >= 90 ? lamp(n) : crate(n))) };
+	const [off, on] = [studioScene(big, { turn: true }), studioScene(big, { turn: true, kinds: true })];
+	assert.equal(off.scene.props.length, 40);
+	assert.deepEqual(on.scene.props.filter(p => !p.kind), off.scene.props, "the solids offered are the ones offered without the flag");
+	assert.equal(on.scene.props.filter(p => p.kind).length, 40, "and 40 of the objects with no box beside them");
+	console.log("ok studioScene kinds: effects, a light and a group offered with their kind, a 1 cm solid offered, an attached object listed as attached; no light takes a solid's place among the first 40");
 }
 
 // --- 2. the install: held throughout and riding throughout -> attached; moved by keys -> a track ---

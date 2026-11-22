@@ -73,7 +73,8 @@ const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${ro
  * character at another scale than 1 is one of the others, as before.
  * kinds: a visible, unattached object with no box of its own that is grouped under no other object (an effect, a light,
  * a group's Empty: its parts ride it) is a prop { id, size: [POINT, POINT, POINT], at: its place, kind, hollow: true },
- * and an object small in every side (under 0.03 m) is an ordinary prop instead of being left out as flat. Its ids.props
+ * and an object small in every side (under 0.03 m) is an ordinary prop instead of being left out as flat: the first 40
+ * of these two, beside the first 40 solids at least 0.03 m tall, which are the ones offered without it. Its ids.props
  * entry has point: true, kind, and quat: the object's own turn, which it keeps against the prop's box (install.js).
  * Without it neither is offered, as before.
  * An object attached to a bone of an offered character (object.attach; a motion's install attaches a prop one bone
@@ -97,8 +98,9 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)), ...(body && scale !== 1 ? { scale } : {}), ...(body && tint ? { tint } : {}) });
 	}
 	const rows = Array.isArray(describe?.objects) ? describe.objects : [], parents = new Set(rows.map(row => row?.parent).filter(Boolean));
+	// the first MAX_PROPS solids are offered as before; the objects the kinds flag adds have a count of their own, so none takes a solid's place
+	let solids = 0, added = 0;
 	for (const row of rows) {
-		if (props.length >= MAX_PROPS) break;
 		if (!row || row.hidden) continue;
 		const w = finite(row.footprint?.width, 1) * finite(row.scaleX, 1), h = finite(row.height, 1) * finite(row.scaleY, 1), d = finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1);
 		const point = w === 0 && h === 0 && d === 0, group = parents.has(row.id) ? { group: true } : {};
@@ -112,6 +114,7 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 			continue;
 		}
 		if (kinds && point && !row.parent) {
+			if (added++ >= MAX_PROPS) continue;
 			const id = idFor(row.name, taken, "object"), kind = kindOf(row, rows);
 			ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), point: true, kind, quat: quatOf(row), ...group };
 			props.push({ id, size: [POINT, POINT, POINT], at: [round(finite(row.x)), round(finite(row.y)), round(finite(row.z))], kind, hollow: true });
@@ -119,6 +122,7 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		}
 		if (!SOLID.has(row.renderer) || finite(row.rotX) || finite(row.rotZ)) continue;
 		if (h < FLAT && !(kinds && h > 0 && w < FLAT && d < FLAT && w > 0 && d > 0)) continue;
+		if ((h < FLAT ? added++ : solids++) >= MAX_PROPS) continue;
 		const cs = Math.abs(Math.cos(finite(row.rot) * RAD)), sn = Math.abs(Math.sin(finite(row.rot) * RAD));
 		const id = idFor(row.name, taken, "prop");
 		ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot), ...group };
