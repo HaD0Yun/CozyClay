@@ -102,7 +102,7 @@ import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
 import { buildUpper, expandRepeats } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
-import { moveRiders, propKey, ridesOf } from "./ride.js";
+import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
 import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shareEvent, startFrame } from "./share.js";
 import { reachEntry } from "./reach.js";
 import { flowAdd, handsMoved, startHand, startScalar } from "./flow.js";
@@ -131,7 +131,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }) }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
-	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}) }));
+	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}) })); // by: what carries a moving prop on each frame (clip.js)
 	const aux = { contacts: Object.fromEntries(chars.map(c => [c.id, []])), holders: Object.fromEntries(def.props.map(p => [p.id, []])), placed: [] };
 	Object.assign(aux, {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
@@ -351,7 +351,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted && !c.tilt)); // a tilted figure does not stand on its feet
 		}
 		for (const { p, out } of outProps) {
-			p.h2 = p.h1; p.h1 = p.c.slice();
+			p.h2 = p.h1; p.h1 = p.c.slice(); out.by?.push(carriersOf(p));
 			aux.holders[p.id].push(p.holder); aux.grips[p.id].push(p.holder && p.hand != null ? { c: p.holder, hand: p.hand } : null);
 			if (out.pos.length === 3 && f > 0) continue;
 			out.pos.set(p.c, out.pos.length === 3 ? 0 : f * 3); out.quat.set(p.q, out.pos.length === 3 ? 0 : f * 4);

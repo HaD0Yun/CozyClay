@@ -42,6 +42,7 @@ const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]])
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
 	assert.ok(clip.notes.includes(KNEE_NOW), `${name}: the clip's notes have the knee note of now`);
 	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n));
+	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));
 if (process.argv.includes("--print")) { console.log(JSON.stringify(now, null, "\t")); process.exit(0); }

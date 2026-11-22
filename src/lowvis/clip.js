@@ -9,6 +9,9 @@
 //                                                    // length of rig17.js times it; optional tint: its colour "#rrggbb"
 //   props: [{ id, size: [w,h,d], pos: [N*3], quat: [N*4] }] // boxes, pos = box CENTRE; N is F (animated) or 1 (static)
 //                                                    // optional shape: "sphere" draws a ball of diameter size[0]
+//                                                    // optional by (an animated prop): per frame, the ids of what
+//                                                    // carries it as that frame ends: the characters whose hands hold
+//                                                    // it, else the character (a joint) or the prop it rides; [] none
 //   stats: { buildMs, ... }                          // free form; buildMs = time to compute the clip
 //   notes: [strings]                                 // what the engine could not do, in plain words
 // }
@@ -52,7 +55,7 @@ export function serializeClip(clip) {
 	return JSON.stringify({
 		...clip,
 		characters: clip.characters.map(c => ({ id: c.id, ...((c.scale ?? 1) === 1 ? {} : { scale: c.scale }), ...(c.tint ? { tint: c.tint } : {}), pos: round(c.pos), quat: round(c.quat) })),
-		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat) })),
+		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat), ...(p.by ? { by: p.by } : {}) })),
 	});
 }
 
@@ -88,7 +91,7 @@ export function validateClip(clip, { maxStretch = 0.005 } = {}) {
 	if (stretch > maxStretch) errors.push(`bone stretch ${stretch.toFixed(4)} m is over ${maxStretch} m`);
 	for (const p of clip?.props ?? []) {
 		const n = p.pos?.length / 3;
-		if (p.size?.length !== 3 || (n !== 1 && n !== F) || p.quat?.length !== n * 4) errors.push(`prop ${p.id}: size/pos/quat lengths`);
+		if (p.size?.length !== 3 || (n !== 1 && n !== F) || p.quat?.length !== n * 4 || (p.by !== undefined && (!Array.isArray(p.by) || p.by.length !== n))) errors.push(`prop ${p.id}: size/pos/quat/by lengths`);
 	}
 	return { ok: errors.length === 0, errors, stretch };
 }

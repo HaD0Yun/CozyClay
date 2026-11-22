@@ -1,8 +1,9 @@
 // A lowvis clip as Studio scene content (prototype): its new props become Studio objects (a box: a sculpt of that one
 // box, which object.sculpt can re-sculpt in place; a sphere or a box under 0.05 m tall: a sphere or a cube), its
 // characters X Bot cast members whose take is the clip's motion (take.js), and a prop that moves rides a track of
-// the first character's take, as any object a Studio take moves. Everything goes through editor actions, so the
-// Studio's undo, save, selection, cameras and export see ordinary scene content.
+// the take of the character that handles it (ownerOf), as any object a Studio take moves, so a timing edit of that
+// take moves it with that character. Everything goes through editor actions, so the Studio's undo, save, selection,
+// cameras and export see ordinary scene content.
 // A clip character's scale and tint (clip.js) are the cast member's own scale and tint fields: set when it is added, or
 // with character.update when the Studio holds other values; its take is of a body of that scale (take.js).
 // installClip(clip, run, options) is the same for the Studio page (run = its own action runner) and for the agent
@@ -71,6 +72,30 @@ function moves(prop) {
 }
 
 /**
+ * The index of the clip character whose take draws moving prop `prop`: the one that handles it on the most frames it
+ * moves. On a frame it is handled by what carries it (prop.by, clip.js: holding hands, the body it rides, and through a
+ * prop it rides whatever carries that one); a prop nothing carries stays with the characters that last handled it until
+ * another takes it (let go, thrown, dropped, rolling on). Ties: the one that carries it on more frames, then the earlier
+ * character. 0 when no character handles it or the clip does not say (a clip without `by`).
+ */
+function ownerOf(clip, prop) {
+	const index = new Map(clip.characters.map((c, i) => [c.id, i])), props = new Map((clip.props ?? []).map(p => [p.id, p]));
+	const carriers = (p, f, seen) => (p.by?.[f] ?? []).flatMap(id => index.has(id) ? [index.get(id)] : props.has(id) && !seen.has(id) ? carriers(props.get(id), f, new Set([...seen, id])) : []);
+	const moved = new Array(clip.characters.length).fill(0), held = moved.slice(), n = prop.pos.length / 3;
+	let last = [];
+	for (let f = 0; f < n; f++) {
+		const now = [...new Set(carriers(prop, f, new Set([prop.id])))];
+		if (now.length) last = now;
+		for (const i of now) held[i]++;
+		const step = f > 0 && ([0, 1, 2].some(k => Math.abs(prop.pos[f * 3 + k] - prop.pos[f * 3 - 3 + k]) > EPS) || [0, 1, 2, 3].some(k => Math.abs(prop.quat[f * 4 + k] - prop.quat[f * 4 - 4 + k]) > EPS));
+		if (step) for (const i of last) moved[i]++;
+	}
+	let best = 0;
+	for (let i = 1; i < moved.length; i++) if (moved[i] > moved[best] || (moved[i] === moved[best] && held[i] > held[best])) best = i;
+	return best;
+}
+
+/**
  * installClip(clip, run, { label, remove, existing, drafted }) -> { characterIds, objectIds, switched, placed, ok, bodies?,
  * moved?, moving? }: what it made, the Studio ids of the cast members whose model it changed and placed:
  * { <clip prop id>: <Studio object id> } for every prop, made, known or drafted; ok false when the Studio refused a step.
@@ -94,7 +119,7 @@ function moves(prop) {
 export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false, drafted = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
+	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, owners = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
 	for (const prop of clip.props ?? []) {
 		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
 		const own = turned && prop.shape !== "sphere"; // the clip box is the object's own, turned as it is
@@ -125,6 +150,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
 			for (let f = 0; f < F; f++) { const p = pivot(prop, f); pos.set(p.pos, f * 3); quat.set(turn ? qMul(p.quat, turn) : p.quat, f * 4); }
 			tracks[id] = { pos, quat };
+			owners[id] = ownerOf(clip, prop);
 		}
 	}
 
@@ -148,7 +174,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			if (!await run("character.clearWaypoints", { characterId })) return stop();
 		}
 		const raw = clipTrack(clip, index);
-		if (index === 0) raw.objects = tracks; // one take draws the props that move
+		raw.objects = Object.fromEntries(Object.entries(tracks).filter(([id]) => owners[id] === index)); // this character's take draws the props it handles
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
 	const moving = Object.keys(tracks);

@@ -82,6 +82,15 @@ export function moveRiders(props, f, byId = {}, final = false) {
 	if (final) for (const p of Object.values(props)) p.end = { c: p.c.slice(), q: p.q.slice() };
 }
 
+/** What carries prop p as the frame ended, as ids (the clip's per-frame `by`, clip.js): the characters whose hands hold
+ *  it (one hand, a carry or a push of one character, or every character of a shared hold), else the character whose
+ *  joint or the prop it rides; [] when nothing does (it stands, moves by its own keys or flies). */
+export function carriersOf(p) {
+	if (p.grips?.length) return [...new Set(p.grips.map(g => g.c.id))];
+	if (p.holder) return [p.holder];
+	return p.ride ? [p.ride.joint === undefined ? p.ride.on : p.ride.of] : [];
+}
+
 /** The ride keys of the props, checked (checkRides), as { rides } for engine.js's aux, or {} when there is none: per key
  *  its carrier, its next key's frame, whether at was given, the verb of a key of the prop written after it on its own
  *  frame (hidden: that key drives the prop, the ride never does), and, filled in as the clip is built (moveRiders), the

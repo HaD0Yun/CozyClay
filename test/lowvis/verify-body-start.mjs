@@ -43,6 +43,7 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 		const { clip } = buildClip(structuredClone(spec));
 		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n));
+		for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}
 	console.log(`ok digests: ${DEMO_IDS.length} demos compile to the clips of before`);
