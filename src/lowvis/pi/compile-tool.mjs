@@ -14,6 +14,7 @@ import { badness, checkValue, inARow, isSpike, measure, rowId, travel } from "./
 import { BODY_SCALE, features } from "./prompt.mjs";
 import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
 import { insideText } from "./inside.mjs";
+import { applyEdit } from "./edit.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -89,28 +90,6 @@ const withBodies = (scene, known, on) => ({ ...scene, characters: scene.characte
 }) });
 /** The bodies line: every character that has a scale or a tint, as the engine built and drew it; "" when none has. */
 const bodiesText = def => { const list = def.characters.filter(c => c.scale || c.tint).map(c => `${c.id}: scale ${c.scale ?? 1} = ${num(TIPS.Head[1] * (c.scale ?? 1))} m tall${c.tint ? `, tint ${c.tint}` : ""}`); return list.length ? `bodies (as built and drawn): ${list.join("; ")}` : ""; };
-
-/** The spec with an edit applied: { <id>: [[frame, verb, options | null], ...] }. An entry replaces the first action of
- *  that id with the same frame and verb, is added when there is none, and removes it when its options are null.
- *  Returns { spec, said } (said: one line for the model) or { error }. */
-function applyEdit(spec, edit) {
-	if (!isObject(spec)) return { error: "edit: there is no spec yet. Send spec first" };
-	if (!isObject(edit)) return { error: `edit: want { <id>: [[frame, verb, options], ...] }, got ${JSON.stringify(edit)}` };
-	const out = structuredClone(spec), did = { replaced: 0, added: 0, removed: 0 }, missed = [];
-	for (const [id, entries] of Object.entries(edit)) {
-		if (!Array.isArray(entries)) return { error: `edit.${id}: want a list of [frame, verb, options]` };
-		const list = Array.isArray(out[id]) ? out[id] : (out[id] = []);
-		for (const e of entries) {
-			if (!Array.isArray(e) || !Number.isInteger(e[0]) || typeof e[1] !== "string") return { error: `edit.${id}: want [frame, verb, options], got ${JSON.stringify(e)}` };
-			const k = list.findIndex(a => Array.isArray(a) && a[0] === e[0] && a[1] === e[1]);
-			if (e[2] === null) { if (k < 0) missed.push(`${id} [${e[0]}, "${e[1]}"]`); else { list.splice(k, 1); did.removed++; } }
-			else if (k < 0) { list.push(e); did.added++; }
-			else { list[k] = e; did.replaced++; }
-		}
-	}
-	const count = Object.values(out).reduce((n, acts) => n + (Array.isArray(acts) ? acts.length : 0), 0);
-	return { spec: out, did, said: `edit: ${did.replaced} replaced, ${did.added} added, ${did.removed} removed; the spec now has ${count} actions${missed.length ? `; nothing to remove at ${missed.join(", ")}` : ""}` };
-}
 
 /** Builds and validates. Returns { clip, aux, parsed, valid, buildMs } or { error, where }. */
 function compile(spec, def, name) {
@@ -194,20 +173,24 @@ function travelLines(clip, aux, spec) {
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
  *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). figure: the look the Studio
- *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's). */
-export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null }) {
+ *  draws characters in, given at launch (src/lowvis/studio/figure.js); the inside rows measure its solids (inside.mjs; else the block look's).
+ *  kept: { scene?, spec } of an earlier motion the tool starts from, as if they had been sent (nothing is compiled until a call;
+ *  without its scene the first call must send one); state.kept stays true while the spec descends from it by edits alone
+ *  (no whole spec sent), and each result carries it. */
+export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null, kept = null }) {
 	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
-	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
+	const seed = isObject(kept?.spec) ? structuredClone({ scene: isObject(kept.scene) ? kept.scene : null, spec: kept.spec }) : null;
+	const feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
 		const n = ++state.calls, t0 = performance.now(), sent = { scene: fromText(args.scene), spec: fromText(args.spec), look: fromText(args.look), edit: feature.edit ? fromText(args.edit) : undefined };
 		if (sent.scene !== undefined && sent.scene !== null) state.scene = sent.scene;
-		if (sent.spec !== undefined && sent.spec !== null) state.spec = sent.spec;
+		if (sent.spec !== undefined && sent.spec !== null) { state.spec = sent.spec; state.kept = false; }
 		// an edit is applied to the kept spec; when the call is rejected the spec goes back to what it was before the edit
 		const before = state.spec, edited = sent.edit !== undefined && sent.edit !== null ? applyEdit(state.spec, sent.edit) : null;
 		if (edited?.spec) state.spec = edited.spec;
-		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did };
+		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did, kept: state.kept };
 		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
 		if (edited?.error) return reject(edited.error, [edited.error]);
 		const bad = problems(state.scene, state.spec, { turn: !!feature.turn, body: !!feature.body, hollow: !!feature.inside }); if (bad.length) return reject(bad[0], bad.slice(0, 8));

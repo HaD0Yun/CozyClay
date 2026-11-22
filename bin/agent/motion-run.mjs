@@ -2,7 +2,9 @@
 // The flow: the editor's describe answer -> the Studio scene as a lowvis scene (src/lowvis/studio/scene.js) -> the
 // request text -> the motion writer (src/lowvis/pi/harness.mjs: claude-opus-5-5 at effort medium on CLIProxyAPI with
 // one tool, motion) -> the clip it ended with -> installed as scene content (src/lowvis/studio/install.js).
-// The scene and spec the motion writer wrote last are kept per memoryKey, so the next request can change or continue them.
+// The scene and spec the motion writer wrote last are kept per memoryKey, so the next request can change or continue them:
+// while the Studio scene still plays them (beforeOf), the next writer's tool starts from them (harness.mjs kept) and
+// takes a change as an edit of their actions.
 // Used by the motion tool of the Studio agent (motion-door.mjs) and by the direct key (lowvis-turn.mjs).
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -15,7 +17,36 @@ import { propsSetOf } from "./motion-props.mjs";
 const MOTION_VARIANT = "studio";
 const cast = (figure, index) => `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`;
 const byId = rows => new Map((Array.isArray(rows) ? rows : []).map(row => [row?.id, row]));
-const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
+const last = new Map(); // "<Studio scene id> <memoryKey>" -> { scene, spec, name, cast } the motion writer wrote last for that scene, its run and the Studio characters it animated
+const takes = new Map(); // "<Studio scene id> <Studio character id>" -> the run whose motion was installed on that character last
+const openScene = read => read?.document?.activeSceneId ?? null;
+const near = (a, b, by) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, k) => Math.abs(v - b[k]) <= by);
+const NEAR = 0.006; // m: the install leaves an object that stands within 5 mm of the clip's place (install.js), and the Studio scene is told in mm
+
+/**
+ * The motion before this request, while the Studio scene still plays it: { scene, spec, differs }, else null (the
+ * request is then a first one). entry: this conversation's last motion in the open scene (open: its id). It counts
+ * when the scene still lists a character it animated, none of which got a later motion (of any conversation).
+ * A motion taken out in the Studio itself (an undo) is not seen here.
+ * differs: where the Studio scene (scene.js studioScene) is no longer the motion's scene, one text per id: a character
+ * that is not in it or has another scale or tint; a prop with another size or turn, and, unless the motion moves it,
+ * one that is not in it or stands elsewhere. Not compared: a character's place (the take holds the motion's own) and
+ * what the Studio has that the motion's scene lacks.
+ */
+function beforeOf(entry, open, studio) {
+	const listed = new Set(Object.values(studio.ids.characters)), still = (entry?.cast ?? []).filter(id => listed.has(id));
+	if (!still.length || still.some(id => takes.get(`${open} ${id}`) !== entry.name)) return null;
+	const differs = [], tell = (id, fields) => { if (fields.length) differs.push(`${id}: ${fields.join(", ")}`); };
+	for (const c of entry.scene.characters) {
+		const now = studio.scene.characters.find(o => o.id === c.id);
+		tell(c.id, !now ? ["not in it"] : [Math.abs((c.scale ?? 1) - (now.scale ?? 1)) <= 1e-6 ? null : "scale", String(c.tint ?? "").toLowerCase() === String(now.tint ?? "").toLowerCase() ? null : "tint"].filter(Boolean));
+	}
+	for (const p of entry.scene.props ?? []) {
+		const now = studio.scene.props.find(o => o.id === p.id);
+		tell(p.id, !now ? (p.moves ? [] : ["not in it"]) : [near(p.size, now.size, NEAR) ? null : "size", Math.abs((p.turn ?? 0) - (now.turn ?? 0)) <= 0.5 ? null : "turn", p.moves || near(p.at, now.at, NEAR) ? null : "place"].filter(Boolean));
+	}
+	return { scene: entry.scene, spec: entry.spec, differs };
+}
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
 const failure = (code, message) => Object.assign(new Error(message), { code });
@@ -54,7 +85,9 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (studio.others?.length) parts.push(`These characters cannot be animated by the engine and stand as they are: ${studio.others.map(other => `${other.id} (${other.why})`).join(", ")}.`);
 	parts.push(`${ADDED}${body ? ` ${BODIES}` : ""}${note ? ` ${DRESSED}` : ""}`);
 	if (before) {
-		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
+		// the tool starts from them (harness.mjs kept); from the spec alone where the Studio scene is no longer that scene
+		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look.";
+		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");
 }
@@ -114,8 +147,9 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		}
 	};
 	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
-	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body, has["*"]?.scale ?? 1);
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, inbox, log: line => {
+	const open = openScene(read), before = memoryKey == null ? null : beforeOf(last.get(`${open} ${memoryKey}`), open, studio), request = requestOf({ words, wordsOf, note }, images.length, studio.scene, before, body, has["*"]?.scale ?? 1);
+	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
@@ -142,7 +176,10 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			return { ...done, plan, after };
 		});
 	} catch (error) { throw await draft.failed(error); }
-	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
+	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
+	const animated = clip.characters.map(studioId).filter(Boolean);
+	if (memoryKey != null) last.set(`${open} ${memoryKey}`, { scene: record.final.scene, spec: record.final.spec, name, cast: animated });
+	for (const id of animated) takes.set(`${open} ${id}`, name);
 	rememberBoxes(key, record.final.scene, result.placed ?? {}, floorCells(clip));
 	// what other calls changed or added while the motion was written (and the draft's stand-ins changed meanwhile, read
 	// from the scene), against the boxes and the floor it used; with a draft, what the install changed since it
@@ -156,8 +193,6 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	if (meanwhile.length && !now && !unread) await readTops();
 	if (meanwhile.length) motionFit = now ? changedFit(meanwhile, now, boxesOf(key), floorCells(clip)) : { status: "unavailable", reason: unread?.message ?? String(unread) };
 	if (result.after) propsSet = propsSetOf({ props: clip.props ?? [], placed: result.placed ?? {}, done: result, plan, start, at: plan.at, now: result.after });
-	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
-	const animated = clip.characters.map(studioId).filter(Boolean);
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id ?? plan?.drafted[prop.id]?.id).filter(Boolean);
 	const switched = result.switched ?? [];
 	// the body each animated character now has; the next edit of one is measured against it (motion-fit.mjs)
