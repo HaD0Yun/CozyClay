@@ -33,7 +33,7 @@ const loop = async (runs, review) => {
 	const mixed = await loop(runs, (...args) => (round++ === 0 ? at(1, { framing: cut50, placement: { checks: { placement: { overlapIds: [] } } } }) : at(2, { framing: cut80, placement: lamp }))(...args));
 	assert.equal(mixed.inputs.length, 3, "two review turns");
 	assert.match(mixed.reviewText[1], /hero cut by the frame edge at frame 10 \(least in the picture: 80%/, "a failure that stays after a repair is sent again with its new value");
-	assert.match(mixed.reviewText[1], /floating over 1 cm: lamp/);
+	assert.match(mixed.reviewText[1], /above what is under it: lamp/);
 	// partial progress (50% -> 90%) is new numbers: the model gets another round
 	round = 0;
 	const cut90 = framing([0, 10], [subject(10, "hero", ["CLIPPED"], 0.9)]);
@@ -63,7 +63,7 @@ const loop = async (runs, review) => {
 	const review = createTurnReview({ invoke: async (_n, args) => (args.checks.includes("placement") ? overlap : null), hub: hubAt({ at: 7 }), workspaceHandle: "w" });
 	const edits = { edited: true, ids: ["cube-1"], motionIds: [], stage: false };
 	const stale = await review(edits, "go", { own: [{ revision: 7, evidenceRevision: 5, stale: true, ...overlap }] });
-	assert.deepEqual(stale.findings, ["placement: footprints overlap for cube-1 (deepest 0.3 m)"], "old evidence returned at revision 7 was not a measurement of revision 7");
+	assert.deepEqual(stale.findings, ["placement: overlapping another body: cube-1 (footprints overlap up to 0.3 m)"], "old evidence returned at revision 7 was not a measurement of revision 7");
 	const fresh = await review(edits, "go", { own: [{ revision: 7, evidenceRevision: 7, stale: false, ...overlap }] });
 	assert.equal(fresh.content, null);
 }

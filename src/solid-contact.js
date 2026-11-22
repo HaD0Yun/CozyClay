@@ -7,6 +7,7 @@
 import { objectSize } from './object-size.js';
 import { solidOf } from './solid-shape.js';
 import { mul, rx, ry, rz } from './motion3/compiler/math.js';
+import { sceneObjectsAt } from './object-travel.js';
 
 /** Deeper than this (m) is inside; less is touching: a foot set on a step, a cup on a table top, a counter set into a 2 cm
  * floor slab (seen in agent sets). An estimate: a couple of centimetres do not show in a picture. */
@@ -20,9 +21,29 @@ const BODY_SHARE = 0.25, BODY_GAP_M = 0.1;
 const IDENTITY = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], GRID = 8;
 const pointOf = p => (Array.isArray(p) ? p : [p.x, p.y, p.z]);
 
+const drawnCache = new WeakMap();
+/** The record as the viewport draws it on state.frame (object-travel.js: a route, or a parent's route, places and turns it;
+ * the timeline at 24 fps), with no route left on it; the record itself when nothing moves it, it is attached, or it is not
+ * one of state.objects (a draft's copy). */
+function drawnOf(o, state) {
+	if (o.attach || !state?.objects?.includes(o)) return o;
+	let byFrame = drawnCache.get(state.objects);
+	if (!byFrame) drawnCache.set(state.objects, (byFrame = new Map()));
+	const key = `${state.frame ?? 0}/${state.frameCount}`;
+	if (!byFrame.has(key)) {
+		const list = sceneObjectsAt(state.objects, state.frame ?? 0, { frameCount: state.frameCount, fps: 24 });
+		byFrame.set(key, list === state.objects ? null : new Map(list.map(r => [r.id, r])));
+	}
+	const at = byFrame.get(key)?.get(o.id);
+	return at && at !== o ? { ...at, path: null } : o;
+}
+
 /** Where an object stands as a motion box ({ pos: base centre, R, half }: motion3/scene.js) with its solid (null: the box is
- * the shape); a carried or routed object is the world box worldBox() answers ({ min, max } or null), with no solid. */
-export function contactBody(o, worldBox) {
+ * the shape). With state ({ objects, frame, frameCount }), a routed object (or one under a routed parent) is its drawn shape
+ * where it is drawn on that frame; without it, and for a carried object, it is the world box worldBox() answers ({ min, max }
+ * or null), with no solid. */
+export function contactBody(o, worldBox, state = null) {
+	if (state) o = drawnOf(o, state);
 	if (o.attach || o.path) {
 		const box = worldBox();
 		return box && { box: { pos: [(box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2], R: IDENTITY, half: ['x', 'y', 'z'].map(a => (box.max[a] - box.min[a]) / 2) } };

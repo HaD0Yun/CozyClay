@@ -82,13 +82,15 @@ export function bodyPoints(subject, state, ports, bounds) {
  * (studio-relations.js) both give. The subject is several points of its posed body (bodyPoints); a prop hides a point when
  * the sight line to it crosses the prop's solid (solid-shape.js: what the viewport draws), else its box, and each hidden
  * point counts for the prop nearest the camera on its sight line (feet behind both a wall and the steps beyond it are the
- * wall's). The subject itself, props attached to it, hidden props and a box the camera stands inside (a room set) never count. */
+ * wall's). A prop on a route, or under a parent on one, is its drawn shape where the route has it on the frame
+ * (contactBody with the state), not its box. The subject itself, props attached to it, hidden props and a box the camera stands
+ * inside (a room set) never count. */
 export function occlusionOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
   if (!subjectBounds) return { share: 0, hidden: false, by: [] };
   const eye = [cameraPosition.x, cameraPosition.y, cameraPosition.z], boxes = {}, solids = {}, skip = new Set();
   for (const o of state.objects) {
     if (o.id === subject.id || o.attach?.characterId === subject.id || isEffectivelyHidden(o, state.objects, state.characters)) continue;
-    const body = contactBody(o, () => entityWorldBounds(o, state, ports));
+    const body = contactBody(o, () => entityWorldBounds(o, state, ports), state);
     if (!body) continue;
     boxes[o.id] = body.box;
     if (body.solid) solids[o.id] = body.solid; else if (entry(eye, eye, body.box) !== null) skip.add(o.id);

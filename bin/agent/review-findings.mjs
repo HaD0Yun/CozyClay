@@ -19,17 +19,28 @@ export function frameRuns(frames, sampled = frames) {
 }
 
 // A subject counts as seen at a sampled frame when part of it is in the picture and not all of it is behind props; a
-// sample that does not list it did not fail it. Shots come from the cut data (sampledChecks[].shot): a subject seen at no
-// sample of a shot is not in that shot (a stand-in for another shot, a figure waiting to walk in), so that shot says
-// nothing about it; one seen at some sample of a shot and fully hidden or out of the picture at another fails there, at
-// its worst value (100% hidden, 0% in the picture).
+// sample that does not list it did not fail it. Shots come from the cut data (sampledChecks[].shot). A shot that names its
+// subjects (the framing's geometry: its subjectIds list some of the cast and leave some out) is about those only: another
+// figure in its picture is not its subject, and one it names is judged at every sample of it. In any other shot (it names
+// no one or everyone, or the geometry lists no subject for it: no camera, its subjects gone), a subject seen at no sample
+// of it is not in that shot (a stand-in for another shot, a figure waiting to walk in), so that shot says nothing about
+// it; one seen at some sample of a shot and fully hidden or out of the picture at another fails there, at its worst value
+// (100% hidden, 0% in the picture). A figure no shot judges gets the "not in the picture" line only when no sampled frame
+// shows it and some shot leaves its subjects open.
 const seen = row => !row || (row.inFrame > 0 && row.hidden < 1);
 const isCut = row => row.codes.some(code => code === "CLIPPED" || code === "BEHIND_CAMERA");
 
-function subjectItems(id, rows, sampled, shotOf) {
+/** shot id -> Set of the subjects a shot names, for the shots whose subjectIds list some of the cast and leave some out (geometry facts). */
+function namedSubjects(geometry) {
+	const cast = (geometry?.subjects ?? []).map(s => s.id), named = new Map();
+	for (const shot of geometry?.shots ?? []) if (shot.subjectIds?.length && cast.some(id => !shot.subjectIds.includes(id))) named.set(shot.shotId, new Set(shot.subjectIds));
+	return named;
+}
+
+function subjectItems(id, rows, sampled, shotOf, named) {
 	const inShot = new Map();
-	for (const frame of sampled) inShot.set(shotOf(frame), inShot.get(shotOf(frame)) || seen(rows.get(frame)));
-	if (![...inShot.values()].some(Boolean)) return [{ kind: "unseen", id, samples: sampled.length }];
+	for (const frame of sampled) { const shot = shotOf(frame), about = named.get(shot); inShot.set(shot, about ? about.has(id) : inShot.get(shot) || seen(rows.get(frame))); }
+	if (![...inShot.values()].some(Boolean)) return sampled.some(frame => seen(rows.get(frame))) || [...inShot.keys()].every(shot => named.has(shot)) ? [] : [{ kind: "unseen", id, samples: sampled.length }];
 	const counted = [...rows.values()].filter(row => inShot.get(shotOf(row.frame)));
 	const cut = counted.filter(isCut), hid = counted.filter(row => row.codes.includes("OCCLUDED")), items = [];
 	const at = list => `${list.length > 1 ? "frames" : "frame"} ${frameRuns(list.map(row => row.frame), sampled)}`;
@@ -44,7 +55,7 @@ const byCodes = (issues, sampled) => {
 	return [...groups].map(([codes, frames]) => ({ kind: "framing", id: codes, text: `framing: ${codes} at ${frames.length > 1 ? "frames" : "frame"} ${frameRuns(frames, sampled)}` }));
 };
 
-function framingItems(f) {
+function framingItems(f, geometry) {
 	const issues = f?.issueFrames ?? [];
 	if (!issues.length) return !f?.issueFrames && (f?.clipped || f?.occluded || f?.behindCamera) ? [{ kind: "framing-now", id: "", text: `framing: ${["clipped", "occluded", "behindCamera"].filter(k => f[k]).join(", ")} at the current frame` }] : [];
 	const sampled = f.sampledFrames?.length ? f.sampledFrames : issues.map(issue => issue.frame);
@@ -52,7 +63,8 @@ function framingItems(f) {
 	const items = byCodes(issues.filter(issue => !issue.subjects?.length), sampled), bySubject = new Map();
 	const shots = new Map((f.sampledChecks ?? []).map(row => [row.frame, row.shot ?? null])), shotOf = frame => shots.get(frame) ?? null;
 	for (const issue of issues) for (const row of issue.subjects ?? []) bySubject.set(row.id, (bySubject.get(row.id) ?? new Map()).set(issue.frame, { ...row, frame: issue.frame }));
-	for (const [id, rows] of bySubject) items.push(...subjectItems(id, rows, sampled, shotOf));
+	const named = namedSubjects(geometry);
+	for (const [id, rows] of bySubject) items.push(...subjectItems(id, rows, sampled, shotOf, named));
 	return items;
 }
 
@@ -63,7 +75,7 @@ export function findingItems({ placement, framing, motion = [], lighting, owned 
 	const overlap = p?.overlapIds ?? [], floating = (p?.unsupportedIds ?? []).filter(id => !owned || owned.has(id));
 	if (!owned || overlap.some(id => owned.has(id))) for (const id of overlap) items.push({ kind: "overlap", id, depth: p.maximumFootprintOverlapM });
 	for (const id of floating) items.push({ kind: "floating", id, gap: p?.supportGapM?.[id] });
-	items.push(...framingItems(framing?.checks?.framing));
+	items.push(...framingItems(framing?.checks?.framing, framing?.geometry));
 	for (const { id, qa } of motion) if (qa?.total > 0 && (!owned || owned.has(id))) items.push({ kind: "motion", id, text: `motion ${id}: QA ${qa.total} frame issues: ${(qa.groups ?? []).slice(0, QA_GROUPS).map(g => `${g.kind} ${g.subject} x${g.count}`).join("; ")}` });
 	const l = lighting?.checks?.lighting, LIGHT_PCT = 10; // an estimate, not calibrated: a picture this share clipped or crushed is worth a look
 	if (l?.clippedPct >= LIGHT_PCT) items.push({ kind: "lighting", id: "clipped", text: `lighting: ${l.clippedPct}% of the frame clipped` });
@@ -74,14 +86,16 @@ export function findingItems({ placement, framing, motion = [], lighting, owned 
 /** What one finding says, its numbers included: the same key twice is the same failure with the same values. */
 export const itemKey = item => item.text ?? `${item.kind}:${item.id}:${metres(item.depth ?? item.gap)}${item.samples ? `:${item.samples}` : ""}`;
 
-/** One line per distinct finding: the footprint overlaps, the floating objects and the subjects seen at no sampled frame
- * each in one line with their worst value, every other item its own line. */
+/** One line per distinct finding: the bodies that overlap another (the drawn shapes stand inside each other, or the boxes where
+ * the editor has no shape; the number is the boxes' footprint overlap, the evidence's maximumFootprintOverlapM), the objects
+ * standing off their support and the subjects seen at no sampled frame each in one line with their worst value, every other
+ * item its own line. */
 export function findingLines(items) {
 	const of = kind => items.filter(item => item.kind === kind), lines = [];
 	const overlap = of("overlap"), floating = of("floating"), unseen = of("unseen");
-	if (overlap.length) lines.push(`placement: footprints overlap for ${overlap.map(i => i.id).join(", ")} (deepest ${metres(overlap[0].depth)})`);
+	if (overlap.length) lines.push(`placement: overlapping another body: ${overlap.map(i => i.id).join(", ")} (footprints overlap up to ${metres(overlap[0].depth)})`);
 	const gaps = floating.map(i => i.gap).filter(Number.isFinite);
-	if (floating.length) lines.push(`placement: floating over 1 cm: ${floating.map(i => i.id).join(", ")}${gaps.length ? ` (highest gap ${metres(Math.max(...gaps))})` : ""}`);
+	if (floating.length) lines.push(`placement: base over 1 cm above what is under it: ${floating.map(i => i.id).join(", ")}${gaps.length ? ` (largest ${metres(Math.max(...gaps))})` : ""}`);
 	if (unseen.length) lines.push(`framing: not in the picture at any of the ${unseen[0].samples} sampled frames: ${unseen.map(i => i.id).join(", ")}`);
 	return [...lines, ...items.filter(item => item.text).map(item => item.text)];
 }

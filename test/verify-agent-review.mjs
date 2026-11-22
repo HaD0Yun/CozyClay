@@ -41,7 +41,7 @@ assert.deepEqual(reviewFindings({}), [], "nothing measured, nothing to say");
 assert.deepEqual(reviewFindings({ placement: { checks: { placement: { overlapIds: [], unsupportedIds: [] } } }, framing: { checks: { framing: { issueFrames: [] } } }, motion: [{ id: "a", qa: { total: 0 } }] }), [], "what passed is not listed");
 const lines = reviewFindings({ placement: { checks: { placement: { overlapIds: ["a", "b"], maximumFootprintOverlapM: 0.2, unsupportedIds: ["c"] } } }, framing: { checks: { framing: { issueFrames: [{ frame: 40, codes: ["OCCLUDED"] }] } } },
 	motion: [{ id: "hero", qa: { total: 31, groups: [{ kind: "SLIDE", subject: "foot_l", count: 31 }] } }], lighting: { checks: { lighting: { clippedPct: 40, crushedPct: 1 } } } });
-assert.deepEqual(lines, ["placement: footprints overlap for a, b (deepest 0.2 m)", "placement: floating over 1 cm: c", "framing: OCCLUDED at frame 40", "motion hero: QA 31 frame issues: SLIDE foot_l x31", "lighting: 40% of the frame clipped"]);
+assert.deepEqual(lines, ["placement: overlapping another body: a, b (footprints overlap up to 0.2 m)", "placement: base over 1 cm above what is under it: c", "framing: OCCLUDED at frame 40", "motion hero: QA 31 frame issues: SLIDE foot_l x31", "lighting: 40% of the frame clipped"]);
 assert.deepEqual(reviewFindings({ framing: { checks: { framing: { occluded: true } } } }), ["framing: occluded at the current frame"], "a one-frame framing check counts too");
 
 // ---- the message ----
@@ -49,7 +49,7 @@ const passed = reviewContent({ findings: [], relations: ["a ON b"], images: [{ t
 assert.match(passed[0].text, /^Studio frame observation\b/, "the label a transcript does not show as the user's words");
 assert.match(passed[0].text, /checks that ran passed[\s\S]*a ON b/);
 assert.equal(passed[1].type, "image");
-assert.match(reviewContent({ findings: ["placement: x"] })[0].text, /checks failed:\n- placement: x\n[\s\S]*say why in one line/);
+assert.match(reviewContent({ findings: ["placement: x"] })[0].text, /after your edits:\n- placement: x\n[\s\S]*say why in one line/);
 
 // ---- the checks ----
 const asked = [], png = name => ({ dataUrl: `data:image/png;base64,${name}` });
@@ -86,8 +86,8 @@ const framed = scopedArgs.find(a => a.checks?.[0] === "framing"), lit = scopedAr
 assert.deepEqual([framed.targets, lit.targets], [["mine"], ["mine"]], "framing and lighting look only at the task's own characters, not another task's");
 assert.deepEqual(scopedArgs.filter(a => a.action === "motion.qa").map(a => a.args.characterId), ["mine"], "motion QA of the character the task animated");
 assert.ok(!scoped.findings.some(line => line.includes("theirs") || line.includes("lamp-2")), `a finding about another task's ids is dropped: ${scoped.findings}`);
-assert.ok(scoped.findings.includes("placement: floating over 1 cm: cup-1"), "an id the run edited stays in");
-assert.deepEqual(reviewFindings({ placement: { checks: { placement: { overlapIds: ["cup-1", "theirs"] } } }, owned: new Set(["cup-1"]) }), ["placement: footprints overlap for cup-1, theirs (deepest ? m)"], "an overlap that touches the task's id stays whole");
+assert.ok(scoped.findings.includes("placement: base over 1 cm above what is under it: cup-1"), "an id the run edited stays in");
+assert.deepEqual(reviewFindings({ placement: { checks: { placement: { overlapIds: ["cup-1", "theirs"] } } }, owned: new Set(["cup-1"]) }), ["placement: overlapping another body: cup-1, theirs (footprints overlap up to ? m)"], "an overlap that touches the task's id stays whole");
 assert.deepEqual(reviewFindings({ motion: [{ id: "theirs", qa: { total: 4, groups: [] } }], owned: new Set(["mine"]) }), [], "another character's motion QA is dropped");
 const layeredArgs = [];
 await createTurnReview({ invoke: async (name, args) => { layeredArgs.push(args); return {}; }, resolveImage: async () => null, hub: cast, workspaceHandle: "w", scope: ["character:mine:placement", "object:cup-1"] })({ edited: true, ids: ["cup-1"], motionIds: [], stage: false });
@@ -172,7 +172,7 @@ const first = fake.calls[0].messages.filter(m => m.role === "user").flatMap(m =>
 assert.match(first.text, /"relations":\{"rows":\["Lamp#cube-2 ON Table#cube-5"\]/, "the turn's context carries the relation rows");
 const last = fake.calls[2].messages.at(-1);
 assert.equal(last.role, "user");
-assert.match(last.content[0].text, /^Studio frame observation[\s\S]*placement: footprints overlap for char-alex[\s\S]*Lamp#cube-2 ON Table#cube-5/, "the model is told the failing number and the relations");
+assert.match(last.content[0].text, /^Studio frame observation[\s\S]*placement: overlapping another body: char-alex \(footprints overlap up to [^)]* m\)[\s\S]*Lamp#cube-2 ON Table#cube-5/, "the model is told the failing number and the relations");
 assert.equal(last.content.length, 1, "failed checks go as text alone");
 assert.ok(!commands.includes("capture_framing_png") && !commands.includes("capture_plan_png") && commands.includes("verify_result"));
 assert.equal(transcriptFromHistory(fake.calls[2].messages).filter(e => e.kind === "user" && e.text?.includes("footprints")).length, 0, "the review is never shown as the user's words");
