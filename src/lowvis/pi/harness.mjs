@@ -24,7 +24,6 @@ const MAX_IMAGES = 4;
 const DROPPED = "[the sheet images of this call are no longer shown: only the latest call's images are kept]";
 const round = v => Math.round(v);
 
-const FOCUS = Type.Union([Type.String(), Type.Object({ joint: Type.String(), of: Type.String() })]);
 const MOTION_PARAMETERS = Type.Object({
 	scene: Type.Optional(Type.Object({
 		frames: Type.Number(),
@@ -33,8 +32,8 @@ const MOTION_PARAMETERS = Type.Object({
 	}, { description: "The scene. Send it in the first call and again only when it changes." })),
 	spec: Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "The motion spec: { <characterId or propId>: [[frame, verb, options], ...] }. Send the whole spec when it changes." })),
 	look: Type.Optional(Type.Object({
-		frames: Type.Optional(Type.Array(Type.Number())), view: Type.Optional(Type.String()), focus: Type.Optional(Type.Union([FOCUS, Type.Array(FOCUS)])), props: Type.Optional(Type.String()),
-	}, { description: "Other frames (at most 12), another view (three, side, front, top), a close framing on one id or on one joint ({ joint, of }), props \"outline\" to draw props as edges, in place of the default sheet." })),
+		frames: Type.Optional(Type.Array(Type.Number())), view: Type.Optional(Type.String()), focus: Type.Optional(Type.Union([Type.String(), Type.Object({ joint: Type.String(), of: Type.String() })])), props: Type.Optional(Type.String()),
+	}, { description: "Other frames (at most 12), another view (three, side, front, top), a close framing on one id or joint ({ joint, of }), props \"outline\" for props as edges, in place of the default sheet." })),
 });
 const MOTION_DESCRIPTION = "Compiles the scene and the motion spec, checks the clip and returns the check numbers and contact sheets. Keeps the last scene and spec, so send only what changed.";
 const EDIT_PARAMETER = Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "Changes to the kept spec, in place of spec: { <id>: [[frame, verb, options], ...] }. An entry replaces the action of that id with the same frame and verb, or adds it when there is none; [frame, verb, null] removes it." }));

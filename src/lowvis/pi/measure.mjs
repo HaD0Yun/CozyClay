@@ -5,7 +5,8 @@
 // The `inside:` rows are not in checks.js: a body or a moving prop inside another prop past a limit (inside.mjs).
 // The `reach:` rows are not in checks.js either: a hand, a foot or an elbow that is not where its action put it (aux.reach).
 // Nor the `seat:` rows: a sit on a prop whose hips end off the prop's top or whose feet stand inside it (aux.seats).
-// Nor the `jump:` rows: a joint or a moving prop whose step between two frames is far from the steps around it (jumps.js).
+// Nor the `jump:` rows: a body's Hips joint or a moving prop whose step between two frames is far from the steps around
+// it (jumps.js), within a frame of a key of the spec.
 //
 // row: { key, label, short, value, unit, frame?, who?, prop?, note?, worse, spike?, word? }
 //   short: the row's name on a sheet label
@@ -27,8 +28,9 @@ const num1 = v => String(Math.round(v * 10) / 10);
 export const badness = row => row.worse > 0 ? row.value : row.worse < 0 ? Math.max(0, -row.value) : 0;
 export const isSpike = row => row.spike != null && row.frame != null && badness(row) > row.spike;
 
-/** inside: { def, spec, look } for the inside rows (inside.mjs); none without it. */
-export function measure(clip, aux, { stretch = 0, inside = null } = {}) {
+/** inside: { def, spec, look } for the inside rows (inside.mjs); none without it. spec: the spec as built (repeats
+ *  written out) for the jump rows; none without it. */
+export function measure(clip, aux, { stretch = 0, inside = null, spec = null } = {}) {
 	const F = clip.frameCount, rows = [];
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
 	// a world point over (or under) a static prop's footprint, in the prop's own frame
@@ -173,25 +175,29 @@ export function measure(clip, aux, { stretch = 0, inside = null } = {}) {
 		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}${worst.v > 0.01 ? `; ${reachWhy(list, worst.f, i, c.scale ?? 1)}` : ""}`;
 		if (worst) row(`reach:${c.id}:${i}`, `${PART[i >> 1]} off its target`, worst, "mm", MM, { short: `${PART[i >> 1]} off`, worse: 1, spike: 60 });
 	});
-	rows.push(...jumpRows(clip));
+	if (spec) rows.push(...jumpRows(clip, spec, rows.filter(r => r.short === "ride jump")));
 	return rows;
 }
 
-/** A step of one frame far outside the steps before and after it (jumps.js), over JUMP times the body's scale: one row
- *  per body (its joints) and one for the props that move, at the largest. */
-function jumpRows(clip) {
-	const F = clip.frameCount, cm = v => (v * 100).toFixed(1), out = [], at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
-	const list = (g, what) => g.parts.length > 1 ? `, ${what} ${g.parts.slice(0, 4).join(", ")}${g.parts.length > 4 ? ` and ${g.parts.length - 4} more` : ""}` : "";
-	const add = (key, tracks, min, tag, what) => {
-		const g = groupJumps(tracks, F, min);
-		if (g) out.push({ key, label: "jump between two frames", short: "jump", value: g.size * 100, unit: "cm", frame: g.f, ...tag(g), worse: 1, spike: min * 100,
-			note: `${g.part}; steps into f${g.f - 1}, f${g.f}, f${g.f + 1}: ${g.steps.map(cm).join(", ")} cm; ${g.frames} frame${g.frames === 1 ? "" : "s"} with a jump over ${cm(min)} cm, f${g.first}-f${g.last}${list(g, what)}` });
-	};
-	for (const c of clip.characters) {
-		const min = JUMP * (c.scale ?? 1);
-		add(`jump:${c.id}`, JOINTS.map((part, j) => ({ part, at: f => at(c, f, j) })), min, () => ({ who: c.id }), "in");
+/** A step of one frame far outside the steps before and after it (jumps.js) of a body's Hips joint (over JUMP times the
+ *  body's scale) or of a prop that moves (over JUMP): one row per body and one for the props, at the largest. Only the
+ *  jumps within a frame of a key of the spec (a key's frame, or the frame its written over ends): those are where
+ *  the spec's words can change something. Not on the frame of a key of its own id written with over 0 or 1, or the
+ *  frame after it: that key asks for the step. Nor a prop's jump onto the place of its ride, which has its own row. */
+function jumpRows(clip, spec, rides) {
+	const F = clip.frameCount, cm = v => (v * 100).toFixed(1), out = [], near = new Set(), asked = {};
+	for (const r of rides) (asked[r.prop] ??= new Set()).add(r.frame); // told as its own row
+	for (const [id, acts] of Object.entries(spec)) for (const [f, , o] of Array.isArray(acts) ? acts : []) {
+		for (const k of o?.over > 0 ? [f, f + o.over] : [f]) for (const d of [-1, 0, 1]) near.add(k + d);
+		if (o?.over === 0 || o?.over === 1) (asked[id] ??= new Set()).add(f).add(f + 1);
 	}
-	add("jump:props", clip.props.filter(p => p.pos.length > 3).map(p => ({ part: p.id, at: f => Array.from(p.pos.slice(f * 3, f * 3 + 3)) })), JUMP, g => ({ prop: g.part }), "props");
+	const add = (key, tracks, min, tag) => {
+		const g = groupJumps(tracks, F, min, (t, f) => near.has(f) && !asked[t.id]?.has(f));
+		if (g) out.push({ key, label: "jump between two frames", short: "jump", value: g.size * 100, unit: "cm", frame: g.f, ...tag(g), worse: 1, spike: min * 100,
+			note: `${g.part}; steps into f${g.f - 1}, f${g.f}, f${g.f + 1}: ${g.steps.map(cm).join(", ")} cm${g.frames > 1 ? `; ${g.frames} frames with one, f${g.first}-f${g.last}` : ""}${g.parts.length > 1 ? `, props ${g.parts.slice(0, 4).join(", ")}${g.parts.length > 4 ? ` and ${g.parts.length - 4} more` : ""}` : ""}` });
+	};
+	for (const c of clip.characters) add(`jump:${c.id}`, [{ part: "Hips", id: c.id, at: f => Array.from(c.pos.slice(f * JOINT_COUNT * 3, f * JOINT_COUNT * 3 + 3)) }], JUMP * (c.scale ?? 1), () => ({ who: c.id }));
+	add("jump:props", clip.props.filter(p => p.pos.length > 3).map(p => ({ part: p.id, id: p.id, at: f => Array.from(p.pos.slice(f * 3, f * 3 + 3)) })), JUMP, g => ({ prop: g.part }));
 	return out;
 }
 

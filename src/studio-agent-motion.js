@@ -104,11 +104,8 @@ function blockersAt(t, frame, objects) {
   // `objects` already stand where this frame renders them (routes and take tracks), so no re-sampling here.
   return collisionBlockers({ rigs, activeId: t.characterId, characterIds: cast, sceneObjects: objects, library: OBJECT_LIBRARY });
 }
-/** The bones the take and its IK layer drive (the FK joints and the IK chains), each once, by name. */
-const drivenBones = evaluator => [...new Set([...evaluator.fkJoints.values()].map(j => j.bone).concat([...evaluator.chains.values()].flatMap(c => c.bones)))];
-async function samples(t, layer, paths = null) {
+async function samples(t, layer, shown = null) {
   const rows = [], poses = [], collisions = [], blockers = [];
-  const bones = paths && drivenBones(t.evaluator), v = new THREE.Vector3();
   const cast = t.cast.map((member) => member.character).filter(Boolean);
   for (let frame = t.range.startFrame; frame < t.range.endFrameExclusive; frame++) {
     t.checkpoint(); poseFrame(t.evaluator, t.motion, layer, frame);
@@ -122,21 +119,27 @@ async function samples(t, layer, paths = null) {
     const capsules = buildCollisionCapsules(t.evaluator.rig);
     collisions.push(detectPenetrations(capsules, { blockers: shapes }).map(p => ({ a: p.a.def.id, b: p.b.def?.id ?? p.b.id, depth: p.depth })));
     blockers.push(blockerSummary(shapes));
-    if (paths) { paths.body.push(bones.map(b => b.getWorldPosition(v).toArray())); paths.objects.push(new Map(objects.filter(o => !o.hidden).map(o => [o.id, [o.x ?? 0, o.y ?? 0, o.z ?? 0]]))); }
+    shown?.push(new Map(objects.filter(o => !o.hidden).map(o => [o.id, [o.x ?? 0, o.y ?? 0, o.z ?? 0]])));
     if (frame % 12 === 11) { await t.yieldTask(); t.checkpoint(); }
   }
   const contacts = supportIntervals(rows, 24, [], t.env.floor.y);
   return { rows, poses, collisions, blockers, contacts, metrics: physicsMetrics(rows, contacts.masks, 24, t.env.floor.y), support: supportDiagnostics(rows, 24, t.env.floor.y) };
 }
-/** One-frame jumps (lowvis/jumps.js) of the take's driven bones, at the character's own size, and of the objects that
- * move over the range: a row each for the body and for the objects, at the largest, frames on the timeline. */
-function frameJumps(t, paths) {
-  const F = paths.body.length, start = t.range.startFrame, out = [], names = drivenBones(t.evaluator).map(b => b.name);
-  const row = (id, g) => g && out.push({ id, part: g.part, frame: start + g.f, sizeM: g.size, stepsM: g.steps, frames: g.frames, firstFrame: start + g.first, lastFrame: start + g.last });
-  row(t.characterId, groupJumps(names.map((part, k) => ({ part, at: f => paths.body[f][k] })), F, JUMP * (t.character.scale ?? 1)));
-  const ids = [...new Set(paths.objects.flatMap(m => [...m.keys()]))].filter(id => paths.objects.every(m => m.has(id)) && paths.objects.some(m => m.get(id).some((x, k) => x !== paths.objects[0].get(id)[k])));
-  row('objects', groupJumps(ids.map(id => ({ part: id, at: f => paths.objects[f].get(id) })), F, JUMP));
-  return out;
+/** One-frame jumps (lowvis/jumps.js) of where the character is (its hips, at its own size) and of the objects that
+ * move, each over the stretches of frames it is shown on (shown: per frame, id -> place): a row for the character and
+ * one per object, the largest first, an object under one that has a row left out (it goes with it), at most 3 objects
+ * (leftOut: how many more); frames on the timeline, metres to the millimetre. */
+function frameJumps(t, rows, shown) {
+  const F = rows.length, start = t.range.startFrame, mm = v => Math.round(v * 1000) / 1000, parent = new Map(t.env.objects.map(o => [o.id, o.parent])), found = new Map();
+  const row = (id, g) => ({ id, frame: start + g.f, sizeM: mm(g.size), stepsM: g.steps.map(mm), frames: g.frames, firstFrame: start + g.first, lastFrame: start + g.last });
+  const body = groupJumps([{ at: f => rows[f].root.toArray() }], F, JUMP * (t.character.scale ?? 1));
+  for (const id of new Set(shown.flatMap(m => [...m.keys()]))) {
+    const runs = []; shown.forEach((m, f) => { if (!m.has(id)) return; if (runs.at(-1)?.[1] === f) runs.at(-1)[1] = f + 1; else runs.push([f, f + 1]); });
+    const g = groupJumps([{ at: f => shown[f].get(id), runs }], F, JUMP); if (g) found.set(id, g);
+  }
+  const under = id => { for (let p = parent.get(id), n = 0; typeof p === 'string' && n < 64; p = parent.get(p), n++) if (found.has(p)) return true; return false; };
+  const top = [...found].filter(([id]) => !under(id)).sort((x, y) => y[1].size - x[1].size);
+  return { rows: [...(body ? [row(t.characterId, body)] : []), ...top.slice(0, 3).map(([id, g]) => row(id, g))], leftOut: Math.max(0, top.length - 3) };
 }
 /** The verdict on one layer's samples (`after`) against the bare take's
  * (`before`): status inputs, coverage, metrics and limitations. */
@@ -205,9 +208,9 @@ export async function verifyInstalledTake({ target, environment, range, poseCast
     checkpoint: () => { if (now() > deadline) fail('VERIFICATION_FAILED', 'Private verification budget exceeded.'); } };
   try {
     stageCast(environment, t.characterId, t.cast);
-    const paths = { body: [], objects: [] }, before = await samples(t, copyLayer()), after = await samples(t, copyLayer(target.ikState), paths), j = judge(t, before, after), jumps = frameJumps(t, paths);
+    const shown = [], before = await samples(t, copyLayer()), after = await samples(t, copyLayer(target.ikState), shown), j = judge(t, before, after), jumps = frameJumps(t, after.rows, shown);
     return freezeStudioData({ characterId: t.characterId, ...receiptVerification({ verificationId: newId(), status: j.verified ? 'verified' : 'unverified',
-      range: j.range, evaluatedFrames: j.evaluatedFrames, physicsRevision: env.physicsRevision, limitations: j.limitations, metrics: j.metrics }), ...(jumps.length ? { frameJumps: jumps } : {}) });
+      range: j.range, evaluatedFrames: j.evaluatedFrames, physicsRevision: env.physicsRevision, limitations: j.limitations, metrics: j.metrics }), ...(jumps.rows.length ? { frameJumps: jumps.rows } : {}), ...(jumps.leftOut ? { frameJumpsLeftOut: jumps.leftOut } : {}) });
   } finally {
     disposeRig(t.evaluator);
     for (const member of t.cast) if (member.evaluator) disposeRig(member.evaluator);

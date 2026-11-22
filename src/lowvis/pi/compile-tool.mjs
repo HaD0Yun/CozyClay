@@ -21,7 +21,7 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:|jump:)/; // the rows that are a difference between what the spec asked and what came out (no spec asks for a jump of one frame)
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:|jump:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -207,7 +207,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, def, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: asBuilt, look: figure } }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, def) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
+		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def, spec: asBuilt, look: figure }, spec: asBuilt }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, def) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });
