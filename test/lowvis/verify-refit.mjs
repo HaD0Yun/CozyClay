@@ -78,6 +78,9 @@ const refit = studio => refitMotion({ hub: studio.hub, workspaceHandle: "ws", in
 	const moved = await refit(studioOf(source, 0.8, { moved: 0.3 }));
 	assert.equal(moved.refit.length, 0);
 	assert.match(moved.skipped[0].why, /more than a body's size or tint \(.*table: place.*\): the motion writer is needed/, moved.skipped[0]?.why);
+	const over = await refit(studioOf(source, 3.5)); // a size the tool does not build (a row carried over from another look may hold it)
+	assert.equal(over.refit.length, 0);
+	assert.match(over.skipped[0].why, /^the engine did not compile it: .*want a number from 0\.2 to 3, got 3\.5/, over.skipped[0]?.why);
 	const bare = await refit(studioOf(source, 0.8, { bare: true }));
 	assert.deepEqual([bare.refit.length, bare.keptNone], [0, ["a"]], "a take that keeps no spec: told, nothing changed");
 	console.log("ok refit: a scene changed otherwise is skipped for the writer, a take with no spec is told, an untouched motion is kept");
