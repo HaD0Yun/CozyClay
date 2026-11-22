@@ -17,7 +17,7 @@ import { fk } from "./motion3/compiler/skeleton.js";
 import { holdBody } from "./camera-hold-body.js";
 import { shotSubjects, subjectsCenter } from "./shot-subjects.js";
 import { applyRailHead } from "./camera-rail-head.js";
-import { contentKey } from "./content-key.js";
+import { sameData } from "./same-json.js";
 import { carriedPointAt, sceneObjectCarryMatrixAt } from "./object-travel.js";
 
 const DEG = Math.PI / 180;
@@ -42,10 +42,11 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ya
 		const camera = createCameraBlock(shot.camera);
 		if (camera.mode === "keys") continue;
 		// reuse (a Map the caller keeps while every other input above stays the same): a shot whose camera changed only
-		// in its rail head's angle keeps the samples it was built with, and only the angle is applied again
-		const key = reuse && contentKey([{ ...shot, camera: { ...shot.camera, head: undefined } }, camera.head?.follow !== false]);
+		// in its rail head's angle keeps the samples it was built with, and only the angle is applied again. What the
+		// samples are built from is the shot without that angle, compared value by value with the one they were built from.
+		const input = reuse && [{ ...shot, camera: { ...shot.camera, head: undefined } }, camera.head?.follow !== false];
 		const kept = reuse?.get(shot.id);
-		const built = kept?.key === key ? kept : { key, ...shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback, held }) };
+		const built = kept && sameData(kept.input, input) ? kept : { input, ...shotTrack(shot, camera, { subjectTrack, fps, yawDegOf, aimAt, filmback, held }) };
 		reuse?.set(shot.id, built);
 		if (!built.samples) continue;
 		built.samples.forEach((sample, offset) => { combined[built.from + offset] = built.rail ? applyRailHead(sample, camera.head) : sample; });

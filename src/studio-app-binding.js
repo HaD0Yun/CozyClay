@@ -15,7 +15,7 @@ import { verifyInstalledTake } from "./studio-agent-motion.js"; import { objectR
 import { shotGeometryFacts } from "./studio-geometry-facts.js"; import { KIT_CATALOGUE } from "./kits/index.js";
 import { STUDIO_TOOL_FAMILIES, StudioProtocolError, validateReceipt, validateStudioCommand, validateStudioIdentity, refusalCode } from "./studio-agent-protocol.js";
 import { studioVisual, verifyLighting } from "./studio-motion-visual.js"; import { studioRelations } from "./studio-relations.js";
-import { withEffectState } from "./effects/state.js"; import { hdrEnvironmentCatalogue } from "./stage-hdr-library.js"; import { contentKey, sameData } from "./content-key.js";
+import { withEffectState } from "./effects/state.js"; import { hdrEnvironmentCatalogue } from "./stage-hdr-library.js"; import { sameJson, sameData } from "./same-json.js";
 
 // App-owned adapter: the shared command modules remain the only
 // planners and validators. Ports below publish through the native editor stores.
@@ -42,8 +42,8 @@ export function createStudioAppBinding(ports) {
 	const calibrationContentKey = value => value && typeof value === "object" ? JSON.stringify(value) : null;
 	const tokens = new Map(), receipts = new Map(), images = new Map();
 	let owner = null, journal = null, actionBus = null;
-	const domainKeys = new Map(), domainRevisions = {};
-	let authoredKey, physicsKey, physicsInput, viewKey, observedSceneRevision = ports.revision.current;
+	const domainValues = new Map(), domainRevisions = {};
+	let authoredValue, physicsKey, physicsInput, viewKey, observedSceneRevision = ports.revision.current;
 	let physicsRevision = 0, viewRevision = 0;
 	function refresh() {
 		const document = Object.assign({}, ...(ports.storeDomains?.() ?? []).map(domain => domain.document()));
@@ -51,7 +51,7 @@ export function createStudioAppBinding(ports) {
 		const host = validateStudioIdentity(raw.host);
 		if (!same(owner, host)) {
 			owner = host; tokens.clear(); receipts.clear(); images.clear();
-			authoredKey = physicsKey = physicsInput = viewKey = undefined;
+			authoredValue = physicsKey = physicsInput = viewKey = undefined;
 			journal = createStudioCommandJournal({ host, isRetained: receipt => ports.isRetained(receipt) });
 		}
 		const characters = raw.characters.map(character => {
@@ -65,18 +65,19 @@ export function createStudioAppBinding(ports) {
 		const authoredCharacters = raw.characters.map(({ sessionMotion, ik, rig, ...character }) => character);
 		// The stage is authored state too: a key-light or environment edit from any
 		// surface bumps the scene revision exactly like a cast or object edit.
-		// Keyed through contentKey: a refresh runs several times per bus command (a camera drag sends one per pointer move)
-		// and every unchanged document value keeps its text from the last time instead of being written out again.
-		const authored = contentKey([raw.objects, authoredCharacters, raw.shots, raw.frameCount, raw.stage, document]);
-		if (authoredKey !== undefined && authoredKey !== authored && observedSceneRevision === ports.revision.current) ports.revision.current++;
-		authoredKey = authored; observedSceneRevision = ports.revision.current;
+		// Compared with the last refresh's values (sameJson: equal exactly when their JSON text is): a refresh runs several
+		// times per bus command (a camera drag sends one per pointer move) and an unchanged document value is not written out.
+		const authored = [raw.objects, authoredCharacters, raw.shots, raw.frameCount, raw.stage, document];
+		if (authoredValue !== undefined && !sameJson(authoredValue, authored) && observedSceneRevision === ports.revision.current) ports.revision.current++;
+		authoredValue = authored; observedSceneRevision = ports.revision.current;
 		const liveIds = new Set([...raw.objects, ...raw.characters, ...raw.shots].map(row => row.id));
 		for (const id of tokens.keys()) if (!liveIds.has(id)) tokens.delete(id);
 		for (const entry of [...raw.objects, ...characters, ...raw.shots]) {
 			// Display-only name/tint changes never revoke a motion target.
 			const { name, subject, tint, identityImage, ...content } = entry;
-			const key = contentKey(content), previous = tokens.get(entry.id);
-			if (!previous || previous.key !== key) tokens.set(entry.id, { key, token: `target-${++tokenSequence}`, incarnation: previous?.incarnation ?? crypto.randomUUID() });
+			const previous = tokens.get(entry.id);
+			if (previous && !previous.revoked && sameJson(previous.content, content)) previous.content = content;
+			else tokens.set(entry.id, { content, token: `target-${++tokenSequence}`, incarnation: previous?.incarnation ?? crypto.randomUUID() });
 		}
 		const input = { floor: { model: "flat", y: 0 }, frameCount: raw.frameCount,
 			objects: raw.objects.map(o => ({ id: o.id, renderer: o.renderer,
@@ -104,9 +105,8 @@ export function createStudioAppBinding(ports) {
 		if (viewKey !== undefined && viewKey !== nextViewKey) viewRevision++;
 		viewKey = nextViewKey;
 		for (const [domain, value] of Object.entries({ objects: raw.objects, shot: raw.shots, stage: raw.stage, cast: authoredCharacters, motion: characters, ...document })) {
-			const key = contentKey(value);
-			if (domainKeys.get(domain) !== key) domainRevisions[domain] = (domainRevisions[domain] ?? 0) + 1;
-			domainKeys.set(domain, key);
+			if (!domainValues.has(domain) || !sameJson(domainValues.get(domain), value)) domainRevisions[domain] = (domainRevisions[domain] ?? 0) + 1;
+			domainValues.set(domain, value);
 		}
 		return { ...raw, host, revision: ports.revision.current, physicsRevision, viewRevision, domainRevisions: { ...domainRevisions } };
 	}
@@ -380,7 +380,7 @@ export function createStudioAppBinding(ports) {
 		if (before === after) return;
 		if (domain === "pose") {
 			const id = ports.read().activeCharacterId, previous = tokens.get(id);
-			if (previous) tokens.set(id, { ...previous, key: null });
+			if (previous) tokens.set(id, { ...previous, revoked: true });
 			return;
 		}
 		if (!["characters", "objects"].includes(domain) || !Array.isArray(before) || !Array.isArray(after)) return;
@@ -392,7 +392,7 @@ export function createStudioAppBinding(ports) {
 		for (const row of before) {
 			const next = after.find(c => c.id === row.id), previous = tokens.get(row.id);
 			if (!next) tokens.delete(row.id);
-			else if (previous && !same(content(row), content(next))) tokens.set(row.id, { ...previous, key: null });
+			else if (previous && !same(content(row), content(next))) tokens.set(row.id, { ...previous, revoked: true });
 		}
 	}
 	return { handlers, context, guard, refresh, invalidate, get bus() { refresh(); return commandBus(); }, dispose: () => { actionBus?.dispose(); } };
