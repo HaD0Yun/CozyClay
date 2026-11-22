@@ -6,9 +6,12 @@
 // has a 1 m grid and soft drop shadows. A red line runs 0.5 m along +X and a blue one along +Z from the world origin.
 // The figure's right arm and leg are drawn darker so left and right read in a still. A character with a scale is drawn
 // that large, one with a tint in that colour (clip.js); one without a tint gets a colour of the sheet's own.
+// props: "outline" draws every prop as its edges alone (hidden where something is in front of them), so a body inside
+// or behind a prop shows. A focus entry { joint, of } frames that joint of that character close.
 import { crc32, deflateSync } from "node:zlib";
 import { paintLabel } from "../../motion-v4/render/font.js";
 import { JOINT_COUNT, qMul, qRotate } from "../rig17.js";
+import { jointPoints, propEdges } from "./outline.mjs";
 import { FIGURE_PARTS } from "./figure.mjs";
 
 const FOV = 26; // the viewer's (src/lowvis/viewer/main.js), with its view directions
@@ -50,6 +53,7 @@ const propAt = (p, f) => { const k = p.pos.length === 3 ? 0 : f; return { c: [p.
 /** What the camera must keep in frame: joints (and the floor under the hips) of the characters, corners of the props. */
 function framePoints(clip, frames, focus) {
 	const pts = [], all = !focus?.length, want = id => all || focus.includes(id);
+	if (!all) pts.push(...jointPoints(clip, frames, focus));
 	const fs = all ? Array.from({ length: Math.ceil(clip.frameCount / 2) }, (_, k) => k * 2) : frames;
 	for (const c of clip.characters) {
 		if (!want(c.id)) continue;
@@ -137,11 +141,11 @@ function sceneAt(clip, f) {
 			list.push({ c: [ch.pos[i] + d[0] * s, ch.pos[i + 1] + d[1] * s, ch.pos[i + 2] + d[2] * s], q: qMul(q, part.q), size: s === 1 ? part.size : part.size.map(v => v * s), color: tint(base, part.dark ? 0.42 : part.right ? 0.72 : 1) });
 		}
 	});
-	for (const p of clip.props ?? []) if (p.shown?.[f] !== 0) list.push({ ...propAt(p, f), size: p.size, color: PROP, ball: p.shape === "sphere" }); // not on the frames the clip hides it
+	for (const p of clip.props ?? []) if (p.shown?.[f] !== 0) list.push({ ...propAt(p, f), size: p.size, color: PROP, ball: p.shape === "sphere", prop: true }); // not on the frames the clip hides it
 	return list;
 }
 
-function drawCell(cell, W, H, cam, clip, f, bounds) {
+function drawCell(cell, W, H, cam, clip, f, bounds, outline = false) {
 	const { rgb, zb, ids, mask } = cell;
 	for (let i = 0; i < W * H; i++) { rgb[i * 3] = BACKGROUND[0]; rgb[i * 3 + 1] = BACKGROUND[1]; rgb[i * 3 + 2] = BACKGROUND[2]; }
 	zb.fill(0); ids.fill(0); mask.fill(0);
@@ -166,6 +170,7 @@ function drawCell(cell, W, H, cam, clip, f, bounds) {
 	const eye = [0, 1, 2].map(k => cam.right[k] * cam.cx + cam.up[k] * cam.cy + cam.dir[k] * cam.D);
 	items.forEach((it, n) => {
 		const id = n + 1;
+		if (outline && it.prop) return;
 		if (it.ball) {
 			const c = cell.toCam(it.c), r = it.size[0] / 2;
 			if (c[2] - r <= NEAR) return;
@@ -194,6 +199,7 @@ function drawCell(cell, W, H, cam, clip, f, bounds) {
 		if (ids[i] === ids[i + 1] && ids[i] === ids[i + W]) continue;
 		rgb[i * 3] *= 0.38; rgb[i * 3 + 1] *= 0.38; rgb[i * 3 + 2] *= 0.38;
 	}
+	if (outline) for (const it of items) if (it.prop) propEdges(cell, cam, it, tint(it.color, 0.45), SS * 1.5);
 }
 
 /** Convex hull of screen points (monotone chain). */
@@ -220,22 +226,23 @@ export function encodePng(rgba, width, height) {
 
 /**
  * Draws frames of a clip as one sheet: { rgba, width, height, frames, view, figurePx, ms }.
- * `view`: three | side | front | top. `focus`: ids of the characters and props to frame (over the frames shown);
- * none = the whole clip's travel and every prop. `label` goes before the frame number of every cell.
+ * `view`: three | side | front | top. `focus`: ids of the characters and props to frame (over the frames shown),
+ * and { joint, of } for a joint of a character, framed close; none = the whole clip's travel and every prop.
+ * `props`: "solid" (default) or "outline". `label` goes before the frame number of every cell.
  * `figurePx` is the height in pixels a standing figure (the smallest of the clip) has in a cell.
  */
-export function drawSheet(clip, { frames, view = "three", focus, cols, cell = [384, 320], label } = {}) {
+export function drawSheet(clip, { frames, view = "three", focus, cols, cell = [384, 320], label, props = "solid" } = {}) {
 	const t0 = performance.now(), F = clip.frameCount;
 	const list = (frames?.length ? frames : [0]).map(f => Math.max(0, Math.min(F - 1, Math.round(f))));
 	const [cw, ch] = cell, W = cw * SS, H = ch * SS, nCols = cols ?? Math.min(list.length, 4), nRows = Math.ceil(list.length / nCols);
-	const points = framePoints(clip, list, focus), cam = fitCamera(points, VIEWS[view] ?? VIEWS.three, cw / ch);
+	const close = focus?.length && focus.every(e => typeof e === "object"), points = framePoints(clip, list, focus), cam = fitCamera(points, VIEWS[view] ?? VIEWS.three, cw / ch, close ? 0.1 : 0.3);
 	let xa = Infinity, xb = -Infinity, za = Infinity, zb = -Infinity, depth = 0;
 	for (let i = 0; i < points.length; i += 3) { xa = Math.min(xa, points[i]); xb = Math.max(xb, points[i]); za = Math.min(za, points[i + 2]); zb = Math.max(zb, points[i + 2]); depth += cam.D - dot([points[i], points[i + 1], points[i + 2]], cam.dir); }
 	const bounds = [Math.floor(xa) - 2, Math.ceil(xb) + 2, Math.floor(za) - 2, Math.ceil(zb) + 2];
 	const width = nCols * cw + (nCols - 1) * GAP, height = nRows * ch + (nRows - 1) * GAP, rgba = new Uint8Array(width * height * 4).fill(255);
 	const buffers = createCell(W, H, cam);
 	list.forEach((f, n) => {
-		drawCell(buffers, W, H, cam, clip, f, bounds);
+		drawCell(buffers, W, H, cam, clip, f, bounds, props === "outline");
 		const ox = (n % nCols) * (cw + GAP), oy = Math.floor(n / nCols) * (ch + GAP), src = buffers.rgb;
 		for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
 			const a = ((y * SS) * W + x * SS) * 3, b = a + W * 3, o = ((oy + y) * width + ox + x) * 4;

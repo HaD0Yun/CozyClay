@@ -16,6 +16,7 @@ import { sceneObjectsAt } from './object-travel.js';
 import { objectTracksOf } from './motion3/object-tracks.js';
 import { sampleAt } from './sample-at.js';
 import { isProxyFigure } from './scenes.js';
+import { JUMP, groupJumps } from './lowvis/jumps.js';
 
 const PROFILE = 'studio-motion-v1', BLEND = 6;
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
@@ -103,7 +104,7 @@ function blockersAt(t, frame, objects) {
   // `objects` already stand where this frame renders them (routes and take tracks), so no re-sampling here.
   return collisionBlockers({ rigs, activeId: t.characterId, characterIds: cast, sceneObjects: objects, library: OBJECT_LIBRARY });
 }
-async function samples(t, layer) {
+async function samples(t, layer, shown = null) {
   const rows = [], poses = [], collisions = [], blockers = [];
   const cast = t.cast.map((member) => member.character).filter(Boolean);
   for (let frame = t.range.startFrame; frame < t.range.endFrameExclusive; frame++) {
@@ -118,10 +119,27 @@ async function samples(t, layer) {
     const capsules = buildCollisionCapsules(t.evaluator.rig);
     collisions.push(detectPenetrations(capsules, { blockers: shapes }).map(p => ({ a: p.a.def.id, b: p.b.def?.id ?? p.b.id, depth: p.depth })));
     blockers.push(blockerSummary(shapes));
+    shown?.push(new Map(objects.filter(o => !o.hidden).map(o => [o.id, [o.x ?? 0, o.y ?? 0, o.z ?? 0]])));
     if (frame % 12 === 11) { await t.yieldTask(); t.checkpoint(); }
   }
   const contacts = supportIntervals(rows, 24, [], t.env.floor.y);
   return { rows, poses, collisions, blockers, contacts, metrics: physicsMetrics(rows, contacts.masks, 24, t.env.floor.y), support: supportDiagnostics(rows, 24, t.env.floor.y) };
+}
+/** One-frame jumps (lowvis/jumps.js) of where the character is (its hips, at its own size) and of the objects that
+ * move, each over the stretches of frames it is shown on (shown: per frame, id -> place): a row for the character and
+ * one per object, the largest first, an object under one that has a row left out (it goes with it), at most 3 objects
+ * (leftOut: how many more); frames on the timeline, metres to the millimetre. */
+function frameJumps(t, rows, shown) {
+  const F = rows.length, start = t.range.startFrame, mm = v => Math.round(v * 1000) / 1000, parent = new Map(t.env.objects.map(o => [o.id, o.parent])), found = new Map();
+  const row = (id, g) => ({ id, frame: start + g.f, sizeM: mm(g.size), stepsM: g.steps.map(mm), frames: g.frames, firstFrame: start + g.first, lastFrame: start + g.last });
+  const body = groupJumps([{ at: f => rows[f].root.toArray() }], F, JUMP * (t.character.scale ?? 1));
+  for (const id of new Set(shown.flatMap(m => [...m.keys()]))) {
+    const runs = []; shown.forEach((m, f) => { if (!m.has(id)) return; if (runs.at(-1)?.[1] === f) runs.at(-1)[1] = f + 1; else runs.push([f, f + 1]); });
+    const g = groupJumps([{ at: f => shown[f].get(id), runs }], F, JUMP); if (g) found.set(id, g);
+  }
+  const under = id => { for (let p = parent.get(id), n = 0; typeof p === 'string' && n < 64; p = parent.get(p), n++) if (found.has(p)) return true; return false; };
+  const top = [...found].filter(([id]) => !under(id)).sort((x, y) => y[1].size - x[1].size);
+  return { rows: [...(body ? [row(t.characterId, body)] : []), ...top.slice(0, 3).map(([id, g]) => row(id, g))], leftOut: Math.max(0, top.length - 3) };
 }
 /** The verdict on one layer's samples (`after`) against the bare take's
  * (`before`): status inputs, coverage, metrics and limitations. */
@@ -190,9 +208,9 @@ export async function verifyInstalledTake({ target, environment, range, poseCast
     checkpoint: () => { if (now() > deadline) fail('VERIFICATION_FAILED', 'Private verification budget exceeded.'); } };
   try {
     stageCast(environment, t.characterId, t.cast);
-    const before = await samples(t, copyLayer()), after = await samples(t, copyLayer(target.ikState)), j = judge(t, before, after);
+    const shown = [], before = await samples(t, copyLayer()), after = await samples(t, copyLayer(target.ikState), shown), j = judge(t, before, after), jumps = frameJumps(t, after.rows, shown);
     return freezeStudioData({ characterId: t.characterId, ...receiptVerification({ verificationId: newId(), status: j.verified ? 'verified' : 'unverified',
-      range: j.range, evaluatedFrames: j.evaluatedFrames, physicsRevision: env.physicsRevision, limitations: j.limitations, metrics: j.metrics }) });
+      range: j.range, evaluatedFrames: j.evaluatedFrames, physicsRevision: env.physicsRevision, limitations: j.limitations, metrics: j.metrics }), ...(jumps.rows.length ? { frameJumps: jumps.rows } : {}), ...(jumps.leftOut ? { frameJumpsLeftOut: jumps.leftOut } : {}) });
   } finally {
     disposeRig(t.evaluator);
     for (const member of t.cast) if (member.evaluator) disposeRig(member.evaluator);
