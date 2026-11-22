@@ -404,8 +404,8 @@ function nearestS(rail, point) {
  * dolly stop at the first point that happens to match the preference.
  * The operator aims exactly as in the free follow. The timed target and its
  * local distance correction move through a critically damped spring
- * (dolly-spring.js), so the dolly never teleports; a speed cap applies only
- * when one is set.
+ * (dolly-spring.js): how fast the dolly takes a jump of that target is the
+ * shot's response, and a speed cap applies only when one is set.
  */
 export function buildRailFollowTrack(subject, fps, rail, params = {}) {
 	const p = { ...FOLLOW_DEFAULTS, searchWindow: 2.5, distanceInfluence: 0.35, ...params };

@@ -80,10 +80,12 @@ const CAMERA_BLOCK_DEFAULTS = {
 	response: 0.7,
 	lead: 0.25,
 	railStartMode: "head",
-	maxDollySpeed: 4,
+	maxDollySpeed: WORLD.dollySpeed,
 	pitchOffsetDeg: 0,
 	orbitOffsetDeg: 0,
 };
+// A rail is ridden on the shot clock, so its dolly never goes faster than its length over its time (to 0.1 m/s up).
+const railSpeedLimit = (shot, railLength, fps) => { const clip = shot.camera?.railFollow, frames = clip?.mode === "range" ? clip.endFrame - clip.startFrame : shot.endFrame - shot.startFrame; return railLength != null && frames > 0 ? Math.max(0.2, Math.ceil((railLength / (frames / fps)) * 10) / 10) : WORLD.dollySpeed; };
 
 function cameraBlockMode(shot) {
 	const mode = shot?.camera?.mode;
@@ -824,7 +826,7 @@ function CameraBlockEditor({
 			? { points: [{ t: 0, height: follow.height }, { t: 1, height: follow.height }] }
 			: null);
 	const patchCamera = (patch) => onChange?.(patch);
-	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const railFrames = shot.camera?.railFollow?.mode === "range" ? shot.camera.railFollow.endFrame - shot.camera.railFollow.startFrame : shot.endFrame - shot.startFrame; const speedLimit = mode === "rail" && railLength != null && railFrames > 0 ? Math.max(0.2, Math.ceil((railLength / (railFrames / fps)) * 10) / 10) : WORLD.dollySpeed; // the rail is ridden on the shot clock, so faster than length / time is never reached
+	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const speedLimit = mode === "rail" ? railSpeedLimit(shot, railLength, fps) : WORLD.dollySpeed;
 	const numberValue = (event) => Number(event.currentTarget.value);
 	const metric = (value, places = 1) => Number(value).toFixed(places);
 	return (
@@ -1931,7 +1933,7 @@ export default function Timeline({
 										const stateLabel = mode === "keys" && keyCount === 0 ? "FREE" : "LOCKED";
 										const modeLabel = mode === "rail" ? "RAIL" : mode === "follow" ? "FOLLOW" : `KEYS ${keyCount}`;
 										const detailLabel = mode === "rail"
-											? `${follow.railStartMode === "head" ? "HEAD" : "NEAREST"} · ${Number(follow.maxDollySpeed).toFixed(1)} m/s · PITCH ${signedDegrees(railShownPitchDeg(shot.camera, follow.pitchOffsetDeg))}${shot.camera?.head?.follow === false ? " · FIXED" : ""}`
+											? `${follow.railStartMode === "head" ? "HEAD" : "NEAREST"} · ${Math.min(Number(follow.maxDollySpeed), railSpeedLimit(shot, railLengthByShot.get(shot.id), fps)).toFixed(1)} m/s · PITCH ${signedDegrees(railShownPitchDeg(shot.camera, follow.pitchOffsetDeg))}${shot.camera?.head?.follow === false ? " · FIXED" : ""}`
 											: mode === "follow"
 												? `${Number(follow.distance).toFixed(1)} m · PITCH ${signedDegrees(follow.pitchOffsetDeg)}`
 												: null;

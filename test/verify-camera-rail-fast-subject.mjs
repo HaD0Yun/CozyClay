@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { FOLLOW_DEFAULTS, buildRail, buildRailFollowTrack } from "../src/camera-follow.js";
 import { createCameraBlock } from "../src/camera-block.js";
+import { buildShotCameraTracks } from "../src/camera-direction.js";
 import { cappedSpringStep } from "../src/dolly-spring.js";
 import { readShotAuthoringDocument } from "../src/shot-authoring.js";
 import { railDollyLag } from "../src/rail-dolly-lag.js";
@@ -67,5 +68,32 @@ assert.ok(stiffSpeeds.slice(0, FRAMES - 12).every((speed) => speed > 1), `no sta
 // At omega * dt <= 0.5 (every response from 0.39 s at 24 fps) the step is the single semi-implicit step it always was.
 const omega = 4.6 / 0.7, dt = 1 / FPS, acc = omega * omega * (3 - 1) - 2 * omega * 0.5, vel = 0.5 + acc * dt;
 assert.deepEqual(cappedSpringStep(1, 0.5, 3, omega, dt, 40), [1 + vel * dt, vel]);
+// Past it the frame is that many equal steps of the same rule, each under the cap: nothing but the frame's inputs decides it.
+const stiffOmega = 4.6 / 0.1, parts = Math.ceil((stiffOmega * dt) / 0.5);
+let [stepPos, stepVel] = [1, 0.5];
+for (let i = 0; i < parts; i += 1) { stepVel = Math.max(0, Math.min(stepVel + (stiffOmega * stiffOmega * (3 - stepPos) - 2 * stiffOmega * stepVel) * (dt / parts), 2.5)); stepPos += stepVel * (dt / parts); }
+assert.equal(parts, 4);
+assert.deepEqual(cappedSpringStep(1, 0.5, 3, stiffOmega, dt, 2.5), [stepPos, stepVel]);
+
+// The lag is measured on the rail alone from its head, whatever start the shot names; an aimed rail's own camera has exactly that gap.
+assert.deepEqual(railDollyLag(rail, FRAMES, FPS, { ...followCam, maxDollySpeed: 4, railStartMode: "nearest" }), capped);
+const aimedShot = (cap) => [{ id: "shot-a", startFrame: 0, endFrame: FRAMES - 1, camera: { mode: "rail", cameraRail: railPoints, aim: { point: { x: 3, y: 1, z: 0 } }, followCam: { ...followCam, maxDollySpeed: cap } } }];
+const dollyOf = (cap) => buildShotCameraTracks({ shots: aimedShot(cap), subjectTrack: subject, fps: FPS }).map((sample) => sample.s);
+const gaps = dollyOf(Infinity).map((s, f) => s - dollyOf(4)[f]);
+assert.deepEqual(capped, { behindM: Math.max(...gaps), frame: gaps.indexOf(Math.max(...gaps)), endShortM: gaps.at(-1) });
+
+// Slow shots play as they did: a walk-pace rail with a hand turn, a head that turns to nothing, an aim, turned crane marks
+// or a recorded aim gives the same samples whether its body is an old one (the stored 4 lifted) or keeps a 4 m/s cap.
+const walkPoints = [{ x: 0, z: 3 }, { x: 2.4, z: 3.4 }, { x: (1.2 * (FRAMES - 1)) / FPS, z: 3 }];
+const slowCameras = [{}, { head: { yawDeg: 14.5, pitchDeg: -6 } }, { head: { follow: false, yawDeg: 95, pitchDeg: -12 } }, { aim: { ids: ["a"], picked: true } }, { aim: { point: { x: 2, y: 1, z: -1 } } },
+	{ craneHeight: { points: [{ t: 0, height: 1.2 }, { t: 0.4, height: 2.6, yawDeg: 25, pitchDeg: -10 }, { t: 1, height: 3 }] } },
+	{ aimTake: { startFrame: 6, samples: Array.from({ length: 20 }, (_, i) => ({ yaw: 0.1 + i * 0.01, pitch: -0.05 })) } }, { railFollow: { mode: "range", startFrame: 12, endFrame: 80 } }];
+for (const extra of slowCameras) {
+	const stored = (version) => ({ version, frameCount: FRAMES, waypoints: [], shots: [{ id: "shot-a", name: "Walk", startFrame: 0, endFrame: FRAMES - 1,
+		camera: { mode: "rail", cameraRail: walkPoints, followCam: { distance: 3, height: 1.6, response: 0.7, lead: 0.25, railStartMode: "head", maxDollySpeed: 4, pitchOffsetDeg: 0, orbitOffsetDeg: 0 }, ...extra } }] });
+	const samples = (version) => buildShotCameraTracks({ shots: readShotAuthoringDocument(stored(version)).state.shots, subjectTrack: walk, fps: FPS, aimAt: (id, f) => ({ ...walk[f], y: 1.3 }) });
+	assert.ok(samples(7).filter(Boolean).length >= 69, JSON.stringify(extra));
+	assert.deepEqual(samples(7), samples(8), `a slow rail plays the same without the old cap: ${JSON.stringify(extra)}`);
+}
 
 console.log(`verify-camera-rail-fast-subject: ok (8 m/s subject: widest gap ${worst(kept).toFixed(2)} m uncapped vs ${worst(lagged).toFixed(2)} m at a 4 m/s cap; cap lag ${capped.behindM.toFixed(1)} m, ${capped.endShortM.toFixed(1)} m short)`);

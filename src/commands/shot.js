@@ -4,6 +4,7 @@ import { addShotAtFrame, appendShotGrowingTake, cutAtFrame, duplicateShot, remov
 import { createStableItemId, updateStableItem } from '../stable-items.js';
 import { railFollowForNewGeometry } from '../camera-rail-schedule.js';
 import { buildRail } from '../camera-follow.js';
+import { railDollyLag } from '../rail-dolly-lag.js';
 import { cameraKeyWarnings } from '../camera-direction.js';
 import { TIMELINE_FPS } from '../timeline-defaults.js';
 import { studioActionDeclaration } from '../studio-actions.js';
@@ -96,7 +97,11 @@ export function register(registry, ports) {
     const heights = camera.craneHeight?.points.map(point => point.height) ?? [camera.followCam.height], speed = metres / seconds;
     const aimed = camera.head?.follow === false ? `nothing (held at yaw ${camera.head.yawDeg}°, pitch ${camera.head.pitchDeg}° set by hand)` : camera.aim?.ids ? `${camera.aim.ids.join(', ')}${camera.aim.height === undefined ? '' : ` at ${camera.aim.height.toFixed(2)} m`}` : (camera.aim ? `(${['x', 'y', 'z'].map(axis => camera.aim.point[axis].toFixed(2)).join(', ')})` : 'the follow subject');
     const note = `${metres.toFixed(1)} m over ${seconds.toFixed(1)} s (${speed.toFixed(2)} m/s), height ${[...new Set([heights[0], heights.at(-1)])].map(h => h.toFixed(2)).join('-')} m, aim ${aimed}${camera.head && camera.head.follow !== false ? ` turned yaw ${camera.head.yawDeg}°, pitch ${camera.head.pitchDeg}° by hand` : ''}${markTurns(camera) ? `, turned by hand at ${marks(markTurns(camera))} along the rail` : ''}, ${camera.focalMm ? `${camera.focalMm} mm` : 'scene lens'}${shot.cameraKeys.length > keys.length ? `; ${shot.cameraKeys.length - keys.length} camera keys removed` : ''}${turnedBefore > markTurns(camera) ? `; the hand turn of ${marks(turnedBefore - markTurns(camera))} removed` : ''}.`;
-    const fast = speed > camera.followCam.maxDollySpeed ? [{ code: 'RAIL_TOO_FAST', id: shotId, message: `${speed.toFixed(1)} m/s is past the ${camera.followCam.maxDollySpeed} m/s dolly cap, so the camera lags; lengthen the shot or the rail.` }] : [];
+    // A dolly cap is a setting of the shot (the user's, or the world's fastest dolly): the answer is the lag it measures (rail-dolly-lag.js), on the rail
+    // alone and ridden from its head; a rail that opens nearest its subject starts where the subject is, so only the two speeds are said. 120 characters at most.
+    const cap = camera.followCam.maxDollySpeed, lag = camera.followCam.railStartMode === 'head' ? railDollyLag(buildRail(camera.cameraRail), span[1] - span[0] + 1, TIMELINE_FPS, { ...camera.followCam, dollyTiming: camera.dollyTiming }) : null;
+    const asks = `Dolly cap ${Number(cap.toFixed(2))} m/s, rail asks ${speed.toFixed(2)}`, held = lag && `${asks}: rail alone, the cap holds the dolly ${lag.behindM.toFixed(1)} m back at frame ${span[0] + lag.frame}, ${lag.endShortM.toFixed(1)} m at the end.`;
+    const fast = (lag ? lag.behindM > 0.05 : speed > cap) ? [{ code: 'RAIL_TOO_FAST', id: shotId, message: held && held.length <= 120 ? held : `${asks} m/s.` }] : [];
     return { note, warnings: fast };
   }
   // aimHeight moves a cast aim off the chest to a world height (a whole body, a face).

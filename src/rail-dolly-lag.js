@@ -1,17 +1,19 @@
 import { buildRailFollowTrack } from "./camera-follow.js";
 
 /**
- * How far a set speed cap holds a rail dolly behind the rail's own schedule.
- * Both runs ride the rail alone (no distance pull) over `frames` frames: once
- * with no cap, once with the shot's follow settings. Returns the largest gap
- * in metres along the rail, the frame (from the rail's first) it happens on,
- * and how far short of the uncapped end the capped dolly stops. Without a cap
- * both runs are the same track and every value is 0.
+ * How far a speed cap holds a rail dolly back, measured on the rail alone.
+ * Both runs ride the rail from its head over `frames` frames with no subject
+ * to pull them (no distance pull, whatever start the shot names): once with
+ * no cap, once with the shot's follow settings. Returns the largest gap in
+ * metres along the rail, the frame (from the rail's first) it happens on, and
+ * the gap on the last frame. Without a cap both runs are the same track and
+ * every value is 0. A shot whose camera follows a subject adds its distance
+ * pull to both runs, so its own gap differs; an aimed rail's is this one.
  */
 export function railDollyLag(rail, frames, fps, params = {}) {
 	if (!rail || !(rail.length > 1e-6) || !(frames > 1)) return { behindM: 0, frame: 0, endShortM: 0 };
 	const still = Array.from({ length: Math.round(frames) }, () => rail.points[0]);
-	const alone = { ...params, distanceInfluence: 0 };
+	const alone = { ...params, distanceInfluence: 0, railStartMode: "head" };
 	const asked = buildRailFollowTrack(still, fps, rail, { ...alone, maxDollySpeed: Infinity });
 	const capped = buildRailFollowTrack(still, fps, rail, alone);
 	let behindM = 0;
