@@ -17,8 +17,9 @@ const limits = (path) => elementByPath(path);
 const finite = (value, fallback, { min, max }) => (typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback);
 
 // The key a new project opens with, and what Reset light and the studio look
-// return to: a neutral sun (brightness 0.9, warmth 0; the owner's pick for the
-// toon look, 2026-11-16: 4 was too bright under it). Saved stages keep
+// return to: a sun at brightness 0.9 and warmth 0, the cool end of the slider
+// (#e8f0ff, room.jsx keyLightColor; the owner's pick for the toon look,
+// 2026-11-16: 4 was too bright under it). Saved stages keep
 // their own key; only a record with no key at all picks this up. The 1.12
 // still used as a ratio elsewhere (dim, practical lights) is the old key's
 // brightness, kept as the scale those were tuned against.
@@ -143,7 +144,8 @@ export function stageLook({ lighting, keyLight, theme = "dark", grid = false }) 
 		ambient: (neutral ? 0.34 : lightTheme ? 0.32 : 0.18) * lift * l.ambient,
 		fill: 0.36 * dim * l.fill, rim: 0.22 * dim * l.fill,
 		exposure: l.exposure,
-		// shadow.radius in shadow-map texels (2048 over 28 m: ~1.4 cm each); 1 is the tuned hard
+		// shadow.radius in shadow-map texels at 2048 over 28 m (~1.4 cm each; the shadow box follows the set,
+		// stage-shadow-fit.js, and keeps this width in metres); 1 is the tuned hard
 		// edge. A wider kernel reaches the surface's own depth on curved clay and
 		// cross-hatches it, so the normal offset grows with it (metres).
 		shadowRadius: 1 + l.shadowSoftness * 7,

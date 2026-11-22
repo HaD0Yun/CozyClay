@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { stageLook } from "./stage-lighting.js";
+import { followSet } from "./stage-shadow-fit.js";
 // Patches three's PCF filter before any material compiles (16 taps past radius 1).
 import "./soft-shadows.js";
 export { StageAtmosphere } from "./stage-sky.jsx";
@@ -70,7 +71,12 @@ const GRID_INK = Object.freeze({
  */
 function makeDeckMaterial(light) {
 	const ink = light ? GRID_INK.light : GRID_INK.dark;
-	const material = new THREE.MeshLambertMaterial({
+	// A standard surface with no specular is the lambert deck it replaced, and it takes the finish's surface look like
+	// every other surface on the set (stage-finish-surface.js): the same light steps, fill, lamp pools and shadow edge.
+	const material = new THREE.MeshPhysicalMaterial({
+		roughness: 1,
+		metalness: 0,
+		specularIntensity: 0,
 		color: light ? FLOOR_LIGHT : FLOOR,
 		emissive: light ? FLOOR_LIGHT : "#000000",
 		emissiveIntensity: light ? FLOOR_LIGHT_GLOW : 0,
@@ -145,6 +151,8 @@ export function keyLightColor(warmth = 0.5) {
  */
 export function StageLights({ keyLight = { x: 6, y: 9, z: 4, intensity: 1.12, warmth: 0.5 }, lighting = null, neutral = false, light = false }) {
 	const look = stageLook({ lighting, keyLight, theme: light ? "light" : "dark", grid: neutral });
+	const key = useRef(null);
+	useLayoutEffect(() => followSet(key.current), []);
 	return (
 		<>
 			<hemisphereLight args={[look.hemi.sky, look.hemi.ground, 0.9]} intensity={look.hemi.intensity} />
@@ -153,32 +161,23 @@ export function StageLights({ keyLight = { x: 6, y: 9, z: 4, intensity: 1.12, wa
 			<ambientLight intensity={look.ambient} />
 			{/* Only the key casts: one soft, unambiguous contact shadow reads as
 			    ground contact, while three overlapping shadows read as noise. The
-			    map covers the blocking area rather than the whole 500 m deck — a
-			    stage-wide frustum would spend its resolution on empty floor. */}
+			    map covers the part of the set each draw can see, wherever it stands
+			    on the deck (stage-shadow-fit.js), rather than the whole 500 m deck. */}
 			<directionalLight
+				ref={key}
 				color={keyLight.color ?? keyLightColor(keyLight.warmth)}
 				position={[keyLight.x, keyLight.y, keyLight.z]}
 				intensity={keyLight.intensity}
 				castShadow
-				shadow-mapSize-width={2048}
-				shadow-mapSize-height={2048}
-				shadow-camera-left={-14}
-				shadow-camera-right={14}
-				shadow-camera-top={14}
-				shadow-camera-bottom={-14}
-				shadow-camera-near={0.5}
-				// Verified edge case (research C5): the user-clamped light corner
-				// (30,30,30) sits 52 m from the origin — far 40 used to clip every
-				// shadow there. 60 covers the clamp envelope with headroom.
-				shadow-camera-far={60}
-				shadow-bias={-0.0006}
-				// PCF spreads its noise-rotated taps over shadow.radius texels, so a
-				// larger radius is a wider penumbra in the same single pass
-				// (stage.lighting.shadowSoftness; soft-shadows.js says why not VSM).
-				// The normal offset grows with the radius.
-				shadow-normalBias={look.shadowNormalBias}
-				shadow-radius={look.shadowRadius}
+				// PCF spreads its taps over shadow.radius texels, so a larger radius
+				// is a wider penumbra in the same single pass (stage.lighting.shadowSoftness;
+				// soft-shadows.js says why not VSM). The normal offset grows with the
+				// radius. Both are given at the old 28 m box's density; the fit keeps
+				// their width in metres.
+				userData-shadowRadius={look.shadowRadius}
+				userData-shadowNormalBias={look.shadowNormalBias}
 			/>
+			{/* Fill and rim cast no shadow: under the toon look they light every face alike (stage-finish-surface.js). */}
 			<directionalLight color="#eef2f4" position={[-6, 4, -4]} intensity={look.fill} />
 			<directionalLight color="#ffffff" position={[2, 3, 9]} intensity={look.rim} />
 		</>

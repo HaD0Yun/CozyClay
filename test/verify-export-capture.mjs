@@ -22,6 +22,7 @@ let currentTarget = initialTarget;
 let capturedCamera;
 let readbackError = null;
 const gl = {
+	toneMapping: THREE.ACESFilmicToneMapping,
 	getRenderTarget: () => currentTarget,
 	setRenderTarget: (target) => { currentTarget = target; },
 	render: (_scene, camera) => { capturedCamera = camera; },
@@ -36,11 +37,12 @@ const gl = {
 let cleanup;
 const browser = {};
 const page = { visibilityState: "visible" };
-// The finish (stage-finish.js) is the toon look's frame pass; it draws only when scene.userData.finishLook is set,
-// so this stub records its calls and the checks below run with the look off, as the Studio's setting can.
+// The finish (stage-finish.js) is the frame pass every beauty export draws through: the toon look when
+// scene.userData.finishLook is set, else the canvas's own tone curve with no surface look and no lines. This stub
+// records its calls (and the camera, as gl.render would); a pass (an override material) is drawn plainly by gl.render.
 const finishes = [];
 const createFinish = () => {
-	const finish = { renders: [], disposals: 0, render(...args) { finish.renders.push(args); }, dispose() { finish.disposals += 1; } };
+	const finish = { renders: [], disposals: 0, render(...args) { finish.renders.push(args); capturedCamera = args[2]; }, dispose() { finish.disposals += 1; } };
 	finishes.push(finish);
 	return finish;
 };
@@ -72,6 +74,20 @@ assert.equal(camera.aspect, 16 / 9, "export never changes the editing camera asp
 assert.equal(camera.layers.isEnabled(5), true);
 assert.equal(currentTarget, initialTarget);
 assert.deepEqual([scene.fog.near, scene.fog.far], [20, 50]);
+// With the look off the export is the canvas's draw: the renderer's tone curve, no surface look, no lines.
+const plain = finishes[0].renders.at(-1);
+assert.equal(plain[3], targets[1], "the look-off draw goes through the finish into the export's own target");
+assert.equal(plain[4].tone, gl.toneMapping);
+assert.equal(plain[4].surface, null);
+assert.equal(plain[4].line.amount, 0);
+// A pass is data, drawn as is by the renderer, not tone-mapped.
+const before = finishes[0].renders.length;
+capturedCamera = undefined;
+scene.overrideMaterial = new THREE.MeshNormalMaterial();
+assert.equal(exportApi.render().byteLength, 12 * 7 * 4);
+assert.equal(finishes[0].renders.length, before, "a pass skips the finish");
+assert.ok(capturedCamera, "a pass is drawn by the renderer");
+scene.overrideMaterial = null;
 
 cleanup();
 assert.equal(targets[0].disposals, 1, "editor resize releases its own target");
