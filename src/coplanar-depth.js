@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { WORLD_SCALES } from "./world-scale.js";
 
 /**
  * Depth ranks for coplanar faces of scene-object primitives.
@@ -14,6 +15,9 @@ import * as THREE from "three";
 const DEG = Math.PI / 180;
 /** Planes closer than this are one plane. */
 const PLANE_EPS = 1e-3;
+// The smallest depth step a 24-bit depth buffer resolves at the far plane of the room-scale cameras (near 0.1 m,
+// far 100 m): about 6 mm. Same-facing faces closer than this fight somewhere in view, a millimetre apart or five.
+const DEPTH_GAP = WORLD_SCALES.room.cameraFar ** 2 / (0.1 * 2 ** 24);
 /** Normals this aligned (cosine) face the same way. */
 const NORMAL_DOT = 0.9999;
 /** Overlap shallower than this is two faces touching along an edge. */
@@ -122,26 +126,32 @@ function conflictingFaces(a, b) {
 	return found;
 }
 
-function conflict(a, b) {
+// Which of a and b must win where same-facing faces of the two overlap closer than the depth buffer tells apart:
+// 1 = b, -1 = a, 0 = neither. Faces in one plane: the later part (b), the later-made detail. Faces a gap apart:
+// the one in front along their normal; when two pairs disagree (the two sides of stacked planes), the pair that
+// faces most upward decides, as the cameras of a set stand above its floor.
+function winner(a, b) {
+	let best = null;
 	for (const fa of a.faces) {
 		for (const fb of b.faces) {
 			if (dot(fa.n, fb.n) <= NORMAL_DOT) continue;
 			const gap = dot(fa.n, [fb.c[0] - fa.c[0], fb.c[1] - fa.c[1], fb.c[2] - fa.c[2]]);
-			if (Math.abs(gap) > PLANE_EPS) continue;
-			if (overlaps(fa, fb)) return true;
+			if (Math.abs(gap) > DEPTH_GAP || !overlaps(fa, fb)) continue;
+			if (Math.abs(gap) <= PLANE_EPS) return 1;
+			if (!best || fa.n[1] > best.up) best = { up: fa.n[1], side: gap > 0 ? 1 : -1 };
 		}
 	}
-	return false;
+	return best?.side ?? 0;
 }
 
 /**
- * Which objects need to win the depth test over an earlier one.
+ * Which objects need to win the depth test over another one.
  *
- * Two planar faces conflict when they face the same way, share a plane to
- * within a millimetre and overlap with real area; touching boxes (opposite
- * facing) never do. The later object in `objects` is the later-made detail, so
- * each conflict is an edge earlier -> later, and an object's rank is the length
- * of the longest chain ending at it (capped). Only ranked objects (> 0) get an
+ * Two planar faces fight when they face the same way, overlap with real area
+ * and lie closer than the depth buffer resolves at the far plane (DEPTH_GAP);
+ * touching boxes (opposite facing) never do. Each fight is an edge from the
+ * loser to the winner (see winner), and an object's rank is the length of the
+ * longest chain ending at it (capped). Only ranked objects (> 0) get an
  * entry. Run it on the AUTHORED records: a routed group moves rigidly, so
  * relative geometry inside it does not change with the frame.
  *
@@ -157,22 +167,32 @@ export function coplanarDepthRanks(objects) {
 	const ranks = new Map();
 	if (!Array.isArray(objects) || objects.length < 2) return ranks;
 	const shapes = objects.map((object) => (object && typeof object === "object" ? facesOf(object) : null));
-	const rank = new Array(objects.length).fill(0);
+	const edges = [];
 	for (let j = 1; j < objects.length; j += 1) {
 		const b = shapes[j];
 		if (!b) continue;
 		for (let i = 0; i < j; i += 1) {
 			const a = shapes[i];
-			if (!a || rank[i] + 1 <= rank[j]) continue;
+			if (!a) continue;
 			if (
-				a.min[0] > b.max[0] + PLANE_EPS || b.min[0] > a.max[0] + PLANE_EPS ||
-				a.min[1] > b.max[1] + PLANE_EPS || b.min[1] > a.max[1] + PLANE_EPS ||
-				a.min[2] > b.max[2] + PLANE_EPS || b.min[2] > a.max[2] + PLANE_EPS
+				a.min[0] > b.max[0] + DEPTH_GAP || b.min[0] > a.max[0] + DEPTH_GAP ||
+				a.min[1] > b.max[1] + DEPTH_GAP || b.min[1] > a.max[1] + DEPTH_GAP ||
+				a.min[2] > b.max[2] + DEPTH_GAP || b.min[2] > a.max[2] + DEPTH_GAP
 			) continue;
-			if (conflict(a, b)) rank[j] = Math.min(MAX_DEPTH_RANK, rank[i] + 1);
+			const side = winner(a, b);
+			if (side) edges.push(side > 0 ? [i, j] : [j, i]);
 		}
-		if (rank[j] > 0) ranks.set(objects[j].id, rank[j]);
 	}
+	// the longest chains, by relaxation; the cap ends a cycle
+	const rank = new Array(objects.length).fill(0);
+	for (let changed = edges.length > 0; changed;) {
+		changed = false;
+		for (const [from, to] of edges) {
+			const next = Math.min(MAX_DEPTH_RANK, rank[from] + 1);
+			if (next > rank[to]) { rank[to] = next; changed = true; }
+		}
+	}
+	rank.forEach((value, index) => { if (value > 0) ranks.set(objects[index].id, value); });
 	return ranks;
 }
 

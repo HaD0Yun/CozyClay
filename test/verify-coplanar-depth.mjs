@@ -32,8 +32,25 @@ check("stacked touching cubes (opposite faces) get no rank", () => {
 	assert.equal(coplanarDepthRanks([cube("a", 0, 0, 0), cube("b", 0, 1, 0)]).size, 0);
 });
 
-check("3 mm apart: no rank", () => {
-	assert.equal(coplanarDepthRanks([cube("a", 0, 0, 0), cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5)]).size, 0);
+// A 24-bit depth buffer cannot tell faces 1-6 mm apart at the 100 m far plane: those fight too, and the face in
+// front along the normal wins, whichever was made first. Past that gap the depth test orders them itself.
+check("3 mm apart: the face in front ranks, made first or last", () => {
+	assert.equal(rankOf([cube("a", 0, 0, 0), cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5)], "b"), 1);
+	assert.equal(rankOf([cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5), cube("a", 0, 0, 0)], "b"), 1);
+	assert.equal(rankOf([cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5), cube("a", 0, 0, 0)], "a"), 0);
+});
+
+check("8 mm apart: no rank", () => {
+	assert.equal(coplanarDepthRanks([cube("a", 0, 0, 0), cube("b", 0.5, 0.508, 0, 1, 0.5, 0.5)]).size, 0);
+});
+
+check("stacked planes 2-5 mm apart (ground, road, lines): the upper one wins, by height not by order", () => {
+	const plane = (id, y, sx, sz) => ({ id, renderer: "plane", x: 0, y, z: 0, rot: 0, scaleX: sx, scaleY: 1, scaleZ: sz });
+	const ground = plane("ground", 0, 20, 20), road = plane("road", 0.002, 3, 20), line = plane("line", 0.005, 0.1, 18);
+	for (const order of [[ground, road, line], [line, road, ground], [road, line, ground]]) {
+		const ranks = coplanarDepthRanks(order);
+		assert.deepEqual([ranks.get("ground") ?? 0, ranks.get("road") ?? 0, ranks.get("line") ?? 0], [0, 1, 2], order.map((o) => o.id).join(","));
+	}
 });
 
 check("coplanar but side by side with a gap: no rank", () => {
@@ -53,8 +70,9 @@ check("rotY 90: coplanar front faces conflict", () => {
 	const a = cube("a", 0, 0, 0, 2, 1, 1, { rot: 90 });
 	const b = cube("b", 0, 0, 0.5);
 	assert.equal(rankOf([a, b], "b"), 1);
-	// a lower, thinner cube 5 mm off the plane does not
-	assert.equal(coplanarDepthRanks([a, cube("c", 0, 0.2, 0.505, 0.5, 0.5, 1)]).size, 0);
+	// a lower, thinner cube 5 mm in front of the plane wins over it; 8 mm in front, nothing
+	assert.equal(rankOf([a, cube("c", 0, 0.2, 0.505, 0.5, 0.5, 1)], "c"), 1);
+	assert.equal(coplanarDepthRanks([a, cube("c", 0, 0.2, 0.508, 0.5, 0.5, 1)]).size, 0);
 });
 
 check("rotY 45 top overlapping an axis-aligned top conflicts; far corner does not", () => {
