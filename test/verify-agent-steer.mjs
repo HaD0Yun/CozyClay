@@ -79,7 +79,7 @@ async function startServer(options) {
 	let steerStatus = null, steerBody = null;
 	const events = await readSseEvents(response, async (event) => {
 		if (event.type !== "tool.start" || steerStatus !== null) return;
-		const steerResponse = await fetch(`${origin}/agent/turn/${turnId}/steer`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ text: "actually, stop and summarize" }) });
+		const steerResponse = await fetch(`${origin}/agent/turn/${turnId}/steer`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ text: "actually, stop and summarize", id: "queued-row-1" }) });
 		steerStatus = steerResponse.status;
 		steerBody = await steerResponse.json();
 		slow.resolve();
@@ -87,6 +87,7 @@ async function startServer(options) {
 	expect("the steer request is accepted while the tool is still running", steerStatus === 200, `status ${steerStatus}`);
 	expect("the steer response acknowledges the queued message", steerBody?.ok === true && steerBody?.queued === true, JSON.stringify(steerBody));
 	expect("the turn completes", events.some((event) => event.type === "done"));
+	expect("the turn's stream names the steer it put in front of the model by the id it was sent with", events.some((event) => event.type === "steer.received" && event.id === "queued-row-1"), JSON.stringify(events.map((event) => event.type)));
 	expect("exactly one tool ran before the turn ended", events.filter((event) => event.type === "tool.start").length === 1);
 	assert.equal(fauxMain.calls.length, 2, "the tool result triggers exactly one further model call");
 	const secondContext = fauxMain.calls[1];

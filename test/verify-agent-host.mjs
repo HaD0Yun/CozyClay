@@ -164,7 +164,7 @@ function heldSseBody(chunks) {
 			getReader() {
 				return {
 					async read() {
-						if (at < chunks.length) return { value: encoder.encode(chunks[at++]), done: false };
+						if (at < chunks.length) return { value: encoder.encode(await chunks[at++]), done: false }; // a chunk may be a promise the test settles
 						await open;
 						return { value: undefined, done: true };
 					},
@@ -322,24 +322,32 @@ if (runs("embedded-session-and-receipts")) {
 	});
 
 	await group("steering a running Workflow turn (#379)", async () => {
-		const held = heldSseBody([frame({ type: "text.delta", text: "Framing the shot." })]);
+		// The stream's next chunk is held until the test hands it over: the turn's steer.received for the steer's id.
+		let received;
+		const later = new Promise((resolve) => { received = resolve; });
+		const held = heldSseBody([frame({ type: "text.delta", text: "Framing the shot." }), later]);
 		const sidecar = fakeSidecar({
 			"/agent/turn$": () => ({ ok: true, status: 200, body: held.body }),
 			"/steer$": () => jsonResponse({ ok: true, queued: true }),
 		});
 		const transport = createHttpTransport({ fetchImpl: sidecar.fetchImpl, surface: "workflow", capture: () => {}, now: () => 0 });
-		const store = createAgentChatStore({ transport, surface: "workflow" });
+		const heard = [];
+		const store = createAgentChatStore({ transport, surface: "workflow", onSteer: (event) => heard.push(event) });
 		const turn = store.send("block the two-shot", { model: "anthropic/claude" });
 		await settled(store, (state) => state.items.some((item) => item.kind === "assistant"));
 		store.setDraft("actually, make it wider");
 		const result = await store.steer(store.getState().draft);
 		const steer = sidecar.calls.find((call) => /\/steer$/.test(call.path));
 		const turnBody = sidecar.calls.find((call) => call.path === "/agent/turn").body;
-		expect("the steer is accepted while the turn is still streaming", result.ok === true, JSON.stringify(result));
-		expect("the steer posts the composer text to the running turn", steer?.method === "POST" && steer.body?.text === "actually, make it wider", JSON.stringify(steer));
+		expect("the steer is accepted while the turn is still streaming", result.ok === true && typeof result.id === "string", JSON.stringify(result));
+		expect("the steer posts the composer text and its id to the running turn", steer?.method === "POST" && steer.body?.text === "actually, make it wider" && steer.body?.id === result.id, JSON.stringify(steer));
 		expect("the steer is keyed by the id the browser minted for THIS turn", steer?.path === `/agent/turn/${turnBody.turn_id}/steer`, `${steer?.path} vs turn_id=${turnBody?.turn_id}`);
-		expect("an accepted steer joins the transcript and empties the composer", store.getState().draft === "" && store.getState().items.filter((item) => item.kind === "user").length === 2,
+		expect("an accepted steer empties the composer but is not shown as said to the model yet", store.getState().draft === "" && store.getState().items.filter((item) => item.kind === "user").length === 1,
 			JSON.stringify(store.getState().items.map((item) => item.kind)));
+		received(frame({ type: "steer.received", id: result.id }));
+		await settled(store, (state) => state.items.filter((item) => item.kind === "user").length === 2);
+		expect("once the turn says the model's context took it, the steer joins the transcript", store.getState().items.at(-1)?.steered === true && store.getState().items.at(-1)?.text === "actually, make it wider"
+			&& heard.length === 1 && heard[0].type === "steer.received" && heard[0].id === result.id, JSON.stringify(heard));
 		expect("steering never starts a second turn", sidecar.calls.filter((call) => call.path === "/agent/turn").length === 1);
 		expect("the turn is still streaming after the steer", store.getState().streaming === true);
 		held.release();
@@ -652,35 +660,38 @@ if (runs("failed-action-and-reconnect")) {
 		held.release();
 		await turn.catch(() => {});
 
-		// The Studio envelope cannot be steered at all: the sidecar answers 409
-		// STEER_UNSUPPORTED and the panel says so instead of eating the text.
+		// A Studio turn is steered like the Workflow one. A steer the turn never
+		// answered (Stop cut the stream) is reported dropped, never shown as said.
 		const studioHeld = heldSseBody([frame({ type: "text.delta", text: "Reading the scene." })]);
 		const studioSidecar = fakeSidecar({
 			"/agent/turn$": () => ({ ok: true, status: 200, body: studioHeld.body }),
-			"/steer$": () => refusal("STEER_UNSUPPORTED", "409 \u2014 Steering a Studio turn is not supported."),
+			"/steer$": () => jsonResponse({ ok: true, queued: true }),
 			"/agent/stop$": () => jsonResponse({ ok: true }),
 		});
+		const heard = [];
 		const studioStore = createAgentChatStore({
 			transport: createHttpTransport({ fetchImpl: studioSidecar.fetchImpl, surface: "studio", capture: () => {}, now: () => 0 }),
 			surface: "studio",
 			buildContext: () => studioContext(),
+			onSteer: (event) => heard.push(event),
 		});
 		const studioTurn = studioStore.send("frame the shot", {});
 		await settled(studioStore, (state) => state.items.some((item) => item.kind === "assistant"));
-		const studioResult = await studioStore.steer("nudge it left");
-		expect("a Studio steer is refused as unsupported, not silently dropped", studioResult.ok === false && studioResult.code === "STEER_UNSUPPORTED"
-			&& studioResult.message === client.STEER_ERROR_COPY.STEER_UNSUPPORTED, JSON.stringify(studioResult));
+		const studioResult = await studioStore.steer("nudge it left", { id: "row-1" });
+		const studioSteer = studioSidecar.calls.find((call) => /\/steer$/.test(call.path));
+		expect("a Studio steer reaches the running Studio turn by its envelope id", studioResult.ok === true && studioSteer?.path === `/agent/turn/${studioSidecar.calls.find((call) => call.path === "/agent/turn").body.turnId}/steer` && studioSteer.body.id === "row-1", JSON.stringify(studioSteer));
 		studioStore.stop();
 		studioHeld.release();
 		await studioTurn.catch(() => {});
+		expect("a steer the stopped turn never answered is reported dropped and not shown as said", heard.length === 1 && heard[0].type === "steer.dropped" && heard[0].id === "row-1"
+			&& !studioStore.getState().items.some((item) => item.steered), JSON.stringify(heard));
 	});
 
 	await group("the composer states what the button will do (#379)", () => {
 		expect("Send is the idle label", /className="agent-send" aria-label="Send"[^>]*disabled=\{composerDisabled \|\| !draft\.trim\(\)\}/.test(panelSource));
-		expect("a running turn keeps Stop and adds Steer where steering is supported", /\{streaming[\s\S]{0,200}agent-send stop agent-stop"[\s\S]{0,40}>Stop<[\s\S]{0,120}presentation\.steer && <button[\s\S]{0,160}agent-steer"[\s\S]{0,80}>Steer</.test(panelSource));
-		expect("Steer is disabled without something to say", /agent-steer" disabled=\{!draft\.trim\(\)\}/.test(panelSource));
+		expect("a running turn keeps Stop and Send queues", /\{streaming[\s\S]{0,200}agent-send stop agent-stop"[\s\S]{0,40}>Stop<[\s\S]{0,120}agent-send agent-queue-add"[\s\S]{0,400}disabled=\{composerDisabled \|\| !draft\.trim\(\)\} onClick=\{queueDraft\}/.test(panelSource));
 		expect("the refusal is shown to the author, not swallowed", panelSource.includes("setSteerNotice(result.message") && panelSource.includes('className="agent-toast alert agent-steer-notice"'));
-		expect("the Studio surface never renders Steer", panelSource.includes("presentation.steer &&"));
+		expect("no surface switch decides it: every surface queues", !panelSource.includes("presentation.steer"));
 	});
 
 	await group("hidden embedded chat keeps state and refuses focus", () => {

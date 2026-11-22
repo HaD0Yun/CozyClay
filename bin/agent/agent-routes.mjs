@@ -647,7 +647,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			let value;
 			try {
 				value = await readBody(req, TURN_BODY_LIMIT);
-				if (!value || typeof value.text !== "string" || !value.text.trim() || !validAttachments(value.attachments)) throw new Error("Invalid request.");
+				if (!value || typeof value.text !== "string" || !value.text.trim() || !validAttachments(value.attachments) || (value.id !== undefined && (typeof value.id !== "string" || value.id.length > 100))) throw new Error("Invalid request.");
 			} catch { json(res, 400, { error: "invalid request" }); return true; }
 			// Studio turns are keyed in studioSessions, never in the Workflow
 			// `sessions` map, so that lookup alone tells them apart. Only the cookie
@@ -657,12 +657,16 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			const session = studio ?? [...sessions.values()].find(candidate => candidate.turnId === turnId);
 			if (!session) { json(res, 404, { error: "turn not found" }); return true; }
 			const active = studio ? studio.activeTurnId === turnId && studio.controller && !studio.controller.signal.aborted : session.running;
-			if (!active || !session.modelSession) { json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: "This turn already ended." } }); return true; }
+			// turnSteer: the running turn's own loop when it is not the session's pi runner (lowvis-turn.mjs, the motion writer)
+			const steer = session.turnSteer ?? session.modelSession?.steer, ended = () => json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: "This turn already ended." } });
+			if (!active || !steer) { ended(); return true; }
 			const images = (Array.isArray(value.attachments) ? value.attachments : []).map(attachment => {
 				const match = /^data:([^;]+);base64,(.*)$/.exec(attachment?.dataUrl || "");
 				return match ? { type: "image", data: match[2], mimeType: match[1] } : null;
 			}).filter(Boolean);
-			await session.modelSession.steer(value.text, images);
+			// queued: in the turn's steering queue; the turn's stream says steer.received (in the context of its next model
+			// call) or steer.dropped (the turn ended first) with this id (steer-inbox.mjs). false: the run ended meanwhile.
+			if (await steer(value.text, images, value.id ?? null) === false) { ended(); return true; }
 			json(res, 200, { ok: true, queued: true }); return true;
 		}
 		if (await providerRoutes(req, res, path)) return true;

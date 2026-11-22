@@ -85,9 +85,10 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * drafting(steps), onDraft(answer): the draft (motion-draft.mjs), made only when drafting is given (the motion door's
  * plain turn): the stand-ins of the writer's first compile enter the scene then, the install takes them as the props,
  * and propsSet says per object what the install changed since the draft (motion-props.mjs). The writer is told nothing of it.
+ * inbox: a steer inbox (steer-inbox.mjs) for what the user sends while the motion writer works (the direct key).
  * deps: { runScene, installClip, addStandIn, standInOf, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, inbox = null, deps = null }) {
 	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
@@ -114,7 +115,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	};
 	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
 	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body, has["*"]?.scale ?? 1);
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });

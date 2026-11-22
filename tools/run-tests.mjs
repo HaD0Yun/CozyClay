@@ -52,7 +52,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/process/verify-agent-deps.mjs",
 	"test/verify-agent-image-references.mjs",
 	"test/verify-agent-panel.mjs", "test/verify-agent-turn-view.mjs", "test/verify-agent-plan.mjs", "test/verify-agent-reply-text.mjs", "test/verify-agent-sculpt-sketch.mjs",
-	"test/verify-agent-host.mjs",
+	"test/verify-agent-host.mjs", "test/verify-agent-queue.mjs", "test/verify-agent-steer-inbox.mjs",
 	"test/verify-agent-routes.mjs",
 	"test/verify-studio-owner-restart.mjs",
 	"test/verify-studio-agent-rebase.mjs", "test/bus/verify-studio-busy.mjs",
