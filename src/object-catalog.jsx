@@ -18,6 +18,7 @@ const OBJECT_LABELS_KO = {
 	Plane: "평면",
 	"Point light": "점 조명",
 	"Spot light": "스포트 조명",
+	"Directional light": "방향 조명",
 	Light: "조명",
 	Effect: "효과",
 	Text: "텍스트",

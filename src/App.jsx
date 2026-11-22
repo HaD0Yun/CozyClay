@@ -80,6 +80,7 @@ import { FinishSetting, useToonLook } from "./stage-finish-view.jsx";
 import { useUiTheme } from "./theme.js";
 
 import { Room, StageLights, StageAtmosphere } from "./room.jsx";
+import StageSceneProbe from "./stage-scene-probe.jsx";
 import { createDocumentMirrors } from "./document-mirrors.js";
 import { buildRail, simplifyStroke } from "./camera-follow.js";
 import { useShotCameraTracks, useShotSubjects } from "./use-shot-camera-tracks.js";
@@ -4448,6 +4449,7 @@ export default function App() {
 							<StageAtmosphere lighting={lighting} keyLight={keyLight} theme={uiTheme} grid={gridView} />
 							<FinishSetting on={toonLook} onChange={setToonLook} />
 							<StageLights keyLight={keyLight} lighting={lighting} neutral={gridView} light={uiTheme === "light"} />
+							<StageSceneProbe />
 							<KeyLightPuck
 								keyLight={keyLight}
 								selected={keyLightSelected}

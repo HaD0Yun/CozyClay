@@ -4,8 +4,19 @@ import { useStudioShell } from "../shell/studio-shell-context.js";
 import Foldout from "./Foldout.jsx";
 import { Field, Slider } from "../ui.jsx";
 import { ko } from "../locale.js";
-import { LIGHT_KIND, practicalShadows } from "../object-look.js";
+import { LIGHT_KIND, PRACTICAL_SHADOW_CAP, practicalShadows } from "../object-look.js";
 import { TEXT_KIND } from "../text/text-record.js";
+
+/** A light's aim as the Aim select's value: "down", "point" or "id:<id>". */
+const aimValue = (aim) => (!aim ? "down" : aim.id === undefined ? "point" : `id:${aim.id}`);
+const aimFromValue = (value, aim) => (value === "down" ? null : value === "point" ? aim : { id: value.slice(3) });
+/** What a light can follow: the cast, then the records that are not lights; an aimed-at id no longer on stage stays listed. */
+function aimTargets(characters, objects, ownId, aim) {
+	const targets = [...characters.map((c) => ({ id: c.id, label: c.subject || c.id })),
+		...objects.filter((o) => o.id !== ownId && o.renderer !== LIGHT_KIND).map((o) => ({ id: o.id, label: o.name || o.id }))];
+	if (aim?.id !== undefined && !targets.some((t) => t.id === aim.id)) targets.push({ id: aim.id, label: `${aim.id} (${ko("not on stage", "무대에 없음")})` });
+	return targets;
+}
 
 /**
  * Words, light and glow for the selected record: a text's words and letter
@@ -14,7 +25,7 @@ import { TEXT_KIND } from "../text/text-record.js";
  * transaction (one undo); a switch is one atomic edit.
  */
 export default function ObjectLookPanel() {
-	const { selectedSceneObject: object, sceneObjects, beginSceneTransaction, endSceneTransaction } = useStudioShell();
+	const { selectedSceneObject: object, sceneObjects, characters = [], beginSceneTransaction, endSceneTransaction } = useStudioShell();
 	const app = useContext(AppContext), session = useRef(null);
 	// The words box keeps its own draft while it is edited: the store refuses
 	// blank words (normalizeText falls back to "Text"), so feeding it an empty
@@ -72,21 +83,34 @@ export default function ObjectLookPanel() {
 				<Foldout title={ko("Light", "조명")}>
 					<div {...ends}>
 						<Field label={ko("Type", "종류")}>
-							<select value={light.type} onChange={(event) => set({ light: { type: event.target.value } })}>
+							<select data-field="light-type" value={light.type} onChange={(event) => set({ light: { type: event.target.value } })}>
 								<option value="point">{ko("Point", "점 조명")}</option>
 								<option value="spot">{ko("Spot", "스포트")}</option>
+								<option value="directional">{ko("Directional", "방향")}</option>
 							</select>
 						</Field>
+						{light.type !== "point" && (
+							<Field label={ko("Aim at", "겨냥")}>
+								<select data-field="light-aim" value={aimValue(light.aim)} onChange={(event) => set({ light: { aim: aimFromValue(event.target.value, light.aim) } })}>
+									<option value="down">{ko("Straight down its own axis", "자기 축 아래로")}</option>
+									{light.aim && light.aim.id === undefined && <option value="point">{`${ko("At point", "지점")} ${["x", "y", "z"].map((axis) => light.aim[axis].toFixed(1)).join(", ")}`}</option>}
+									{aimTargets(characters, sceneObjects, object.id, light.aim).map(({ id, label }) => <option key={id} value={`id:${id}`}>{label}</option>)}
+								</select>
+							</Field>
+						)}
 						<Field label={ko("Colour", "색")}>
 							<input type="color" value={light.color} onChange={(event) => drag("light.color", { light: { color: event.target.value } })} />
 						</Field>
-						{lightSlider("intensity", ko("Intensity (cd)", "밝기 (cd)"), 0, 100, 0.05)}
-						{lightSlider("range", ko("Range (0 = none)", "범위 (0 = 없음)"), 0, 30, 0.1, " m")}
+						{light.type === "directional"
+							? lightSlider("intensity", ko("Intensity (key light scale)", "밝기 (키 조명 기준)"), 0, 4, 0.05)
+							: lightSlider("intensity", ko("Intensity (cd)", "밝기 (cd)"), 0, 100, 0.05)}
+						{light.type !== "directional" && lightSlider("range", ko("Range (0 = none)", "범위 (0 = 없음)"), 0, 30, 0.1, " m")}
 						{light.type === "spot" && lightSlider("angle", ko("Cone angle", "원뿔 각도"), 1, 89, 1, "°")}
 						{light.type === "spot" && lightSlider("softness", ko("Edge softness", "가장자리 부드럽기"), 0, 1, 0.05)}
+						{light.type === "directional" && lightSlider("softness", ko("Shadow softness", "그림자 부드럽기"), 0, 1, 0.05)}
 						{lightSlider("flicker", ko("Flicker", "깜빡임"), 0, 1, 0.05)}
 						<label className="check details-toggle-row">
-							<span>{capped ? ko("Shadow (off: only 2 lights cast)", "그림자 (꺼짐: 2개까지만)") : ko("Shadow", "그림자")}</span>
+							<span>{capped ? ko(`Shadow (off: only ${PRACTICAL_SHADOW_CAP} lights cast)`, `그림자 (꺼짐: ${PRACTICAL_SHADOW_CAP}개까지만)`) : ko("Shadow", "그림자")}</span>
 							<input type="checkbox" checked={light.shadow} onChange={(event) => set({ light: { shadow: event.target.checked } })} />
 						</label>
 					</div>

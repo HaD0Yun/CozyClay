@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import {
 	LIGHT_KIND, LIGHT_MENU_ENTRIES, PRACTICAL_SHADOW_CAP, normalizeObjectLight, normalizeObjectGlow, flickerAt,
-	practicalShadows, capPracticalShadows, withShadowCapWarnings,
+	practicalShadows, capPracticalLights, withShadowCapWarnings,
 } from "../../src/object-look.js";
 import { trackLevel } from "../../src/object-travel.js";
 import { createSceneObject, normalizeSceneObject, updateSceneObject, objectPatchFields, isEmptyObject, dropToSurfacePatch, loadScene, serializeScene, OBJECT_MENU_ENTRIES } from "../../src/scene-objects.js";
@@ -20,8 +20,8 @@ const tests = [];
 const test = (name, run) => tests.push([name, run]);
 
 test("catalogue kinds point-light and spot-light create a light record", () => {
-	assert.deepEqual(LIGHT_MENU_ENTRIES.map((entry) => entry.kind), ["point-light", "spot-light"]);
-	assert.ok(LIGHT_MENU_ENTRIES.every((entry) => OBJECT_MENU_ENTRIES.includes(entry)), "the add menu lists both");
+	assert.deepEqual(LIGHT_MENU_ENTRIES.map((entry) => entry.kind), ["point-light", "spot-light", "directional-light"]);
+	assert.ok(LIGHT_MENU_ENTRIES.every((entry) => OBJECT_MENU_ENTRIES.includes(entry)), "the add menu lists all three");
 	const kinds = studioObjectCatalogue().objects.map((entry) => entry.kind);
 	assert.ok(kinds.includes("point-light") && kinds.includes("spot-light"), "the agent catalogue lists both");
 	assert.ok(elementByPath("object.renderer").enum.includes(LIGHT_KIND));
@@ -132,24 +132,24 @@ test("the take level reads a baked lvl track, 1 without one", () => {
 	assert.equal(trackLevel("cig", 2, take), 1, "a track without lvl leaves the level at 1");
 });
 
-test("at most two practical lights cast shadows; the rest are reported", () => {
-	const lights = ["a", "b", "c", "d"].map((id, index) => ({ ...createSceneObject("spot-light", []), id, name: id, x: index }));
+test("at most four practical lights cast shadows; the rest are reported", () => {
+	const lights = ["a", "b", "c", "d", "e", "f"].map((id, index) => ({ ...createSceneObject("spot-light", []), id, name: id, x: index }));
 	lights[1] = { ...lights[1], light: { ...lights[1].light, shadow: false } };
 	const objects = [createSceneObject("cube", []), ...lights];
-	assert.equal(PRACTICAL_SHADOW_CAP, 2);
-	assert.deepEqual(practicalShadows(objects), { casting: ["a", "c"], capped: ["d"] });
-	const drawn = capPracticalShadows(objects);
-	assert.equal(drawn.find((object) => object.id === "d").light.shadow, false);
-	assert.equal(drawn.find((object) => object.id === "d").shadowCapped, true);
+	assert.equal(PRACTICAL_SHADOW_CAP, 4);
+	assert.deepEqual(practicalShadows(objects), { casting: ["a", "c", "d", "e"], capped: ["f"], unlit: [] });
+	const drawn = capPracticalLights(objects);
+	assert.equal(drawn.find((object) => object.id === "f").light.shadow, false);
+	assert.equal(drawn.find((object) => object.id === "f").shadowCapped, true);
 	assert.equal(drawn.find((object) => object.id === "a"), objects.find((object) => object.id === "a"), "casting lights are untouched");
-	const fewer = objects.slice(0, 3);
-	assert.equal(capPracticalShadows(fewer), fewer, "nothing capped, same array");
-	assert.deepEqual(practicalShadows([...objects.slice(0, 4), { ...lights[3], hidden: true }]).capped, [], "a hidden light does not count");
-	const result = withShadowCapWarnings({ affectedIds: ["d"], summary: "Updated object." }, objects);
+	const fewer = objects.slice(0, 5);
+	assert.equal(capPracticalLights(fewer), fewer, "nothing capped, same array");
+	assert.deepEqual(practicalShadows([...objects.slice(0, 6), { ...lights[5], hidden: true }]).capped, [], "a hidden light does not count");
+	const result = withShadowCapWarnings({ affectedIds: ["f"], summary: "Updated object." }, objects);
 	assert.equal(result.warnings.length, 1);
 	assert.equal(result.warnings[0].code, "SHADOW_CAP");
-	assert.equal(result.warnings[0].id, "d");
-	assert.ok(result.warnings[0].message.length <= 120 && result.warnings[0].message.includes("a, c"));
+	assert.equal(result.warnings[0].id, "f");
+	assert.ok(result.warnings[0].message.length <= 120 && result.warnings[0].message.includes("a, c, d, e"));
 	const untouched = { affectedIds: ["a"] };
 	assert.equal(withShadowCapWarnings(untouched, objects), untouched, "an edit that does not touch a capped light carries no warning");
 });

@@ -29,14 +29,14 @@ const BULB_RADIUS = 0.07;
 const CONE_LENGTH = 0.7;
 
 function makeLight(type, shadow) {
-	const light = type === "spot" ? new THREE.SpotLight() : new THREE.PointLight();
+	const light = type === "spot" ? new THREE.SpotLight() : type === "directional" ? new THREE.DirectionalLight() : new THREE.PointLight();
 	// three.js hangs a spot 1 m up (DEFAULT_UP) by default; a practical sits on its record's pivot.
 	light.position.set(0, 0, 0);
-	light.decay = 2;
+	if (!light.isDirectionalLight) light.decay = 2;
 	light.castShadow = shadow;
 	light.userData.sceneLight = true;
 	if (shadow) {
-		const size = type === "spot" ? 1024 : 512;
+		const size = type === "directional" ? 2048 : type === "spot" ? 1024 : 512;
 		light.shadow.mapSize.set(size, size);
 		light.shadow.bias = -0.0004;
 		light.shadow.normalBias = 0.02;
@@ -81,6 +81,13 @@ function bulbGeometry() {
 	return lineGeometry(out);
 }
 
+/** A directional light's rays along local -Y: five parallel lines of CONE_LENGTH with an arrow head on the middle one. */
+function raysGeometry() {
+	const out = [0, 0, 0, 0, -CONE_LENGTH, 0, 0, -CONE_LENGTH, 0, 0.05, -CONE_LENGTH + 0.1, 0, 0, -CONE_LENGTH, 0, -0.05, -CONE_LENGTH + 0.1, 0];
+	for (const [x, z] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) out.push(x * BULB_RADIUS * 1.5, 0, z * BULB_RADIUS * 1.5, x * BULB_RADIUS * 1.5, -CONE_LENGTH * 0.8, z * BULB_RADIUS * 1.5);
+	return lineGeometry(out);
+}
+
 /** A spot's cone along local -Y: four edges and the rim at CONE_LENGTH. */
 function coneGeometry(angleDeg) {
 	const radius = CONE_LENGTH * Math.tan(angleDeg * DEG);
@@ -98,7 +105,7 @@ const onGizmoLayer = (node) => {
 
 function LightMarker({ type, angle, color }) {
 	const bulb = useMemo(() => bulbGeometry(), []);
-	const cone = useMemo(() => (type === "spot" ? coneGeometry(angle) : null), [type, angle]);
+	const cone = useMemo(() => (type === "spot" ? coneGeometry(angle) : type === "directional" ? raysGeometry() : null), [type, angle]);
 	useEffect(() => () => bulb.dispose(), [bulb]);
 	useEffect(() => () => cone?.dispose(), [cone]);
 	return (
@@ -124,14 +131,15 @@ function LightMarker({ type, angle, color }) {
 }
 
 /** A light record's content: the three.js light and its marker. Rebuilt only
- * when the type or the shadow switch changes (both change the shader). */
+ * when the type or the shadow switch changes (both change the shader). A light
+ * past the drawn-light cap (object-look.js) keeps only its marker. */
 export function SceneLight({ object }) {
 	const { type, shadow, angle, color } = object.light;
 	const light = useMemo(() => makeLight(type, shadow), [type, shadow]);
 	useEffect(() => () => light.dispose(), [light]);
 	return (
 		<>
-			<primitive object={light} />
+			{!object.lightCapped && <primitive object={light} />}
 			<LightMarker type={type} angle={angle} color={color} />
 		</>
 	);

@@ -27,9 +27,9 @@ import { EFFECT_KIND } from "./effects/effect-record.js";
 import { applyPoseFade } from "./pose-fade.js";
 import { coplanarDepthRanks } from "./coplanar-depth.js";
 import { autoFlat } from "./auto-flat.js";
-import { LIGHT_KIND, capPracticalShadows } from "./object-look.js";
+import { LIGHT_KIND, capPracticalLights } from "./object-look.js";
 import { SceneLight, useLookRefresh } from "./scene-lights.jsx";
-import { placeObjectLook } from "./scene-light-place.js";
+import { aimAtFor, placeObjectLook } from "./scene-light-place.js";
 
 /**
  * The creatable primitives, Unity's 3D Object menu in clay. Each one is built
@@ -341,7 +341,7 @@ function SceneObject({ object, selected, frameRef = null, take = null, attachFra
 		}
 		applyPoseFade(group, fadeOpacity, object.opacity ?? 1);
 		// A light's level, flicker and aim, and a glow, for this frame (scene-light-place.js).
-		placeObjectLook(group, object, frame, take);
+		placeObjectLook(group, object, frame, take, aimAtFor(registryRef, travelLookupRef, attachFrameRef));
 	};
 	useFrame(place);
 	useLookRefresh(object);
@@ -406,12 +406,13 @@ export function SetProps({ objects = [], authoredObjects = null, selectedId = nu
 	// rigidly, so what shares a plane at rest shares it on every frame.
 	const depthRanks = useMemo(() => coplanarDepthRanks(authoredObjects ?? objects), [authoredObjects, objects]);
 	if (!registryRef.current) registryRef.current = new Map();
-	if (syncRef) syncRef.current = () => { for (const entry of registryRef.current.values()) entry.place(); };
+	// A light that aims at a record is placed again once every record stands where this frame puts it.
+	if (syncRef) syncRef.current = () => { for (const entry of registryRef.current.values()) entry.place(); for (const o of objects) if (o.light?.aim?.id) registryRef.current.get(o.id)?.place(); };
 	if (worldRef) worldRef.current = (id, out) => registryRef.current.get(id)?.world(out) ?? null;
 	return (
 		<group>
-			{/* Lights past the practical shadow cap draw without one (object-look.js). */}
-			{capPracticalShadows(objects).map((object) => (
+			{/* Lights past the practical shadow cap draw without one, past the light cap not at all (object-look.js). */}
+			{capPracticalLights(objects).map((object) => (
 				<SceneObject
 					key={object.id}
 					object={object}
