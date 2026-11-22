@@ -74,7 +74,8 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	const clip = { frameCount: 48, characters: [{ id: "c1" }, { id: "guest", scale: 0.8 }], props: [{ id: "box" }, { id: "cup" }, { id: "mat" }] };
 	const guest = { id: "lowvis-guest", model: "x-bot-tpose", x: 1, z: 1, rot: 0, scale: 0.8 }, mat = { id: "obj-mat", name: "mat", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 1 }, height: 0.05 };
 	const AFTER = { document: { activeSceneId: "scene-a" }, characters: [...DESCRIBE.characters, guest], objects: [...DESCRIBE.objects, mat] }; // the scene once the motion is in; the cup moves with a take and is not listed
-	const { seen, base } = harness({ clip, record: { final }, install: async () => ({ characterIds: ["lowvis-guest"], objectIds: [], switched: [], ok: true }) });
+	let refuse = false;
+	const { seen, base } = harness({ clip, record: { final }, install: async () => ({ characterIds: ["lowvis-guest"], objectIds: [], switched: [], ok: !refuse }) });
 	let now = { ...DESCRIBE, document: { activeSceneId: "scene-a" } };
 	base.hub = { command: async () => now };
 	const ask = async (key = "conv-kept") => { await runMotion({ ...base, words: "x", memoryKey: key }); return seen.runs.at(-1); };
@@ -83,6 +84,11 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	let run = await ask();
 	assert.deepEqual(run.kept, { scene: final.scene, spec: final.spec }, "the Studio scene is the motion's scene (a moving prop it does not list, a character's place and what it has more are not compared): scene and spec");
 	assert.ok(run.request.includes("The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look."));
+	// a run that failed (the Studio refused its install) leaves the motion before as the next request's start
+	refuse = true;
+	await assert.rejects(ask(), error => error.code === "studio");
+	refuse = false;
+	assert.deepEqual((await ask()).kept, { scene: final.scene, spec: final.spec }, "after a failed run the tool starts from the motion that is installed");
 	// a prop resized and turned, a prop moved, a character rescaled and tinted, a prop and a character taken out, in the Studio since
 	now = { ...AFTER, characters: [DESCRIBE.characters[0], { ...guest, scale: 1, tint: "#336699" }], objects: [{ ...DESCRIBE.objects[0], height: 0.7, rot: 45 }, { ...mat, x: 3.2 }] };
 	run = await ask();
