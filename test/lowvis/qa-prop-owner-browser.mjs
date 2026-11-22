@@ -40,7 +40,9 @@ const waitFor = async (expression, ms = 30000) => { const end = Date.now() + ms;
 
 try {
 	await waitFor("window.__cozyclay?.showLowvisClip");
-	assert.equal(await evaluate(`window.__cozyclay.showLowvisClip(${JSON.stringify(NAME)})`), true, "the clip installs");
+	let shown = false; // the dev server serves a new public file a moment after it is written
+	for (let tries = 0; tries < 50 && !shown; tries++) { shown = await evaluate(`window.__cozyclay.showLowvisClip(${JSON.stringify(NAME)})`); if (!shown) await new Promise(r => setTimeout(r, 200)); }
+	assert.equal(shown, true, "the clip installs");
 	await waitFor("['lowvis-a','lowvis-b'].every(id => window.__cozyclay.rigs?.[id]?.parent) && ['boxA','boxB'].every(n => window.__cozyclay.objects.some(o => o.name === n))");
 	await evaluate("window.__cozyclay.pause()");
 	// every frame up to `count`: each box's drawn base pivot and each character's drawn right hand, in world metres
@@ -50,10 +52,22 @@ try {
 		const groupOf = name => { const id = qa.objects.find(o => o.name === name).id; let g = null; root.traverse(n => { if (n.userData?.sceneObjectId === id) g = n; }); return g; };
 		const handOf = id => { let h = null; qa.rigs[id].traverse(n => { if (n.isBone && /RightHand$/.test(n.name)) h = n; }); return h; };
 		const boxes = { boxA: groupOf("boxA"), boxB: groupOf("boxB") }, hands = { a: handOf("lowvis-a"), b: handOf("lowvis-b") };
+		const ids = ["boxA", "boxB"].map(name => qa.objects.find(o => o.name === name).id);
+		const at = o => { o.updateWorldMatrix(true, false); const e = o.matrixWorld.elements; return [e[12], e[13], e[14]]; };
 		for (let t = 0; t < ${count}; t++) {
-			window.__cozyclay.setFrame(t); await raf(); await raf(); await raf();
-			const at = o => { o.updateWorldMatrix(true, false); const e = o.matrixWorld.elements; return [e[12], e[13], e[14]]; };
-			out.push({ boxA: at(boxes.boxA), boxB: at(boxes.boxB), a: at(hands.a), b: at(hands.b) });
+			window.__cozyclay.setFrame(t);
+			// drawn: the playhead is on t, both boxes were placed for t (props.jsx stamps the frame), and two reads one
+			// animation frame apart are the same (a fixed number of animation frames read a pose of the frame before)
+			let row = null, tries = 0;
+			for (; tries < 240; tries++) {
+				await raf();
+				if (window.__cozyclay.tlFrame !== t || !ids.every(id => window.__cclayPropWorld?.[id]?.frame === t)) { row = null; continue; }
+				const next = { boxA: at(boxes.boxA), boxB: at(boxes.boxB), a: at(hands.a), b: at(hands.b) };
+				if (row && JSON.stringify(row) === JSON.stringify(next)) break;
+				row = next;
+			}
+			if (tries === 240) throw new Error("frame " + t + " was not drawn");
+			out.push(row);
 		}
 		return out;
 	})()`);

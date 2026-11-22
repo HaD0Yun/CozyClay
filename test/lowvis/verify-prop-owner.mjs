@@ -17,6 +17,7 @@ import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { fk } from "../../src/motion3/compiler/skeleton.js";
 import { createTakeEdit, renderTakeEdit, setSegmentSpeed, splitTakeEdit, timelineToSource } from "../../src/motion3/take-edit.js";
 import { objectTracksOf } from "../../src/motion3/object-tracks.js";
+import { compileTakeSource, normalizeTakeSource, takeSource } from "../../src/domains/motion/take-source.js";
 
 const sk = skeletonFor(TRACK_RIG), HAND = sk.index.RightHand;
 
@@ -37,7 +38,7 @@ async function install(clip) {
 	const takes = Object.fromEntries(clip.characters.map(c => { const id = `lowvis-${c.id}`; return [c.id, { id, take: placedTake(decodeRawTrack(raws[id], sk), placements[id]) }]; }));
 	// drawnBy: { <prop id>: [the clip characters whose take holds its track] }
 	const drawnBy = Object.fromEntries(Object.entries(out.placed).map(([prop, id]) => [prop, Object.entries(takes).filter(([, t]) => t.take.objects[id]).map(([cid]) => cid)]));
-	return { takes, objectOf: out.placed, drawnBy };
+	return { takes, objectOf: out.placed, drawnBy, raws };
 }
 
 /** The world place of the right hand in a (rendered) take at frame f. */
@@ -86,7 +87,8 @@ const SPEC = {
 	b: [[0, "hold", { prop: "boxB", hand: "R" }], [40, "walk", { to: [1, 2.5] }], [100, "release", { prop: "boxB" }]],
 };
 const built = build(SPEC, SCENE), installed = { ...built, ...(await install(built.clip)) };
-const speedUp = (() => { const split = splitTakeEdit(createTakeEdit(F), 30); return setSegmentSpeed(split, split[1].id, 2); })();
+const speedUpOf = frames => { const split = splitTakeEdit(createTakeEdit(frames), 30); return setSegmentSpeed(split, split[1].id, 2); }; // speed 2 from frame 30 on, over the whole take
+const speedUp = speedUpOf(F);
 const TOL = 0.002, mm = v => (v * 1000).toFixed(2), failed = [];
 
 for (const [edited, other] of [["a", "b"], ["b", "a"]]) {
@@ -127,15 +129,52 @@ const CASES = [
 		scene: ROOM([stand("a", -0.5, 0, 90), stand("b", 0.5, 0, -90)], [box("box", [-0.2, 0.85, 0.25])], 160),
 		spec: { a: [[0, "hold", { prop: "box", hand: "R" }], [50, "release", { prop: "box" }], [60, "walk", { to: [-2, 0] }]], b: [[40, "hold", { prop: "box", hand: "L" }], [70, "walk", { to: [2, 1] }]] },
 		drawn: { box: ["b"] }, steps: [] },
+	{ name: "a parcel carried a long way and then handed over: the giver, who moves it on more frames",
+		scene: ROOM([stand("g", -3, 0, 90), stand("h", 0.45, 0, 270)], [{ id: "parcel", size: [0.2, 0.2, 0.2], at: [-2.75, 1, -0.2], moves: true }], 200),
+		spec: { g: [[0, "hold", { prop: "parcel", hand: "R" }], [8, "walk", { to: [-0.45, 0], heading: 90 }], [120, "pose", { R: [-0.15, 0.25, 0.42], over: 20 }], [160, "release", { prop: "parcel" }], [165, "pose", { R: "rest" }]],
+			h: [[125, "pose", { L: [0.15, 0.25, 0.4], over: 20 }], [150, "hold", { prop: "parcel", hand: "L" }], [170, "pose", { L: [0.2, 0.1, 0.3], over: 20 }]] },
+		drawn: { parcel: ["g"] }, steps: [["g", "parcel"]] },
+	{ name: "a plank two hold, one lets go and the other walks on with it: the one who walks on",
+		scene: ROOM([stand("c1", -1, 0.5, 180), stand("c2", 1, 0.5, 180)], [{ id: "plank", size: [2.4, 0.05, 0.3], at: [0, 0.62, 0], moves: true }, { id: "trestle", size: [0.4, 0.58, 0.4], at: [0, 0.29, 0] }], 220),
+		spec: Object.fromEntries(["c1", "c2"].map(who => [who, [[6, "pose", { bow: 35, over: 18 }], [24, "hold", { prop: "plank", hand: "both", at: who === "c1" ? { L: [-1.1, 0, 0.13], R: [-0.85, 0, 0.13] } : { L: [0.85, 0, 0.13], R: [1.1, 0, 0.13] }, over: 14 }],
+			[52, "pose", { hands: [0.15, 0.25, 0.3], bow: 0, over: 22 }], [84, "walk", { to: [who === "c1" ? -1 : 1, 0] }], ...(who === "c1" ? [[110, "release", { prop: "plank" }], [114, "pose", { hands: "rest" }]] : [[120, "walk", { to: [1.5, -3] }], [210, "release", { prop: "plank" }]])]])),
+		drawn: { plank: ["c2"], trestle: [] }, steps: [["c2", "plank"]] },
+	{ name: "a bottle on a carried tray that the other character takes off and walks away with; a cup on a saucer on that tray",
+		scene: ROOM([stand("s", -2, 0, 90), stand("t", 0.55, 0, 270)], [{ id: "tray", size: [0.4, 0.03, 0.3], at: [-1.6, 1, 0], moves: true }, { id: "bottle", size: [0.07, 0.22, 0.07], at: [-1.6, 1.13, 0.08], moves: true },
+			{ id: "saucer", size: [0.12, 0.02, 0.12], at: [-1.6, 1.025, -0.08], moves: true }, { id: "cup", size: [0.07, 0.07, 0.07], at: [-1.6, 1.07, -0.08], moves: true }], 200),
+		spec: { s: [[0, "carry", { prop: "tray" }], [10, "walk", { to: [-0.3, 0], heading: 90 }]], t: [[80, "pose", { R: [-0.1, 0.3, 0.4], over: 16 }], [100, "hold", { prop: "bottle", hand: "R" }], [112, "walk", { to: [2.4, -1.6] }]],
+			bottle: [[0, "ride", { on: "tray" }]], saucer: [[0, "ride", { on: "tray" }]], cup: [[0, "ride", { on: "saucer" }]] },
+		drawn: { tray: ["s"], bottle: ["t"], saucer: ["s"], cup: ["s"] }, steps: [["s", "tray"]] },
 ];
 for (const c of CASES) {
 	const b = build(c.spec, c.scene), got = { ...b, ...(await install(b.clip)) };
 	assert.deepEqual(got.drawnBy, c.drawn, `${c.name}: the take that draws each prop`);
 	for (const [who, prop] of c.steps) for (const edited of Object.keys(got.takes)) {
-		const edits = { [edited]: speedUp }, d = drift(got, who, prop, edits);
+		const edits = { [edited]: speedUpOf(c.scene.frames) }, d = drift(got, who, prop, edits);
 		assert.ok(d.frames > 10 && d.worst < TOL, `${c.name}: with ${edited}'s take sped up, ${prop} stays in ${who}'s hand (worst ${mm(d.worst)} mm over ${d.frames} frames)`);
 	}
 	console.log(`ok ${c.name}: ${Object.entries(got.drawnBy).map(([p, w]) => `${p} -> ${w.join(",") || "no track"}`).join(", ")}`);
+}
+
+// --- over a Studio scene that already has the characters and the boxes (installClip's existing ids): the same owners ---
+{
+	const sent = {}, existing = { characters: { a: "cast-1", b: "cast-2" }, switch: [], props: { boxA: { id: "thing-1", x: -1.25, y: 0.7, z: 0.3, rot: 0 }, boxB: { id: "thing-2", x: 0.75, y: 0.7, z: 0.3, rot: 0 } } };
+	const out = await installClip(built.clip, async (action, args) => { if (action === "motion.v4.install") sent[args.characterId] = Object.keys(args.raw.objects); return { affectedIds: [] }; }, { existing });
+	assert.equal(out.ok, true);
+	assert.deepEqual(sent, { "cast-1": ["thing-1"], "cast-2": ["thing-2"] }, "each known character's take holds the track of the known box it handles");
+	console.log("ok over existing ids: each known character's take holds the box it handles");
+}
+
+// --- saved and loaded (take-source.js): a take is rebuilt from its own encoded track, so each box stays in its holder's take ---
+{
+	const spec = id => ({ schema: "cozyclay.motion-spec.v1", fps: 24, frames: F, raw: installed.raws[id] });
+	const takes = Object.fromEntries(Object.entries(installed.takes).map(([cid, t]) => [cid, { id: t.id, take: compileTakeSource(normalizeTakeSource(JSON.parse(JSON.stringify(takeSource({ ...t.take, spec: spec(t.id) }))))) }]));
+	for (const [cid, t] of Object.entries(takes)) assert.deepEqual(Object.keys(t.take.objects), Object.keys(installed.takes[cid].take.objects), `${cid}'s loaded take holds the tracks it held`);
+	for (const [edited, who] of [["a", "a"], ["a", "b"], ["b", "a"], ["b", "b"]]) {
+		const d = drift({ ...installed, takes }, who, `box${who.toUpperCase()}`, { [edited]: speedUp });
+		assert.ok(d.frames > 20 && d.worst < TOL, `loaded, ${edited} sped up: box${who.toUpperCase()} stays in ${who}'s hand (worst ${mm(d.worst)} mm over ${d.frames} frames)`);
+	}
+	console.log("ok saved and loaded: each box is in its holder's take and stays in its hand after a timing edit of either take");
 }
 
 // --- a clip without `by` (made before it): every moving prop in the first character's take, as before ---

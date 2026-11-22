@@ -77,6 +77,8 @@ function moves(prop) {
  * prop it rides whatever carries that one); a prop nothing carries stays with the characters that last handled it until
  * another takes it (let go, thrown, dropped, rolling on). Ties: the one that carries it on more frames, then the earlier
  * character. 0 when no character handles it or the clip does not say (a clip without `by`).
+ * A prop is in one take whole (the Studio plays one track per object): on the frames another character carries it (a
+ * pass, a shared hold) it keeps the timing of this take, so a timing edit of either take leaves it out of step there.
  */
 function ownerOf(clip, prop) {
 	const index = new Map(clip.characters.map((c, i) => [c.id, i])), props = new Map((clip.props ?? []).map(p => [p.id, p]));
