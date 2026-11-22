@@ -331,13 +331,14 @@ export default function BottomDock({ tab: requestedTab = "animation", onTabChang
 					if (workflowMode !== "camera") selectWorkflowMode("camera");
 				}}
 				onCameraBlockChange={(patch, shotId) => {
-					if (patch.mode === "follow") syncActiveCameraFraming();
 					const nextPatch = patch.mode === "rail" && activeCamera.railFollow?.mode === "off"
 						? { ...patch, railFollow: defaultRailRange(activeShotDuration) }
 						: patch;
 					// The embedded dolly graph edits the shot it sits in; the
 					// camera bar above edits the selected one.
 					changeActiveCamera(nextPatch, shotId);
+					// Measured once the shot is a follow shot: on a rail a hand turn is the head's, not follow framing.
+					if (patch.mode === "follow") syncActiveCameraFraming();
 					if (patch.mode === "follow" && !motion) {
 						setToast(ko(
 							"Follow rides the subject's motion — without a loaded motion the camera composes a static frame",

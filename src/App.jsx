@@ -487,7 +487,7 @@ export default function App() {
 		get markSemanticEdit() { return markSemanticEdit; },
 		get motionPos() { return motionPos; },
 		get playMode() { return playMode; },
-		
+		get railCameraAt() { return railCameraAt; },
 
 		get runStudioAction() { return runStudioAction; },
 		get selectWorkflowMode() { return selectWorkflowMode; },
@@ -3642,6 +3642,12 @@ export default function App() {
 	const followTrack = useShotCameraTracks({ shots, fps: tlFps, filmback, fovDeg, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion, subjects: cameraSubjects });
 
 	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack), [playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack]);
+	// A rail shot's camera as this render shows it (its aim take left out), with the head its track was built with:
+	// turning the camera by hand measures the new head against exactly this pair.
+	const railCameraAt = (shotId, frame) => {
+		const row = shots.find((entry) => entry.id === shotId);
+		return row ? { camera: sampleAt(playbackScene, { ...row, camera: { ...row.camera, aimTake: null } }, frame).camera, head: row.camera?.head ?? null } : null;
+	};
 	const cameraPerformance = useCameraPerformance({
 		shot: activeShot, scene: playbackScene, fps: tlFps, playing: tlPlaying, setPlaying: setTlPlaying,
 		setFrame: setTlFrame, frameRef: propFrameRef, camRef: shotCamRef, look, stageRef,

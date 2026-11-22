@@ -4,8 +4,8 @@ import { activeAt, resolveRailSchedule } from "./camera-rail-schedule.js";
 import { sampleAt } from "./sample-at.js";
 import { createCameraPerformance, framingFromCamera } from "./camera-performance.js";
 import { ko } from "./locale.js";
+import { aimRadiansPerPixel, readRailAimFeel, smoothAim } from "./rail-aim-feel.js";
 
-const SENSITIVITY = 0.0032;
 const PITCH_LIMIT = 85 * Math.PI / 180;
 
 /** One pointer-locked rail performance. Nothing is authored until its last
@@ -33,8 +33,9 @@ function useRailRecording(options) {
 		const move = event => {
 			const take = session.current;
 			if (!take?.running || document.pointerLockElement !== take.canvas) return;
-			take.yaw -= event.movementX * SENSITIVITY;
-			take.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, take.pitch - event.movementY * SENSITIVITY));
+			// The mouse moves the target; what the camera shows (and the take keeps) follows it through the filter in tick().
+			take.target.yaw -= event.movementX * take.perPixel;
+			take.target.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, take.target.pitch - event.movementY * take.perPixel));
 		};
 		const locked = () => {
 			const take = session.current;
@@ -107,8 +108,10 @@ function useRailRecording(options) {
 		current.enterShotLook();
 		current.manualRef.current = false;
 		current.setMovePlaying(false);
-		const take = { shot: cleanShot, scene: current.scene, canvas, running: false,
-			start: schedule.startFrame, end: schedule.endFrame, samples: [], yaw: initial.yaw, pitch: initial.pitch };
+		const feel = readRailAimFeel();
+		const take = { shot: cleanShot, scene: current.scene, canvas, running: false, perPixel: aimRadiansPerPixel(feel), smoothing: feel.smoothing,
+			start: schedule.startFrame, end: schedule.endFrame, samples: [], yaw: initial.yaw, pitch: initial.pitch,
+			target: { yaw: initial.yaw, pitch: initial.pitch }, filtered: null };
 		session.current = take;
 		setActive(true);
 		window.__cozyclayCameraGesture = true;
@@ -136,12 +139,17 @@ function useRailRecording(options) {
 		const camera = current.camRef.current;
 		const sample = sampleAt(take.scene, take.shot, frame).camera;
 		if (!camera || !sample) return;
+		// The filter steps on production time (the frames the playhead advanced), not on render ticks;
+		// the camera shows the filtered angle, so the take keeps exactly what was seen.
+		const offset = local - take.start;
+		const seconds = take.filtered !== null ? (offset - take.filtered) / Math.max(1, current.fps ?? 24) : 0;
+		({ yaw: take.yaw, pitch: take.pitch } = smoothAim(take, take.target, seconds, take.smoothing));
+		take.filtered = offset;
 		camera.position.set(sample.pos.x, sample.pos.y, sample.pos.z);
 		current.look.current = { yaw: take.yaw, pitch: take.pitch, roll: (sample.rollDeg ?? 0) * Math.PI / 180 };
 		camera.rotation.order = "YXZ";
 		camera.rotation.set(take.pitch, take.yaw, current.look.current.roll);
 		if (camera.fov !== sample.fovDeg) { camera.fov = sample.fovDeg; camera.updateProjectionMatrix(); }
-		const offset = local - take.start;
 		// Slow renders can skip production frames. Keep the last performed
 		// orientation until the next observed frame, never invent an ease.
 		while (take.samples.length < offset) take.samples.push({ ...(take.samples.at(-1) ?? { yaw: take.yaw, pitch: take.pitch }) });

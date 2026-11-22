@@ -86,13 +86,15 @@ export function register(registry, ports) {
     const span = railFollow?.mode === 'range' ? [shot.startFrame + railFollow.startFrame, shot.startFrame + railFollow.endFrame] : [shot.startFrame, shot.endFrame];
     const patch = { cameraRail: points, mode: 'rail', railFollow, ...(focalMm === undefined ? {} : { focalMm }), ...(rollDeg === undefined ? {} : { rollDeg }),
       ...(height === undefined ? {} : { craneHeight: { points: typeof height === 'number' ? [{ t: 0, height }, { t: 1, height }] : height } }),
-      ...(aim === undefined && aimHeight === undefined ? {} : { aim: aimOf(aim === undefined ? createCameraBlock(shot.camera).aim : aim && (Array.isArray(aim) ? { ids: aim } : { point: aim }), aimHeight) }) };
+      ...(aim === undefined && aimHeight === undefined ? {} : { aim: aimOf(aim === undefined ? createCameraBlock(shot.camera).aim : aim && (Array.isArray(aim) ? { ids: aim } : { point: aim }), aimHeight) }),
+      // a named aim is held: a head the user set to turn to nothing turns to it again
+      ...(aim && createCameraBlock(shot.camera).head?.follow === false ? { head: null } : {}) };
     const keys = shot.cameraKeys.filter(key => key.frame < span[0] || key.frame > span[1]);
     patchShot(shotId, row => ({ ...row, cameraKeys: keys, camera: updateCameraBlock(row.camera, patch) }));
     const camera = createCameraBlock(shotOf(shotId).camera), metres = buildRail(camera.cameraRail)?.length ?? 0, seconds = (span[1] - span[0] + 1) / TIMELINE_FPS;
     const heights = camera.craneHeight?.points.map(point => point.height) ?? [camera.followCam.height], speed = metres / seconds;
-    const aimed = camera.aim?.ids ? `${camera.aim.ids.join(', ')}${camera.aim.height === undefined ? '' : ` at ${camera.aim.height.toFixed(2)} m`}` : (camera.aim ? `(${['x', 'y', 'z'].map(axis => camera.aim.point[axis].toFixed(2)).join(', ')})` : 'the follow subject');
-    const note = `${metres.toFixed(1)} m over ${seconds.toFixed(1)} s (${speed.toFixed(2)} m/s), height ${[...new Set([heights[0], heights.at(-1)])].map(h => h.toFixed(2)).join('-')} m, aim ${aimed}, ${camera.focalMm ? `${camera.focalMm} mm` : 'scene lens'}${shot.cameraKeys.length > keys.length ? `; ${shot.cameraKeys.length - keys.length} camera keys removed` : ''}.`;
+    const aimed = camera.head?.follow === false ? `nothing (held at yaw ${camera.head.yawDeg}°, pitch ${camera.head.pitchDeg}° set by hand)` : camera.aim?.ids ? `${camera.aim.ids.join(', ')}${camera.aim.height === undefined ? '' : ` at ${camera.aim.height.toFixed(2)} m`}` : (camera.aim ? `(${['x', 'y', 'z'].map(axis => camera.aim.point[axis].toFixed(2)).join(', ')})` : 'the follow subject');
+    const note = `${metres.toFixed(1)} m over ${seconds.toFixed(1)} s (${speed.toFixed(2)} m/s), height ${[...new Set([heights[0], heights.at(-1)])].map(h => h.toFixed(2)).join('-')} m, aim ${aimed}${camera.head && camera.head.follow !== false ? ` turned yaw ${camera.head.yawDeg}°, pitch ${camera.head.pitchDeg}° by hand` : ''}, ${camera.focalMm ? `${camera.focalMm} mm` : 'scene lens'}${shot.cameraKeys.length > keys.length ? `; ${shot.cameraKeys.length - keys.length} camera keys removed` : ''}.`;
     const fast = speed > camera.followCam.maxDollySpeed ? [{ code: 'RAIL_TOO_FAST', id: shotId, message: `${speed.toFixed(1)} m/s is past the ${camera.followCam.maxDollySpeed} m/s dolly cap, so the camera lags; lengthen the shot or the rail.` }] : [];
     return { note, warnings: fast };
   }

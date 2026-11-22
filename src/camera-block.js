@@ -1,4 +1,5 @@
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
+import { cloneRailHead } from "./camera-rail-head.js";
 
 // Pure Camera Block model. A shot owns one complete camera instruction, like
 // the camera card clipped to a single strip of film.
@@ -92,13 +93,14 @@ export function cameraRoll(value) {
 	return wrapped === -180 && value > 0 ? 180 : wrapped;
 }
 
-/** The aim, lens and roll fields a block with a rail carries (none without one). */
+/** The aim, head, lens and roll fields a block with a rail carries (none without one). */
 export function railShotFields(value, cameraRail) {
 	const aim = cameraRail ? cloneRailAim(value.aim) : null;
+	const head = cameraRail ? cloneRailHead(value.head) : null;
 	const focalMm = cameraRail && Number.isFinite(value.focalMm) && value.focalMm > 0 ? value.focalMm : null;
 	const rollDeg = cameraRail ? cameraRoll(value.rollDeg) : 0;
 	const aimTake = cameraRail ? cloneAimTake(value.aimTake) : null;
-	return { ...(aim ? { aim } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}), ...(aimTake ? { aimTake } : {}) };
+	return { ...(aim ? { aim } : {}), ...(head ? { head } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}), ...(aimTake ? { aimTake } : {}) };
 }
 
 /** Build a complete block from a partial or stored camera value. */

@@ -11,7 +11,7 @@ import { NumberField } from "../ui.jsx";
 import { flatTiming, timingIsFlat, envelopeDrag, insertCut, removeCut, CUT_MIN_GAP } from "../speed-envelope.js";
 import { checkShotAgainstPreset, presetById } from "../model-presets.js";
 import { WORLD } from "../world-scale.js";
-import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands, IkPartLabels, IkPartsToggle, useIkParts } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
+import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands, IkPartLabels, IkPartsToggle, useIkParts } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx"; import { railShownPitchDeg } from "../camera-rail-head.js";
 import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
 
@@ -912,7 +912,7 @@ function CameraBlockEditor({
 					)}
 					<label title={ko("Read automatically from the camera tilt", "현재 카메라 틸트에서 자동으로 읽습니다")}>
 						<span>{ko("Pitch", "피치")}</span>
-						<output className="tl-camera-metric">{signedValue(follow.pitchOffsetDeg)}</output>
+						<output className="tl-camera-metric">{signedValue(mode === "rail" ? railShownPitchDeg(shot.camera, follow.pitchOffsetDeg) : follow.pitchOffsetDeg)}</output>
 						<small>°</small>
 					</label>
 					{mode === "rail" && crane && (() => {
@@ -1931,7 +1931,7 @@ export default function Timeline({
 										const stateLabel = mode === "keys" && keyCount === 0 ? "FREE" : "LOCKED";
 										const modeLabel = mode === "rail" ? "RAIL" : mode === "follow" ? "FOLLOW" : `KEYS ${keyCount}`;
 										const detailLabel = mode === "rail"
-											? `${follow.railStartMode === "head" ? "HEAD" : "NEAREST"} · ${Number(follow.maxDollySpeed).toFixed(1)} m/s · PITCH ${signedDegrees(follow.pitchOffsetDeg)}`
+											? `${follow.railStartMode === "head" ? "HEAD" : "NEAREST"} · ${Number(follow.maxDollySpeed).toFixed(1)} m/s · PITCH ${signedDegrees(railShownPitchDeg(shot.camera, follow.pitchOffsetDeg))}${shot.camera?.head?.follow === false ? " · FIXED" : ""}`
 											: mode === "follow"
 												? `${Number(follow.distance).toFixed(1)} m · PITCH ${signedDegrees(follow.pitchOffsetDeg)}`
 												: null;

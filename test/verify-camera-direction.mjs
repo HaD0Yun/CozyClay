@@ -62,9 +62,10 @@ assert(rising.at(-1).pitch > rising[0].pitch);
 const followed = buildShotCameraTracks({ shots: [{ ...shot, camera: createCameraBlock({ mode: "rail", cameraRail: rail }) }], subjectTrack, fps: 24, filmback });
 assert(Math.abs(followed[0].yaw - Math.atan2(-(9 - followed[0].pos.x), -(9 - followed[0].pos.z))) < 0.05);
 assert.equal(followed[0].fovDeg, undefined, "no lens of its own: the scene lens applies");
-// A missing cast member falls back to the follow subject rather than aiming at nothing.
+// A missing cast member never hands the rail to another character (shot-subjects.js): the rail has no
+// track there, so the camera holds where it is until the member is back or the aim is changed.
 const lost = buildShotCameraTracks({ shots: [{ ...shot, camera: updateCameraBlock(shot.camera, { aim: { ids: ["gone"] } }) }], subjectTrack, fps: 24, aimAt: () => null, filmback });
-assert(Math.abs(lost[0].yaw - Math.atan2(-(9 - lost[0].pos.x), -(9 - lost[0].pos.z))) < 0.05);
+assert.equal(lost[0], null, "a lost aim does not turn to the follow subject at (9, 9)");
 assert.equal(buildShotCameraTracks({ shots: [{ ...shot, camera: createCameraBlock({ mode: "keys" }) }], subjectTrack, fps: 24 })[0], null, "a keyed shot has no track");
 
 // Cast aim points: a character's chest where it stands, an object's middle.
