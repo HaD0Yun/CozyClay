@@ -27,7 +27,7 @@ const DEG = 180 / Math.PI, EPS = 1e-4;
 const r6 = v => Math.round(v * 1e6) / 1e6;
 
 /** A unit quaternion as the Studio's XYZ Euler angles in degrees { rotX, rot, rotZ } (three.js Euler order XYZ). */
-export function eulerXYZ([x, y, z, w]) {
+function eulerXYZ([x, y, z, w]) {
 	const m11 = 1 - 2 * (y * y + z * z), m12 = 2 * (x * y - w * z), m13 = 2 * (x * z + w * y), m22 = 1 - 2 * (x * x + z * z), m23 = 2 * (y * z - w * x), m32 = 2 * (y * z + w * x), m33 = 1 - 2 * (x * x + y * y);
 	const ry = Math.asin(Math.max(-1, Math.min(1, m13)));
 	const [rx, rz] = Math.abs(m13) < 0.9999999 ? [Math.atan2(-m23, m33), Math.atan2(-m12, m11)] : [Math.atan2(m32, m22), 0];

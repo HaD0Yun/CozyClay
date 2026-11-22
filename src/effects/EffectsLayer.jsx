@@ -65,8 +65,8 @@ export function EffectMarker({ object }) {
  * characterId, bone, frame, now, out)`, attach-history.js) times the record's
  * own numbers; the live frame when that cannot be read. */
 const bonePlace = new THREE.Matrix4(), ownPlace = new THREE.Matrix4();
-const liveWorld = (registryRef, frameRef, attachFrameAtRef, lookupOf) => (id, out, frame = null) => {
-	const now = frameRef?.current ?? 0, record = lookupOf().get(id);
+const liveWorld = (registryRef, frameRef, attachFrameAtRef, lookup) => (id, out, frame = null) => {
+	const now = frameRef?.current ?? 0, record = lookup.get(id);
 	if (frame !== null && Math.round(frame) !== Math.round(now) && record?.attach) {
 		const at = attachFrameAtRef?.current?.(record.attach.characterId, record.attach.bone ?? null, frame, now, bonePlace);
 		if (at) return out.multiplyMatrices(at, sceneObjectMatrix(record, ownPlace));
@@ -88,9 +88,7 @@ export function EffectsLayer({ objects, frameRef = null, take = null, registryRe
 	const any = base.records.length > 0;
 	const meshes = useMemo(() => (any ? createEffectMeshes() : null), [any]);
 	useEffect(() => () => meshes?.dispose(), [meshes]);
-	const lookupRef = useRef(base.lookup);
-	lookupRef.current = base.lookup;
-	const live = useMemo(() => liveWorld(registryRef, frameRef, attachFrameAtRef, () => lookupRef.current), [registryRef, frameRef, attachFrameAtRef]);
+	const live = useMemo(() => liveWorld(registryRef, frameRef, attachFrameAtRef, base.lookup), [registryRef, frameRef, attachFrameAtRef, base.lookup]);
 	const scene = useMemo(() => ({ ...base, take: take ?? {}, live }), [base, take, live]);
 	const drawnRef = useRef(null);
 	const place = () => {

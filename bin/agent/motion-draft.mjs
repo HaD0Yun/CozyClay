@@ -78,7 +78,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, boxe
 			}
 			const rows = byId((await describe())?.objects), ids = Object.values(made).map(entry => entry.id);
 			const placed = Object.fromEntries([...Object.entries(known).map(([prop, entry]) => [prop, entry.id]), ...Object.entries(made).map(([prop, entry]) => [prop, entry.id])]);
-			const undo = rememberBoxes(key, scene, placed, floorCells(clip));
+			const undo = rememberBoxes(key, scene, boxed(placed), floorCells(clip));
 			const answer = { ok: true, draft: true, installed: false, compile: n, standIns: standInLines(made, rows), used: usedText(boxesOf(key), travelOf(clip)), note: NOTE };
 			return { made, records: new Map(ids.map(id => [id, recordOf(rows.get(id))])), undo, answer };
 		}).then(draft => { try { onDraft(draft.answer, watch); } catch { /* a failing view never fails the run */ } return draft; }, () => null);
