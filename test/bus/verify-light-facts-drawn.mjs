@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // What verify_result lighting says against how the frame is drawn (stage-light-facts.js), and the words around it:
-// where a lamp's light ends under a finish that pools it, which stage light is the key, a directional light's shadow
+// where a lamp's light ends under a finish that pools it (at its range, as in the stock draw), which stage light is the key, a directional light's shadow
 // box against an independent recomputation on random inputs, an aim switched between a followed id and a point, an aim
 // at a character that left the cast, and receipt lines that never cut an id.
 import assert from "node:assert/strict";
@@ -90,36 +90,31 @@ const row = (out, id) => out.subjects.hero.lights.find((r) => r.id === id);
 // The look a finish puts on the scene (stage-finish.js FINISH_LOOKS): only the two numbers the facts read are needed here.
 const POOLED = { surface: { bands: { pool: 0.6, reach: 8 } } };
 
-test("under a finish that pools lamp light a point or spot light ends at pool x its range, or pool x the look's reach", () => {
+test("under a finish that pools lamp light a point or spot light ends at its range, as in the stock draw", () => {
 	const scene = stage({ look: POOLED });
 	const lights = [
 		addLight(scene, "far-open", "point", { x: 0, y: 1, z: 6 }, { intensity: 100, range: 0 }),
-		addLight(scene, "near-open", "point", { x: 0, y: 1, z: 4 }, { intensity: 100, range: 0 }),
 		addLight(scene, "ranged", "spot", { x: 4, y: 1, z: 0 }, { intensity: 100, range: 6, angle: 40 }, { x: 0, y: 1, z: 0 }),
-		addLight(scene, "ranged-near", "spot", { x: 3, y: 1, z: 0 }, { intensity: 100, range: 6, angle: 40 }, { x: 0, y: 1, z: 0 }),
+		addLight(scene, "ranged-far", "spot", { x: 7, y: 1, z: 0 }, { intensity: 100, range: 6, angle: 40 }, { x: 0, y: 1, z: 0 }),
 		addLight(scene, "sun", "directional", { x: -3, y: 5, z: 2 }, { intensity: 1 }, { x: 0, y: 1, z: 0 }),
 	];
 	const out = facts(scene, lights);
-	assert.deepEqual([row(out, "far-open").reach, row(out, "far-open").why, row(out, "far-open").endsAtM], [0, "range", 4.8], "6 m away, no range: the pool ends 4.8 m out");
-	assert.deepEqual([row(out, "near-open").reach, row(out, "near-open").endsAtM], [1, 4.8]);
-	assert.deepEqual([row(out, "ranged").reach, row(out, "ranged").why, row(out, "ranged").endsAtM], [0, "range", 3.6], "range 6 pools to 3.6 m: 4 m away is past it");
-	assert.deepEqual([row(out, "ranged-near").reach, row(out, "ranged-near").endsAtM], [1, 3.6]);
+	assert.deepEqual([row(out, "far-open").reach, "endsAtM" in row(out, "far-open")], [1, false], "6 m away, no range: past the pool the stock falloff still lights it, and it never ends");
+	assert.deepEqual([row(out, "ranged").reach, row(out, "ranged").endsAtM], [1, 6], "range 6, 4 m away: inside its range");
+	assert.deepEqual([row(out, "ranged-far").reach, row(out, "ranged-far").why, row(out, "ranged-far").endsAtM], [0, "range", 6], "range 6, 7 m away: past its range");
 	assert.equal("endsAtM" in row(out, "sun") || "endsAtM" in row(out, "key"), false, "a directional light does not end");
-	// the stock draw: the range itself, and no end without one
+	// the stock draw: the same
 	const stock = stage(), same = [addLight(stock, "far-open", "point", { x: 0, y: 1, z: 6 }, { intensity: 100, range: 0 }), addLight(stock, "ranged", "spot", { x: 4, y: 1, z: 0 }, { intensity: 100, range: 6, angle: 40 }, { x: 0, y: 1, z: 0 })];
 	const plain = facts(stock, same);
 	assert.deepEqual([row(plain, "far-open").reach, "endsAtM" in row(plain, "far-open")], [1, false]);
 	assert.deepEqual([row(plain, "ranged").reach, row(plain, "ranged").endsAtM], [1, 6]);
-	// a look without the two numbers is read as the stock draw
-	const other = stage({ look: { surface: { bands: { level: 0.75 } } } });
-	assert.equal(row(facts(other, [addLight(other, "far-open", "point", { x: 0, y: 1, z: 6 }, { intensity: 100, range: 0 })]), "far-open").reach, 1);
 });
 
-test("the finish's surface still pools lamp light the way the facts read it", () => {
+test("the finish's surface still ends lamp light where the stock falloff does", () => {
 	// endOf (stage-light-facts.js) restates this shader: a change to either line needs the same change there.
 	const surface = readFileSync(new URL("../../src/stage-finish-surface.js", import.meta.url), "utf8");
 	assert.ok(surface.includes("float cozyRim = COZY_POOL * ( cutoffDistance > 0.0 ? cutoffDistance : COZY_REACH );"), "the pool's rim: pool x the range, or x the look's reach without one");
-	assert.ok(surface.includes("distanceFalloff = ( 1.0 - smoothstep( ( 1.0 - COZY_POOL_SOFT ) * cozyRim, cozyRim, lightDistance ) )"), "no light at or past the rim");
+	assert.ok(surface.includes("distanceFalloff = max( ( 1.0 - smoothstep( ( 1.0 - COZY_POOL_SOFT ) * cozyRim, cozyRim, lightDistance ) ) * cozyLevel, min( distanceFalloff, cozyLevel ) );"), "past the pool the stock falloff, which ends at the range (never without one)");
 	assert.ok(surface.includes("COZY_POOL: glsl(surface.bands.pool)") && surface.includes("COZY_REACH: glsl(surface.bands.reach)"), "the two numbers come from the look's bands");
 });
 

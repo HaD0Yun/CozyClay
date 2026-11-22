@@ -27,24 +27,24 @@ function ownerOf(node) {
 	return null;
 }
 
-/** Where a point or spot light's light ends in this draw (m; 0: nowhere). Stock three.js ends it at its range; a finish
- * whose surface look pools lamp light (stage-finish-surface.js: bands.pool, bands.reach) ends it at that share of its
- * range, or of the look's reach when it has none. `bands` is the look the scene carries (scene.userData.finishLook). */
-function endOf(light, bands) {
+/** Where a point or spot light's light ends in this draw (m; 0: nowhere): at its range, as stock three.js ends it. A finish
+ * whose surface look pools lamp light (stage-finish-surface.js FALLOFF_BANDS) lights past its pool with the stock falloff,
+ * so its light ends there too. */
+function endOf(light) {
 	if (light.isDirectionalLight) return 0;
-	return Number.isFinite(bands?.pool) && Number.isFinite(bands?.reach) ? bands.pool * (light.distance > 0 ? light.distance : bands.reach) : light.distance;
+	return light.distance;
 }
 
 /** The lights the stage draws, as three.js does: shown with every parent, on layer 0. A record's light is named by its
  * record; the stage's own shadow-casting directional light is "key" (the one nearest stage.keyLight if the stage has
  * several); other stage lights are left out. */
 function drawnLights(scene, keyLight) {
-	const records = [], stage = [], bands = scene.userData?.finishLook?.surface?.bands;
+	const records = [], stage = [];
 	scene.traverseVisible((node) => {
 		if (!(node.isPointLight || node.isSpotLight || node.isDirectionalLight) || !(node.layers.mask & 1)) return;
 		node.updateWorldMatrix(true, false);
 		const position = new Vector3().setFromMatrixPosition(node.matrixWorld), id = node.userData.sceneObjectId;
-		const entry = { id: id ?? "key", light: node, position, end: endOf(node, bands), type: node.isSpotLight ? "spot" : node.isPointLight ? "point" : "directional" };
+		const entry = { id: id ?? "key", light: node, position, end: endOf(node), type: node.isSpotLight ? "spot" : node.isPointLight ? "point" : "directional" };
 		if (id) records.push(entry);
 		else if (node.isDirectionalLight && node.castShadow && !node.userData.sceneLight) stage.push(entry);
 	});
