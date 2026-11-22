@@ -7,6 +7,7 @@ import { EASE } from "../engine-simple/math.js";
 import { elementByPath } from "../../studio-elements.js";
 import { BALANCE } from "./balance.mjs";
 import { CLIP_FPS } from "../clip.js";
+import { POINT } from "../studio/scene.js";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {
@@ -28,10 +29,11 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // inside rows (inside, also in base: a body or a moving prop inside another prop, compile-tool.mjs and inside.mjs), and it is told the
 // parts of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs). body: a
 // character of the scene may have a scale and a tint (engine-simple/size.js, clip.js). balance: the row of a body at rest whose
-// centre of mass lies outside its supports (balance.mjs).
-const FEATURES = { base: { text: "base", inside: true }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, reach: true, pace: true, turn: true, tops: true, body: true, balance: true, words: true, inside: true } };
+// centre of mass lies outside its supports (balance.mjs). kinds: the Studio lists its objects with no box of their own (an
+// effect, a light, a group) as small boxes with a kind (src/lowvis/studio/scene.js), which a motion moves as any prop.
+const FEATURES = { base: { text: "base", inside: true }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, reach: true, pace: true, turn: true, tops: true, body: true, balance: true, words: true, inside: true, kinds: true } };
 /** The flags that can be switched off by name. */
-export const OFF = Object.freeze(["pace", "turn", "tops", "body", "balance", "inside"]);
+export const OFF = Object.freeze(["pace", "turn", "tops", "body", "balance", "inside", "kinds"]);
 /** What a variant turns on: { text: "base" | "lean", edit?: true, ... }, without the flags listed in off. Throws on an unknown name. */
 export function features(variant = "base", off = []) {
 	if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`);
@@ -61,6 +63,7 @@ const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m b
 export const seenFrames = (fps = CLIP_FPS) => Math.ceil(0.1 * fps - 1e-9);
 const INSIDE = `\n- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${seenFrames()} frames or more, or on the clip's first or last frame. The first answer with such a line says what it measures and leaves out.`;
 const HOLLOW = ` hollow: true marks a prop that things may be inside: it is left out of the inside numbers.`;
+const KINDS = ` A prop the Studio lists with kind is a Studio object that has no box of its own (an effect, a light, a group of objects; kind says which): a ${POINT} m box centred on its place, hollow. A motion moves it as any prop (a hand holds it, ride puts it on a joint or a prop, keys move it) and the Studio object goes with the box's centre on every frame, keeping its kind and its own turn against the box. Every prop you add is a plain box or ball.`;
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
@@ -97,7 +100,7 @@ In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X
 
 SCENE (you define it)
 { frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""} }] }
-A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY(s) : ""}
+A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY(s) : ""}${f.kinds ? KINDS : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
 ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}

@@ -33,13 +33,14 @@ function authoredPose(record) {
  *
  * Routed, hinged, take-carried and parented records come from
  * sceneObjectTravelMatrixAt. A record pinned to a character bone (`attach`)
- * has no pose at other frames outside the live rig, so `live(id, out)` gives
- * its current world matrix for every frame (null falls back to the numbers).
+ * asks `live(id, out, frame)` for its world matrix at that frame: the bone
+ * where the character's take has it then (attach-history.js), or where the
+ * live rig has it now when that cannot be read (null falls back to the numbers).
  *
  * @returns {{ p: number[], q: number[] }}
  */
 export function emitterPoseAt(lookup, record, frame, take, live = null) {
-	const world = record.attach ? live?.(record.id, scratchMatrix) ?? null : sceneObjectTravelMatrixAt(lookup, record.id, frame, take ?? {}, scratchMatrix);
+	const world = record.attach ? live?.(record.id, scratchMatrix, frame) ?? null : sceneObjectTravelMatrixAt(lookup, record.id, frame, take ?? {}, scratchMatrix);
 	if (world) world.decompose(scratchPos, scratchQuat, scratchScale);
 	else authoredPose(record);
 	return { p: [scratchPos.x, scratchPos.y, scratchPos.z], q: [scratchQuat.x, scratchQuat.y, scratchQuat.z, scratchQuat.w] };

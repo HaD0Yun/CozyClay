@@ -160,13 +160,13 @@ export function register(registry, ports) {
 	registry.register({ ...studioActionDeclaration("object.attach"),
 		available: state => state.objects.length === 0 ? "There are no scene objects to attach."
 			: state.characters.length === 0 ? "There are no characters to attach an object to." : true,
-		run: ({ objectId, characterId, bone }) => {
+		run: ({ objectId, characterId, bone, local }) => {
 			const object = objectOf(objectId), character = characterOf(ports, characterId), before = ports.state().objects;
-			ports.attachSceneObject(objectId, { characterId, bone: bone ?? null });
+			ports.attachSceneObject(objectId, { characterId, bone: bone ?? null }, local ?? null);
 			const frameName = `${characterName(character)}'s ${bone ?? "root"}`;
 			return { affectedIds: [objectId], summary: ports.state().objects === before
 				? `${object.name || objectId} already rides ${frameName}; nothing changed.`
-				: `Attached ${object.name || objectId} to ${frameName}, keeping its place on screen.` };
+				: `Attached ${object.name || objectId} to ${frameName}, ${local ? "at the given place in its frame" : "keeping its place on screen"}.` };
 		} });
 	registry.register({ ...studioActionDeclaration("object.detach"),
 		available: state => state.objects.some(object => object.attach || object.parent) || "No scene object is attached to a character or grouped.",

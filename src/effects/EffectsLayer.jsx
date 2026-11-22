@@ -15,6 +15,7 @@ import * as THREE from "three";
 import { GIZMO_LAYER } from "../dualview.jsx";
 import { createEffectMeshes } from "./effect-meshes.js";
 import { effectSceneOf, publishEffectScene } from "./state.js";
+import { sceneObjectMatrix } from "../stage-attach-frames.js";
 
 /** The props-registry key the effects pass is filed under (never an object id). */
 const EFFECTS_ENTRY = Symbol("effects");
@@ -57,9 +58,19 @@ export function EffectMarker({ object }) {
 	);
 }
 
-/** A record pinned to a bone emits from where the bone is now: its prop is
- * placed first, then its world matrix read back from the props registry. */
-const liveWorld = (registryRef) => (id, out) => {
+/** A record pinned to a bone emits, at the current frame, from where the bone
+ * is now: its prop is placed first, then its world matrix read back from the
+ * props registry. At another frame (a particle's birth, a trail's past) from
+ * where the character's take has the bone then (`attachFrameAtRef.current(
+ * characterId, bone, frame, now, out)`, attach-history.js) times the record's
+ * own numbers; the live frame when that cannot be read. */
+const bonePlace = new THREE.Matrix4(), ownPlace = new THREE.Matrix4();
+const liveWorld = (registryRef, frameRef, attachFrameAtRef, lookupOf) => (id, out, frame = null) => {
+	const now = frameRef?.current ?? 0, record = lookupOf().get(id);
+	if (frame !== null && Math.round(frame) !== Math.round(now) && record?.attach) {
+		const at = attachFrameAtRef?.current?.(record.attach.characterId, record.attach.bone ?? null, frame, now, bonePlace);
+		if (at) return out.multiplyMatrices(at, sceneObjectMatrix(record, ownPlace));
+	}
 	const entry = registryRef?.current?.get(id);
 	if (!entry) return null;
 	entry.place();
@@ -72,12 +83,14 @@ const liveWorld = (registryRef) => (id, out) => {
  * its smoke is still in the air); `registryRef` is SetProps' placement
  * registry, which the recorder's sync pass walks.
  */
-export function EffectsLayer({ objects, frameRef = null, take = null, registryRef = null, fadeOpacity = null }) {
+export function EffectsLayer({ objects, frameRef = null, take = null, registryRef = null, attachFrameAtRef = null, fadeOpacity = null }) {
 	const base = useMemo(() => effectSceneOf(objects), [objects]);
 	const any = base.records.length > 0;
 	const meshes = useMemo(() => (any ? createEffectMeshes() : null), [any]);
 	useEffect(() => () => meshes?.dispose(), [meshes]);
-	const live = useMemo(() => liveWorld(registryRef), [registryRef]);
+	const lookupRef = useRef(base.lookup);
+	lookupRef.current = base.lookup;
+	const live = useMemo(() => liveWorld(registryRef, frameRef, attachFrameAtRef, () => lookupRef.current), [registryRef, frameRef, attachFrameAtRef]);
 	const scene = useMemo(() => ({ ...base, take: take ?? {}, live }), [base, take, live]);
 	const drawnRef = useRef(null);
 	const place = () => {

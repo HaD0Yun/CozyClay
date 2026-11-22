@@ -34,7 +34,8 @@ export function travelOf(clip) {
  * draftOf({ hold, onDraft, key, known, run, describe, readClip, addStandIn, standInOf }). hold(steps): runs editor steps
  * holding the scene under their own mark, undone when one throws (motion-door.mjs), or null: no draft is made (a call
  * that waits, the direct key). onDraft(answer): once, with the draft's answer. key: the conversation the boxes are kept
- * under; known: studioScene ids.props (the props of the scene the writer read); run(action, args): an editor step (null
+ * under; known: studioScene ids.props (the props of the scene the writer read); boxed(placed): placed without the props that
+ * are no boxes (motion-run.mjs: the objects with no box of their own); run(action, args): an editor step (null
  * when refused); describe(): the Studio's describe answer.
  * onCompiled({ n, scene, clip }): the writer's harness after each compile that went through (pi/harness.mjs).
  * plan(props): inside the install, the clip's props -> null (no draft) or { drafted: { <prop>: { id, untouched, size } }
@@ -44,7 +45,7 @@ export function travelOf(clip) {
  * failed(error): a motion that ends without an install: removes the untouched stand-ins and adds to the error's message
  * what it removed and what it left; -> the error.
  */
-export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run, describe, readClip, addStandIn, standInOf }) {
+export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, boxed = placed => placed, run, describe, readClip, addStandIn, standInOf }) {
 	let job = null; // the draft: Promise of { made: { <prop>: { id, kind, size } }, records: Map(id -> record), undo } or null
 	// the scene read before and after each call of the agent (motion-door.mjs), at the install and at a failure: the
 	// Studio gives a removed id to the next object of its kind, so an id seen missing is the draft's again only under a

@@ -234,6 +234,7 @@ import { playbackFrame } from "./motion/playback-frame-store.js";
 import { LowvisSkin } from "./lowvis/studio/skin.jsx";
 import { TRACK_RIG } from "./lowvis/studio/take.js";
 import { LOWVIS_ID, installClip } from "./lowvis/studio/install.js";
+import { attachFrameAt } from "./effects/attach-history.js";
 import { clipFrame, loadLowvisClip } from "./lowvis/studio/clip-load.js";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
@@ -1957,6 +1958,10 @@ export default function App() {
 	// prop value, so a fresh rig map never re-renders the set.
 	const attachFrameRef = useRef(null);
 	attachFrameRef.current = (characterId, bone, out) => attachFrameMatrix(rigs[characterId] ?? null, bone, out);
+	// the same frame at another timeline frame, from the character's take: where an attached emitter's particles were born
+	const attachFrameAtRef = useRef(null);
+	attachFrameAtRef.current = (characterId, bone, frame, now, out) => attachFrameAt({ rig: rigs[characterId] ?? null, take: appContext.storeDomain("motion")?.motionFor?.(characterId) ?? null,
+		model: appContext.live.characters.find((entry) => entry.id === characterId)?.model, bone, frame, now, out });
 	// The recorder renders through gl.render() directly, which never runs the
 	// r3f frame loop — so it asks the set for one placement pass itself, right
 	// after it has written that frame's bones.
@@ -4468,6 +4473,7 @@ export default function App() {
 								frameRef={propFrameRef}
 								take={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }}
 								attachFrameRef={attachFrameRef}
+								attachFrameAtRef={attachFrameAtRef}
 								syncRef={propSyncRef}
 								worldRef={propWorldRef}
 								fadeOpacity={workflowMode === "pose" ? poseObjectOpacity : null}
