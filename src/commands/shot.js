@@ -35,13 +35,15 @@ const extra = [
   { ...mutation('shot.recordKeys', 'Record camera performance', input({ shotId: id, keys: { type: 'array', maxItems: 600, items: { type: 'object', properties: {}, additionalProperties: true } } })), exposure: 'ui-only' },
   { ...mutation('shot.setOptics', 'Set shot optics', input({ shotId: id, optics: { type: 'object', properties: {}, additionalProperties: true } })), exposure: 'ui-only' },
   { ...mutation('shot.setReview', 'Set shot review', input({ shotId: id, review: { type: 'object', properties: {}, additionalProperties: true } })), exposure: 'ui-only' },
+  // Make segment pacing an undoable agent action.
+  mutation('shot.setKeyEase', 'Set camera key easing', input({ shotId: id, keyId: id, ease: { oneOf: [{ type: 'string', enum: ['easeInOut', 'linear', 'easeIn', 'easeOut'] }, { type: 'null' }] } }), 'Set easing for the segment starting at this key; null restores the default.'),
   mutation('shot.moveKey', 'Move camera key', input({ shotId: id, keyId: id, frame })),
   mutation('shot.removeKey', 'Remove camera key', input({ shotId: id, keyId: id })),
   mutation('shot.clearKeys', 'Clear camera keys', input({ shotId: id })),
   mutation('shot.setTimeline', 'Set shot timeline', input({ frameCount: { type: 'integer', minimum: 24, maximum: TAKE_FRAME_MAX } })),
   mutation('shot.setLens', 'Set camera lens', input({ fovDeg: { ...number, minimum: 14, maximum: 90 } })),
   mutation('shot.frame', 'Frame the shot', { ...input({ ...STUDIO_TOOL_SCHEMAS.frame_shot.properties, preset: { type: 'string' } }, []), oneOf: [STUDIO_TOOL_SCHEMAS.frame_shot, input({ preset: { type: 'string' } })] },
-    'Frame a shot on its named characters together (the frame_shot tool): framing.intent { size, level, view, side, focalMm } or framing.exact { position, lookAt, focalMm }. Without keyAtFrame a shot that holds one framing is reframed whole: a held shot. keyAtFrame adds a camera key there; every key eases in and out, so the camera slows to a stop at each one: key a pan or zoom from one spot with two keys (its start and end), lay a moving camera as a rail (shot.setCameraRail) and cut to a new shot for a new view. On a rail shot it puts the shot back on keys. over: "shot" (with intent, after a take is installed) fits one held camera to every pose of the shot and turns it off the asked view only as far as walls need. Answers checks { derivedSize, screenFraction, clipped, behindCamera, occluded, cameraSide } for the subjects at that frame, and checks.held { frames, hidden, outOfFrame, askedDeg, chosenDeg } and a HELD_SHOT warning for what a camera holding still misses over the shot.'),
+    'Frame a shot on its named characters together (the frame_shot tool): framing.intent { size, level, view, side, focalMm } or framing.exact { position, lookAt, focalMm }. Without keyAtFrame a shot that holds one framing is reframed whole: a held shot. keyAtFrame adds a camera key there; keys ease in and out by default; shot.setKeyEase can change the outgoing segment: key a pan or zoom from one spot with two keys (its start and end), lay a moving camera as a rail (shot.setCameraRail) and cut to a new shot for a new view. On a rail shot it puts the shot back on keys. over: "shot" (with intent, after a take is installed) fits one held camera to every pose of the shot and turns it off the asked view only as far as walls need. Answers checks { derivedSize, screenFraction, clipped, behindCamera, occluded, cameraSide } for the subjects at that frame, and checks.held { frames, hidden, outOfFrame, askedDeg, chosenDeg } and a HELD_SHOT warning for what a camera holding still misses over the shot.'),
   { ...mutation('shot.replace', 'Replace shot authoring', input({ shots: { type: 'array', items: { type: 'object', properties: {}, additionalProperties: true } } })), exposure: 'ui-only' },
   { ...mutation('shot.captureCamera', 'Capture camera framing', input({ shotId: id }, [])), exposure: 'ui-only' },
   // The Board's Stylize result (or null to clear it). UI-only: the picture has
@@ -49,7 +51,7 @@ const extra = [
   { ...mutation('shot.setStylized', 'Set stylized panel image', input({ shotId: id, assetId: { oneOf: [{ type: 'string' }, { type: 'null' }] } })), exposure: 'ui-only' },
   { ...mutation('shot.placeCamera', 'Place camera', input(Object.fromEntries(['x', 'y', 'z', 'lookAtX', 'lookAtY', 'lookAtZ', 'focalMm'].map(key => [key, number])), [])), exposure: 'ui-only' },
 ];
-export const declarations = Object.freeze([extra[0], ...existing, ...extra.slice(1).map(entry => entry.id === 'shot.frame' ? entry : { ...entry, exposure: 'ui-only' })]);
+export const declarations = Object.freeze([extra[0], ...existing, ...extra.slice(1).map(entry => ['shot.frame', 'shot.setKeyEase'].includes(entry.id) ? entry : { ...entry, exposure: 'ui-only' })]);
 
 // shot.setRange also takes range: [startFrame, endFrameExclusive] or flat startFrame/endFrameExclusive
 // fields; both become range: { startFrame, endFrameExclusive } before validation (registry normalizeArgs).
@@ -184,21 +186,28 @@ export function register(registry, ports) {
       patchShot(shotId, row => ({ ...row, camera: updateCameraBlock(row.camera, { mode }) }));
     },
     'shot.setCamera': ({ shotId, patch }) => patchShot(shotId, shot => ({ ...shot, camera: updateCameraBlock(shot.camera, patch) })),
+    // Retain key pacing when recording replaces a framing.
     'shot.recordKeys': ({ shotId, keys }) => {
       shotOf(shotId);
       if (!keys.length) fail('INVALID_ARGUMENT', 'A recording must contain at least one camera key.');
       patchShot(shotId, row => ({ ...row, camera: updateCameraBlock(row.camera, { mode: 'keys' }),
-        cameraKeys: keys.map(key => ({ id: row.cameraKeys.find(current => current.frame === key.frame)?.id ?? createStableItemId('camera-key'), frame: key.frame, framing: key.framing })) }));
+        cameraKeys: keys.map(key => ({ ...row.cameraKeys.find(current => current.frame === key.frame), id: row.cameraKeys.find(current => current.frame === key.frame)?.id ?? createStableItemId('camera-key'), frame: key.frame, framing: key.framing, ...(key.ease === undefined ? {} : { ease: key.ease }) })) }));
     },
     'shot.setOptics': ({ shotId, optics }) => patchShot(shotId, shot => ({ ...shot, optics: repairOptics(optics) })),
     'shot.setReview': ({ shotId, review }) => patchShot(shotId, shot => ({ ...shot, review: repairReview(review, shot) })),
+    // Re-keying a framing keeps its outgoing pace.
     'shot.addKey': ({ shotId, frame }) => {
       const shot = shotOf(shotId), target = Math.min(owner().state().frameCount - 1, frame);
       if (target < shot.startFrame || target > shot.endFrame) return;
       const framing = owner().capture();
       patchShot(shotId, shot => ({ ...shot, cameraKeys: [...shot.cameraKeys.filter(key => key.frame !== target),
-        { id: shot.cameraKeys.find(key => key.frame === target)?.id ?? createStableItemId('camera-key'), frame: target, framing }].sort((a, b) => a.frame - b.frame) }));
+        { ...shot.cameraKeys.find(key => key.frame === target), id: shot.cameraKeys.find(key => key.frame === target)?.id ?? createStableItemId('camera-key'), frame: target, framing }].sort((a, b) => a.frame - b.frame) }));
     },
+    // Preserve the key identity and allow restoring the default.
+    'shot.setKeyEase': ({ shotId, keyId, ease }) => patchShot(shotId, shot => ({ ...shot, cameraKeys: updateStableItem(shot.cameraKeys, keyId, key => {
+      const { ease: previousEase, ...rest } = key;
+      return ease === null ? rest : { ...rest, ease };
+    }, 'cameraKeys') })),
     'shot.moveKey': ({ shotId, keyId, frame }) => patchShot(shotId, shot => ({ ...shot,
       cameraKeys: moveCameraKey(shot.cameraKeys, keyId, Math.max(shot.startFrame, Math.min(shot.endFrame, frame))) })),
     'shot.removeKey': ({ shotId, keyId }) => patchShot(shotId, shot => ({ ...shot, cameraKeys: removeCameraKey(shot.cameraKeys, keyId) })),

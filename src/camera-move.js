@@ -58,13 +58,15 @@ export function shortestArc(a, b) {
 	return delta;
 }
 
-const clamp01 = (t) => Math.max(0, Math.min(1, t));
-const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = (t) => Math.max(0, Math.min(1, t)), lerp = (a, b, t) => a + (b - a) * t;
 
 /** the classic film ease: slow out of A, slow into B */
 export function easeInOut(t) {
 	return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 }
+
+// Let each key choose the pace of its outgoing segment.
+export const EASES = Object.freeze(Object.assign(Object.create(null), { easeInOut, linear: (t) => t, easeIn: (t) => t * t * t, easeOut: (t) => 1 - (1 - t) ** 3 }));
 
 /**
  * Decompose a framing into subject-centred move coordinates: horizontal
@@ -294,7 +296,7 @@ export function cameraMoveAt(keys, anchor, frame, filmback = {}) {
 		const a = keys[i];
 		const b = keys[i + 1];
 		if (frame <= b.frame) {
-			return interpolateFraming(a.framing, b.framing, anchor, (frame - a.frame) / (b.frame - a.frame), easeInOut, filmback);
+			return interpolateFraming(a.framing, b.framing, anchor, (frame - a.frame) / (b.frame - a.frame), EASES[a.ease] ?? easeInOut, filmback);
 		}
 	}
 	return last.framing;

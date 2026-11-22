@@ -121,8 +121,7 @@ export function followSubjectTrack(subjectTrack, subjectId, cast) {
 
 /**
  * The frames of the keys a camera halts at for no reason: an interior key the
- * move runs on through in the same direction. Every key eases in and out, so
- * the camera slows to a stop there; a hold, a reversal or a new direction is
+ * move runs on through in the same direction. Default easing stops the camera; a hold, a reversal or a new direction is
  * a stop the shot means and is not listed.
  */
 export function cameraKeyStops(keys = []) {
@@ -133,7 +132,10 @@ export function cameraKeyStops(keys = []) {
 	const length = (step) => Math.hypot(...step);
 	return keys.slice(1, -1).filter((_, index) => {
 		const u = steps[index], v = steps[index + 1], dot = u.reduce((sum, value, axis) => sum + value * v[axis], 0);
-		return length(u) > 0.02 && length(v) > 0.02 && dot > 0.5 * length(u) * length(v);
+		// Only report a stop when both adjoining segments stop at the key.
+		const incoming = keys[index].ease, outgoing = keys[index + 1].ease;
+		const endsSlow = !["linear", "easeIn"].includes(incoming), startsSlow = !["linear", "easeOut"].includes(outgoing);
+		return endsSlow && startsSlow && length(u) > 0.02 && length(v) > 0.02 && dot > 0.5 * length(u) * length(v);
 	}).map((key) => key.frame);
 }
 

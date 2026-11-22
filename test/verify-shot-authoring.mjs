@@ -332,3 +332,12 @@ assert.equal(reviewed.shots[0].review.comments[0].text, "Hold this");
 assert.equal(reviewed.shots[0].review.annotations.length, 1);
 
 console.log("all shot-authoring checks PASS");
+
+// Exercise saved pacing and repair of invalid values.
+const easedDocument = createShotAuthoringDocument({ frameCount: 100, shots: [{ id: "ease-shot", startFrame: 0, endFrame: 99, cameraKeys: [
+ { id: "ease-valid", frame: 0, framing: framing(40), ease: "linear" },
+ { id: "ease-invalid", frame: 20, framing: framing(40), ease: "invalid" },
+] }] });
+const easedKeys = loadShotAuthoring(serializeShotAuthoring(easedDocument)).shots[0].cameraKeys;
+assert.equal(easedKeys[0].ease, "linear");
+assert.equal("ease" in easedKeys[1], false);
