@@ -51,7 +51,7 @@ const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.mi
 /** The figure at scale 1 when the Studio's look has another body than the rig's (src/lowvis/studio/figure.js lookBody):
  *  its sizes, and that the engine's own lengths are given for the rig's body and multiplied by b too. */
 const SIZES = b => `It stands ${m(head * b)} m tall, Hips joint ${m(hips * b)} m and shoulders ${m(shoulder * b)} m over the floor, ${m(arm * b)} m from shoulder to wrist. That is the engine's reference figure (${m(head)} m tall) times ${b}: every length the SPEC text and the tool's lines give as the engine's own is the reference figure's, and the engine multiplies it by ${b}, as it does every length of the body.`;
-const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
+const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop; with on as well: at that height instead of the prop's top.`;
 // The inside and the at rest rows: what the writer needs before its first spec. What a row measures in full and what it
 // leaves out is said by the tool once, in the answer where such a line first appears (inside.mjs insideText, balance.mjs BALANCE_TEXT).
 /** The least time an inside pair must be past its limit, in frames, to be told (inside.mjs; here because the manual

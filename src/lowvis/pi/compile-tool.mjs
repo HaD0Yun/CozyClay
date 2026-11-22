@@ -75,7 +75,7 @@ function withMovers(scene, spec) {
 	const moved = new Set();
 	for (const [key, acts] of Object.entries(spec)) {
 		if (!Array.isArray(acts)) continue;
-		if (scene.props?.some(p => p.id === key) && acts.length) moved.add(key);
+		if (scene.props?.some(p => p.id === key) && acts.some(a => a?.[1] !== "hide" && a?.[1] !== "show")) moved.add(key); // hide / show move nothing
 		for (const a of acts) if (MOVERS.has(a[1]) && typeof a[2]?.prop === "string") moved.add(a[2].prop);
 	}
 	const set = (scene.props ?? []).filter(p => moved.has(p.id) && !p.moves).map(p => p.id);
@@ -250,6 +250,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			`motion ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
 			edited?.said ?? "",
 			aux.repeat?.added || aux.repeat?.dropped ? `repeat: ${aux.repeat.added} actions added by the repeats${aux.repeat.dropped ? `, ${aux.repeat.dropped} left out because they fall after the last frame` : ""}` : "",
+			aux.carried ? `carried: ${Object.entries(aux.carried).map(([id, d]) => `${id} ends up to ${Math.round(d * 1000)} mm from where the body on it followed it`).join("; ")} (that body moves it itself, by its hands or by what rides on it, so the two do not settle)` : "",
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			bodiesText(def, body) !== state.bodiesSaid ? bodiesText(def, body) || "bodies: every character at scale 1, none with a tint" : "",
 			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,

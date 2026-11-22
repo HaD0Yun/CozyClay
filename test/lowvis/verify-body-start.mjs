@@ -37,7 +37,9 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// to how far its feet trail the hips (was 166268fe9a9621fe)
 	// pinned again with autorl 010 (a walk's sway grows with its walking share, unless the walk begins the
 	// clip; upper-layer keys that flow on into the next) (push the same); were locomotion 2d1a6d6afc122219, sit 69ae9ec17d853bb6, object 800f6742b10944e6, duo c856198951e663f2, push ff755b870529e06d, chop 6577f662ae05285a, bowl d85e95275202dc36)
-	const BEFORE = { locomotion: "4c58c177f5cba59f", sit: "f2ddb31cc94c2acd", object: "9099578f0aa12435", duo: "e577d20d50c20b28", push: "ff755b870529e06d", chop: "598b98622653d95a", bowl: "a0b912519da349db" };
+	// chop and bowl again when a prop key starts where the key before has the prop on its frame (were chop 598b98622653d95a,
+	// bowl a0b912519da349db)
+	const BEFORE = { locomotion: "4c58c177f5cba59f", sit: "f2ddb31cc94c2acd", object: "9099578f0aa12435", duo: "e577d20d50c20b28", push: "ff755b870529e06d", chop: "74ac71e5e65d558b", bowl: "6d8e8f512143c0b1" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);

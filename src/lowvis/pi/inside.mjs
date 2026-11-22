@@ -191,6 +191,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 		e.last = f; e.limit = Math.min(e.limit, limit);
 		if (d > e.value) Object.assign(e, { value: d, frame: f, part });
 	};
+	const hidden = (p, f) => p.shown?.[f] === 0; // a prop the clip hides on that frame (clip.js shown)
 	const props = clip.props.filter(p => !hollow.has(p.id)), moving = props.map(p => p.pos.length > 3), boxes = props.map(p => propBox(p, 0));
 	for (let f = 0; f < F; f++) {
 		props.forEach((p, i) => { if (moving[i]) boxes[i] = propBox(p, f); });
@@ -203,7 +204,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 			const hip = (f * JOINT_COUNT + J.Hips) * 3, at = [c.pos[hip], c.pos[hip + 1], c.pos[hip + 2]], all = Math.max(...parts.map(o => Math.hypot(...sub(o.c, at)) + o.reach));
 			props.forEach((p, n) => {
 				const b = boxes[n];
-				if (apart(at, all, b)) return;
+				if (hidden(p, f) || apart(at, all, b)) return;
 				const key = `${c.id}|${p.id}`, list = touch[key];
 				if (holdersAt(p.id, f).includes(c.id) || list?.some(e => f >= e.a && f < e.b && !e.joints)) return; // it handles the prop, or the whole body touches it
 				for (const o of parts) {
@@ -224,11 +225,11 @@ export function insideRows(clip, aux, { def, spec, look }) {
 				}
 			});
 		}
-		for (let i = 0; i < props.length; i++) if (moving[i]) {
+		for (let i = 0; i < props.length; i++) if (moving[i] && !hidden(props[i], f)) {
 			const m = props[i], a = boxes[i];
 			for (let n = 0; n < props.length; n++) {
 				const p = props[n], b = boxes[n];
-				if (n === i || (moving[n] && n < i) || apart(a.c, a.reach, b)) continue; // a pair of movers once
+				if (n === i || (moving[n] && n < i) || hidden(p, f) || apart(a.c, a.reach, b)) continue; // a pair of movers once
 				const list = touch[`${m.id}|${p.id}`], edge = rideEdge(list, f, null), d = !edge && touching(list, f, null) ? 0 : depthOf(a, b);
 				if (d <= LIMIT || (edge && (rideKeeps(edge, f, true) || touching(list, f, null)))) continue;
 				const [x, y] = moving[n] && inner(p, m) ? [p, m] : [m, p];
@@ -243,4 +244,4 @@ export function insideRows(clip, aux, { def, spec, look }) {
 
 /** What the inside lines measure and leave out, said once in a session (compile-tool.mjs): look, the look the bodies
  *  are drawn in (the one whose solids are measured is solidsLook: when it is another, the text says so); fps, the clip's rate. */
-export const insideText = (look, fps = CLIP_FPS) => `inside lines (said once): on every frame, how deep each body (each part as the ${solidsLook(look)} look draws it${look && solidsLook(look) !== look ? `, the tool having none for the Studio's ${look} look` : ""}, taken as the convex solid around it, at the body's scale; the hands left out) and each prop with moves: true is inside every other prop: the least distance it would have to move to be clear of it. A pair is told when it is deeper than the limit its line states on ${seenFrames(fps)} frames or more (at ${fps} fps the fewest that last a tenth of a second), or on the clip's first or last frame; its line counts the frames it is deeper. Not told and not counted: a body with a prop it holds, carries, pushes or places, on the frames the engine has it in that body's hands; a body with the prop it sits or lies on, up to the end of its next change of posture or the start of its next walk, run, push or turn; an elbow's limb with the prop of its target, and the forearm with the prop of its hand's target, until that limb's next key; a prop with the joint or the prop it rides on, while it rides, and after the ride while it has been deeper than the limit on every frame since the ride's last one; anything with a hollow prop. The engine moves nothing because of it.`;
+export const insideText = (look, fps = CLIP_FPS) => `inside lines (said once): on every frame, how deep each body (each part as the ${solidsLook(look)} look draws it${look && solidsLook(look) !== look ? `, the tool having none for the Studio's ${look} look` : ""}, taken as the convex solid around it, at the body's scale; the hands left out) and each prop with moves: true is inside every other prop: the least distance it would have to move to be clear of it. A pair is told when it is deeper than the limit its line states on ${seenFrames(fps)} frames or more (at ${fps} fps the fewest that last a tenth of a second), or on the clip's first or last frame; its line counts the frames it is deeper. Not told and not counted: a body with a prop it holds, carries, pushes or places, on the frames the engine has it in that body's hands; a body with the prop it sits or lies on, up to the end of its next change of posture or the start of its next walk, run, push or turn; an elbow's limb with the prop of its target, and the forearm with the prop of its hand's target, until that limb's next key; a prop with the joint or the prop it rides on, while it rides, and after the ride while it has been deeper than the limit on every frame since the ride's last one; anything with a hollow prop; a prop on the frames it is hidden. The engine moves nothing because of it.`;

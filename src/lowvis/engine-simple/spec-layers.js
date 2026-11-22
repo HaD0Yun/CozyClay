@@ -4,6 +4,7 @@ import { clamp, rad } from "./math.js";
 import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across, offBox } from "./prop-frame.js";
+import { carriedFrames, carryState } from "./carry.js";
 
 export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 
@@ -15,17 +16,20 @@ export function buildBody(c, acts, F, ctx) {
 	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
 	if (moving(list[0])) st.full = true; // gait.js: a move that begins the clip
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
+	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
+	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
 	for (let i = 0; i < list.length; i++) {
-		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on];
+		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length;
+		if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
+		if (ctx.carrier && on(a) !== frame) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
 		let r;
 		if (moving(a)) {
 			const segs = [seg(a, N)];
-			while (moving(list[i + 1]) && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
+			while (moving(list[i + 1]) && on(list[i + 1]) === frame && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
 			r = locomote(st, segs);
 			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
 		} else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
 		else if (POSTURE.has(a.verb)) { // over: frames of the change (default: the whole span), then the posture holds; 0 = at once
-			if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
 			if (a.o.over != null && !(Number.isFinite(a.o.over) && a.o.over >= 0)) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: over wants a number of frames >= 0, got ${JSON.stringify(a.o.over)}`);
 			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over));
 			r = posture(c, a, st, a.o.over == null ? N : Math.max(1, T), prop, ctx);
@@ -35,6 +39,7 @@ export function buildBody(c, acts, F, ctx) {
 			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
 		}
 		out.push(...r.frames); st = r.st;
+		if (ctx.carrier) for (let f = first; f < out.length; f++) Object.assign(out[f], { on: frame, rest });
 	}
 	// soften pelvis height and lean so action boundaries have no kinks (the solver still guarantees leg reach)
 	const blur = (get, set) => {
@@ -45,7 +50,13 @@ export function buildBody(c, acts, F, ctx) {
 	};
 	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
 	blur(B => B.lean, (B, v) => { B.lean = v; });
-	return out;
+	return ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
+}
+
+/** The ids of the props that move (scene `moves: true`) on which some body-layer action of a character is done (`on`). */
+export function bodyCarriers(spec, def) {
+	const moving = new Set(def.props.filter(p => p.moves).map(p => p.id));
+	return new Set(def.characters.flatMap(c => (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => BODY.has(a?.[1]) && moving.has(a[2]?.on)).map(a => a[2].on)));
 }
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);
@@ -56,7 +67,7 @@ const flat = (p, x, z) => { const d = offBox(p, [x, p.c[1], z]); return Math.hyp
 function posture(c, a, st, n, prop, ctx) {
 	if (a.verb === "sit") {
 		if (!prop && !Number.isFinite(a.o.height)) throw new Error(`engine-simple: ${c.id} sit at frame ${a.f}: wants {on: propId} or {height}`);
-		const top = prop ? prop.c[1] + prop.size[1] / 2 : a.o.height, d = prop ? Math.hypot(prop.c[0] - st.p[0], prop.c[2] - st.p[1]) : 0.33;
+		const top = Number.isFinite(a.o.height) ? a.o.height : prop.c[1] + prop.size[1] / 2, d = prop ? Math.hypot(prop.c[0] - st.p[0], prop.c[2] - st.p[1]) : 0.33;
 		const r = sit(st, n, { y: top, back: Math.min(0.35, d) }), h = r.frames.at(-1)?.p;
 		if (prop && h) ctx.note?.({ f: a.f, verb: "sit", prop: prop.id, off: flat(prop, h[0], h[2]), feetIn: st.feet.filter(ft => flat(prop, ft.g[0], ft.g[1]) === 0).length });
 		return r;

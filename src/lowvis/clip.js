@@ -12,6 +12,8 @@
 //                                                    // optional by (an animated prop): per frame, the ids of what
 //                                                    // carries it as that frame ends: the characters whose hands hold
 //                                                    // it, else the character (a joint) or the prop it rides; [] none
+//                                                    // optional shown (a prop with hide / show keys): per frame of the
+//                                                    // clip (F entries, also for a static prop), 1 drawn, 0 hidden
 //   stats: { buildMs, ... }                          // free form; buildMs = time to compute the clip
 //   notes: [strings]                                 // what the engine could not do, in plain words
 // }
@@ -55,7 +57,7 @@ export function serializeClip(clip) {
 	return JSON.stringify({
 		...clip,
 		characters: clip.characters.map(c => ({ id: c.id, ...((c.scale ?? 1) === 1 ? {} : { scale: c.scale }), ...(c.tint ? { tint: c.tint } : {}), pos: round(c.pos), quat: round(c.quat) })),
-		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat), ...(p.by ? { by: p.by } : {}) })),
+		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat), ...(p.by ? { by: p.by } : {}), ...(p.shown ? { shown: Array.from(p.shown) } : {}) })),
 	});
 }
 
@@ -92,6 +94,7 @@ export function validateClip(clip, { maxStretch = 0.005 } = {}) {
 	for (const p of clip?.props ?? []) {
 		const n = p.pos?.length / 3;
 		if (p.size?.length !== 3 || (n !== 1 && n !== F) || p.quat?.length !== n * 4 || (p.by !== undefined && (!Array.isArray(p.by) || p.by.length !== n))) errors.push(`prop ${p.id}: size/pos/quat/by lengths`);
+		if (p.shown !== undefined && (p.shown?.length !== F || !Array.from(p.shown).every(v => v === 0 || v === 1))) errors.push(`prop ${p.id}: shown wants ${F} entries of 0 or 1`);
 	}
 	return { ok: errors.length === 0, errors, stretch };
 }
