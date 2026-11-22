@@ -3,6 +3,7 @@
 // shot and turns the camera off the asked view only as far as the sightlines need; heldIssues says what any held camera misses.
 // Pure over a compile result (compileSpec .out). Angles are degrees of azimuth: 0 looks from +z, 90 from +x.
 import { blockersAt, HIDDEN_SHARE } from "./sightline.js";
+import { bodyScale } from "../lowvis/studio/figure.js";
 
 const NEAR_DEG = 45, LENS_FACTORS = [1, 1.5, 2, 3], MIN_TAN_V = Math.tan((7.5 * Math.PI) / 180);
 const CLEAR = 0.25, STEP = 3, MARGIN = 1.1, PAD = 0.12, DEG = Math.PI / 180;
@@ -15,7 +16,7 @@ const dotOf = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
  * (the body is drawn about its place at its scale), and the scene's bodies stay. character: { x, y, z, rot (deg), scale }.
  */
 export function placedOut(out, placement, character, of = 1) {
-	const from = placement?.position ?? [0, 0, 0], was = placement?.yaw ?? 0, to = [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw = character.rot ?? 0, k = (character.scale ?? 1) / of;
+	const from = placement?.position ?? [0, 0, 0], was = placement?.yaw ?? 0, to = [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw = character.rot ?? 0, k = bodyScale(character) / of;
 	if (Math.abs(was - yaw) < 1e-6 && from.every((v, i) => Math.abs(v - to[i]) < 1e-6) && Math.abs(k - 1) < 1e-9) return out;
 	const a = (yaw - was) * DEG, c = Math.cos(a), n = Math.sin(a);
 	const move = p => { const x = (p[0] - from[0]) * k, y = (p[1] - from[1]) * k, z = (p[2] - from[2]) * k; return [x * c + z * n + to[0], y + to[1], -x * n + z * c + to[2]]; };

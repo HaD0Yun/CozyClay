@@ -11,6 +11,7 @@ import { add, apply, ry } from "./compiler/math.js";
 import { resolveBone } from "./bones.js";
 import { CAPSULES } from "./qa/geometry.js";
 import { apartOf } from "./qa/people-checks.js";
+import { bodyScale } from "../lowvis/studio/figure.js";
 
 const sampled = new WeakMap();
 // joints are kept to 1e-5 m: what a saved take keeps of them (keptPeople) is then exactly what its compile read
@@ -43,7 +44,7 @@ export function peopleOf(characters, selfId, takeOf) {
 		if (!c || c.id === selfId || c.hidden) continue;
 		const take = takeOf(c.id);
 		if (take?.schema !== "cozyclay.take.v3" || !take.frameCount || !skeletonFor(take.rig)) continue;
-		const scale = c.scale ?? 1; // a scaled character is drawn at its scale: so are its joints here
+		const scale = bodyScale(c); // a character is drawn as large as it stands (its scale times its look's body): so are its joints here
 		out[c.id] = { name: c.subject || c.name || c.id, ...sampleTake(take, { position: [c.x ?? 0, c.y ?? 0, c.z ?? 0], yaw: c.rot ?? 0, ...(scale === 1 ? {} : { scale }) }) };
 	}
 	return out;

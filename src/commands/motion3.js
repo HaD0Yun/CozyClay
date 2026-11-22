@@ -35,7 +35,7 @@ import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
 import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
-import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { unitScale, measurable } from "./motion3-scale.js";
+import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { unitScale, measurable } from "./motion3-scale.js"; import { bodyScale } from "../lowvis/studio/figure.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -254,7 +254,7 @@ export function register(registry, ports) {
 	registry.register({ ...declarations[2], available: mounted, run({ characterId, frames, bones = DEFAULT_BONES }) {
 		// where the stage puts the take's bones: its skeleton (in the take's placement frame, the unit body's) times the character's
 		// scale, turned and placed as the character is now (stage-characters.jsx: a character moved, turned or resized carries its take)
-		const character = characterOf(ports, characterId), take = installed(characterId), sk = rigOf(character), s = character.scale ?? 1;
+		const character = characterOf(ports, characterId), take = installed(characterId), sk = rigOf(character), s = bodyScale(character), shown = character.scale ?? 1;
 		const yaw = ry(character.rot ?? 0), at = [character.x ?? 0, character.y ?? 0, character.z ?? 0], B = take.bones.length, drawn = p => (s === 1 ? p : p.map(v => v * s));
 		const rows = frames.map(f => {
 			const ff = Math.min(take.frameCount - 1, f);
@@ -266,7 +266,7 @@ export function register(registry, ports) {
 				return [name, add(at, apply(yaw, drawn(state.P[sk.index[bone]]))).map(v => Math.round(v * 1e4) / 1e4)];
 			})) };
 		});
-		return { affectedIds: [], summary: `Sampled ${rows.length} frames${s === 1 ? "" : ` at scale ${s}`}.`, output: { frames: rows } };
+		return { affectedIds: [], summary: `Sampled ${rows.length} frames${shown === 1 ? "" : ` at scale ${shown}`}.`, output: { frames: rows } };
 	} });
 	registry.register({ ...declarations[3], available: always, run({ topic, name, topics }) {
 		if (topic === undefined && topics === undefined) fail("INVALID_ARGUMENT", "Send topic (and name) for one answer, or topics: [{ topic, name? }] for several in one call.");

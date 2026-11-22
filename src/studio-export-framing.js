@@ -16,6 +16,7 @@ import { descendantsOf, isEmptyObject } from "./scene-objects.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
 import { fk } from "./motion3/compiler/skeleton.js";
 import { add, apply, ry } from "./motion3/compiler/math.js";
+import { bodyScale } from "./lowvis/studio/figure.js";
 
 const SAMPLES = 24, TAKE_SCHEMA = "cozyclay.take.v3", BARE_OBJECT = /^object:(.+?)(\.(?:center|top|base))?$/s;
 const PARTS = Object.freeze({ head: ["Head", "HeadTop_End"], hand_l: ["LeftHand", "LeftHandMiddle4", "LeftHandIndex4"], hand_r: ["RightHand", "RightHandMiddle4", "RightHandIndex4"],
@@ -45,7 +46,7 @@ function jointsAt(sk, take, f, character) {
 	const B = take.bones.length, ff = Math.max(0, Math.min(take.frameCount - 1, Math.round(f)));
 	const quats = Array.from({ length: B }, (_, b) => Array.from(take.rot.subarray((ff * B + b) * 4, (ff * B + b) * 4 + 4)));
 	const state = fk(sk, quats, Array.from(take.hips.subarray(ff * 3, ff * 3 + 3)));
-	const yaw = ry(character.rot ?? 0), at = [character.x ?? 0, character.y ?? 0, character.z ?? 0], size = character.scale ?? 1;
+	const yaw = ry(character.rot ?? 0), at = [character.x ?? 0, character.y ?? 0, character.z ?? 0], size = bodyScale(character);
 	return state.P.map(p => add(at, apply(yaw, size === 1 ? p : p.map(v => v * size))));
 }
 

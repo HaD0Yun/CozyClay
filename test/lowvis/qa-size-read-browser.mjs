@@ -13,6 +13,7 @@ import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip } from "../../src/lowvis/clip.js";
 import { JOINTS } from "../../src/lowvis/rig17.js";
+import { scaleOf } from "../../src/lowvis/studio/figure.js";
 
 const NAME = "qa-size-read", FILE = new URL(`../../public/lowvis/clips/pi/${NAME}.json`, import.meta.url);
 const F = 72, FRAMES = [0, 17, 35, 52, 71], SCALES = { a: 0.81, b: 0.95, c: 0.88 };
@@ -52,7 +53,9 @@ try {
 	await waitFor("window.__cozyclay.playing === false");
 	const scalesNow = () => evaluate(`Object.fromEntries(window.__cozyclay.characters.filter(c => ${JSON.stringify(IDS)}.includes(c.id)).map(c => [c.id, c.scale ?? 1]))`);
 	const scales = await scalesNow();
-	assert.deepEqual(IDS.map(id => scales[id]), Object.values(SCALES), "the Studio holds the clip's scales");
+	// a clip's scale is the size the engine built; the Studio character's is that over the body of the page's look (figure.js)
+	const body = await evaluate(`import("/src/lowvis/studio/figure.js").then(m => m.lookBody())`);
+	assert.deepEqual(IDS.map(id => scales[id]), Object.values(SCALES).map(s => scaleOf(s, body)), "the Studio holds the clip's sizes as its characters' scales");
 	/** The worst distance (m) per character between motion.sample and its drawn bones, over FRAMES. */
 	const measure = async ids => {
 		const worst = Object.fromEntries(ids.map(id => [id, 0]));
