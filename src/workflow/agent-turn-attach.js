@@ -37,7 +37,7 @@ export async function attachStudioTurn({ fetchImpl, url, parse, attempts }, turn
 
 /** The transcript with the resumed turn's message at its end: what the sidecar had persisted of that turn (its message
  * and the steps after it) goes, since the turn's events bring all of it back. */
-export function resumedItems(items, text, newId) {
+export function resumedItems(items, text, newId, turnId = null) {
 	const shown = String(text ?? "").trim(), at = shown ? items.findLastIndex((item) => item.kind === "user" && item.text === shown) : -1;
-	return [...(at >= 0 ? items.slice(0, at) : items), ...(shown ? [{ kind: "user", id: newId(), text: shown, attachFrame: false, attachments: [] }] : [])];
+	return [...(at >= 0 ? items.slice(0, at) : items), ...(shown ? [{ kind: "user", id: newId(), text: shown, attachFrame: false, attachments: [], ...(turnId ? { turnId } : {}) }] : [])];
 }

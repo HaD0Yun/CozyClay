@@ -585,6 +585,8 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					}
 					const now = Date.now();
 					prompts = prompts.map((message) => ({ timestamp: now, ...message }));
+					// input.note: what this message replaces, ahead of its studio context, so the panel's bubble never shows it (session-rewind.mjs editNote)
+					if (input.note && input.surface === "studio" && !input.review && Array.isArray(prompts[0]?.content)) prompts[0] = { ...prompts[0], content: [{ type: "text", text: input.note }, ...prompts[0].content] };
 					signal.addEventListener("abort", cancel, { once: true });
 					// The seam that lets the browser see codex quota headers before the
 					// response body is read (#379, F2 pass 5 finding 4): `codexResponseObserver`

@@ -9,6 +9,7 @@ import { createAgentTools, SYSTEM_PROMPT, pickWorkspace } from "./agent-tools.mj
 
 import { createVideoAdapters, validateFalVideoRequest } from "./video-adapters.mjs";
 import { createSessionStore, transcriptFromHistory } from "./session-store.mjs";
+import { handleRewind, markTurn, sceneEpoch, takeEditNote, withLastTurnId } from "./session-rewind.mjs";
 import { createAgentRunner } from "./agent-runner.mjs";
 import { createProviderRoutes } from "./provider-routes.mjs";
 import { studioTransaction } from "./studio-turn-transaction.mjs";
@@ -279,7 +280,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	// Tests hand in a store of their own; only the real sidecar writes the
 	// author's config dir (#375).
 	const sessionStore = injectedSessionStore ?? createSessionStore();
-	const studioSessions = new Map();
+	const studioSessions = new Map(), edits = new Map(); // edits: a conversation whose last message was just edited -> { revision, epoch } (session-rewind.mjs)
 	const studioEvents = new Map();
 	const studioOwnerTokens = new Map();
 	const parseCookies = req => Object.fromEntries(String(req.headers.cookie || "").split(";").map(part => part.trim().split("=")).filter(([key, value]) => key && value).map(([key, value]) => [key, decodeURIComponent(value)]));
@@ -411,6 +412,11 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			studioSessions.set(value.sessionId, session);
 		}
 		session.updatedAt = clock();
+		// The turn's line in the session file, before its messages; the user's turn after an edit tells the model what it replaces
+		// (session-rewind.mjs), never a turn the user did not write (a task's run, the main agent's own report).
+		const epoch = sceneEpoch(value.context.host);
+		try { markTurn(sessionStore, value.sessionId, { turnId: value.turnId, revision: value.context.revision?.scene ?? null, epoch, model: value.model ?? null, main: Boolean(value.main) }); } catch (error) { console.warn(`[agent] turn line not written: ${error.message}`); }
+		value.editNote = value.hidden || value.task ? undefined : takeEditNote(edits, value.sessionId, value.context.revision?.scene, epoch);
 		if (studioRuntime?.handleTurn) { await studioRuntime.handleTurn(value, req, res); return true; }
 		const record = { next: 0, events: [], listeners: new Set(), terminal: false }; studioEvents.set(value.turnId, record); session.turns.set(value.turnId, record); session.host = studioIdentity(value.context.host);
 		res.setHeader("set-cookie", `studio_owner=${encodeURIComponent(session.owner)}; Path=/agent; HttpOnly; SameSite=Strict`);
@@ -560,7 +566,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			for await (const frame of turnTransaction.run(reviewing && !value.task ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, settled: value.main?.settled, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
 				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
-				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : motionDoor ? motionDoor.with([...modelTools, plan.track(scriptTool), plan]) : [...modelTools, plan.track(scriptTool), plan], motionTool: Boolean(motionDoor), unfinished: motionDoor?.unfinished, systemPrompt: value.main?.systemPrompt, signal: controller.signal, emit: send,
+				reportCost: Boolean(value.task || value.main), context: value.context, note: value.editNote, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : motionDoor ? motionDoor.with([...modelTools, plan.track(scriptTool), plan]) : [...modelTools, plan.track(scriptTool), plan], motionTool: Boolean(motionDoor), unfinished: motionDoor?.unfinished, systemPrompt: value.main?.systemPrompt, signal: controller.signal, emit: send,
 				meta: persistenceMeta,
 				quotaEvent: headers => codex?.parseQuotaHeaders ? quotaEvent(codex, headers) : { type: "quota", plan: null, primary: { usedPercent: null, windowMinutes: null, resetAt: null }, credits: { has: null } },
 			})) emitFrame(frame);
@@ -669,6 +675,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			if (await steer(value.text, images, value.id ?? null) === false) { ended(); return true; }
 			json(res, 200, { ok: true, queued: true }); return true;
 		}
+		// The edit on the last message: that turn leaves the conversation the model is given and the panel restores (session-rewind.mjs).
+		if (path.startsWith("/agent/sessions/") && path.endsWith("/rewind") && req.method === "POST") return handleRewind(req, res, decodeURIComponent(path.slice("/agent/sessions/".length, -"/rewind".length)), { studioSessions, studioRunners, sessionStore, edits, parseCookies, json, readBody: request => readBody(request) });
 		if (await providerRoutes(req, res, path)) return true;
 		if (path === "/agent/sessions" && req.method === "GET") {
 			const surface = new URL(req.url, "http://127.0.0.1").searchParams.get("surface") || undefined;
@@ -685,8 +693,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			const live = studioSessions.get(sessionId), mine = live && parseCookies(req).studio_owner === live.owner;
 			const running = mine && live.activeTurnId && live.controller && !live.controller.signal.aborted ? { active: { turnId: live.activeTurnId, ...(live.activeText ? { text: live.activeText } : {}) } } : {};
 			try { const persisted = sessionStore.read(sessionId);
-				if (!persisted && !running.active) { missing(); return true; }
-				json(res, 200, { sessionId, transcript: persisted ? transcriptFromHistory(persisted.history) : [], meta: persisted?.meta ?? null, ...running, ...(mine && studioEvents.has(`main:${sessionId}`) ? { main: true } : {}) });
+				if (!persisted?.history.length && !persisted?.turnErrors && !running.active) { missing(); return true; } // a file of turn lines alone (session-rewind.mjs) holds nothing yet
+				json(res, 200, { sessionId, transcript: persisted ? withLastTurnId(sessionStore, sessionId, transcriptFromHistory(persisted.history), transcriptFromHistory) : [], meta: persisted?.meta ?? null, ...running, ...(mine && studioEvents.has(`main:${sessionId}`) ? { main: true } : {}) });
 			} catch { missing(); } return true;
 		}
 		if (path === "/agent/models" && req.method === "GET") {

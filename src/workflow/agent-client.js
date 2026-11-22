@@ -602,6 +602,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 		async loadSession(sessionId, { restore = false } = {}) {
 			return request(`/agent/sessions/${encodeURIComponent(sessionId)}${restore ? "?restore=1" : ""}`);
 		},
+		// The edit on the last message: turn turnId (stopped first if it runs) leaves the conversation; check: only ask whether it would (bin/agent/session-rewind.mjs).
+		rewind: (sessionId, turnId, check = false) => request(`/agent/sessions/${encodeURIComponent(sessionId)}/rewind`, { method: "POST", body: JSON.stringify({ turnId, ...(check ? { check: true } : {}) }) }),
 		// Legacy callers pass a session id; a Studio host passes the frozen stop
 		// envelope so the sidecar can cancel one turn and one owned job.
 		async stop(target) {
@@ -1352,7 +1354,7 @@ export function createAgentChatStore({
 		const restored = restoredPlans((Array.isArray(transcript) ? transcript : []).flatMap((item) => {
 			if (item?.kind === "user" || item?.kind === "assistant") {
 				const attachments = Array.isArray(item.attachments) ? item.attachments.filter((entry) => typeof entry?.dataUrl === "string") : [];
-				return [{ kind: item.kind, id: newId(), text: String(item.text ?? ""), ...(attachments.length ? { attachments } : {}) }];
+				return [{ kind: item.kind, id: newId(), text: String(item.text ?? ""), ...(attachments.length ? { attachments } : {}), ...(item.kind === "user" && typeof item.turnId === "string" ? { turnId: item.turnId } : {}) }];
 			}
 			if (item?.kind === "tool") return [{ kind: "tool", id: newId(), callId: newId(), name: item.name || "tool", label: item.label, ok: item.ok, elapsedMs: item.elapsedMs, status: item.ok === false ? "failed" : "done" }];
 			if (item?.kind === "receipt") {
@@ -1369,10 +1371,9 @@ export function createAgentChatStore({
 	};
 	return {
 		getState: () => state,
-		subscribe(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
-		},
+		subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+		/** The edit on the last message (agent-edit.js): that message and everything after it leave the transcript. */
+		rewindTo: (itemId) => { const at = state.items.findIndex((item) => item.id === itemId); if (at !== -1) set({ items: state.items.slice(0, at), lastTurn: null, context: null }); },
 		setDraft: (draft) => set({ draft: String(draft ?? "") }),
 		/** A reply the main agent made on its own (task mode: a task ended while nobody was talking to it). */
 		note: (text) => { if (String(text ?? "").trim()) set({ items: [...state.items, { kind: "assistant", id: newId(), text: String(text) }] }); },
@@ -1418,7 +1419,7 @@ export function createAgentChatStore({
 				...(options.queued ? {} : { draft: "", pendingAttachments: [] }),
 				turnStartedAt: startedAt,
 				lastTurn: null,
-				items: [...state.items, { kind: "user", id: newId(), text: trimmed, attachFrame: Boolean(options.attachFrame), attachments }],
+				items: [...state.items, { kind: "user", id: newId(), text: trimmed, attachFrame: Boolean(options.attachFrame), attachments, ...(studio ? { turnId } : {}) }],
 			});
 			controller = new AbortController();
 			const signal = controller.signal;
@@ -1445,7 +1446,7 @@ export function createAgentChatStore({
 			if (!studio || !turnId || state.streaming || typeof transport.attach !== "function") return;
 			const startedAt = clock(), turn = { produced: false, failure: null, reviewable: false }, shown = String(text ?? "").trim();
 			activeTurn = turn; wireTurnId = turnId; controller = new AbortController(); const { signal } = controller;
-			set({ turnId, streaming: true, openSession: state.sessionId, turnStartedAt: startedAt, lastTurn: null, ...(shown ? { lastPrompt: shown } : {}), items: resumedItems(state.items, shown, newId) });
+			set({ turnId, streaming: true, openSession: state.sessionId, turnStartedAt: startedAt, lastTurn: null, ...(shown ? { lastPrompt: shown } : {}), items: resumedItems(state.items, shown, newId, turnId) });
 			try { await transport.attach(turnId, (event) => { sculptSketchFrame(event); applyEvent(event); }, signal); }
 			catch (error) { if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) }); } finally { endTurn(turn, signal, startedAt); }
 		},
