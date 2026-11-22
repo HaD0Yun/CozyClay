@@ -112,6 +112,15 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 	await plain.handler({ request: "x" }, {});
 	await plain.unfinished({ failed: true });
 	assert.equal(aborted, true);
+	// a motion installed in a turn that was then stopped before it collected the result: the next turn is told it is in
+	const quick = new Map(), early = createMotionDoor({ background: true, key: "conv-q", jobs: quick, mark: async () => {}, rollback: async () => {},
+		run: async ({ onScene, exclusive }) => { onScene({ characters: { c1: "c1" }, props: {} }); await tick(); return exclusive(async () => ({ report: "Done.", frames: 24, characterIds: ["c1"], objectIds: [], switched: [], installed: true, undo: ["r1"] })); } });
+	await early.handler({ request: "x" }, {});
+	await tick(); await tick();
+	await early.unfinished({ failed: true });
+	const after = createMotionDoor({ background: true, key: "conv-q", jobs: quick, run, mark: async () => {}, rollback: async () => {} });
+	assert.equal(after.note(), "Studio motion observation: a motion that an earlier turn of this conversation started was installed in that turn; its result (with the receipts that undo it) is not collected; motion_result answers it.");
+	assert.deepEqual((await after.with([]).find(tool => tool.name === "motion_result").handler({}, {})).undo, ["r1"]);
 	// the user's panel: a stopped turn whose motion no motion_result answered says it is still being written
 	const steps = [{ kind: "tool", name: "motion", status: "done", result: { ok: true, started: true } }];
 	assert.match(stoppedNote({ steps }), /The motion is still being written: nothing of it is installed until your next message/);

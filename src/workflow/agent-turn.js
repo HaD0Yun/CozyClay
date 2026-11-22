@@ -193,7 +193,7 @@ export function changedLine(ids, context) {
 export function stoppedNote(block) {
 	const note = stoppedEdits(block), started = block.steps.findLastIndex(step => step.kind === "tool" && step.name === "motion" && step.result?.started === true);
 	if (started < 0 || block.steps.slice(started + 1).some(step => step.kind === "tool" && step.name === "motion_result" && step.status === "done")) return note;
-	return `${note} ${ko("The motion is still being written: nothing of it is installed until your next message, which can take it in or ask to stop it.", "모션은 아직 작성 중이에요. 다음 메시지를 보내기 전까지는 아무것도 설치되지 않아요. 다음 메시지로 설치하거나 중지를 요청할 수 있어요.")}`;
+	return `${note} ${ko("The motion is still being written: nothing of it is installed until your next message, which can take it in or ask to stop it.", "모션은 아직 작성 중이에요. 다음 메시지를 보내기 전까지는 아무것도 설치되지 않아요. 다음 메시지로 설치하거나 중지를 요청할 수 있어요.", "动作仍在编写中：在你发送下一条消息之前不会安装任何内容；下一条消息可以安装它，或要求停止。")}`;
 }
 function stoppedEdits(block) {
 	const authored = block.steps.some(step => step.result?.authored === true || (step.result?.calls ?? []).some(call => call?.revision && call.revision.after !== call.revision.before));

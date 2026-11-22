@@ -5,7 +5,7 @@
 // workspaceHandle }, the scene's holder, the turn transaction and the turn's editor actions.
 
 /** A motion's state: { seat, last, stop, held, changed, installed, settled, ended (the writer has ended: its install is
- *  asked for), collected, told, scene, row, compiles, offer, adopt, leave }. */
+ *  asked for), wentIn (its install went through), collected, told, scene, row, compiles, offer, adopt, leave }. */
 export function createJob({ seat, scene, row }) {
 	const waiting = [];
 	const job = {
@@ -25,6 +25,7 @@ export const seatOf = job => (job.seat ? Promise.resolve(job.seat) : new Promise
 /** What the agent of a later turn is told of a motion an earlier turn of the conversation left, or null. */
 export function jobNote(job) {
 	if (job.collected) return job.offer ? "Studio motion observation: the last motion result of this conversation answered installed false with a compiled motion; motion_result { install: true } installs it." : null;
-	const state = job.settled || job.ended ? "has ended; its result is not collected and nothing of it is installed" : `is still being written (${job.compiles} compile${job.compiles === 1 ? "" : "s"} so far); nothing of it is installed until a turn collects it`;
+	const state = job.wentIn ? "was installed in that turn; its result (with the receipts that undo it) is not collected" : job.settled || job.ended ? "has ended; its result is not collected and nothing of it is installed" : `is still being written (${job.compiles} compile${job.compiles === 1 ? "" : "s"} so far); nothing of it is installed until a turn collects it`;
+	if (job.wentIn) return `Studio motion observation: a motion that an earlier turn of this conversation started ${state}; motion_result answers it.`;
 	return `Studio motion observation: a motion that an earlier turn of this conversation started ${state}. motion_result answers it and installs it then when the writer answered for it; motion_result { stop: true } stops the writer, only when the user asks for that.`;
 }

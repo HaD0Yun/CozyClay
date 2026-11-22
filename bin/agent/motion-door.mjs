@@ -132,7 +132,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			try {
 				if (s.sceneOf() !== current.scene) throw coded("studio", "Another scene was opened while the motion was written, so it was not installed. Call motion again in the scene it belongs to.");
 				await s.mark();
-				try { return await install(); } catch (error) { if (error?.code === "studio") await s.rollback(); throw error; }
+				try { const done = await install(); current.wentIn = true; return done; } catch (error) { if (error?.code === "studio") await s.rollback(); throw error; }
 			} finally { current.installed = true; }
 		})); };
 		const onScene = ids => { current.held = new Set([...Object.values(ids?.characters ?? {}), ...Object.values(ids?.props ?? {}).map(prop => prop?.id)]); read(); };
