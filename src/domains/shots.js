@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { aimAt } from '../controls.jsx';
 import { PRESETS, DEFAULT_DURATION_S, TIMELINE_FPS } from '../app-stage.jsx';
 import { usePlaybackFrameState } from '../motion/playback-frame-store.js';
@@ -10,7 +10,7 @@ import { frameDraft } from '../studio-agent-commands.js';
 import { StudioProtocolError } from '../studio-agent-protocol.js'; import { settleUiRefusal } from './ui-refusal.js';
 import { createShotAuthoringDocument, readShotAuthoring, readShotAuthoringDocument, SHOT_AUTHORING_KEY,
   SHOT_AUTHORING_LEGACY_KEYS, SHOT_AUTHORING_QUARANTINE_KEY } from '../shot-authoring.js';
-import { shotIndexAtFrame } from '../cuts.js';
+import { shotIndexAtFrame } from '../cuts.js'; import { useShotHandFraming } from '../shot-hand-framing.js';
 import { subjectsCenter } from '../shot-subjects.js';
 import { createCameraBlock, updateCameraBlock } from '../camera-block.js';
 import { followFramingFromCamera, craneHeightAt, buildRail, simplifyStroke } from '../camera-follow.js';
@@ -245,12 +245,8 @@ export function useShots(appContext) {
   const activeShotDuration = activeShot ? activeShot.endFrame - activeShot.startFrame + 1 : 0;
   const hasCameraKeys = shots.some(shot => shot.cameraKeys.length > 0);
   const selectedShotId = () => domain.read()[shotIndexAtFrame(domain.read(), appContext.live.state?.timeline.currentFrame ?? tlFrame)]?.id;
-  // Arm before the first pointer tick; clicks without a write create no entry.
-  useEffect(() => {
-    const start = () => domain.beginGesture();
-    window.addEventListener('pointerdown', start, true);
-    return () => { window.removeEventListener('pointerdown', start, true); domain.finishGesture(true); };
-  }, [domain]);
+  // Arm before the first pointer tick; clicks without a write create no entry. A refused hand framing goes back (shot-hand-framing.js).
+  const keepHandFraming = useShotHandFraming(appContext, domain);
   function setShots(value) { return appContext.storeDomain('shot').write(value); }
   function editShots(value) { const owner = appContext.storeDomain('shot'); return owner.run('shot.replace', { shots: typeof value === 'function' ? value(owner.read()) : value }); }
   // join: write inside the composed transaction that is already open, instead of opening one through the bus
@@ -266,7 +262,7 @@ export function useShots(appContext) {
   function syncActiveCameraFraming() {
     if (!appContext.shared.shotCamRef.current || appContext.shared.ikMode || appContext.shared.playMode) return;
     const shotId = selectedShotId(); // UI doors (orbit end, rail draw, follow): a refusal is logged here (#1185).
-    return settleUiRefusal('the camera framing was not captured', () => domain.edit('shot.captureCamera', shotId ? { shotId } : {}));
+    return keepHandFraming(() => settleUiRefusal('the camera framing was not captured', () => domain.edit('shot.captureCamera', shotId ? { shotId } : {})));
   }
   function commitManualCameraFraming() { trackFeature('orbit'); return syncActiveCameraFraming(); }
   function beginCameraFramingGesture() { if (!appContext.shared.ikMode && !appContext.shared.playMode) domain.beginGesture(); }
@@ -339,19 +335,22 @@ export function useShots(appContext) {
     if (!activeShot || appContext.shared.waypointMode) return;
     domain.finishGesture();
     syncActiveCameraFraming();
-    if (activeCamera.mode !== 'rail') changeActiveCamera({ mode: 'rail', railFollow: activeCamera.railFollow?.mode === 'off' ? defaultRailRange(activeShotDuration) : activeCamera.railFollow }, activeShot.id);
-    const next = !railDraw; trackFeature('dolly_rail'); setRailDraw(next);
+    const next = !railDraw;
+    if (next && activeCamera.mode !== 'rail' && settleUiRefusal('the rail mode was not set', () => changeActiveCamera({ mode: 'rail', railFollow: activeCamera.railFollow?.mode === 'off' ? defaultRailRange(activeShotDuration) : activeCamera.railFollow }, activeShot.id)) === null) return;
+    trackFeature('dolly_rail'); setRailDraw(next);
     if (next) { appContext.shared.setWorkspaceLayout(current => ({ ...current, insetCollapsed: false })); appContext.notify(ko("Draw the selected Shot's rail in the Top-View", '탑뷰에서 선택한 샷의 레일을 그리세요')); }
   }
   function deleteCameraRail() {
-    if (!cameraRail || !activeShot) return;
-    setRailDraw(false); clearShotCameraRail(activeShot.id);
+    if (!cameraRail || !activeShot) return; // refused while an agent turn holds the scene: the rail and the draw mode stay
+    if (settleUiRefusal('the camera rail was not deleted', () => clearShotCameraRail(activeShot.id)) === null) return; setRailDraw(false);
     appContext.notify(ko('Camera rail deleted — Follow keeps the current distance', '카메라 레일 삭제됨 — 팔로우가 현재 거리를 유지합니다'));
   }
   function drawCameraRail(stroke) {
     const simplified = simplifyStroke(stroke, 0.12);
     if (simplified.length < 2) return;
-    changeCameraRail(simplified); setRailDraw(false);
+    // A refused stroke (an agent turn holds the scene; the bus tells the user) draws nothing and keeps the draw mode on.
+    if (settleUiRefusal('the camera rail was not drawn', () => changeCameraRail(simplified)) === null) return;
+    setRailDraw(false);
     const curve = buildRail(simplified);
     if (appContext.shared.playgroundMode && activeShot && curve) {
       const speed = Math.max(0.2, Math.min(activeCamera.followCam?.maxDollySpeed ?? 4, 4)); // the landing rail is ridden at an easy 4 m/s, or a lower cap

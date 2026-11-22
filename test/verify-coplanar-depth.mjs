@@ -32,8 +32,63 @@ check("stacked touching cubes (opposite faces) get no rank", () => {
 	assert.equal(coplanarDepthRanks([cube("a", 0, 0, 0), cube("b", 0, 1, 0)]).size, 0);
 });
 
-check("3 mm apart: no rank", () => {
-	assert.equal(coplanarDepthRanks([cube("a", 0, 0, 0), cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5)]).size, 0);
+// A 24-bit depth buffer cannot tell faces 1-6 mm apart at the 100 m far plane: those fight too, and the face in
+// front along the normal wins, whichever was made first. Past that gap the depth test orders them itself.
+check("3 mm apart: the face in front ranks, made first or last", () => {
+	assert.equal(rankOf([cube("a", 0, 0, 0), cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5)], "b"), 1);
+	assert.equal(rankOf([cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5), cube("a", 0, 0, 0)], "b"), 1);
+	assert.equal(rankOf([cube("b", 0.5, 0.503, 0, 1, 0.5, 0.5), cube("a", 0, 0, 0)], "a"), 0);
+});
+
+check("8 mm apart: no rank", () => {
+	assert.equal(coplanarDepthRanks([cube("a", 0, 0, 0), cube("b", 0.5, 0.508, 0, 1, 0.5, 0.5)]).size, 0);
+});
+
+check("stacked planes 2-5 mm apart (ground, road, lines): the upper one wins, by height not by order", () => {
+	const plane = (id, y, sx, sz) => ({ id, renderer: "plane", x: 0, y, z: 0, rot: 0, scaleX: sx, scaleY: 1, scaleZ: sz });
+	const ground = plane("ground", 0, 20, 20), road = plane("road", 0.002, 3, 20), line = plane("line", 0.005, 0.1, 18);
+	for (const order of [[ground, road, line], [line, road, ground], [road, line, ground]]) {
+		const ranks = coplanarDepthRanks(order);
+		assert.deepEqual([ranks.get("ground") ?? 0, ranks.get("road") ?? 0, ranks.get("line") ?? 0], [0, 1, 2], order.map((o) => o.id).join(","));
+	}
+});
+
+check("double-sided planes a gap apart rank only where no camera can stand on the other side", () => {
+	const sheet = (id, y, s) => ({ id, renderer: "plane", x: 0, y, z: 0, rot: 0, scaleX: s, scaleY: 1, scaleZ: s });
+	// in the air (a canopy and a panel 3 mm under it, seen from below as well): no rank, from either order
+	assert.equal(coplanarDepthRanks([sheet("lower", 2.2, 2), sheet("upper", 2.203, 1)]).size, 0);
+	assert.equal(coplanarDepthRanks([sheet("upper", 2.203, 1), sheet("lower", 2.2, 2)]).size, 0);
+	// the same two at the floor, under every lens: the upper one ranks
+	assert.equal(rankOf([sheet("upper", 0.003, 1), sheet("lower", 0, 2)], "upper"), 1);
+	assert.equal(rankOf([sheet("upper", 0.003, 1), sheet("lower", 0, 2)], "lower"), 0);
+	// up to the lowest lens (0.1 m; a plane sits 4 mm above its y), not above it
+	assert.equal(rankOf([sheet("upper", 0.093, 1), sheet("lower", 0.09, 2)], "upper"), 1);
+	assert.equal(coplanarDepthRanks([sheet("upper", 0.103, 1), sheet("lower", 0.1, 2)]).size, 0);
+	// upright sheets: no side is up, no rank
+	const upright = (id, z, s, turn = 90) => ({ id, renderer: "plane", x: 0, y: 1.5, z, rot: 0, rotX: turn, scaleX: s, scaleY: 1, scaleZ: s });
+	for (const turn of [90, -90, 270]) {
+		assert.equal(coplanarDepthRanks([upright("back", 0, 2, turn), upright("front", 0.003, 0.5, turn)]).size, 0, `turn ${turn}`);
+		assert.equal(coplanarDepthRanks([upright("front", 0.003, 0.5, turn), upright("back", 0, 2, turn)]).size, 0, `turn ${turn}, front made first`);
+	}
+	// a ramp at the floor can be seen from under its high end: no rank
+	const ramp = (id, lift, s) => ({ id, renderer: "plane", x: 0, y: Math.cos(Math.PI / 6) * lift, z: Math.sin(Math.PI / 6) * lift, rot: 0, rotX: 30, scaleX: s, scaleY: 1, scaleZ: s });
+	assert.equal(coplanarDepthRanks([ramp("upper", 0.003, 1), ramp("lower", 0, 3)]).size, 0);
+	// in one plane they still rank by order, as ever, wherever they are
+	assert.equal(rankOf([upright("back", 0, 2), upright("front", 0, 0.5)], "front"), 1);
+	assert.equal(rankOf([sheet("lower", 2.2, 2), sheet("upper", 2.2, 1)], "upper"), 1);
+});
+
+check("a face with one near neighbour only (a sheet on a box, a decal on a wall) ranks at any height, from either order", () => {
+	const table = { id: "table", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, scaleX: 2, scaleY: 0.8, scaleZ: 1 };
+	const paper = { id: "paper", renderer: "plane", x: 0, y: 0.8, z: 0, rot: 0, scaleX: 0.15, scaleY: 1, scaleZ: 0.1 }; // a plane sits 4 mm above its y
+	assert.equal(rankOf([table, paper], "paper"), 1);
+	assert.equal(rankOf([paper, table], "paper"), 1);
+	assert.equal(rankOf([paper, table], "table"), 0);
+	const wall = { id: "wall", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, scaleX: 4, scaleY: 3, scaleZ: 0.2 };
+	const decal = { id: "decal", renderer: "plane", x: 0, y: 1.5, z: 0.1 - 0.004 + 0.003, rot: 0, rotX: 90, scaleX: 0.5, scaleY: 1, scaleZ: 0.5 };
+	assert.equal(rankOf([wall, decal], "decal"), 1);
+	assert.equal(rankOf([decal, wall], "decal"), 1);
+	assert.equal(rankOf([decal, wall], "wall"), 0);
 });
 
 check("coplanar but side by side with a gap: no rank", () => {
@@ -53,8 +108,9 @@ check("rotY 90: coplanar front faces conflict", () => {
 	const a = cube("a", 0, 0, 0, 2, 1, 1, { rot: 90 });
 	const b = cube("b", 0, 0, 0.5);
 	assert.equal(rankOf([a, b], "b"), 1);
-	// a lower, thinner cube 5 mm off the plane does not
-	assert.equal(coplanarDepthRanks([a, cube("c", 0, 0.2, 0.505, 0.5, 0.5, 1)]).size, 0);
+	// a lower, thinner cube 5 mm in front of the plane wins over it; 8 mm in front, nothing
+	assert.equal(rankOf([a, cube("c", 0, 0.2, 0.505, 0.5, 0.5, 1)], "c"), 1);
+	assert.equal(coplanarDepthRanks([a, cube("c", 0, 0.2, 0.508, 0.5, 0.5, 1)]).size, 0);
 });
 
 check("rotY 45 top overlapping an axis-aligned top conflicts; far corner does not", () => {
