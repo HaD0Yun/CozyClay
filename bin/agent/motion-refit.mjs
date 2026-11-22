@@ -8,6 +8,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionOff } from "./motion-engine.mjs";
+import { bodiesOf } from "./motion-fit.mjs";
 import { keptTakes, playingMotions } from "./motion-kept.mjs";
 import { beforeOf } from "./motion-run.mjs";
 import { lookBody } from "../../src/lowvis/studio/figure.js";
@@ -33,9 +34,10 @@ const bodiesOnly = (differs, characters) => differs.every(text => { const [id, f
  * changed). skipped: [{ name, characters, why }], a motion the refit cannot take over (the scene changed otherwise, or
  * the engine refused): the writer is needed for it. keptNone: the listed characters whose take keeps no spec (made
  * before specs were kept, or by another tool): they keep their take as it is.
+ * memoryKey: the conversation, whose remembered bodies (motion-fit.mjs) become the refit ones.
  * Throws an Error with code "studio" when the Studio refused a step of an install.
  */
-export async function refitMotion({ hub, workspaceHandle, invoke, env = process.env, deps = null }) {
+export async function refitMotion({ hub, workspaceHandle, invoke, memoryKey = null, env = process.env, deps = null }) {
 	const { createCompileTool, installClip, studioScene, readClip } = deps ?? await realDeps();
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds");
 	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds });
@@ -66,6 +68,9 @@ export async function refitMotion({ hub, workspaceHandle, invoke, env = process.
 		const done = await installClip(clip, run, { label: `refit of ${motion.name}`, existing: studio.ids, turn, body: lookBody(figure), source: { name, scene, spec: motion.spec } });
 		if (!done.ok) throw failure("studio", `The motion was compiled again (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 		const sizes = motion.scene.characters.map(c => ({ id: studio.ids.characters[c.id], was: c.scale ?? 1, now: now(c).scale })).filter(s => s.id && s.was !== s.now);
+		// the body this conversation's fit lines measure a later edit of one against (motion-fit.mjs) is the refit one
+		const known = bodiesOf(memoryKey);
+		for (const c of motion.scene.characters) { const id = studio.ids.characters[c.id]; if (known.has(id)) known.set(id, { id, scale: now(c).scale, tint: now(c).tint ?? null }); }
 		out.refit.push({ name, from: motion.name, characters: motion.cast, sizes, frames: clip.frameCount, rows: got.told.filter(t => !t.was || t.worse).map(t => t.line) });
 	}
 	return out;

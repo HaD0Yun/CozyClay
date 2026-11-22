@@ -18,6 +18,7 @@ import { lookBody } from "../../src/lowvis/studio/figure.js";
 import { decodeRawTrack } from "../../src/motion-v4/track/codec.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { refitMotion } from "../../bin/agent/motion-refit.mjs";
+import { bodiesOf, bodyFitOf, rememberBodies } from "../../bin/agent/motion-fit.mjs";
 
 const ENV = { COZYCLAY_FIGURE: "cube" }, B = lookBody("cube");
 const box = (id, size, at, extra = {}) => ({ id, size, at, ...extra });
@@ -65,6 +66,12 @@ const refit = studio => refitMotion({ hub: studio.hub, workspaceHandle: "ws", in
 	assert.ok(!studio.steps.some(([a, args]) => a === "character.update" && "scale" in (args.patch ?? {})), "no scale set: the character has it");
 	assert.ok(Array.isArray(done.rows));
 	console.log(`ok refit: compiled again at 0.8 and installed, rows told: ${done.rows.length ? done.rows.join(" | ") : "none"}`);
+
+	// the body this conversation remembers for its fit lines (motion-fit.mjs) becomes the refit one
+	rememberBodies("conv-refit", [{ id: "a", scale: 1, tint: null }]);
+	await refitMotion({ ...studioOf(source, 0.8), workspaceHandle: "ws", memoryKey: "conv-refit", env: ENV, deps });
+	assert.deepEqual(bodyFitOf(bodiesOf("conv-refit").get("a"), { scale: 0.8 }), [], "after the refit an edit of the character has no size line");
+	assert.equal(bodiesOf("conv-other").size, 0, "a conversation that remembers no motion gets none");
 
 	const same = await refit(studioOf(source, 1));
 	assert.deepEqual([same.refit.length, same.kept.length], [0, 1], "no size changed: kept as it is");

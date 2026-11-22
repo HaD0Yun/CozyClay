@@ -11,7 +11,7 @@ import { normalizeTakeSource } from "./domains/motion/take-source.js"; import { 
 import { createKeyLight, normalizeLighting } from "./stage-lighting.js";
 // The timeline clock lives in timeline-fps.js (three-free, so the agent
 // sidecar can import it); re-exported here for every scene-side caller.
-import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js"; import { carriedOver, lookBody } from "./lowvis/studio/figure.js";
+import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js"; import { carriedOver, lookBody, scaleRoom } from "./lowvis/studio/figure.js";
 
 const CHARACTER_POSITION_LIMITS = elementByPath("character.position");
 const CHARACTER_SCALE_LIMITS = elementByPath("character.scale");
@@ -119,8 +119,8 @@ export function normalizeReferenceImage(value) {
 
 /** Stature band for a cast member: the gizmo's scale handles are a deliberate
  * artistic ask, and a previs giant or child is legitimate. */
-const clampScale = (value) => (Number.isFinite(value) && value > 0
-	? Math.max(CHARACTER_SCALE_LIMITS.min, Math.min(CHARACTER_SCALE_LIMITS.max, value))
+const clampScale = (value, room) => (Number.isFinite(value) && value > 0
+	? Math.max(room.min, Math.min(room.max, value))
 	: 1);
 
 /** One character entry in the stage envelope. `source` may be a v3 entry, a
@@ -155,7 +155,7 @@ export function createCharacterEntry(source = null, index = 0) {
 		// Stature multiplier: 1 is the canonical body, an extracted take carries
 		// the FILMED person's leg ratio. It persists with the entry because the
 		// take's root travel was authored against it — see the render path.
-		scale: clampScale(s.scale),
+		scale: clampScale(s.scale, scaleRoom(CHARACTER_SCALE_LIMITS, s.model)), // a row of another look's body keeps its size (figure.js)
 		subject: typeof s.subject === "string" && !PLACEHOLDER_SUBJECTS.has(s.subject) ? s.subject : "",
 		// The character's animation layer: its own root path.
 		layer: normalizeLayer(s.layer),

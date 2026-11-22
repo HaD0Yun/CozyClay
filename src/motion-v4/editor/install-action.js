@@ -13,7 +13,7 @@ import { skeletonFor } from "../../motion3/rigs/index.js";
 import { decodeRawTrack } from "../track/codec.js";
 import { placedTake } from "../track/literal.js";
 import { characterName } from "../../character-name.js";
-import { bodyScale } from "../../lowvis/studio/figure.js";
+import { bodyScale, scaleOf } from "../../lowvis/studio/figure.js";
 
 const SPEC_SCHEMA = "cozyclay.motion-spec.v1";
 
@@ -33,8 +33,7 @@ export function register(registry, ports) {
 		const sk = skeletonFor(character.model);
 		if (!sk) fail("TARGET_NOT_READY", `${characterName(character)} is a ${character.model} body, which a raw take cannot drive; use an X Bot or Y Bot character.`);
 		// the take's size and the character's, both as the character's scale (its look's body at scale 1)
-		const of = Number.isFinite(encoded?.scale) ? encoded.scale : 1, unit = bodyScale({ model: character.model }), scale = character.scale ?? 1;
-		const wants = Math.round(of / unit * 1e6) / 1e6;
+		const of = Number.isFinite(encoded?.scale) ? encoded.scale : 1, scale = character.scale ?? 1, wants = scaleOf(of, bodyScale({ model: character.model }));
 		if (Math.abs(bodyScale(character) - of) > 1e-6) fail("TARGET_NOT_READY", wants === 1 ? "Set the character's scale back to 1 before installing motion." : `This take is of a body of scale ${wants} and the character's scale is ${scale}: set the character's scale to ${wants} first.`);
 		let raw;
 		try { raw = decodeRawTrack(encoded, sk); } catch (error) { fail("INVALID_ARGUMENT", error.message); }

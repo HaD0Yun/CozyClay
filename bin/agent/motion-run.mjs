@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { draftOf, travelOf } from "./motion-draft.mjs";
-import { lookBody } from "../../src/lowvis/studio/figure.js";
+import { lookBody, scaleOf } from "../../src/lowvis/studio/figure.js";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { propsSetOf } from "./motion-props.mjs";
 import { keptMotion, keptTakes } from "./motion-kept.mjs";
@@ -85,7 +85,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (before) {
 		// the tool starts from them (harness.mjs kept); from the spec alone where the Studio scene is no longer that scene
 		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look.";
-		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
+		parts.push(`Your last scene and spec (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");
 }
@@ -129,7 +129,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
-	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds");
+	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(env.COZYCLAY_FIGURE || null);
 	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
 	// the objects with no box of their own are no boxes the body meets: no fit line measures them (motion-fit.mjs)
 	const boxed = placed => Object.fromEntries(Object.entries(placed).filter(([prop]) => !studio.ids.props[prop]?.point));
@@ -173,7 +173,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		result = await exclusive(async () => {
 			if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 			const plan = await draft.plan(clip.props ?? []);
-			const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn, body: lookBody(env.COZYCLAY_FIGURE || null), source: { name, scene: record.final.scene, spec: record.final.spec }, ...(plan ? { drafted: plan.drafted } : {}) });
+			const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn, body: look, source: { name, scene: record.final.scene, spec: record.final.spec }, ...(plan ? { drafted: plan.drafted } : {}) });
 			if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 			// an untouched draft stand-in the final motion does not use goes once the install is in (a removal the Studio refuses is told)
 			if (plan?.remove.length) await run("object.remove", { ids: plan.remove.map(entry => entry.id) });
@@ -204,8 +204,9 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const onBone = new Map((result.attached ?? []).map(entry => [entry.id, entry]));
 	const carried = (clip.props ?? []).map(prop => studio.ids.props[prop.id]).filter(entry => entry?.point && ((result.moving ?? []).includes(entry.id) || onBone.has(entry.id))).map(entry => ({ id: entry.id, kind: entry.kind }));
 	const attached = [...onBone.values()].map(entry => ({ id: entry.id, characterId: entry.characterId, bone: entry.bone }));
-	// the body each animated character now has; the next edit of one is measured against it (motion-fit.mjs)
-	const got = clip.characters.map((figure, k) => ({ id: studioId(figure, k), scale: figure.scale ?? 1, tint: figure.tint ?? null })).filter(b => b.id);
+	// the body each animated character now has, its scale the Studio character's (the clip's size over the look's body);
+	// the next edit of one is measured against it (motion-fit.mjs)
+	const got = clip.characters.map((figure, k) => ({ id: studioId(figure, k), scale: scaleOf(figure.scale ?? 1, look), tint: figure.tint ?? null })).filter(b => b.id);
 	rememberBodies(key, got);
 	if (result.bodies?.length) try { onBodies(result.bodies); } catch { /* a failing view never fails the run */ }
 	const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;

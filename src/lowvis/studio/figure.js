@@ -24,6 +24,19 @@ export const lookBody = (look = LAUNCHED) => BODY[look] ?? 1;
  *  (only a character of the rig the looks are drawn over has one). */
 export const bodyScale = (character, look = LAUNCHED) => (Number.isFinite(character?.scale) ? character.scale : 1) * (character?.model === LOOK_RIG ? lookBody(look) : 1);
 
+/** The scales a stored row may hold: the Studio's limits of a character's scale ({ min, max }), and for a character of
+ *  the rig the looks are drawn over every size those limits give under any look's body, so a row carried over from
+ *  another look (carriedOver) keeps its size at both ends of the range. */
+export function scaleRoom({ min, max }, model, look = LAUNCHED) {
+	if (model !== LOOK_RIG) return { min, max };
+	const to = lookBody(look), bodies = [1, ...Object.values(BODY)];
+	return { min: Math.min(min, min * Math.min(...bodies) / to), max: Math.max(max, max * Math.max(...bodies) / to) }; // as carriedOver multiplies
+}
+
+/** A size the engine built (a share of the rig's own body) as a character's scale of the look's body `body`: the size
+ *  itself for the rig's own body, else to six decimals (0.81 x 0.9 / 0.81 is 0.9). */
+export const scaleOf = (size, body = 1) => (body === 1 ? size : Math.round(size / body * 1e6) / 1e6);
+
 /** A stored character row whose scale is of the body `stored` (a stage's figureBody, scenes.js; 1 when not given) as a
  *  row of this page's look: a character of the rig the looks are drawn over gets the scale that stands it as large as
  *  before; any other row, or one of the same body, is the row itself. */

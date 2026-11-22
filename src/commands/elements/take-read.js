@@ -11,7 +11,10 @@ const LEFT_OUT = 'left out of this read: name this character in ids for its spec
 const leftOutScene = scene => `left out (the ${Object.keys(scene?.objects ?? {}).length} scene objects it was compiled against)`;
 
 // A raw take's spec (motion.v4.install) carries its whole track in base64 (~250k characters for 7 s): a read names its size.
-const leanSpec = spec => (spec?.raw ? { ...spec, raw: `left out (the encoded track of ${spec.raw.frames} frames, ${JSON.stringify(spec.raw).length} characters)` } : spec);
+// It also keeps the motion writer's scene and spec it was compiled from (spec.lowvis, ~20k characters for 30 s of three
+// bodies), which the motion tool reads by itself: a read names the motion they are of.
+const leanSpec = spec => (spec?.raw ? { ...spec, raw: `left out (the encoded track of ${spec.raw.frames} frames, ${JSON.stringify(spec.raw).length} characters)`,
+  ...(spec.lowvis ? { lowvis: `left out (the scene and spec of motion ${spec.lowvis.name}, kept with this take for the motion tool)` } : {}) } : spec);
 
 /** A take source ({ schema, rig, spec, placement, scene, ... }) as a read answers it: { specId, ... }. */
 function readSource(source, named) {

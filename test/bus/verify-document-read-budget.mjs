@@ -60,7 +60,9 @@ check("the cast, the stage and every saved scene answer a saved take's specId to
 });
 check("a cast row answers the take the motion owner holds now, not the one the scene last saved (a fresh install read null)", () => {
 	const raw = { schema: "cozyclay.raw-track.v1", frames: 176, rot: "A".repeat(250_000) }; // a raw take's spec carries its encoded track
-	const rawSource = { ...source, spec: { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 176, label: "push", raw } };
+	// and the motion writer's scene and spec it was compiled from (motion.v4.install lowvis), which the motion tool reads by itself
+	const lowvis = { name: "agent-20261123-000000-abcd", scene: { frames: 176, characters: [{ id: "a", at: [0, 0], heading: 0 }], props: [] }, spec: { a: Array.from({ length: 400 }, (_, i) => [i, "pose", { R: [0.1, 0.2, 0.3], over: 8 }]) } };
+	const rawSource = { ...source, spec: { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 176, label: "push", raw, lowvis } };
 	const live = [{ ...row("char-a"), take: { ...take, source: rawSource }, fullTake: { ...take, source: rawSource } }, { ...row("char-b"), take: null, fullTake: null }];
 	const cast = [{ id: "char-a", motionTake: null }, { id: "char-b", motionTake: { ...source, takeId: "old" } }];
 	const read = readElementDocument({ characters: cast, motion: live }, { ids: ["char-a", "char-b"] }, "scene-1");
@@ -70,6 +72,8 @@ check("a cast row answers the take the motion owner holds now, not the one the s
 	assert.equal(a.motionTake.takeId, "t1");
 	assert.equal(a.motionTake.spec.frames, 176);
 	assert.match(a.motionTake.spec.raw, /^left out \(the encoded track of 176 frames, \d+ characters\)$/);
+	assert.equal(a.motionTake.spec.lowvis, "left out (the scene and spec of motion agent-20261123-000000-abcd, kept with this take for the motion tool)");
+	assert.equal(typeof read.document.motion[0].take.source.spec.lowvis, "string");
 	assert.equal(b.motionTake, null, "a take the motion layer cleared is gone from the cast row too");
 	assert.match(read.document.motion[0].take.source.spec.raw, /^left out/);
 	assert.ok(chars(read.document) < 6000, `${chars(read.document)}`);

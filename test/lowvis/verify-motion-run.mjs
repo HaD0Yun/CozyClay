@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
 import { runMotion } from "../../bin/agent/motion-run.mjs";
+import { bodiesOf, bodyFitOf } from "../../bin/agent/motion-fit.mjs";
+import { lookBody } from "../../src/lowvis/studio/figure.js";
 
 const DESCRIBE = {
 	characters: [{ id: "c1", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }, { id: "cap", model: "proxy-figure", x: 1, z: 0, rot: 0, scale: 1 }],
@@ -229,6 +231,21 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	const quiet = await runMotion({ ...harness().base, words: "x" });
 	assert.equal("motionFit" in quiet, false, "nothing changed meanwhile: no motionFit and no second describe");
 	console.log("PASS runMotion: objects changed or added meanwhile answer motionFit");
+}
+
+// under a look with a body of its own (cube), the clip holds the engine's size and the answer the character's scale:
+// bodies and the remembered body a later edit is measured against (motion-fit.mjs) never hold the look's body
+{
+	const cube = { ...harness().base.env, COZYCLAY_FIGURE: "cube" }, B = lookBody("cube");
+	const at = async (scale, key) => { const { base } = harness({ clip: { frameCount: 48, characters: [{ id: "c1", ...(scale * B === 1 ? {} : { scale: scale * B }) }], props: [] } }); return runMotion({ ...base, env: cube, words: "x", memoryKey: key }); };
+	assert.equal("bodies" in await at(1, "conv-cube-1"), false, "a body at scale 1 is not named: its clip size is the look's body");
+	assert.deepEqual([...bodiesOf("conv-cube-1").values()], [{ id: "c1", scale: 1, tint: null }]);
+	assert.deepEqual(bodyFitOf(bodiesOf("conv-cube-1").get("c1"), { scale: 1 }), [], "an edit of a character at the motion's scale has no size line");
+	assert.deepEqual((await at(0.9, "conv-cube-2")).bodies, [{ id: "c1", scale: 0.9, tint: null }], "the character's scale, not 0.9 times the look's body");
+	assert.match(bodyFitOf(bodiesOf("conv-cube-2").get("c1"), { scale: 1.2 })[0], /^scale 1\.2, the motion's 0\.9: /);
+	const { base } = harness({ clip: { frameCount: 48, characters: [{ id: "c1", scale: 1.2 }], props: [] } });
+	assert.deepEqual((await runMotion({ ...base, words: "x", memoryKey: "conv-block" })).bodies, [{ id: "c1", scale: 1.2, tint: null }], "the rig's own body: the clip's scale as it is");
+	console.log("PASS runMotion: bodies and the remembered body are in the character's scale under a look with a body of its own");
 }
 
 // the direct key (no note): the writer is not told of a later dressing step

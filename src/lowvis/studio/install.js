@@ -21,6 +21,7 @@ import { encodeRawTrack } from "../../motion-v4/track/codec.js";
 import { qConj, qMul, qRotate } from "../rig17.js";
 import { TRACK_RIG, clipTrack } from "./take.js";
 import { attachOf, eulerXYZ, turnOnBone } from "./attach.js";
+import { scaleOf } from "./figure.js";
 
 /** Ids of the cast members a clip made: "lowvis-<clip character id>". */
 export const LOWVIS_ID = /^lowvis-/;
@@ -194,7 +195,7 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 	for (const [index, figure] of clip.characters.entries()) {
 		const known = existing?.characters?.[figure.id], characterId = known ?? `lowvis-${safe(figure.id ?? index)}`;
 		// the body the clip is of, against the one the Studio holds: only what differs is set
-		const has = (known && existing?.bodies?.[known]) || { scale: 1, tint: null }, scale = Math.round((figure.scale ?? 1) / look * 1e6) / 1e6, body = {};
+		const has = (known && existing?.bodies?.[known]) || { scale: 1, tint: null }, scale = scaleOf(figure.scale ?? 1, look), body = {};
 		if (Math.abs(scale - (has.scale ?? 1)) > 1e-6) body.scale = scale;
 		if (figure.tint && figure.tint.toLowerCase() !== String(has.tint ?? "").toLowerCase()) body.tint = figure.tint;
 		const sized = Object.keys(body).length > 0;
