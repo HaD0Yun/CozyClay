@@ -150,7 +150,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-studio-geometry-facts.mjs", "test/verify-studio-occlusion-solid.mjs", "test/verify-studio-contact.mjs", "test/verify-review-settled.mjs", "test/verify-review-text.mjs", "test/verify-review-repair.mjs",
 	"test/verify-plan-diagram.mjs",
 	"test/verify-agent-plan-attach.mjs",
-	"test/verify-local-placement.mjs",
+	"test/verify-local-placement.mjs", "test/verify-agent-edit-reach.mjs",
 	"test/verify-studio-agent-motion.mjs",
 	"test/verify-studio-agent-binding.mjs",
 	"test/verify-studio-agent-turn-undo.mjs",
