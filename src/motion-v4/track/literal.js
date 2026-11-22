@@ -19,7 +19,7 @@ const outs = new WeakMap();
 function movedBoxes(scene, groups, tracks, f) {
 	const out = {};
 	for (const [id, o] of Object.entries(scene.objects)) {
-		const mover = [id, ...(o.ancestors ?? [])].find(k => tracks[k]);
+		const mover = [id, ...(o.ancestors ?? [])].find(k => tracks[k]?.pos); // a vis-only track moves nothing
 		const pose = mover ? trackPose(tracks[mover], f) : null, rest = mover ? scene.objects[mover] ?? groups[mover] : null;
 		out[id] = pose && rest ? { ...o, ...compose(pose, relative(rest, o)) } : o;
 	}
@@ -66,7 +66,7 @@ export function placedTake(raw, placement = { position: [0, 0, 0], yaw: 0 }, met
 	}
 	const objects = {};
 	for (const [id, track] of Object.entries(raw.objects ?? {})) {
-		objects[id] = { pos: new Float32Array(track.pos), quat: new Float32Array(track.quat), world: new Uint8Array(F).fill(1) };
+		objects[id] = { ...(track.pos ? { pos: new Float32Array(track.pos), quat: new Float32Array(track.quat), world: new Uint8Array(F).fill(1) } : {}), ...(track.vis ? { vis: new Uint8Array(track.vis) } : {}) };
 	}
 	return { schema: TAKE_SCHEMA, fps: raw.fps ?? 24, frameCount: F, rig: raw.rig, bones: raw.bones.slice(), rot, hips, objects,
 		placement: { position: [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0], yaw }, ...(s === 1 ? {} : { scale: s }), ...meta };

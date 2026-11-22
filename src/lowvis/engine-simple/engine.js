@@ -8,6 +8,9 @@
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.
+//     on: propId, on any body action: done on that prop, going with it where the prop moves (moves: true). Its places
+//     and headings are written as if the prop stood where the scene puts it; on every frame the body keeps that place
+//     and turn on the prop, however keys, hands or a ride move it. The next action without that `on` goes on from there.
 //     Consecutive walk / run actions are one flowing path. `heading` is the arrival heading (the path curves, or a
 //     turn on the spot is added). `facing` keeps the body facing that way (back / side steps). `steps: 1` is a lunge.
 //     `push` is a low, leaning, short-step gait; `push {to: <where it stands>}` braces in place.
@@ -81,7 +84,8 @@
 //     look: a character id, a prop id (its top), a world point or "fwd"; with no target the gaze stays level.
 //     place {prop, at:[x,y,z] world, over}   the hands take the prop there and let go
 //   Prop layer: <propId>: [[frame, verb, options], ...] moves a free prop by keys:
-//     tip {pivot:[x,y,z], axis:[x,y,z], deg, over, ease} | move {to:[x,y,z], axis?, deg?, over, ease}
+//     tip {pivot:[x,y,z], axis:[x,y,z], deg, over, ease} | move {to:[x,y,z], axis?, deg?, over, ease}   a key starts
+//       where the key before it has the prop on its frame (ended there or still moving), else where the prop is
 //     launch {vel:[x,y,z] m/s, bounce?: 0.5, friction?: 1.5}   a kicked / thrown prop: it is still in place on the key's
 //       frame and flies from the next one under gravity, bounces off the floor and off static props (as a ball of
 //       diameter size[1]; bounce = speed kept), rolls with `friction` (m/s2) and stops. A later key of the prop ends it.
@@ -92,14 +96,17 @@
 //       {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at); no at =
 //       the place and turn it has on the carrier on the frame before the ride begins. Until a later key of its own or a
 //       hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
+//     hide | show   from this frame the prop is not drawn / drawn again (drawn until a hide); it moves and carries as before
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
 import { addCharacter, addProp, createClip, setPose } from "../clip.js";
-import { EASE, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
+import { EASE, add, clamp, dot, len, mix, mixV, mul, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
+import { keyPose, propKeys, shownAt } from "./prop-keys.js";
+import { carriedBuild } from "./carry.js";
 import { arcSized, buildBodySized, solveSized } from "./size.js";
 import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
-import { buildUpper, expandRepeats } from "./spec-layers.js";
+import { bodyCarriers, buildUpper, expandRepeats } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
@@ -114,13 +121,15 @@ const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 
 /** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks.
  *  aux.reach[characterId][frame] = [L hand, R hand, L foot, R foot], each null or { key, d }: d metres between the limb
- *  and the target the action of frame `key` gave it, on the frames after that action's blend has ended. */
-export function buildClip(written, def = DEMOS[written.demo]) {
+ *  and the target the action of frame `key` gave it, on the frames after that action's blend has ended. A spec with a
+ *  body on a prop that moves is built again with that body carried (carry.js; aux.carried when they still differ). */
+export function buildClip(written, def = DEMOS[written.demo]) { return carriedBuild(written, def, buildOnce, bodyCarriers(written, def)); }
+function buildOnce(written, def, carrier) {
 	const repeat = expandRepeats(written, def.frames), spec = repeat.spec;
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
 	const props = Object.fromEntries(def.props.map(p => [p.id, {
 		id: p.id, size: p.size, c: p.at.slice(), turn: rad(p.turn ?? 0), yaw: rad(p.turn ?? 0), q: p.turn ? qY(rad(p.turn)) : [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
-		keys: (spec[p.id] ?? []).map(([f, verb, o = {}]) => ({ f, verb, ...o })).sort((a, b) => a.f - b.f),
+		...propKeys(spec[p.id] ?? []), // keys, shownKeys (prop-keys.js)
 	}]));
 	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };
 	const ground = (x, z, step = 0.3) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= step && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
@@ -128,10 +137,10 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
-		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }) }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
+		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
-	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}) })); // by: what carries a moving prop on each frame (clip.js)
+	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}, props[p.id].shownKeys.length ? { shown: [] } : {}) })); // by: what carries a moving prop on each frame, shown: whether it is drawn (clip.js)
 	const aux = { contacts: Object.fromEntries(chars.map(c => [c.id, []])), holders: Object.fromEntries(def.props.map(p => [p.id, []])), placed: [] };
 	Object.assign(aux, {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
@@ -313,7 +322,8 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				k = null;
 			} else if (k || p.holder || p.ride) p.vel = null;
 			aux.keyed[p.id].push(!!k || !!p.vel || (!!p.ride && !p.holder)); aux.rolling[p.id].push(!!p.vel);
-			if (p.vel && p.fly?.wait) p.fly.wait = false; // the launch frame: still in place
+			if (k) Object.assign(p, keyPose(p, k, f)); // prop-keys.js (a key leaves no velocity, so nothing below moves it)
+			else if (p.vel && p.fly?.wait) p.fly.wait = false; // the launch frame: still in place
 			else if (p.vel && p.fly) fly(p);
 			else if (p.vel) { // released with a velocity: it falls to the floor under it and rolls on at that speed
 				const floor = ground(p.c[0], p.c[2]) + p.size[1] / 2, sp = Math.hypot(p.vel[0], p.vel[2]);
@@ -321,11 +331,6 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				if (p.c[1] <= floor) { p.c[1] = floor; p.vel[1] = 0; }
 				if (sp > 1e-6) p.q = qMul(qAxisAngle([p.vel[2] / sp, 0, -p.vel[0] / sp], sp / (p.size[1] / 2)), p.q);
 			}
-			if (!k) continue;
-			if (!k.c0) { k.c0 = p.c.slice(); k.q0 = p.q.slice(); }
-			const u = EASE[k.ease ?? "inout"]((f - k.f) / (k.over ?? 12)), r = k.axis ? qAxisAngle(norm(k.axis), rad(k.deg) * u) : [0, 0, 0, 1];
-			p.c = k.verb === "tip" ? add(k.pivot, qRotate(r, sub(k.c0, k.pivot))) : k.to ? mixV(k.c0, k.to, u) : k.c0;
-			p.q = qMul(r, k.q0);
 		}
 		startFrame(props, f, byId);
 		for (let pass = 0; pass < 2; pass++) for (const c of chars) { // second pass: targets on other figures and props are current
@@ -348,10 +353,10 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		for (const c of chars) {
 			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last2 = c.last; c.last = { ...c.last, ...c.cur }; handsMoved(c);
 			setPose(c.out, f, c.world);
-			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted && !c.tilt)); // a tilted figure does not stand on its feet
+			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted && !c.tilt && c.bodyNow.on == null)); // a tilted figure, or one on a moving prop, does not stand on the floor
 		}
 		for (const { p, out } of outProps) {
-			p.h2 = p.h1; p.h1 = p.c.slice(); out.by?.push(carriersOf(p));
+			p.h2 = p.h1; p.h1 = p.c.slice(); out.by?.push(carriersOf(p)); out.shown?.push(shownAt(p, f));
 			aux.holders[p.id].push(p.holder); aux.grips[p.id].push(p.holder && p.hand != null ? { c: p.holder, hand: p.hand } : null);
 			if (out.pos.length === 3 && f > 0) continue;
 			out.pos.set(p.c, out.pos.length === 3 ? 0 : f * 3); out.quat.set(p.q, out.pos.length === 3 ? 0 : f * 4);

@@ -137,7 +137,7 @@ function sceneAt(clip, f) {
 			list.push({ c: [ch.pos[i] + d[0] * s, ch.pos[i + 1] + d[1] * s, ch.pos[i + 2] + d[2] * s], q: qMul(q, part.q), size: s === 1 ? part.size : part.size.map(v => v * s), color: tint(base, part.dark ? 0.42 : part.right ? 0.72 : 1) });
 		}
 	});
-	for (const p of clip.props ?? []) list.push({ ...propAt(p, f), size: p.size, color: PROP, ball: p.shape === "sphere" });
+	for (const p of clip.props ?? []) if (p.shown?.[f] !== 0) list.push({ ...propAt(p, f), size: p.size, color: PROP, ball: p.shape === "sphere" }); // not on the frames the clip hides it
 	return list;
 }
 

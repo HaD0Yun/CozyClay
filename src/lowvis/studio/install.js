@@ -177,14 +177,16 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		}
 		placed[prop.id] = id;
 		// a prop one bone carries throughout rides that bone (attached with its character below); any other that moves, or a new
-		// one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
+		// one that stands tilted (an object's own fields hold a turn about Y only here), follows a track. A prop the clip hides
+		// on some frames (clip.js shown) gets a vis track as well, alone for one no track moves (object-travel.js trackShown).
+		const vis = prop.shown && Array.from(prop.shown).some(v => !v) ? Uint8Array.from(prop.shown) : null;
 		if (ride) rides.push({ id, ...ride });
-		else if (moves(prop) || (!known && !upright)) {
+		if (!ride && (moves(prop) || (!known && !upright))) {
 			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
 			for (let f = 0; f < F; f++) { const p = poseAt(f); pos.set(p.pos, f * 3); quat.set(p.quat, f * 4); }
-			tracks[id] = { pos, quat };
+			tracks[id] = { pos, quat, ...(vis ? { vis } : {}) };
 			owners[id] = ownerOf(clip, prop);
-		}
+		} else if (vis) { tracks[id] = { vis }; owners[id] = ride ? ride.index : ownerOf(clip, prop); }
 	}
 
 	for (const [index, figure] of clip.characters.entries()) {
@@ -216,6 +218,6 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		raw.objects = Object.fromEntries(Object.entries(tracks).filter(([id]) => owners[id] === index)); // this character's take draws the props it handles
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
-	const moving = Object.keys(tracks);
+	const moving = Object.keys(tracks).filter(id => tracks[id].pos);
 	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}), ...(attached.length ? { attached } : {}) };
 }

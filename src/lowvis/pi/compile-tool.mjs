@@ -74,7 +74,7 @@ function withMovers(scene, spec) {
 	const moved = new Set();
 	for (const [key, acts] of Object.entries(spec)) {
 		if (!Array.isArray(acts)) continue;
-		if (scene.props?.some(p => p.id === key) && acts.length) moved.add(key);
+		if (scene.props?.some(p => p.id === key) && acts.some(a => a?.[1] !== "hide" && a?.[1] !== "show")) moved.add(key); // hide / show move nothing
 		for (const a of acts) if (MOVERS.has(a[1]) && typeof a[2]?.prop === "string") moved.add(a[2].prop);
 	}
 	const set = (scene.props ?? []).filter(p => moved.has(p.id) && !p.moves).map(p => p.id);
