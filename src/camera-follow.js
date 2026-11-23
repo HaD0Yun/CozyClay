@@ -1,6 +1,7 @@
 import { timingProgress } from "./speed-envelope.js";
 import { monotoneCubicAt } from "./monotone-cubic.js";
 import { cappedSpringStep } from "./dolly-spring.js";
+import { framedAim, steerBudget, steerLead } from "./camera-follow-bounds.js";
 
 /**
  * Follow camera: a real crew in three pieces of math.
@@ -112,35 +113,6 @@ export const FOLLOW_DEFAULTS = {
 	dirBlend: 0.05,
 };
 
-// How far the operator's aim may sit from the subject, as the tangent of the
-// angle seen from the camera (0.25 is about 14°). The aim spring and its lead
-// are in seconds, so the metres they put between aim and subject grow with the
-// subject's speed; at a walk they are a few degrees of lead room, at a car's
-// speed they would swing the subject out of the picture. This bound is a share
-// of the frame, not a speed: it scales with the camera's distance to the
-// subject and leaves any speed free.
-const AIM_REACH = 0.25;
-
-// How fast the follow camera may steer toward its trailing position: twice the
-// subject's own (smoothed) speed, and never under twice a walking pace
-// (2.8 m/s) so a camera can still settle while its subject stands. The old
-// fixed 2.8 m/s cap was tuned on a corner walk at 1.4 m/s, where it is this
-// same budget; it bound any faster subject, so a side or front framing slid
-// behind the subject and a front framing flipped round it on a straight.
-const STEER_SCALE = 2, STEER_FLOOR = 2.8;
-
-// The aim point the camera looks at: the spring's point, pulled toward the
-// subject only where it strays past AIM_REACH of the camera's distance. A
-// smooth knee (x / (1 + x^4)^(1/4)) leaves a walk's lead within a few
-// hundredths of a degree of what it was and never kinks the pan.
-function framedAim(aim, subject, camera) {
-	const ex = aim.x - subject.x, ez = aim.z - subject.z, e = Math.hypot(ex, ez);
-	const reach = AIM_REACH * Math.max(Math.hypot(camera.x - subject.x, camera.z - subject.z), 1e-3);
-	if (e < 1e-9) return aim;
-	const x = e / reach, k = 1 / Math.sqrt(Math.sqrt(1 + x ** 4));
-	return { ...aim, x: subject.x + ex * k, z: subject.z + ez * k };
-}
-
 /**
  * Subject travel directions, one unit XZ vector per frame. Velocity is
  * EMA-smoothed so a foot-plant wobble doesn't wag the whole camera, and the
@@ -226,9 +198,8 @@ export function buildFollowTrack(subject, fps, params = {}) {
 	const omega = omegaFor(p.response);
 	const aimOmega = omegaFor(p.aimResponse);
 	// a critically damped spring trails a moving target by 2v/ω at steady
-	// state; feeding the subject's velocity forward cancels that lag, so the
-	// held distance is the REQUESTED distance, not distance-plus-lag
-	const lagComp = 2 / omega;
+	// state; feeding the subject's velocity forward (steerLead) cancels that
+	// lag, so the held distance is the REQUESTED distance, not distance-plus-lag
 
 	// start settled on the frame-0 target: a shot opens composed, not sliding
 	let px = subject[0].x + offsets[0].x * p.distance;
@@ -244,14 +215,15 @@ export function buildFollowTrack(subject, fps, params = {}) {
 		if (f > 0) {
 			const previousX = px;
 			const previousZ = pz;
+			const lagComp = steerLead(vels[f], omega, dt, p.distance);
 			const tx = subject[f].x + offsets[f].x * p.distance + vels[f].x * lagComp;
 			const tz = subject[f].z + offsets[f].z * p.distance + vels[f].z * lagComp;
 			vx += (omega * omega * (tx - px) - 2 * omega * vx) * dt;
 			vz += (omega * omega * (tz - pz) - 2 * omega * vz) * dt;
-			// the steering budget scales with the subject (STEER_SCALE), so the
-			// camera swings round a corner in the same share of the turn at any
-			// speed; planar, so it binds the velocity vector, not each axis
-			const cap = Math.max(STEER_FLOOR, STEER_SCALE * Math.hypot(vels[f].x, vels[f].z));
+			// the steering budget scales with the subject (camera-follow-bounds.js),
+			// so the camera swings round a corner in the same share of the turn at
+			// any speed; planar, so it binds the velocity vector, not each axis
+			const cap = steerBudget(subject, vels[f], f, dt);
 			const speed = Math.hypot(vx, vz);
 			if (speed > cap) {
 				vx *= cap / speed;
@@ -285,7 +257,7 @@ export function buildFollowTrack(subject, fps, params = {}) {
 			[az, avz] = springStep(az, avz, aimTz, aimOmega, dt);
 		}
 		const pos = { x: px, y: py, z: pz };
-		const { yaw, pitch } = aimAngles(pos, framedAim({ x: ax, y: p.aimHeight, z: az }, subject[f], pos));
+		const { yaw, pitch } = aimAngles(pos, framedAim({ x: ax, y: p.aimHeight, z: az }, subject[f], pos, p.lead));
 		track.push({ pos, yaw, pitch: offsetPitch(pitch, p.pitchOffsetDeg) });
 	}
 	return track;
@@ -525,7 +497,7 @@ export function buildRailFollowTrack(subject, fps, rail, params = {}) {
 		}
 		const rp = railPoint(rail, s);
 		const pos = { x: rp.x, y: py, z: rp.z };
-		const { yaw, pitch } = aimAngles(pos, framedAim({ x: ax, y: p.aimPerFrame ? (subject[f].y ?? p.aimHeight) : p.aimHeight, z: az }, subject[f], pos));
+		const { yaw, pitch } = aimAngles(pos, framedAim({ x: ax, y: p.aimPerFrame ? (subject[f].y ?? p.aimHeight) : p.aimHeight, z: az }, subject[f], pos, p.lead));
 		track.push({ pos, yaw, pitch: offsetPitch(pitch, p.pitchOffsetDeg), s });
 	}
 	return track;

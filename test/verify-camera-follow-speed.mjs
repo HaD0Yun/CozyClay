@@ -4,7 +4,8 @@
 // the subject, over a straight run, a 90° corner and a stop at 1.4 to 40 m/s:
 // the follow distance is exact and the subject stays near the frame centre
 // (the old fixed 2.8 m/s steering cap and the lead in seconds let it leave the
-// picture). B: tracks of walking subjects are the ones the code made before
+// picture); a cut in the subject's motion does not throw the camera past it, and
+// a look-ahead set above the default keeps its lead. B: tracks of walking subjects are the ones the code made before
 // the change (test/fixtures/camera-follow-walk-tracks.json: every 6th frame of
 // the camera before this change), and the corner walk the old cap was tuned on
 // pans no harder.
@@ -67,9 +68,43 @@ for (const v of [5, 10, 20, 40]) {
 	const orbitAt = (track, f) => wrap(Math.atan2(track[f].pos.x - subject[f].x, track[f].pos.z - subject[f].z)) * DEG;
 	const front = buildFollowTrack(subject, FPS, { orbitOffsetDeg: 180 }), side = buildFollowTrack(subject, FPS, { orbitOffsetDeg: 90 });
 	assert.ok(front.every((_, f) => Math.abs(orbitAt(front, f)) < 1), `${v} m/s: a front framing never turns round the subject`);
-	// the follow step runs one frame of travel ahead, so a side framing leans toward the front by atan(v dt / distance)
-	const lean = Math.atan((v / FPS) / 3) * DEG;
-	assert.ok(Math.abs(orbitAt(side, side.length - 1) - (90 - lean)) < 1, `${v} m/s: a side framing holds its side (${orbitAt(side, side.length - 1).toFixed(1)}°)`);
+	// the follow step runs one frame of travel ahead, held within a quarter of the follow distance (camera-follow-bounds.js),
+	// so a side framing leans toward the front by that much and no more: 4° at 5 m/s, 13.9° at 40 m/s (29° without the hold)
+	const ahead = v / FPS, lean = Math.atan(ahead / (1 + (ahead / 0.75) ** 4) ** 0.25 / 3) * DEG;
+	assert.ok(lean < 14.1 && Math.abs(orbitAt(side, side.length - 1) - (90 - lean)) < 1, `${v} m/s: a side framing holds its side (${orbitAt(side, side.length - 1).toFixed(1)}°)`);
+}
+
+// A camera behind a subject that travels more than the follow distance in one frame stays behind it round a corner
+// (the frame of travel the step runs ahead by used to put its target in front of the subject).
+for (const [v, distance] of [[100, 3], [1000, 3], [40, 1], [40, 0.5]]) {
+	const subject = path("corner", v), track = buildFollowTrack(subject, FPS, { distance }), last = track.length - 1;
+	// after the corner the subject runs +x, so behind is its -x side
+	const behind = Math.abs(wrap(Math.atan2(track[last].pos.x - subject[last].x, track[last].pos.z - subject[last].z) + Math.PI / 2)) * DEG;
+	assert.ok(behind < 10, `${v} m/s at ${distance} m: the camera ends behind its subject (${behind.toFixed(1)}° off)`);
+	assert.ok(track.every((sample, f) => offCentre(sample, subject[f]) < 15), `${v} m/s at ${distance} m: the subject stays in the picture`);
+}
+
+// A cut in the subject's motion (one frame that jumps 20 m aside) is not a speed. The camera lands where it did under the
+// fixed cap (behind the jump, never through the subject to its far side) and the subject stays in the picture, where the
+// lagging aim used to look back at the place it left for a frame.
+for (const v of [0, 1.4]) {
+	const before = Array.from({ length: 2 * FPS }, (_, f) => ({ x: 0, z: (v * f) / FPS })), cut = before.length;
+	const subject = [...before, ...Array.from({ length: 3 * FPS }, (_, f) => ({ x: 20, z: before.at(-1).z + (v * (f + 1)) / FPS }))];
+	const track = buildFollowTrack(subject, FPS), round = (f) => Math.atan2(track[f].pos.x - subject[f].x, track[f].pos.z - subject[f].z);
+	const flips = track.slice(1).filter((_, i) => Math.abs(wrap(round(i + 1) - round(i))) * DEG > 90).length;
+	assert.equal(flips, 0, `${v} m/s, cut 20 m aside: the camera never passes to the far side of its subject`);
+	assert.ok(track.every((sample, f) => offCentre(sample, subject[f]) < 15), `${v} m/s, cut 20 m aside: the subject stays in the picture`);
+	// a standing subject's camera opens behind the coming jump and is still exactly there after it
+	if (v === 0) assert.ok(track.slice(cut).every((sample) => Math.abs(sample.pos.x - 17) < 1e-9 && Math.abs(sample.pos.z) < 1e-9), "a standing subject's camera lands behind the jump and rests");
+}
+
+// A look-ahead the shot stores above the default keeps its lead on a walk (side follow, 1.4 m/s; before the change the
+// subject sat 10.30°, 16.65° and 22.63° off the centre at 0.5, 0.75 and 1 s), and at a car's speed it stays inside 30°.
+for (const [lead, before, allowed] of [[0.5, 10.3, 0.1], [0.75, 16.65, 0.6], [1, 22.63, 2.1]]) {
+	const walk = path("straight", 1.4), fast = path("straight", 40), params = { orbitOffsetDeg: 90, lead };
+	const off = (subject) => Math.max(...buildFollowTrack(subject, FPS, params).map((sample, f) => offCentre(sample, subject[f])));
+	assert.ok(Math.abs(off(walk) - before) <= allowed, `look-ahead ${lead} s on a walk: ${off(walk).toFixed(2)}° off the centre (${before}° before, allowed ${allowed}°)`);
+	assert.ok(off(fast) < 30, `look-ahead ${lead} s at 40 m/s: ${off(fast).toFixed(2)}° off the centre`);
 }
 
 /* ---------------------------------------------------------------- B --- */

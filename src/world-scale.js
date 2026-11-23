@@ -19,7 +19,7 @@ export const WORLD_SCALES = Object.freeze({
 		railHeight: 30, // highest camera rail height and aim height
 		cameraFar: 100, // far clipping plane of the shot, editor and poser cameras
 		horizon: Object.freeze({ near: 55, far: 95 }), // fog an exported frame fades its horizon into
-		dollySpeed: 40, // fastest rail dolly, m/s
+		dollySpeed: 40, // top of a rail dolly's speed cap, m/s; a cap at the top is no cap (dolly-spring.js)
 	}),
 	large: Object.freeze({
 		position: 3000,
