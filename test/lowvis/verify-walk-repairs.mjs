@@ -44,7 +44,7 @@ for (const [name, acts, way, a, b, heading] of [
 }
 
 // --- W2: a backward move ends without a snap after the hips stop and its last foot lands ---
-// (from the later of the two: since autorl 010 the hips no longer jump as the last foot lands, so they come to rest a
+// (from the later of the two: since a walk's sway grows with its walking share the hips no longer jump as the last foot lands, so they come to rest a
 // frame or two before it, while that foot still swings in at up to 31 mm a frame as it did before)
 for (const [name, o, opts] of [
 	["1.6 m back, facing, steps 4", { to: [0, -1.6], facing: 0, steps: 4 }, {}],

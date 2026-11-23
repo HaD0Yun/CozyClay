@@ -24,7 +24,7 @@ const OLD_HELD = "a prop in one hand is held by that hand only (no second hand o
 const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it";
 assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by several hands does");
 
-// pinned again with autorl 010 (a walk's sway grows with its walking share, unless the walk begins the clip;
+// pinned again when a walk's sway changed (a walk's sway grows with its walking share, unless the walk begins the clip;
 // upper-layer keys flow on into the next; push the same): was
 // locomotion 4b102ce7..., sit 1da2ec2b..., object 45d87982..., duo 45330261..., push 4f65ce12..., chop a773f584..., bowl 75232c8f...
 const BEFORE = {

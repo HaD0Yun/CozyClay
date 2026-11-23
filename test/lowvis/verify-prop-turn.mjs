@@ -44,7 +44,7 @@ for (const [name, c] of Object.entries(CASES)) {
 }
 
 // fingerprints from the engine before turned props (tag plan-before), for scenes without `turn`
-// pinned again with autorl 010 (a walk's sway grows with its walking share, unless the walk begins the
+// pinned again when a walk's sway changed (a walk's sway grows with its walking share, unless the walk begins the
 // clip; upper-layer keys that flow on into the next); were demo locomotion sum 28131.24091937811 abs 28401.80087036852; demo sit sum 16988.58993812318 abs 17320.271679534184; demo object sum 55091.27338733278 abs 55316.25554604278; demo duo sum 33152.77082839731 abs 34324.063255972105; demo push sum 16378.90072069702 abs 16937.86911301625; demo chop sum 8219.455195052107 abs 8965.554830944; demo bowl sum 24537.662118600478 abs 35986.80608473104; carry it sum 1297.472180864108 abs 2676.4528935573157; push it sum 644.6375135840353 abs 1815.2169889187685
 const BEFORE = {
 	"demo locomotion": { n: 17136, sum: 28130.083676914313, abs: 28399.302929434976 },
@@ -58,7 +58,7 @@ const BEFORE = {
 	"demo push": { n: 18144, sum: 16378.90072069702, abs: 16937.86911301625 },
 	// chop again when a prop key starts where the key before has the prop on its frame (the falling trunk turns its full
 	// 64 + 26 degrees; was sum 8220.211771645767, abs 8964.167562102726)
-	// chop and bowl again when a hand takes a prop as it lies instead of moving it into the hand (autorl 013; were sum
+	// chop and bowl again when a hand takes a prop as it lies instead of moving it into the hand (were sum
 	// 8219.719542958957, 24534.552170557406, abs 8963.675333415917, 35987.46752835132)
 	"demo chop": { n: 17787, sum: 8232.0546934057, abs: 8978.06813223084 },
 	// bowl again for the same reason (each pin's slide starts from its full 90-degree tip; was sum 24536.379817133275,
