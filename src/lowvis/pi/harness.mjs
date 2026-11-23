@@ -90,16 +90,16 @@ function markCache(payload) {
  * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs).
  * env.COZYCLAY_FIGURE: the look the Studio draws characters in (src/lowvis/studio/figure.js): its body is the figure at
  * scale 1, which the system prompt states (prompt.mjs systemPrompt body) and the tool builds (compile-tool.mjs figure).
+ * shapes: { <prop id>: { h, parts } | null }, the drawn shapes a Studio has (compile-tool.mjs; none given: no Studio);
+ * reshape(): async, the ones it has now, asked before each motion call (a failure keeps the last ones). The record keeps
+ * the ids of the props each call compiled with a shape (calls.shots[].shapes) and reshape: { ok, failed, error } (the
+ * last failure's message).
  * inbox: a steer inbox (bin/agent/steer-inbox.mjs): what the user sends while the run goes reaches the model as a user
  * message between its steps; the inbox is closed when the run ends. The record does not keep these messages.
  * kept: { scene?, spec } of the motion before this one, which the tool starts from (compile-tool.mjs kept): a call may then
  * send only an edit, a scene or a look. A compile whose spec came from it by edits alone logs "kept-spec".
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
- * shapes: { <prop id>: { h, parts } | null }, the drawn shapes a Studio has (compile-tool.mjs; none given: no Studio);
- * reshape(): async, the ones it has now, asked before each motion call (a failure keeps the last ones). The record keeps
- * the ids of the props each call compiled with a shape (calls.shots[].shapes) and reshape: { ok, failed, error } (the
- * last failure's message).
  */
 export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
