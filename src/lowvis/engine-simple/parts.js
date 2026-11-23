@@ -3,8 +3,8 @@
 // order). The Studio measures them from what it draws (src/lowvis/studio/parts.js); a prop without parts is its box.
 // What reads them, for every prop and every part alike (no part or object has a word of its own):
 //  - a place on a part: {on: propId, part, at?} as a hand, elbow or foot target, a hold's `at` of a hand as {part, at?},
-//    and a ride's {on, part, at?}: `at` from the part's centre in the prop's own frame, and the point kept on the part
-//    (the nearest point of its box). resolveParts writes them as the prop's own {on, at} before the engine reads the spec.
+//    and a ride's {on, part, at?}: `at` from the part's centre along the prop's own axes (none: the part's centre).
+//    resolveParts writes them as the prop's own {on, at} before the engine reads the spec.
 //  - a seat: sit {on, part} sits on that part's top; sit {on} on a prop with parts sits on the highest drawn top under the
 //    hips (spec-layers.js), the box top where nothing is drawn under them.
 //  - a stand: a foot of a body action {on: propId} on a prop with parts stands on the drawn top under it (spec-layers.js).
@@ -43,9 +43,6 @@ export function partOf(boxes, name, propId, where) {
 }
 
 const toLocal = (b, v) => qRotate(qConj(b.q), sub(v, b.c));
-const fromLocal = (b, l) => add(b.c, qRotate(b.q, l));
-/** The point of a part's box (prop frame) nearest to `at` from the part's centre (prop-frame axes). */
-export const onPart = (b, at = [0, 0, 0]) => fromLocal(b, toLocal(b, add(b.c, at)).map((v, k) => Math.max(-b.h[k], Math.min(b.h[k], v))));
 
 /** Signed distance from a prop-frame point to a part's box (below 0 inside it). */
 export function partDistance(b, v) {
@@ -82,7 +79,7 @@ function placeOf(to, props, where) {
 	if (typeof to?.on !== "string") throw new Error(`engine-simple: ${where}: {part} wants on: propId, got ${JSON.stringify(to)}`);
 	if (to.at !== undefined && !vec(to.at)) throw new Error(`engine-simple: ${where}: at wants [x, y, z], got ${JSON.stringify(to.at)}`);
 	const { part, ...rest } = to;
-	return { ...rest, at: onPart(partOf(props[to.on] ?? null, part, to.on, where), to.at) };
+	return { ...rest, at: add(partOf(props[to.on] ?? null, part, to.on, where).c, to.at ?? [0, 0, 0]) };
 }
 const hasPart = t => t && typeof t === "object" && !Array.isArray(t) && t.part !== undefined;
 

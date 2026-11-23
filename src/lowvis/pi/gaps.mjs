@@ -18,7 +18,7 @@ import { nearestPart, partBoxes, topUnder } from "../engine-simple/parts.js";
 import { seenFrames } from "./prompt.mjs";
 
 /** The gap a contact is told past, metres at body scale 1. */
-export const GAP = 0.03;
+const GAP = 0.03;
 const SUNK = 0.1; // m at scale 1: a top this far over the Hips joint is still the seat the hips sank into
 const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 const HAND = [J.LeftHand, J.RightHand], FOOT = [J.LeftFoot, J.RightFoot], LIMB = ["L hand", "R hand", "L foot", "R foot"];

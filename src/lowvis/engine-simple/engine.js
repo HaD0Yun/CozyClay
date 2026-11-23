@@ -48,7 +48,7 @@
 //                    | {on:propId, at?:[x,y,z]}   a place on a prop that follows it; at = offset from its centre in
 //                      its own frame (the axes of its size)
 //                    | {on:propId, part, at?}   the same on one of the prop's parts: at from that part's centre, along
-//                      the prop's axes; the place is kept on the part
+//                      the prop's axes
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
 //         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
 //         shoulder as one piece, keeping its bend (a wrist blending to or from its own target: by the part of the
