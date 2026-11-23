@@ -10,7 +10,6 @@ import { createStudioCommandJournal } from "../../src/studio-agent-commands.js";
 
 const host = { workspaceId: "workspace", documentEpoch: "document", sceneId: "scene", sceneEpoch: "epoch" };
 const revision = { current: 0 };
-let previsMode = "storyboard";
 const app = createAppContext();
 const castStore = createDocumentStore({ owned: { characters: [] }, dev: false });
 const objectStore = createDocumentStore({ owned: { objects: [] }, dev: false });
@@ -66,7 +65,7 @@ const journal = createStudioCommandJournal({ host });
 const receipts = new Map(), shown = [];
 const ports = {
 	read: () => ({
-		host, revision: revision.current, previsMode, busy: false,
+		host, revision: revision.current, busy: false,
 		domainRevisions: { cast: revision.current, objects: revision.current },
 	}),
 	journal: () => journal,
@@ -88,7 +87,6 @@ const request = (name, args, extra = {}) => ({
 	origin: "agent", name, args, commandId: crypto.randomUUID(),
 	host, expectedRevision: revision.current, ...extra,
 });
-previsMode = "animation";
 const turnId = crypto.randomUUID();
 const agent = (action, args) => bus.run(action, args, request("run_action", { action, args }, { turnId }));
 assert.equal(agent("agent.turn.begin", { turnId }).ok, true);

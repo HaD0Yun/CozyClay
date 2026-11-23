@@ -22,7 +22,7 @@ export default function LightPanel({ keyLightSelected, keyLight, lighting }) {
 						</Field>}
 						<div onPointerUp={commit} onPointerCancel={cancel} onKeyUp={commit} onBlur={commit}>
 						<Slider label={ko("Brightness", "밝기")} min={0} max={4} step={0.05} value={keyLight.intensity} onChange={(value) => run("run.update", { txId: begin("stage.setKeyLight"), args: { keyLight: { intensity: value } } })} />
-						<Slider label={ko("Warm ↔ Cool", "따뜻함 ↔ 차가움")} min={0} max={1} step={0.05} value={keyLight.warmth ?? 0.5} onChange={(value) => run("run.update", { txId: begin("stage.setKeyLight"), args: { keyLight: { warmth: value, color: null } } })} />
+						<Slider label={ko("Cool ↔ Warm", "차가움 ↔ 따뜻함")} min={0} max={1} step={0.05} value={keyLight.warmth ?? 0.5} onChange={(value) => run("run.update", { txId: begin("stage.setKeyLight"), args: { keyLight: { warmth: value, color: null } } })} />
 						{lighting && <>
 							<Slider label={ko("Exposure", "노출")} min={0.2} max={3} step={0.05} value={lighting.exposure} onChange={(exposure) => setLighting({ exposure })} />
 							<Slider label={ko("Sky light", "하늘빛")} min={0} max={2} step={0.05} value={lighting.envLight ?? 0} onChange={(envLight) => setLighting({ envLight })} />

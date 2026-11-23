@@ -4,10 +4,15 @@
 // is unique within the cast and does not shift when others come and go. The
 // agent's scene context and its name resolver both read this one function.
 import { ko } from "./locale.js";
+import { FIGURE } from "./lowvis/studio/figure.js";
 
 // The body labels live here, not in stage-startup-defaults.js (which imports three), so Node-side
 // callers such as the MCP handlers can name a character without loading the stage.
-export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };
+// Every X Bot character draws in the look the Studio was started with (figure.js FIGURE: the cube look unless the launch
+// names another); a Y Bot row is an old character until it changes to one. FIGURE_LABEL is that look's name in the
+// page's language, for every label that names the rig character (Add menu, Content browser, Rig panel, hints).
+export const FIGURE_LABEL = FIGURE === "cube" ? ko("Cube figure", "큐브 인형", "方块人") : !FIGURE || FIGURE === "block" ? ko("Block figure", "블록 인형", "积木人") : ko("Rig figure", "리그 인형", "骨架人");
+export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": ko("Y Bot (old)", "Y Bot (이전)", "Y Bot（旧）"), "x-bot-tpose": FIGURE_LABEL };
 CHARACTER_MODEL_LABELS["proxy-figure"] = ko("Capsule figure", "캡슐 인물");
 
 /** The display name of one cast row: its subject, else "<model label> <id suffix>". */

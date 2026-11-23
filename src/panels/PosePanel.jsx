@@ -9,7 +9,7 @@ import { useBus } from '../app-context.js';
 export default function PosePanel({
 	isCharacterSelection, activeCharIndex,
 	selectablePoses, activeChar, ikMode, ikApplyPoseAsKey, motion,
-	setStudioPick, setToast, removePose, activeRig, saveCurrentPose,
+	setStudioPick, setToast,
 }) {
 	const { run } = useBus();
 	return (
@@ -40,25 +40,8 @@ export default function PosePanel({
 								? ko("Cleared the current motion and applied the pose", "현재 모션을 지우고 포즈를 적용했어요")
 								: ko("Pose applied", "포즈를 적용했어요"));
 						}}
-						onDelete={removePose}
 						labelOf={poseLabelKo}
 					/>
-					{/* Bottles whatever the viewport shows right now — a take frame,
-					    IK corrections included — without touching the character, so a
-					    good mid-clip moment becomes a reusable library pose. */}
-					<button
-						type="button"
-						className="btn full v2-details-pose-action"
-						data-save-current-pose
-						disabled={!activeRig}
-						title={ko(
-							"Save the pose the character is in right now — with a motion loaded, that is the current frame plus IK corrections",
-							"인물의 지금 자세를 저장해요 — 모션이 실려 있으면 현재 프레임에 IK 보정까지 합친 자세예요",
-						)}
-						onClick={saveCurrentPose}
-					>
-						{ko("Save current pose", "지금 자세 저장")}
-					</button>
 					{/* Identity sits beside "Pose from photo" on purpose: both take a
 					    picture of a person, but that one reads a SHAPE off it while
 					    this one keeps the picture itself as who the character is. */}

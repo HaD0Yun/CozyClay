@@ -5,7 +5,9 @@ import { VIDEO_MODEL_PRESETS } from "../model-presets.js";
 import { useBus } from "../app-context.js";
 import { useStudioPlaybackFrame, useStudioShell } from "../shell/studio-shell-context.js";
 import { focusDistance } from "../camera-optics.js";
+import { bodyScale } from "../lowvis/studio/figure.js";
 import CameraTransformPanel from "./CameraTransformPanel.jsx";
+import { CameraFollowControls, RailAimFeelControls } from "./CameraRailControls.jsx";
 
 export default function CameraPanel({ isCameraSelection, shot: sceneShot, moveSequence, cameraKeys, activeShot }) {
 	const { run } = useBus();
@@ -20,7 +22,7 @@ export default function CameraPanel({ isCameraSelection, shot: sceneShot, moveSe
 	const focusCharacter = characters.find(entry => entry.id === focusId);
 	const focusObject = sceneObjects.find(entry => entry.id === focusId);
 	const cameraPosition = readout.camera?.pos ?? shotsDomain.state().camera?.position;
-	const focusTarget = focusCharacter ? { x: focusCharacter.x, y: 1.3 * (focusCharacter.scale ?? 1), z: focusCharacter.z }
+	const focusTarget = focusCharacter ? { x: focusCharacter.x, y: 1.3 * bodyScale(focusCharacter), z: focusCharacter.z }
 		: focusObject ? { x: focusObject.x, y: (focusObject.y ?? 0) + (focusObject.height ?? 0) / 2, z: focusObject.z } : null;
 	const focusMeters = focusDistance(cameraPosition, focusTarget);
 	// Transform first, as on every scene object, then the camera's own controls.
@@ -51,6 +53,7 @@ export default function CameraPanel({ isCameraSelection, shot: sceneShot, moveSe
 								? ko(`Editing ${activeShot.name} in the timeline camera bar below.`, `아래 타임라인 카메라 바에서 ${activeShot.name}을 편집합니다.`, `在下方时间线摄影机栏中编辑 ${activeShot.name}。`)
 								: ko("Select a Shot block below to edit its camera.", "아래에서 샷 블록을 선택하면 카메라를 편집할 수 있습니다.")}
 						</p>
+						{activeShot && <CameraFollowControls shot={activeShot} characters={characters} sceneObjects={sceneObjects} shown={readout.camera} runStudioAction={runStudioAction} />}
 
 						{/* Which generator this cut is being made FOR. Nothing here
 						    re-times or re-crops the shot — the timeline simply warns
@@ -64,6 +67,7 @@ export default function CameraPanel({ isCameraSelection, shot: sceneShot, moveSe
 								? cameraPerformanceRecording ? ko("Discard recording", "녹화 취소", "放弃录制") : activeShot.camera.aimTake ? ko("Record aim again", "시선 다시 녹화", "重新录制朝向") : ko("Record aim", "시선 녹화", "录制朝向")
 								: cameraPerformanceRecording ? ko("Stop + save keys", "정지 + 키 저장") : ko("Record walk camera", "Walk 녹화")}
 						</button>
+						{rail && <RailAimFeelControls disabled={cameraPerformanceRecording} />}
 						{rail && activeShot.camera.aimTake && <button type="button" className="btn full" data-testid="camera-take-discard" disabled={cameraPerformanceRecording}
 							onClick={() => runStudioAction("shot.setCamera", { shotId: activeShot.id, patch: { aimTake: null } })}>
 							{ko("Discard take", "촬영본 삭제", "放弃此条")}

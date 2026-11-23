@@ -2,7 +2,7 @@
  * Project resource manifest: everything a project points at, and whether the
  * bytes are here.
  *
-  * A `.cclayproject` is only portable when every picture, mesh, pose and
+  * A `.cclayproject` is only portable when every picture, mesh and
  * workflow output it names travels with it (a compiled take is its motion
  * spec inside the scene document, so it always travels). This module answers "which
  * ones do, which ones live on a server, and which ones are gone" from the
@@ -10,7 +10,7 @@
  * written to the file, and nothing here decodes or hashes bytes.
  *
  * Statuses:
-  *   embedded  — the record is in `assets` / `poseLibrary`, or the workflow
+  *   embedded  — the record is in `assets`, or the workflow
  *               output is a data: URL that will be interned on save.
  *   external  — reachable by URL only (an http(s) output).
  *   missing   — nothing to load. An image that the browser still holds in
@@ -85,30 +85,12 @@ function idSet(source) {
 	return out;
 }
 
-function deepEqual(a, b) {
-	if (a === b) return true;
-	if (Array.isArray(a) || Array.isArray(b)) {
-		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-		return a.every((value, index) => deepEqual(value, b[index]));
-	}
-	if (plainObject(a) && plainObject(b)) {
-		const keys = Object.keys(a);
-		if (keys.length !== Object.keys(b).length) return false;
-		return keys.every((key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]));
-	}
-	return false;
-}
-
 function scenesOf(scenesDocument) {
 	return Array.isArray(scenesDocument?.scenes) ? scenesDocument.scenes : [];
 }
 
 function objectsOf(scene) {
 	return Array.isArray(scene?.objects) ? scene.objects : [];
-}
-
-function charactersOf(scene) {
-	return Array.isArray(scene?.stage?.characters) ? scene.stage.characters : [];
 }
 
 /**
@@ -163,8 +145,7 @@ export function resourceManifest(options) {
 	const {
 		scenesDocument,
 		workflow,
-		poseLibrary,
-				assets,
+		assets,
 		storedAssetIds,
 		workflowOutputRefs,
 	} = plainObject(options) ? options : {};
@@ -178,7 +159,6 @@ export function resourceManifest(options) {
 	const meshes = collector("mesh");
 	const environments = collector("environment");
 	
-	const poses = collector("pose");
 	const outputs = collector("workflow-output");
 
 	/* ---- images: every lineage id on every scene object ---- */
@@ -202,28 +182,6 @@ export function resourceManifest(options) {
 	for (const scene of scenes) {
 		const id = scene?.stage?.lighting?.hdr;
 		if (isHdrAssetId(id)) environments.note(id, resolveImage(id, assetsById, storedIds), { sceneId: nonEmptyString(scene?.id) ?? undefined, field: "stage.lighting.hdr" });
-	}
-
-	/* ---- poses: the library is embedded; a character wearing one is a ref ---- */
-	const library = [];
-	for (const entry of Array.isArray(poseLibrary) ? poseLibrary : []) {
-		if (!plainObject(entry) || !plainObject(entry.bones)) continue;
-		const id = nonEmptyString(entry.id);
-		if (!id || poses.items.has(id)) continue;
-		poses.note(id, { status: "embedded" });
-		library.push({ id, bones: entry.bones });
-	}
-	if (library.length) {
-		for (const scene of scenes) {
-			const sceneId = nonEmptyString(scene?.id) ?? undefined;
-			for (const character of charactersOf(scene)) {
-				const bones = character?.pose?.bones;
-				if (!plainObject(bones)) continue;
-				const match = library.find((entry) => deepEqual(entry.bones, bones));
-				if (!match) continue;
-				poses.note(match.id, { status: "embedded" }, { sceneId, characterId: nonEmptyString(character.id) ?? undefined, field: "pose" });
-			}
-		}
 	}
 
 	/* ---- workflow outputs: what a node is holding on to ---- */
@@ -263,7 +221,7 @@ export function resourceManifest(options) {
 		}
 	}
 
-	const items = [...images.items.values(), ...meshes.items.values(), ...environments.items.values(), ...poses.items.values(), ...outputs.items.values()];
+	const items = [...images.items.values(), ...meshes.items.values(), ...environments.items.values(), ...outputs.items.values()];
 	const totals = { embedded: 0, external: 0, missing: 0, bytes: 0 };
 	for (const item of items) {
 		totals[item.status] += 1;

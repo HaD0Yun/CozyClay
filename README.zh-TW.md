@@ -55,7 +55,7 @@ CozyClay 讓你先在 3D 裡把這些決定做好,這時修改成本最低。接
 
 ```mermaid
 flowchart LR
-  S["Stage<br/>set + cast"] --> M["Motion<br/>compiled + QA"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
+  S["Stage<br/>set + cast"] --> M["Motion<br/>written + built"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
 ```
 
 ## 快速開始
@@ -81,11 +81,11 @@ npx cozyclay
 
 | | |
 | --- | --- |
-| **Stage** | 用基本體搭建場景。加入帶骨架的角色;不需要動四肢時,用膠囊體替身。像 3D 編輯器一樣飛行檢視。 |
-| **Move** | 描述動作。代理撰寫動作規格,瀏覽器中的確定性編譯器烘焙每一幀。碰撞、腳滑、可及距離和手部接觸,會在你看到之前由 QA 檢查。 |
-| **Shoot** | 把鏡頭放到時間軸上,畫軌道,透過鏡頭取景。每個鏡頭都清楚目標影片模型的限制。 |
-| **Export** | 關鍵幀包(首幀和末幀、灰盒片段、攝影機、提示詞)、mp4、深度與法線通道、聯絡表、OTIO 剪輯清單。 |
-| **Storyboard** | 偏好靜態畫面?Storyboard 專案由附字幕的一排畫板、動態分鏡和聯絡表組成。 |
+| **Stage** | 用基本體搭建場景,放置點光源、聚光燈和平行光。加入帶骨架的角色,畫成方塊人;不需要動四肢時,用膠囊體替身。像 3D 編輯器一樣飛行檢視。 |
+| **Move** | 在 Agent 面板中描述動作。第二個模型(動作撰寫者)撰寫動作規格,確定性引擎產生每一幀,並量測腳滑、接觸、平衡以及穿入道具的身體。撰寫者在動作片段裝入之前讀取這些數值和結果的聯絡表。動作也可以移動道具。需要在 Agent 面板中登入一個模型。 |
+| **Shoot** | 把鏡頭放到時間軸上,在 Top-View 中畫軌道,透過鏡頭取景。可以手動轉動軌道攝影機,並選擇它跟隨誰。每個鏡頭都清楚目標影片模型的限制。 |
+| **Export** | 關鍵幀包(首幀和末幀、灰盒片段、攝影機、提示詞)、AI 影片參考 zip(馬賽克加模糊的參考影片和提示詞)、mp4、深度與法線通道、聯絡表、OTIO 剪輯清單。 |
+| **Look** | 卡通外觀(黑色線條加兩階明暗的平面畫法)在視埠以及所有截圖和匯出中預設開啟。在視埠工具列的 **Show** 中關閉。 |
 | **Undo anything** | 每一次編輯,包括代理做的每個變更,都是一個復原步驟。 |
 
 ## 用 AI 來導演
@@ -118,7 +118,7 @@ npm test
 | 閱讀 | 內容 |
 | --- | --- |
 | [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) | 為 AI 代理撰寫的安裝、執行和連線說明 |
-| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | 動作規格、編譯與 QA |
+| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | 舊動作引擎(MCP、`cclay live`、`COZYCLAY_MOTION_ENGINE=old`)的動作規格、編譯與 QA |
 | [`docs/agent-cli.md`](docs/agent-cli.md) | `cclay live`、模型提供者、工作階段 |
 | [`mcp/README.md`](mcp/README.md) | MCP 工具與即時協定 |
 | [`docs/studio-ui-ia.md`](docs/studio-ui-ia.md) | 每個控制項及其位置 |

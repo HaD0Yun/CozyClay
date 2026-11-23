@@ -2,6 +2,7 @@
 // Lane D2 (motion API v3.1, C7): specId, the spec store (LRU of 64), base + patch requests,
 // delta against the base's QA, the exact errors, motion.qa's specId and motion.report paging of
 // a cut output, end to end through the command registry.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { createStudioAppActions } from "../../src/commands/index.js";
 import { SCENE_OBJECTS, CHARACTER } from "./fixtures/cup-scene.mjs";
 import { EXITCAR_SPEC, SCENE_OBJECTS as CAR_OBJECTS, CHARACTER as DRIVER } from "./fixtures/exitcar-scene.mjs";

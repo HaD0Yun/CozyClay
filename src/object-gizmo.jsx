@@ -554,13 +554,14 @@ export default function ObjectGizmo({ object, objects = [], mode = "move", snap 
 			// any handle overlapping it: the puck's own body-drag and the dot's
 			// own grab are the primary interaction there, and the centre
 			// plane-square would otherwise silently claim the grab. (A routed
-			// object drawn at frame 0 sits exactly on its route's start dot.)
+			// object drawn at frame 0 sits exactly on its route's start dot.) So does a selected crane mark's turn
+			// ring: the camera body often stands on the very mark the user picked to turn.
 			if (grabbed && rayFrom(event)) {
 				tools.raycaster.layers.set(GIZMO_LAYER);
 				const dotClaims = tools.raycaster.intersectObjects(scene.children, true).some((entry) => {
 					for (let node = entry.object; node; node = node.parent) {
 						const data = node.userData;
-						if (data?.keyLightPick || data?.pathIndex !== undefined || data?.pathRing || data?.craneIndex !== undefined) return true;
+						if (data?.keyLightPick || data?.pathIndex !== undefined || data?.pathRing || data?.craneIndex !== undefined || data?.craneRing) return true;
 					}
 					return false;
 				});

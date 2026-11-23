@@ -31,6 +31,9 @@ import { skeletonFor } from "../src/motion3/rigs/index.js";
 
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-motion-tasks-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
+// motion tasks are the old motion engine's (bin/agent/motion-engine.mjs); the lowvis engine makes motion with the motion tool
+process.env.COZYCLAY_MOTION_ENGINE = "old";
+const OLD = { COZYCLAY_MOTION_ENGINE: "old" };
 process.on("exit", () => rmSync(sessionDir, { recursive: true, force: true }));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 // A design a coordinator would write for "chop the tree" (motion-design.mjs).
@@ -197,11 +200,12 @@ function boardFixture(limits = {}) {
 // --- (d) availability ---------------------------------------------------------------------------------------------
 {
 	const listing = (signedIn, ids) => ({ providers: [{ id: "openai-codex", signedIn: true, models: [{ id: "gpt-6-astra" }] }, { id: "cliproxy", signedIn, models: ids.map(id => ({ id })) }] });
-	assert.equal(motionTaskModel(listing(true, ["claude-opus-5-5", "claude-opus-5"]), {}), V4_PI_MODEL_KEY);
-	assert.equal(motionTaskModel(listing(false, ["claude-opus-5-5"]), {}), null, "not signed in");
-	assert.equal(motionTaskModel(listing(true, ["claude-opus-5"]), {}), null, "signed in, but Opus 5.5 is not listed");
-	assert.equal(motionTaskModel({ providers: [] }, {}), null); assert.equal(motionTaskModel(null, {}), null);
-	assert.equal(motionTaskModel(listing(true, ["claude-opus-5-5"]), { COZYCLAY_MOTION_TASKS: "off" }), null, "the off switch");
+	assert.equal(motionTaskModel(listing(true, ["claude-opus-5-5", "claude-opus-5"]), OLD), V4_PI_MODEL_KEY);
+	assert.equal(motionTaskModel(listing(false, ["claude-opus-5-5"]), OLD), null, "not signed in");
+	assert.equal(motionTaskModel(listing(true, ["claude-opus-5"]), OLD), null, "signed in, but Opus 5.5 is not listed");
+	assert.equal(motionTaskModel({ providers: [] }, OLD), null); assert.equal(motionTaskModel(null, OLD), null);
+	assert.equal(motionTaskModel(listing(true, ["claude-opus-5-5"]), { ...OLD, COZYCLAY_MOTION_TASKS: "off" }), null, "the off switch");
+	assert.equal(motionTaskModel(listing(true, ["claude-opus-5-5"]), {}), null, "the lowvis engine has no motion task model");
 	console.log("PASS (d) the motion engine is available with CLIProxyAPI signed in and Opus 5.5 listed, unless switched off");
 }
 

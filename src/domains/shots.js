@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { aimAt } from '../controls.jsx';
 import { PRESETS, DEFAULT_DURATION_S, TIMELINE_FPS } from '../app-stage.jsx';
 import { usePlaybackFrameState } from '../motion/playback-frame-store.js';
@@ -10,11 +10,12 @@ import { frameDraft } from '../studio-agent-commands.js';
 import { StudioProtocolError } from '../studio-agent-protocol.js'; import { settleUiRefusal } from './ui-refusal.js';
 import { createShotAuthoringDocument, readShotAuthoring, readShotAuthoringDocument, SHOT_AUTHORING_KEY,
   SHOT_AUTHORING_LEGACY_KEYS, SHOT_AUTHORING_QUARANTINE_KEY } from '../shot-authoring.js';
-import { shotIndexAtFrame } from '../cuts.js';
+import { shotIndexAtFrame } from '../cuts.js'; import { useShotHandFraming } from '../shot-hand-framing.js';
 import { subjectsCenter } from '../shot-subjects.js';
 import { createCameraBlock, updateCameraBlock } from '../camera-block.js';
 import { followFramingFromCamera, craneHeightAt, buildRail, simplifyStroke } from '../camera-follow.js';
-import { defaultRailRange, clampRailRange } from '../camera-rail-schedule.js';
+import { defaultRailRange, clampRailRange, resolveRailSchedule, activeAt } from '../camera-rail-schedule.js';
+import { railHandTurn, railTurnAt } from '../camera-rail-head.js';
 import { timelineSpan, timelineContentExtent } from '../timeline-extent.js';
 import { trackFeature } from '../analytics.js';
 import { ko } from '../locale.js';
@@ -114,6 +115,16 @@ function createShotsDomain(appContext, initial = {}) {
     commitDraft(plan.draft);
     return { ...plan, affectedIds: [...plan.affectedIds, ...setPresetMetadata(cameraPresetId)] };
   }
+  // What a rail shot shows at frame ({ camera, head }) where the rail owns that frame's angle, else null
+  // (off its range, or its aim take covers the frame: the take wins).
+  function railShown(shot, frame) {
+    const camera = createCameraBlock(shot.camera), local = frame - shot.startFrame;
+    if (camera.mode !== 'rail' || !camera.cameraRail) return null;
+    if (!activeAt(resolveRailSchedule({ ...camera, frameCount: shot.endFrame - shot.startFrame + 1 }), local)) return null;
+    if (camera.aimTake?.samples[local - camera.aimTake.startFrame]) return null;
+    const shown = appContext.shared.railCameraAt?.(shot.id, frame);
+    return shown?.camera ? shown : null;
+  }
   function captureCamera(shotId) {
     const shared = appContext.shared, mounted = shared.shotCamRef.current;
     if (!mounted) return;
@@ -122,40 +133,33 @@ function createShotsDomain(appContext, initial = {}) {
     const camera = { position, lookAt: { x: position.x - Math.sin(yaw) * Math.cos(pitch), y: position.y + Math.sin(pitch), z: position.z - Math.cos(yaw) * Math.cos(pitch) },
       focalMm: fovToFocalMm(mounted.fov * Math.PI / 180, appContext.live.state.filmback.sensorId, appContext.live.state.filmback.aspectRatio),
       sensorId: appContext.live.state.filmback.sensorId, slate: 'Shot camera' };
+    let turn = null;
     writeState(before => {
       const shots = before.shots.map(shot => {
         if (shot.id !== shotId) return shot;
+        // Where the rail owns the frame, a hand turn is the head's angle and leaves the follow settings, and so
+        // the dolly, as they were (camera-rail-head.js railHandTurn); a hand move sets the follow framing below,
+        // as it always has. `left` is where the last hand move left the camera, and how it looked.
+        const shown = railShown(shot, raw.view.frame), last = before.manual && before.camera;
+        const left = last ? { position: last.position, ...aimAt(last.position, last.lookAt) } : null;
+        turn = shown && railHandTurn(shown, position, { yaw, pitch }, left);
+        if (turn) return 'head' in turn ? { ...shot, camera: updateCameraBlock(shot.camera, { head: turn.head }) } : shot;
         const subject = subjectsCenter(frameSubjectsAt(raw, read(), TIMELINE_FPS)(shot, raw.view.frame)); if (!subject) return shot;
         const subjectYaw = (subject.rot * Math.PI) / 180;
-        const followCam = createCameraBlock(shot.camera).followCam;
+        const { followCam, head } = createCameraBlock(shot.camera);
         const measured = followFramingFromCamera(position, pitch, subject, followCam.aimHeight, { x: Math.sin(subjectYaw), z: Math.cos(subjectYaw) });
-        return { ...shot, camera: updateCameraBlock(shot.camera, { followCam: { ...followCam, ...measured } }) };
+        // The tilt a rail's head carries is not measured a second time into the follow pitch.
+        const tilt = !shown || !head ? {} : { pitchOffsetDeg: head.follow === false ? followCam.pitchOffsetDeg : Math.round((measured.pitchOffsetDeg - head.pitchDeg) * 10) / 10 };
+        return { ...shot, camera: updateCameraBlock(shot.camera, { followCam: { ...followCam, ...measured, ...tilt } }) };
       });
-      return { ...before, shots, ...cameraPatch(camera) };
+      // A rail whose camera was only turned shows the turned angle itself, so it keeps playing the camera (no
+      // manual hold); a camera that was moved stays where the hand put it until the playhead moves.
+      return { ...before, shots, ...cameraPatch(camera, turn ? turn.hold : true) };
     });
   }
   function setLens(fovDeg) {
     const before = state(), filmback = appContext.live.state.filmback;
     writeState({ ...before, fovDeg, camera: before.camera && { ...before.camera, focalMm: fovToFocalMm(fovDeg * Math.PI / 180, filmback.sensorId, filmback.aspectRatio) } });
-  }
-  function setCastOverride(shotId, characterId, override) {
-    if (!read().some(shot => shot.id === shotId)) throw new StudioProtocolError('STALE_TARGET', `Shot ${shotId} is not in this scene.`);
-    if (!appContext.live.characters.some(entry => entry.id === characterId)) throw new StudioProtocolError('STALE_TARGET', `Character ${characterId} is not in this scene.`);
-    if (override !== null && (!override || !Number.isFinite(override.x) || !Number.isFinite(override.z) || !Number.isFinite(override.rot)
-      || (override.posture !== undefined && !['stand', 'sit', 'lie'].includes(override.posture))
-      || (override.pose !== undefined && (!override.pose || typeof override.pose !== 'object' || Array.isArray(override.pose))))) {
-      throw new StudioProtocolError('INVALID_ARGUMENT', 'Cast override requires finite x, z and rot and valid posture/pose fields.');
-    }
-    return writeState(before => ({
-      ...before,
-      shots: before.shots.map(shot => {
-        if (shot.id !== shotId) return shot;
-        const cast = { ...shot.cast };
-        if (override === null) delete cast[characterId];
-        else cast[characterId] = structuredClone(override);
-        return { ...shot, cast };
-      }),
-    }));
   }
   function placeCamera(args) {
     const before = appContext.ports.read().camera ?? state().camera;
@@ -198,7 +202,7 @@ function createShotsDomain(appContext, initial = {}) {
     }
     return run('run.update', { txId: gesture.txId, args });
   }
-  const domain = { documentStore, state, read, write, writeState, setCastOverride, beginAction, run, edit, beginGesture, finishGesture,
+  const domain = { documentStore, state, read, write, writeState, beginAction, run, edit, beginGesture, finishGesture,
     bindRender(context) { appContext = context; },
     capture: () => appContext.shared.captureCurrentFraming(), frame, captureCamera, placeCamera, setLens, renderCamera,
     canUndo: id => documentStore.canUndo(id), stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },
@@ -241,12 +245,8 @@ export function useShots(appContext) {
   const activeShotDuration = activeShot ? activeShot.endFrame - activeShot.startFrame + 1 : 0;
   const hasCameraKeys = shots.some(shot => shot.cameraKeys.length > 0);
   const selectedShotId = () => domain.read()[shotIndexAtFrame(domain.read(), appContext.live.state?.timeline.currentFrame ?? tlFrame)]?.id;
-  // Arm before the first pointer tick; clicks without a write create no entry.
-  useEffect(() => {
-    const start = () => domain.beginGesture();
-    window.addEventListener('pointerdown', start, true);
-    return () => { window.removeEventListener('pointerdown', start, true); domain.finishGesture(true); };
-  }, [domain]);
+  // Arm before the first pointer tick; clicks without a write create no entry. A refused hand framing goes back (shot-hand-framing.js).
+  const keepHandFraming = useShotHandFraming(appContext, domain);
   function setShots(value) { return appContext.storeDomain('shot').write(value); }
   function editShots(value) { const owner = appContext.storeDomain('shot'); return owner.run('shot.replace', { shots: typeof value === 'function' ? value(owner.read()) : value }); }
   // join: write inside the composed transaction that is already open, instead of opening one through the bus
@@ -262,7 +262,7 @@ export function useShots(appContext) {
   function syncActiveCameraFraming() {
     if (!appContext.shared.shotCamRef.current || appContext.shared.ikMode || appContext.shared.playMode) return;
     const shotId = selectedShotId(); // UI doors (orbit end, rail draw, follow): a refusal is logged here (#1185).
-    return settleUiRefusal('the camera framing was not captured', () => domain.edit('shot.captureCamera', shotId ? { shotId } : {}));
+    return keepHandFraming(() => settleUiRefusal('the camera framing was not captured', () => domain.edit('shot.captureCamera', shotId ? { shotId } : {})));
   }
   function commitManualCameraFraming() { trackFeature('orbit'); return syncActiveCameraFraming(); }
   function beginCameraFramingGesture() { if (!appContext.shared.ikMode && !appContext.shared.playMode) domain.beginGesture(); }
@@ -315,7 +315,7 @@ export function useShots(appContext) {
       for (let i = 1; i < points.length - 1; i++) if (points[i + 1].t - points[i].t > points[gap + 1].t - points[gap].t) gap = i;
       t = (points[gap].t + points[gap + 1].t) / 2;
     } else { gap = points.findIndex((point, index) => index < points.length - 1 && t > point.t && t < points[index + 1].t); if (gap < 0) return; }
-    changeActiveCamera({ craneHeight: { points: [...points.slice(0, gap + 1), { t, height: craneHeightAt(camera.craneHeight, t) }, ...points.slice(gap + 1)] } }, shotId);
+    changeActiveCamera({ craneHeight: { points: [...points.slice(0, gap + 1), { t, height: craneHeightAt(camera.craneHeight, t), ...railTurnAt(camera.craneHeight, t) }, ...points.slice(gap + 1)] } }, shotId);
     trackFeature('crane_graph'); setCraneSelectedIndex(gap + 1);
   }
   function deleteSelectedCranePoint() {
@@ -335,22 +335,25 @@ export function useShots(appContext) {
     if (!activeShot || appContext.shared.waypointMode) return;
     domain.finishGesture();
     syncActiveCameraFraming();
-    if (activeCamera.mode !== 'rail') changeActiveCamera({ mode: 'rail', railFollow: activeCamera.railFollow?.mode === 'off' ? defaultRailRange(activeShotDuration) : activeCamera.railFollow }, activeShot.id);
-    const next = !railDraw; trackFeature('dolly_rail'); setRailDraw(next);
+    const next = !railDraw;
+    if (next && activeCamera.mode !== 'rail' && settleUiRefusal('the rail mode was not set', () => changeActiveCamera({ mode: 'rail', railFollow: activeCamera.railFollow?.mode === 'off' ? defaultRailRange(activeShotDuration) : activeCamera.railFollow }, activeShot.id)) === null) return;
+    trackFeature('dolly_rail'); setRailDraw(next);
     if (next) { appContext.shared.setWorkspaceLayout(current => ({ ...current, insetCollapsed: false })); appContext.notify(ko("Draw the selected Shot's rail in the Top-View", '탑뷰에서 선택한 샷의 레일을 그리세요')); }
   }
   function deleteCameraRail() {
-    if (!cameraRail || !activeShot) return;
-    setRailDraw(false); clearShotCameraRail(activeShot.id);
+    if (!cameraRail || !activeShot) return; // refused while an agent turn holds the scene: the rail and the draw mode stay
+    if (settleUiRefusal('the camera rail was not deleted', () => clearShotCameraRail(activeShot.id)) === null) return; setRailDraw(false);
     appContext.notify(ko('Camera rail deleted — Follow keeps the current distance', '카메라 레일 삭제됨 — 팔로우가 현재 거리를 유지합니다'));
   }
   function drawCameraRail(stroke) {
     const simplified = simplifyStroke(stroke, 0.12);
     if (simplified.length < 2) return;
-    changeCameraRail(simplified); setRailDraw(false);
+    // A refused stroke (an agent turn holds the scene; the bus tells the user) draws nothing and keeps the draw mode on.
+    if (settleUiRefusal('the camera rail was not drawn', () => changeCameraRail(simplified)) === null) return;
+    setRailDraw(false);
     const curve = buildRail(simplified);
     if (appContext.shared.playgroundMode && activeShot && curve) {
-      const speed = Math.max(0.2, activeCamera.followCam?.maxDollySpeed ?? 4);
+      const speed = Math.max(0.2, Math.min(activeCamera.followCam?.maxDollySpeed ?? 4, 4)); // the landing rail is ridden at an easy 4 m/s, or a lower cap
       const travel = Math.ceil(curve.length / speed * tlFps) + Math.round(tlFps * 0.5);
       const endFrame = Math.min(tlFrameCount - 1, activeShot.startFrame + Math.max(travel, activeShot.endFrame - activeShot.startFrame));
       setTimelineShotRange(activeShot.id, activeShot.startFrame, endFrame);

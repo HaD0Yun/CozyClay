@@ -140,7 +140,7 @@ function verify() {
       scenes: ['persistScenes', 'openScene', 'saveProject', 'applyProject'],
       objects: ['addSceneObject', 'importCutout', 'importMesh', 'spawnCutoutAt', 'spawnMeshAt'],
       shots: ['addCameraKeyframe', 'moveCameraKeyframe', 'removeCameraKeyframe'],
-      cast: ['updateCharacterAt', 'removeCharacter', 'savePose', 'removePose'],
+      cast: ['updateCharacterAt', 'removeCharacter'],
       motion: ['clearMotion', 'toggleIkMode', 'ikAddKeyframe', 'ikDragEnd'],
     };
     const functions = tree => {

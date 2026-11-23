@@ -114,8 +114,7 @@ One 32 px pill sits at the viewport top centre in this order: mode keys `1 2 3
 4 5`, divider, tool keys, divider, context values. The active mode shows its
 amber mono digit and its name (Stage / Pose / Camera / Motion / Sculpt; in
 Korean, 배치 / 포즈 / 카메라 / 모션 / 조형); inactive modes show only a 28×28
-digit. A storyboard project has no Motion key (`1 2 3 5`). W/E/R
-keys are 28×28, with the active tool filled amber `#e8a33d` and text
+digit. W/E/R keys are 28×28, with the active tool filled amber `#e8a33d` and text
 `#1a1204`; inactive tools use `#9b9ba1`. Every key has a title with its full
 name and shortcut.
 
@@ -174,7 +173,7 @@ Removed in 3.0.
 ### G7 — export and save
 
 The File menu contains New, Open…, Save `⌘S`, Save As…, then Export ▸ with
-Keyframe pack (zip) `⌘E` first, Video (mp4), Depth + normal, Storyboard (PNG),
+Keyframe pack (zip) `⌘E` first, Video (mp4), Depth + normal, Storyboard (PNG, the shot grid),
 and OTIO cut list only when a shot exists. Existing ids stay on the moved
 controls: `topbar-save`, `topbar-export`, `export-keyframe-pack`,
 `export-video`, `export-otio`, `export-menu-trigger`. Save state remains

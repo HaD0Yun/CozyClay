@@ -1,0 +1,47 @@
+/* The edit on the user's last message (AgentUserBubble.jsx): a pencil under the bubble, and the bubble opened in place. */
+.agent-row.user { position: relative; }
+.agent-edit-open {
+	display: grid;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	margin-top: calc(-1 * var(--agent-space-1));
+	padding: 0;
+	border: 0;
+	border-radius: 11px;
+	background: none;
+	color: var(--agent-text-muted);
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+/* shown on hover of the message, and when the keyboard reaches it */
+.agent-row.user:hover .agent-edit-open, .agent-edit-open:focus { opacity: 1; }
+.agent-edit-open:hover { background: var(--agent-bg-sunken); color: var(--agent-text); }
+@media (hover: none) { .agent-edit-open { opacity: 1; } }
+.agent-edit-picture { position: relative; display: inline-block; }
+.agent-edit-box { display: grid; gap: var(--agent-space-2); width: 86%; box-sizing: border-box; }
+.agent-edit-input {
+	width: 100%;
+	box-sizing: border-box;
+	resize: vertical;
+	border: 1px solid var(--agent-border-focus);
+	border-radius: var(--agent-radius-md);
+	background: var(--agent-bg-sunken);
+	color: var(--agent-text);
+	font: inherit;
+	line-height: 1.5;
+	padding: var(--agent-space-1) var(--agent-space-2);
+}
+.agent-edit-hint { margin: 0; color: var(--agent-text-dim); font-size: var(--agent-font-sm); line-height: 1.4; white-space: normal; }
+.agent-edit-actions { display: flex; justify-content: flex-end; gap: var(--agent-space-2); }
+.agent-edit-actions .agent-primary-button { align-self: auto; padding: var(--agent-space-1) var(--agent-space-4); font-size: var(--agent-font-md); }
+.agent-edit-actions .agent-ghost-button { padding: var(--agent-space-1) var(--agent-space-3); font-size: var(--agent-font-md); }
+.agent-edit-actions button[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* The Studio's glass inspector column. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-edit-box { border-radius: 14px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-edit-input { border-color: var(--select); background: var(--surface-raised); color: var(--text-1); font-size: 12.5px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-edit-hint { color: var(--text-2); font-size: 11px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-edit-open { color: var(--text-2); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-edit-open:hover { background: var(--surface-raised); color: var(--text-1); }

@@ -155,7 +155,8 @@ function overlap(mine, theirs) {
 // and hand centimetres apart, so a target the probe passed could leave the
 // displayed limb inside the other body). Synthetic Mixamo rigs (verify-ik.mjs
 // layout, 1 cm proxy radii): A's right arm bent, B placed so its left forearm
-// runs through where the plain solve puts A's hand, clear of the exact-hinge arm.
+// runs through where the drag's solve puts A's hand; another solve (the default
+// hinge) puts that hand elsewhere, so a probe on it would check the wrong arm.
 {
 	const rigA = makeRig(), chain = resolveIkRig(rigA).chains.get("rightHand");
 	chain.bones[0].quaternion.setFromAxisAngle(v(0, 0, 1), 0.9);
@@ -165,23 +166,21 @@ function overlap(mine, theirs) {
 	const reset = () => { chain.bones.forEach((b, i) => b.quaternion.copy(start[i])); chain.bones[0].updateMatrixWorld(true); };
 	const at = (bone) => bone.getWorldPosition(v(0, 0, 0));
 	const target = at(chain.bones[2]).add(v(0.1, -0.1, 0.25));
-	solveIk(chain, target, { exactHinge: true });
-	const exactHand = at(chain.bones[2]);
-	const exactArm = armCapsules(rigA);
+	solveIk(chain, target);
+	const otherHand = at(chain.bones[2]);
 	reset();
 	solveDragTarget("chain", chain, target);
-	const plainHand = at(chain.bones[2]);
+	const shownHand = at(chain.bones[2]);
 	reset();
 	const rigB = makeRig();
 	const forearm = buildCollisionCapsules(rigB).get("leftForeArm");
-	rigB.position.copy(plainHand).sub(forearm.a.clone().add(forearm.b).multiplyScalar(0.5));
+	rigB.position.copy(shownHand).sub(forearm.a.clone().add(forearm.b).multiplyScalar(0.5));
 	rigB.updateMatrixWorld(true);
 	const rigs = { a: rigA, b: rigB };
 	const theirs = characterBlockers(rigs, "a");
-	check("fixture: the exact-hinge and the plain solve put the hand > 5 cm apart", exactHand.distanceTo(plainHand) > 0.05, mm(exactHand.distanceTo(plainHand)));
-	check("fixture: the exact-hinge arm at the target is clear of B (the old probe accepted it)", overlap(exactArm, theirs) <= 0, mm(overlap(exactArm, theirs)));
+	check("fixture: the default-hinge and the drag solve put the hand > 5 cm apart", otherHand.distanceTo(shownHand) > 0.05, mm(otherHand.distanceTo(shownHand)));
 	solveDragTarget("chain", chain, target);
-	check("fixture: the displayed (plain-solve) arm at the raw target is inside B", overlap(armCapsules(rigA), theirs) > 0.005, mm(overlap(armCapsules(rigA), theirs)));
+	check("fixture: the displayed arm at the raw target is inside B", overlap(armCapsules(rigA), theirs) > 0.005, mm(overlap(armCapsules(rigA), theirs)));
 	reset();
 
 	const record = { frame: 0, ids: new Set() };
@@ -242,11 +241,12 @@ function fixtureRig({ parent, radii, nodes }) {
 
 // 7. front-camera crossing (demo finding): the studio drag, its camera in front
 // of A, walks A's right hand up to B's left forearm in 16 events, then one 30 cm
-// event crosses it. The plain drag solve does not land the hand on its target in
+// event crosses it. The plain drag solve did not land the hand on its target in
 // one call (the hand trailed the last clean target by ~7 cm), so re-solving that
 // target from the displayed pose moved the arm on into B's upper arm: the sweep
 // read its start as "in contact", a start in contact may leave, and the hand
-// ended on the far side with no stop and no toast.
+// ended on the far side with no stop and no toast. The drag now solves with
+// exactHinge, so the displayed hand IS on the last clean target.
 {
 	const fixture = JSON.parse(readFileSync(new URL("../fixtures/ik-contact-front-cross.json", import.meta.url), "utf8"));
 	const rigs = Object.fromEntries(Object.entries(fixture.rigs).map(([id, rig]) => [id, fixtureRig(rig)]));
@@ -267,14 +267,14 @@ function fixtureRig({ parent, radii, nodes }) {
 		return { record, told, hand: hand(), overlap: overlap(armCapsules(rigs[fixture.active]), theirs) };
 	};
 	const near = replay(fixture.events.slice(0, -1));
-	check("fixture: after the approach the arm is clear, on the near side", near.overlap < -0.01 && side(near.hand) < -0.1, `overlap ${mm(near.overlap)}, side ${side(near.hand).toFixed(4)}`);
+	check("fixture: after the approach the arm is clear, on the near side", near.overlap < 0 && side(near.hand) < -0.1, `overlap ${mm(near.overlap)}, side ${side(near.hand).toFixed(4)}`);
 	const shown = chain.bones.map((b) => b.quaternion.clone());
 	const lastGood = near.record.contact.lastGood.clone();
 	solveDragTarget("chain", chain, lastGood);
 	const resolved = { moved: hand().distanceTo(near.hand), overlap: overlap(armCapsules(rigs[fixture.active]), theirs) };
 	chain.bones.forEach((b, i) => b.quaternion.copy(shown[i])); chain.bones[0].updateMatrixWorld(true);
-	console.log(`front crossing: arm clear by ${mm(-near.overlap)} as displayed; one more solve toward lastGood moves the hand ${mm(resolved.moved)} and the arm ${mm(resolved.overlap)} into B`);
-	check("fixture: re-solving the last clean target from the displayed pose moves the arm into B", resolved.moved > 0.01 && resolved.overlap > 0, `moved ${mm(resolved.moved)}, overlap ${mm(resolved.overlap)}`);
+	console.log(`front crossing: arm clear by ${mm(-near.overlap)} as displayed; one more solve toward lastGood moves the hand ${mm(resolved.moved)}`);
+	check("re-solving the last clean target from the displayed pose leaves the arm where it is, clear of B", resolved.moved < 1e-4 && resolved.overlap < 0, `moved ${mm(resolved.moved)}, overlap ${mm(resolved.overlap)}`);
 	const crossed = replay(fixture.events);
 	console.log(`front crossing: hand side ${side(crossed.hand).toFixed(4)}, overlap ${mm(crossed.overlap)}, toasts ${crossed.told.length}`);
 	check("the 30 cm event stops on the near side of the forearm", side(crossed.hand) < 0, `side ${side(crossed.hand).toFixed(4)}`);

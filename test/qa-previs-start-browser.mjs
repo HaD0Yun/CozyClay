@@ -139,7 +139,7 @@ expect("the typed name is in the field", await waitFor("document.querySelector('
 await click("[data-testid=start-create]");
 expect("Create opens the editor", await waitFor(editorOpen));
 const firstSession = await session();
-expect("the new project is an animation project", firstSession?.name === "qa649_first" && firstSession?.previsMode === "animation", JSON.stringify(firstSession));
+expect("the new project is stored without a previs mode", firstSession?.name === "qa649_first" && firstSession?.previsMode === undefined, JSON.stringify(firstSession));
 expect("the new project casts Hybrid", (await castStyle()) === "hybrid");
 
 await reload();
@@ -147,7 +147,7 @@ expect("reload reopens the editor", await waitFor(editorOpen));
 await evaluate("window.__cozyclay.sceneObject.place({ kind: 'cube', x: 0, z: 0 })");
 expect("an edit after reload lands", await waitFor("!!document.querySelector('.project-dirty-dot')"));
 const reloadedSession = await session();
-expect("reload keeps previsMode animation", reloadedSession?.name === "qa649_first" && reloadedSession?.previsMode === "animation", JSON.stringify(reloadedSession));
+expect("reload keeps the project", reloadedSession?.name === "qa649_first", JSON.stringify(reloadedSession));
 expect("reload keeps the Hybrid cast", (await castStyle()) === "hybrid");
 
 // --- File > New: same screen, same defaults ----------------------------------
@@ -163,7 +163,7 @@ await click("[data-testid=start-create]");
 const animationOpened = await waitFor(`${editorOpen} && (document.querySelector('.project-menu-trigger')?.textContent || '').includes('qa649_animation')`, 30000);
 expect("the project opens in the editor", animationOpened, await evaluate("JSON.stringify({ start: !!document.querySelector('.v2-start-screen'), menu: document.querySelector('.project-menu-trigger')?.textContent, toast: document.querySelector('[role=status]')?.textContent, name: document.querySelector('[data-testid=start-project-name]')?.value })"));
 const animationSession = await session();
-expect("the File > New project is an animation project", animationSession?.name === "qa649_animation" && animationSession?.previsMode === "animation", JSON.stringify(animationSession));
+expect("the File > New project is stored", animationSession?.name === "qa649_animation", JSON.stringify(animationSession));
 expect("the File > New project casts Hybrid", (await castStyle()) === "hybrid");
 
 ws.close();

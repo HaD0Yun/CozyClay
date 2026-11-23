@@ -75,18 +75,3 @@ test('cast UI gestures and legacy mutators use retained commands without creatin
   } finally { f.dispose(); }
 });
 
-test('pose library save and removal compose with every affected character and survive undo', () => {
-  const f = castFixture();
-  try {
-    const before = f.snapshot(), pose = { id: 'saved-pose', bones: {}, custom: true, label: 'Saved' };
-    const saved = ok(f.run('cast.savePose', { pose, characterId: 'actor-b' }));
-    assert.equal(f.cast.state().customPoses[0].id, pose.id);
-    assert.equal(f.cast.read()[1].pose.id, pose.id);
-    ok(f.run('edit.undo', { receiptId: saved.receiptId })); assert.deepEqual(f.snapshot(), before);
-    ok(f.run('cast.savePose', { pose, characterId: 'actor-b' }));
-    const withPose = f.snapshot();
-    const removed = ok(f.run('cast.removePose', { id: pose.id }));
-    assert.equal(f.cast.state().customPoses.length, 0); assert.notEqual(f.cast.read()[1].pose?.id, pose.id);
-    ok(f.run('edit.undo', { receiptId: removed.receiptId })); assert.deepEqual(f.snapshot(), withPose);
-  } finally { f.dispose(); }
-});

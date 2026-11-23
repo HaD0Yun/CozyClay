@@ -6,7 +6,7 @@ import { createCommandBus } from "./command-bus.js";
 import { readElementDocument, elementReadback, elementPatchArgs, elementTarget, elementPatchReceipt } from "./commands/elements.js";
 import { physicsKeyStamp } from "./motion/physics-review.js";
 import { shotAtFrame } from "./cuts.js";
-import { isProxyFigure } from "./scenes.js"; import { characterName } from "./character-name.js";
+import { isProxyFigure } from "./scenes.js"; import { characterName } from "./character-name.js"; import { standingHeight } from "./lowvis/studio/figure.js";
 import { supportHeightForObject } from "./scene-objects.js";
 import { studioAssetList } from "./studio-asset-list.js";
 import { buildStudioContext, physicsFingerprintInput, studioEntityCursor, validateStudioCursor } from "./studio-agent-context.js"; import { marksForAgent } from "./context-chips.js";
@@ -15,7 +15,7 @@ import { verifyInstalledTake } from "./studio-agent-motion.js"; import { objectR
 import { shotGeometryFacts } from "./studio-geometry-facts.js"; import { KIT_CATALOGUE } from "./kits/index.js";
 import { STUDIO_TOOL_FAMILIES, StudioProtocolError, validateReceipt, validateStudioCommand, validateStudioIdentity, refusalCode } from "./studio-agent-protocol.js";
 import { studioVisual, verifyLighting } from "./studio-motion-visual.js"; import { studioRelations } from "./studio-relations.js";
-import { withEffectState } from "./effects/state.js"; import { hdrEnvironmentCatalogue } from "./stage-hdr-library.js";
+import { withEffectState } from "./effects/state.js"; import { hdrEnvironmentCatalogue } from "./stage-hdr-library.js"; import { sameJson, sameData } from "./same-json.js";
 
 // App-owned adapter: the shared command modules remain the only
 // planners and validators. Ports below publish through the native editor stores.
@@ -42,8 +42,8 @@ export function createStudioAppBinding(ports) {
 	const calibrationContentKey = value => value && typeof value === "object" ? JSON.stringify(value) : null;
 	const tokens = new Map(), receipts = new Map(), images = new Map();
 	let owner = null, journal = null, actionBus = null;
-	const domainKeys = new Map(), domainRevisions = {};
-	let authoredKey, physicsKey, viewKey, observedSceneRevision = ports.revision.current;
+	const domainValues = new Map(), domainRevisions = {};
+	let authoredValue, physicsKey, physicsInput, viewKey, observedSceneRevision = ports.revision.current;
 	let physicsRevision = 0, viewRevision = 0;
 	function refresh() {
 		const document = Object.assign({}, ...(ports.storeDomains?.() ?? []).map(domain => domain.document()));
@@ -51,7 +51,7 @@ export function createStudioAppBinding(ports) {
 		const host = validateStudioIdentity(raw.host);
 		if (!same(owner, host)) {
 			owner = host; tokens.clear(); receipts.clear(); images.clear();
-			authoredKey = physicsKey = viewKey = undefined;
+			authoredValue = physicsKey = physicsInput = viewKey = undefined;
 			journal = createStudioCommandJournal({ host, isRetained: receipt => ports.isRetained(receipt) });
 		}
 		const characters = raw.characters.map(character => {
@@ -65,18 +65,21 @@ export function createStudioAppBinding(ports) {
 		const authoredCharacters = raw.characters.map(({ sessionMotion, ik, rig, ...character }) => character);
 		// The stage is authored state too: a key-light or environment edit from any
 		// surface bumps the scene revision exactly like a cast or object edit.
-		const authored = JSON.stringify([raw.objects, authoredCharacters, raw.shots, raw.frameCount, raw.stage, document]);
-		if (authoredKey !== undefined && authoredKey !== authored && observedSceneRevision === ports.revision.current) ports.revision.current++;
-		authoredKey = authored; observedSceneRevision = ports.revision.current;
+		// Compared with the last refresh's values (sameJson: equal exactly when their JSON text is): a refresh runs several
+		// times per bus command (a camera drag sends one per pointer move) and an unchanged document value is not written out.
+		const authored = [raw.objects, authoredCharacters, raw.shots, raw.frameCount, raw.stage, document];
+		if (authoredValue !== undefined && !sameJson(authoredValue, authored) && observedSceneRevision === ports.revision.current) ports.revision.current++;
+		authoredValue = authored; observedSceneRevision = ports.revision.current;
 		const liveIds = new Set([...raw.objects, ...raw.characters, ...raw.shots].map(row => row.id));
 		for (const id of tokens.keys()) if (!liveIds.has(id)) tokens.delete(id);
 		for (const entry of [...raw.objects, ...characters, ...raw.shots]) {
 			// Display-only name/tint changes never revoke a motion target.
 			const { name, subject, tint, identityImage, ...content } = entry;
-			const key = JSON.stringify(content), previous = tokens.get(entry.id);
-			if (!previous || previous.key !== key) tokens.set(entry.id, { key, token: `target-${++tokenSequence}`, incarnation: previous?.incarnation ?? crypto.randomUUID() });
+			const previous = tokens.get(entry.id);
+			if (previous && !previous.revoked && sameJson(previous.content, content)) previous.content = content;
+			else tokens.set(entry.id, { content, token: `target-${++tokenSequence}`, incarnation: previous?.incarnation ?? crypto.randomUUID() });
 		}
-		const physical = physicsFingerprintInput({ floor: { model: "flat", y: 0 }, frameCount: raw.frameCount,
+		const input = { floor: { model: "flat", y: 0 }, frameCount: raw.frameCount,
 			objects: raw.objects.map(o => ({ id: o.id, renderer: o.renderer,
 				position: { x: o.x, y: o.y ?? 0, z: o.z }, rotationDeg: { x: o.rotX ?? 0, y: o.rot ?? 0, z: o.rotZ ?? 0 },
 				scale: { x: o.scaleX, y: o.scaleY, z: o.scaleZ }, footprint: o.footprint, height: o.height,
@@ -91,17 +94,19 @@ export function createStudioAppBinding(ports) {
 					motionRevision: stableStamp(motionStamps, motionKey), calibrationRevision: stableStamp(calibrationStamps, calibrationKey),
 					ikRevision: ports.ikRevision(c.id, summary.ik),
 					waypoints: (c.layer?.waypoints ?? []).map(p => ({ frame: p.frame, position: { x: p.x, y: p.y ?? 0, z: p.z } })) };
-			}) });
-		const physicalKey = JSON.stringify(physical);
-		if (physicsKey !== undefined && physicsKey !== physicalKey) physicsRevision++;
-		physicsKey = physicalKey;
+			}) };
+		// The fingerprint is a pure function of its input; its schema check throws and catches on every alternative it
+		// tries, so it runs only when the input differs from the last refresh.
+		if (!physicsInput || !sameData(input, physicsInput.input)) {
+			const physicalKey = JSON.stringify(physicsFingerprintInput(input));
+			if (physicsKey !== undefined && physicsKey !== physicalKey) physicsRevision++;
+			physicsKey = physicalKey; physicsInput = { input }; }
 		const nextViewKey = JSON.stringify([raw.selection, raw.activeCharacterId, raw.selectedShotId, raw.view, raw.camera]);
 		if (viewKey !== undefined && viewKey !== nextViewKey) viewRevision++;
 		viewKey = nextViewKey;
 		for (const [domain, value] of Object.entries({ objects: raw.objects, shot: raw.shots, stage: raw.stage, cast: authoredCharacters, motion: characters, ...document })) {
-			const key = JSON.stringify(value);
-			if (domainKeys.get(domain) !== key) domainRevisions[domain] = (domainRevisions[domain] ?? 0) + 1;
-			domainKeys.set(domain, key);
+			if (!domainValues.has(domain) || !sameJson(domainValues.get(domain), value)) domainRevisions[domain] = (domainRevisions[domain] ?? 0) + 1;
+			domainValues.set(domain, value);
 		}
 		return { ...raw, host, revision: ports.revision.current, physicsRevision, viewRevision, domainRevisions: { ...domainRevisions } };
 	}
@@ -121,7 +126,7 @@ export function createStudioAppBinding(ports) {
 		return [...s.characters.map(c => {
 			const t = s.targets.get(c.id);
 			return { id: c.id, kind: "character", token: tokens.get(c.id).token, name: characterName(c),
-				position: { x: c.x, y: c.y ?? 0, z: c.z }, yawDeg: c.rot ?? 0, scale: c.scale ?? 1, tint: c.tint ?? null, modelId: c.model ?? null,
+				position: { x: c.x, y: c.y ?? 0, z: c.z }, yawDeg: c.rot ?? 0, scale: c.scale ?? 1, ...(standingHeight(c) ? { standingHeightM: standingHeight(c) } : {}), tint: c.tint ?? null, modelId: c.model ?? null,
 				motion: { takeId: t?.motion?.studioTakeId ?? null, frames: t?.motion?.frames ?? 0,
 					ikKeyCount: t?.ikState?.keys.size ?? 0 },
 				capabilities: { rigReady: Boolean(t?.rig), ik: Boolean(t?.rig?.userData?.poseBind), measuredFeet: false },
@@ -142,7 +147,7 @@ export function createStudioAppBinding(ports) {
 		return buildStudioContext({ schema: "studio-context-v1", host: { surface: "studio", ...s.host, workspaceHandle: s.workspaceHandle },
 			revision: { scene: s.revision, physics: s.physicsRevision, view: s.viewRevision },
 			units: { distance: "m", angle: "deg", up: "+Y", yawZero: "+Z", yawPositiveToward: "+X", pivot: "base", fps: 24, rangeEnd: "exclusive" },
-			scene: { name: s.sceneName, aspect: s.aspect, floorY: 0, frameCount: s.frameCount, objectCount: s.objects.length, characterCount: s.characters.length, ...(s.previsMode ? { previsMode: s.previsMode } : {}), ...(s.castStyle ? { castStyle: s.castStyle } : {}) },
+			scene: { name: s.sceneName, aspect: s.aspect, floorY: 0, frameCount: s.frameCount, objectCount: s.objects.length, characterCount: s.characters.length, ...(s.castStyle ? { castStyle: s.castStyle } : {}) },
 			// A removed character (the last one, too) is neither selected nor active.
 			selection: ["character", "rig"].includes(s.selection?.kind) && !cast(s.selection.id) ? null : s.selection, activeCharacterId: cast(s.activeCharacterId) ? s.activeCharacterId : null, view: s.view,
 			shot: shot ? { id: shot.id, name: shot.name, range: range(shot), mode: shot.camera?.mode ?? "keys" } : null, camera: s.camera,
@@ -151,8 +156,7 @@ export function createStudioAppBinding(ports) {
 			shots: s.shots.map(row => ({ id: row.id, name: row.name, range: range(row), keyCount: row.cameraKeys.length })), shotsTruncated: false,
 			assets: studioAssetList(s.objects), recentReceipts: [...receipts.values()].filter(r => r.ok).reverse().slice(0, 3).map(r => ({ id: r.receiptId, summary: r.status, canUndoDirect: ports.canUndo(r) })),
 			jobs: [], capabilities: { profile: "studio-slice-1", tools: STUDIO_TOOL_FAMILIES,
-				rigReady: Boolean(s.targets.get(s.activeCharacterId)?.rig), cameraReady: Boolean(s.camera), bridgeReady: s.bridgeReady,
-				...(s.previsMode ? { storyboard: s.previsMode === "storyboard" } : {}) },
+				rigReady: Boolean(s.targets.get(s.activeCharacterId)?.rig), cameraReady: Boolean(s.camera), bridgeReady: s.bridgeReady },
 			// Every registered command; buildStudioContext keeps only its id/label index.
 			...(registry ? { actions: registry.list() } : {}), ...marksForAgent() });
 	}
@@ -168,7 +172,7 @@ export function createStudioAppBinding(ports) {
 		const words = [...String(error?.message ?? "").trim()];
 		return validateReceipt({ ok: false, commandId: request.commandId, host: request.host ?? request.binding?.host,
 			code: refusalCode(error), phase, affectedIds: [], expectedTargets: [], currentTargets: [], mutated: false,
-			preserved: { authoredState: "unchanged" }, recovery: { action: "inspect", retryAllowed: false },
+			preserved: { authoredState: "unchanged" }, recovery: error?.details?.transient ? { action: "retry", retryAllowed: true } : { action: "inspect", retryAllowed: false },
 			...(words.length ? { message: words.length > 120 ? `${words.slice(0, 119).join("")}…` : words.join("") } : {}) });
 	}
 	function admit(request) {
@@ -376,7 +380,7 @@ export function createStudioAppBinding(ports) {
 		if (before === after) return;
 		if (domain === "pose") {
 			const id = ports.read().activeCharacterId, previous = tokens.get(id);
-			if (previous) tokens.set(id, { ...previous, key: null });
+			if (previous) tokens.set(id, { ...previous, revoked: true });
 			return;
 		}
 		if (!["characters", "objects"].includes(domain) || !Array.isArray(before) || !Array.isArray(after)) return;
@@ -388,7 +392,7 @@ export function createStudioAppBinding(ports) {
 		for (const row of before) {
 			const next = after.find(c => c.id === row.id), previous = tokens.get(row.id);
 			if (!next) tokens.delete(row.id);
-			else if (previous && !same(content(row), content(next))) tokens.set(row.id, { ...previous, key: null });
+			else if (previous && !same(content(row), content(next))) tokens.set(row.id, { ...previous, revoked: true });
 		}
 	}
 	return { handlers, context, guard, refresh, invalidate, get bus() { refresh(); return commandBus(); }, dispose: () => { actionBus?.dispose(); } };

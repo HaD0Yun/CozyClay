@@ -20,13 +20,10 @@ function relativeTime(value, now = Date.now()) {
 	return ko("Just now", "방금");
 }
 
-const modeLabel = (mode) => (mode === "storyboard" ? ko("Storyboard", "스토리보드") : mode === "animation" ? ko("Animation", "애니메이션") : null);
-
 function summaryParts(entry) {
 	return [
 		Number.isFinite(entry.scenes) ? ko(`${entry.scenes} ${entry.scenes === 1 ? "scene" : "scenes"}`, `장면 ${entry.scenes}`) : null,
 		Number.isFinite(entry.shots) ? ko(`${entry.shots} ${entry.shots === 1 ? "shot" : "shots"}`, `샷 ${entry.shots}`) : null,
-		modeLabel(entry.previsMode),
 	].filter(Boolean);
 }
 
@@ -133,7 +130,7 @@ export function RecentWork({ entries, selectedKey, currentName, onSelect, onOpen
 								onClick={() => onSelect(entry)}
 								onDoubleClick={() => onOpen(entry)}
 							>
-								<span className={`v2-start-work-badge ${entry.previsMode || "unknown"}${entry.thumb ? " has-thumb" : ""}`} aria-hidden="true">{entry.thumb ? <img src={entry.thumb} alt="" draggable="false" /> : (entry.name.trim()[0] || "?").toUpperCase()}</span>
+								<span className={`v2-start-work-badge${entry.thumb ? " has-thumb" : ""}`} aria-hidden="true">{entry.thumb ? <img src={entry.thumb} alt="" draggable="false" /> : (entry.name.trim()[0] || "?").toUpperCase()}</span>
 								<span className="v2-start-work-copy">
 									<strong><Highlight text={entry.name} query={query.trim()} /></strong>
 									<span>{parts.length ? parts.join(" · ") : ko("Details appear after it is opened", "열고 나면 정보가 표시돼요")}</span>

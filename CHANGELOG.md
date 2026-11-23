@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Studio
+
+- Storyboard projects are removed. A saved storyboard file opens as a new,
+  unsaved animation project; saving it never writes to the original file. The
+  Storyboard (PNG) shot-grid export of animation projects stays.
+
 Export
 
 - Export → AI video reference (zip) renders the shots (first shot start to last shot end) as a
@@ -10,8 +16,7 @@ Export
   model keeps the camera, cuts and blocking but not the mannequin look.
 - The AI video reference zip also carries `prompt.txt`: the cast as
   reference images, each shot's camera move read from its camera keys or
-  rail, the cuts, each shot's caption as its action, and the place you type
-  in the export dialog. `scene-facts.json` holds the same facts as data.
+  rail, the cuts, and the place you type in the export dialog. `scene-facts.json` holds the same facts as data.
 
 ## 3.2.3 - 2026-11-20
 

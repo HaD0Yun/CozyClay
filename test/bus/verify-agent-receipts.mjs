@@ -74,7 +74,9 @@ try {
   console.log('PASS readback carries rotation, scale, parent, children and bounds; truncation is stated');
 
   // 5. verify_result(receiptId) measures a receipt that has no placement evidence.
-  const moved = f.run('object.update', { id: crateB, patch: { x: 6.1 } }, 'ui');
+  // Crate B is a full crate again: since case 3 it was a 1 cm slab, which only touches Crate A's base (solid-contact.js:
+  // two shapes pressed together under 3 cm are touching, not inside each other).
+  const moved = f.run('object.update', { id: crateB, patch: { x: 6.1, scaleY: 1 } }, 'ui');
   assert.equal(moved.status, 'applied');
   assert.equal(moved.checks.overlapIds, undefined, 'an update receipt carries no overlap measurement');
   const verified = await f.binding.handlers.verify_result(f.request('verify_result', { receiptId: moved.receiptId, checks: ['placement'], visual: 'none' }));

@@ -154,7 +154,7 @@ try {
 	assert.equal(afterReload.frameCount, 360);
 	assert.equal(afterReload.motion, false);
 	assert.equal(afterReload.dirty, false);
-	assert.equal(afterReload.session?.previsMode, "animation", "a blank project's session record restores the default previs mode");
+	assert.equal(afterReload.session?.previsMode, undefined, "a blank project's session record holds no previs mode");
 } finally {
 	b.close();
 }

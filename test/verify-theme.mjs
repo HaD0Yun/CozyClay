@@ -56,15 +56,9 @@ expect(
 		look.includes('hemiSky: "#ffffff", hemiGround: "#5a5d64"') &&
 		look.includes("(neutral ? 0.34 : lightTheme ? 0.32 : 0.18)") &&
 		// the key colour is now the user's warmth dial (or an explicit colour),
-		// defaulting to the bright neutral key (brightness 4, warmth 0) the default keyLight shape carries
-		look.includes("{ x: 6, y: 9, z: 4, intensity: 4, warmth: 0, color: null }"),
+		// defaulting to the neutral key (brightness 0.9, warmth 0) the default keyLight shape carries
+		look.includes("{ x: 6, y: 9, z: 4, intensity: 0.9, warmth: 0, color: null }"),
 );
-
-// #650: the project-mode badge is quiet secondary text from the v2 text scale,
-// so it follows the light and dark themes with every other label.
-const modeCss = readFileSync(new URL("../src/shell/mode.css", import.meta.url), "utf8");
-const badgeRule = modeCss.match(/\.topbar-previs-mode\s*\{([^}]*)\}/)?.[1] ?? "";
-expect("the previs mode badge uses the secondary text token", /color:\s*var\(--text-2\b/.test(badgeRule) && !/background/.test(badgeRule), badgeRule);
 
 if (failures) process.exit(1);
 console.log("all Cozy Clay theme checks PASS");

@@ -48,7 +48,8 @@ import {
 	slateLine,
 } from "../src/shot.js";
 import {
-	CHARACTER_KIND_IDS,
+	NEW_CHARACTER_MODEL,
+	PROXY_FIGURE_MODEL,
 	POSTURES,
 	activeScene,
 	isProxyFigure,
@@ -70,7 +71,7 @@ import {
 	updateSceneObject,
 } from "../src/scene-objects.js";
 import { classifyMove, captureFraming, moveSlate } from "../src/camera-move.js";
-import { DEFAULT_PREVIS_MODE, PREVIS_MODES, readProjectDocument } from "../src/project.js";
+import { readProjectDocument } from "../src/project.js";
 import { characterName, promptDescription } from "../src/character-name.js";
 import { splitSavedCamera, serializeSavedProject } from "./project-camera.mjs";
 
@@ -80,8 +81,6 @@ export const state = {
 	// studio's new project starts empty, and a connected editor reports its own.
 	doc: createSceneDocument({ seedCharacter: true }),
 	name: "Untitled",
-	/** the project's previs mode ("storyboard" | "animation"); the live editor reports it with every describe */
-	previsMode: DEFAULT_PREVIS_MODE,
 	camera: { x: 0, y: 1.6, z: 4.5, focalMm: 35 },
 	timeline: { currentFrame: 0, frameCount: 360, fps: 24 },
 	/** which character the camera frames against; null means the first of the cast */
@@ -222,19 +221,6 @@ const studioResult = (...receipts) => ({
 });
 const runStudioCommand = async options => studioResult(await executeStudioCommand(options));
 
-// The tool list is fixed when the server starts, so a tool the project's mode
-// or the target's kind cannot run answers a structured refusal instead of acting.
-const refusal = (code, reason) => ({ content: [{ type: "text", text: JSON.stringify({ ok: false, code, reason }) }], isError: true });
-
-/** NOT_IN_MODE in a storyboard project; null when the tool may run. `context` is
- * the connected editor's Studio context; without one the in-memory project answers. */
-const previsRefusal = (toolName, { context } = {}) => {
-	if ((context ? context.scene?.previsMode : state.previsMode) === "storyboard") {
-		return refusal("NOT_IN_MODE", `This project is a Storyboard - ${toolName} is available in Animation projects.`);
-	}
-	return null;
-};
-
 const scene = () => activeScene(state.doc.scenes, state.doc.activeSceneId);
 const stage = () => scene().stage;
 
@@ -329,7 +315,6 @@ const applyLiveDescription = (description) => {
 		if (!parsed.document) throw new Error("Live editor returned an invalid scene document.");
 		state.doc = parsed.document;
 	}
-	if (PREVIS_MODES.includes(description.previsMode)) state.previsMode = description.previsMode;
 	const sc = scene();
 	if (typeof description.sceneName === "string" && description.sceneName) sc.name = description.sceneName;
 	if (description.camera && typeof description.camera === "object") {
@@ -481,7 +466,6 @@ function sceneReport({ characterCursor = 0, objectCursor = 0, limit = 50 } = {})
 	const lines = [
 		`Project: ${state.name}`,
 		`Scene: ${sc.name}  (${state.doc.scenes.length} scene${state.doc.scenes.length === 1 ? "" : "s"} in project)`,
-		`previsMode: ${state.previsMode}`,
 		"",
 		"CAMERA",
 		`  position   x ${round(state.camera.x)}  y ${round(state.camera.y)}  z ${round(state.camera.z)}`,
@@ -894,6 +878,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				description:
 					"Unlike place_character, add_character adds a new cast member instead of changing an existing one. " +
 					"The cast is unbounded; each member gets a stable character ID, a numbered display label, a position and a prompt description. " +
+					"A new rig character is of model x-bot-tpose, drawn in the figure look the Studio was started with. " +
 					'model "proxy-figure" adds a capsule figure: a rigless stand-in for blocking that holds a posture (stand, sit or lie) ' +
 					"and refuses motion, takes, IK and posing with TARGET_NOT_READY.",
 				inputSchema: {
@@ -901,10 +886,11 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					x: z.number().default(0).describe("floor position x in metres"),
 					z: z.number().default(0).describe("floor position z in metres"),
 					facing: z.number().default(0).describe("yaw in degrees; 0 faces the default camera"),
+					// an older caller's "y-bot-tpose" becomes the rig figure (x-bot-tpose), as the editor's character.add maps it
 					model: z
-						.enum(CHARACTER_KIND_IDS)
+						.preprocess((value) => (value === "y-bot-tpose" ? NEW_CHARACTER_MODEL : value), z.enum([NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL]))
 						.optional()
-						.describe('which mannequin to use; "proxy-figure" is a rigless capsule figure for blocking'),
+						.describe('the body: "x-bot-tpose" is the rig figure (the default), "proxy-figure" a rigless capsule figure for blocking'),
 					posture: z
 						.enum(POSTURES)
 						.optional()
@@ -924,7 +910,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				const st = stage();
 				const index = st.characters.length;
 				const id = `character-${randomUUID()}`;
-				const entry = createCharacterEntry({ id, subject: desc, x, z: zPos, rot: facing, model, posture }, index);
+				const entry = createCharacterEntry({ id, subject: desc, x, z: zPos, rot: facing, model: model ?? NEW_CHARACTER_MODEL, posture }, index);
 				st.characters = [...st.characters, entry];
 				return text(`Added Character ${index + 1} (${entry.id}).\n\n${sceneReport()}`);
 			},
@@ -1539,9 +1525,6 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				} catch (error) {
 					return liveError(error);
 				}
-				// describe carries the editor's previsMode into state.
-				const refused = previsRefusal("mark_camera_move");
-				if (refused) return refused;
 				state.markedFraming = framing();
 				return text(`Marked A position: ${slateLine(currentShot())}\n\nNow move the camera, then call describe_camera_move.`);
 			},
@@ -1697,7 +1680,6 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				}
 				state.doc = nextDocument;
 				Object.assign(state.camera, savedCamera);
-				state.previsMode = result.project.previsMode ?? DEFAULT_PREVIS_MODE;
 				state.name = result.project.name;
 				Object.assign(state, { focus: null, focusLocked: false, markedFraming: null });
 				return text(`Opened ${full}.\n\n${sceneReport()}`);

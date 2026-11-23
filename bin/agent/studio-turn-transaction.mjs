@@ -1,8 +1,8 @@
 // The editor transaction a Studio run holds while its model works.
 //
 // A single turn (the default): one user message is one editor transaction. Every Studio turn whose editor reports a
-// previsMode opens agent.turn.begin and closes agent.turn.finish, so all of its mutations land as ONE history entry and
-// one receipt frame. A context without a previsMode runs unwrapped (an editor that predates turn transactions).
+// scene opens agent.turn.begin and closes agent.turn.finish, so all of its mutations land as ONE history entry and
+// one receipt frame. A context without a scene runs unwrapped (an editor that predates turn transactions).
 //
 // A task (parallel Studio tasks, P2): the run holds task.begin { taskId, scope, reads, title } instead, so other tasks
 // edit other keys of the same scene meanwhile. Its commands carry the taskId and commit one by one (src/bus-tasks.js).
@@ -20,7 +20,7 @@ export const LOST_STUDIO = new Set(["LIVE_HUB_UNAVAILABLE", "STALE_HANDLE", "NO_
 
 export function studioTransaction({ hub, context, turnId, admission, task = null, signal, plain = false, onWait }) {
 	// The main agent holds no transaction (plain): its one quick edit opens a task of its own.
-	const wrapped = !plain && Boolean(task || context.scene?.previsMode);
+	const wrapped = !plain && Boolean(task || context.scene);
 	const host = Object.fromEntries(["workspaceId", "documentEpoch", "sceneId", "sceneEpoch"].map(key => [key, context.host[key]]));
 	const verb = name => task ? `task.${name === "begin" ? "begin" : name}` : `agent.turn.${name}`;
 	// A control the user's drag refuses (a task's cancel or rollback writes its keys back) waits for the drag to end.

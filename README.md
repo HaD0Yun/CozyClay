@@ -59,7 +59,7 @@ real framing. It follows the blocking instead of guessing.
 
 ```mermaid
 flowchart LR
-  S["Stage<br/>set + cast"] --> M["Motion<br/>compiled + QA"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
+  S["Stage<br/>set + cast"] --> M["Motion<br/>written + built"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
 ```
 
 ## Quick start
@@ -86,11 +86,11 @@ a GPU, Python or a model download. The studio opens at `http://127.0.0.1:5180/ap
 
 | | |
 | --- | --- |
-| **Stage** | Build the set from primitives. Add rigged characters, or capsule stand-ins when nobody needs to move a limb. Fly the view like a 3D editor. |
-| **Move** | Describe the action. The agent writes a motion spec, and a deterministic compiler in the browser bakes every frame. QA checks collisions, foot slide, reach and hand contact before you see it. |
-| **Shoot** | Put shots on a timeline, draw dolly rails, look through the lens. Each shot knows the limits of the video model you target. |
-| **Export** | Keyframe pack (first and last frame, greybox clip, camera, prompt), mp4, depth and normal passes, contact sheet, OTIO cut list. |
-| **Storyboard** | Prefer stills? A Storyboard project is a row of panels with captions, an animatic and a contact sheet. |
+| **Stage** | Build the set from primitives and place point, spot and directional lights. Add rig characters, drawn as cube figures, or capsule stand-ins when nobody needs to move a limb. Fly the view like a 3D editor. |
+| **Move** | Describe the action in the Agent panel. A second model, the motion writer, writes a motion spec, and a deterministic engine makes every frame and measures foot slide, contacts, balance and bodies inside props. The writer reads those numbers and contact sheets of the result before the take goes in. A motion can move props too. It needs a model sign-in in the Agent panel. |
+| **Shoot** | Put shots on a timeline, draw dolly rails in the Top-View, look through the lens. Turn a rail camera by hand and pick who it follows. Each shot knows the limits of the video model you target. |
+| **Export** | Keyframe pack (first and last frame, greybox clip, camera, prompt), AI video reference zip (a mosaic-and-blur reference video and a prompt), mp4, depth and normal passes, contact sheet, OTIO cut list. |
+| **Look** | The toon look (flat two-tone shading with black lines) is on by default in the viewport and in every capture and export. Turn it off under **Show** in the viewport toolbar. |
 | **Undo anything** | Every edit, including each change the agent makes, is one undo step. |
 
 ## Direct it with AI
@@ -123,7 +123,7 @@ Contribution rules are in [`AGENTS.md`](AGENTS.md). Open pull requests against `
 | Read | For |
 | --- | --- |
 | [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) | Install, run and connect, written for AI agents |
-| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | Motion specs, compile and QA |
+| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | The old motion engine (MCP, `cclay live`, `COZYCLAY_MOTION_ENGINE=old`): motion specs, compile and QA |
 | [`docs/agent-cli.md`](docs/agent-cli.md) | `cclay live`, model providers, sessions |
 | [`mcp/README.md`](mcp/README.md) | MCP tools and the live protocol |
 | [`docs/studio-ui-ia.md`](docs/studio-ui-ia.md) | Every control and where it lives |

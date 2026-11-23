@@ -194,13 +194,14 @@ check("a restored transcript shows an observation's image, never its label as th
 	}
 });
 
-// The real runner: a Korean Studio prompt and a scripted model calling a bulky tool 18 times in one turn (40k characters,
-// about 11k estimated tokens a result, so the turn passes the limit once).
+// The real runner: a Korean Studio prompt and a scripted model calling a bulky tool 18 times in one turn (34k characters
+// a result; the scripted provider's usage, which the budget reads, counts each about 8.5k tokens plus its cache write,
+// so the turn passes the limit once and stays under the ceiling).
 const fake = createFakeModel();
 fake.script([...Array.from({ length: 18 }, (_, i) => [{ type: "toolCall", id: `t${i}`, name: "script", arguments: { code: `return ${i};` } }]), [{ type: "text", text: "완료" }]]);
 const stored = [];
 const tools = [{ name: "script", parameters: { type: "object", properties: { code: { type: "string" } }, required: ["code"], additionalProperties: false },
-	handler: async ({ code }) => ({ ok: true, receipt: uuid(Number(code.match(/\d+/)[0])), specId: spec(Number(code.match(/\d+/)[0])), pad: "y".repeat(40_000) }) }];
+	handler: async ({ code }) => ({ ok: true, receipt: uuid(Number(code.match(/\d+/)[0])), specId: spec(Number(code.match(/\d+/)[0])), pad: "y".repeat(34_000) }) }];
 const runner = createAgentRunner({ models: fake.models, fauxProvider: fake.fauxProvider, sessionStore: { read: () => null, append: async (_id, messages) => { stored.push(...messages); } } });
 const session = await runner.openSession("context-trim", { surface: "studio" });
 const frames = [];

@@ -8,7 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHttpTransport } from "../src/workflow/agent-client.js";
 import { readStoredTaskMode } from "../src/workflow/task-board.js";
-import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
+import { createAgentHandler as createHandler } from "../bin/agent/agent-routes.mjs";
+import { withTurnControls } from "./fixtures/turn-controls.mjs";
+// every fake editor answers the turn transaction a Studio turn runs in
+const createAgentHandler = options => { if (typeof options.liveHub?.command === "function") withTurnControls(options.liveHub); return createHandler(options); };
 import { createCanvasCommands } from "../src/workflow/canvas-commands.js";
 import { noteTurnDraft } from "../src/workflow/agent-turn-telemetry.js";
 import { stagePrompt } from "../src/workflow/prompt-telemetry.js";

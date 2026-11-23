@@ -22,18 +22,6 @@ const sceneId = { sceneId: idSchema };
 const NOT_UNDOABLE = "Scenes are outside the undo history: undo_edit and Ctrl+Z cannot revert this.";
 const SCENE_MOVES = "The open scene changes, so later commands in this message are admitted in it; the receipt's host names it.";
 const characterId = { characterId: idSchema };
-const castOverride = {
-	type: "object",
-	properties: {
-		x: { type: "number" },
-		z: { type: "number" },
-		rot: { type: "number" },
-		posture: { type: "string", enum: ["stand", "sit", "lie"] },
-		pose: { type: "object", properties: {}, required: [], additionalProperties: true },
-	},
-	required: [],
-	additionalProperties: false,
-};
 /** A world floor point in metres; y is the floor. */
 const floorPoint = input({ x: { type: "number" }, z: { type: "number" } });
 const worldPoint = input({ x: { type: "number" }, y: { type: "number" }, z: { type: "number" } });
@@ -65,38 +53,26 @@ export const STUDIO_ATTACH_BONES = freezeStudioData(["hips", "spine", "chest", "
 const GUIDE_MODES = freezeStudioData(["off", "thirds", "golden", "center", "safe"]);
 /** The image models the Studio writes Send-to-AI prompts for (src/shot.js IMAGE_MODELS). */
 const AI_IMAGE_MODELS = freezeStudioData(["nano_banana_pro", "nano_banana_2", "gpt_image_2", "seedream_5", "flux_2"]);
-const stillHold = { type: "integer", minimum: 1, maximum: 240 };
-const stillIndex = { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER };
-const STORYBOARD_CAP = "Refused when the stills would run past the 28800-frame timeline.";
 const WAYPOINT_RULES = "Pins sit at least 8 frames apart, the walk between two pins must stay within 0.5-3 m/s, and x/z are clamped to +/-11 m; a pin that breaks a rule is refused with the frame or distance that would work.";
 
 export const STUDIO_ACTIONS = freezeStudioData([
 	{ id: "shot.create", label: "Add shot", kind: "mutation", undoDomain: "shot", input: input(),
-		description: "Add a new shot at the playhead, keyed with the current camera framing (the timeline's + Add shot). Move the playhead first with operate_studio { frame }. When the playhead is inside a shot, the new one goes in the next free gap. In a storyboard project it adds a still instead, exactly like shot.createStill with no arguments." },
-	{ id: "shot.createStill", label: "Add still", kind: "mutation", undoDomain: "shot", input: input({}, { caption: { type: "string", maxLength: 500 }, hold: stillHold }),
-		description: `Add a still (a storyboard panel: one picture held for hold frames at 24 fps, default 48, 1-240) after the last still, keyed with the current camera framing. Stills sit end to end from frame 0 in order. ${STORYBOARD_CAP}` },
-	{ id: "shot.setCaption", label: "Set shot caption", kind: "mutation", undoDomain: "shot", input: input({ ...shotId, caption: { type: "string", maxLength: 500 } }),
-		description: "Set a shot's caption (the panel's action or dialogue line), trimmed, at most 500 characters; an empty caption clears it." },
-	{ id: "shot.setCastOverride", label: "Set shot cast override", kind: "mutation", undoDomain: "shot",
-		input: input({ ...shotId, ...characterId, override: { oneOf: [castOverride, { type: "null" }] } }),
-		description: "Set or clear one character's placement and pose override for a shot. Overrides apply only when the character has no installed take; a root path still wins." },
-	{ id: "shot.setHold", label: "Set still hold", kind: "mutation", undoDomain: "shot", input: input({ ...shotId, hold: stillHold }),
-		description: `Set how many frames (1-240 at 24 fps) a still holds; the stills after it move so they stay end to end. Stills only. ${STORYBOARD_CAP}` },
+		description: "Add a new shot at the playhead, keyed with the current camera framing (the timeline's + Add shot). Move the playhead first with operate_studio { frame }. When the playhead is inside a shot, the new one goes in the next free gap." },
 	{ id: "shot.split", label: "Split shot", kind: "mutation", undoDomain: "shot", input: input(shotId),
 		description: "Cut a shot in two at the playhead. The playhead must be inside that shot, after its first frame; the second half starts at the playhead." },
 	{ id: "shot.duplicate", label: "Duplicate shot", kind: "mutation", undoDomain: "shot", input: input(shotId),
-		description: "Copy a shot, its camera, keys, caption, per-shot cast and stylized image. A still's copy goes right after it and the stills after it move along; a clip's copy goes into the next free gap on the timeline." },
+		description: "Copy a shot, its camera and keys into the next free gap on the timeline." },
 	{ id: "shot.remove", label: "Delete shot", kind: "mutation", undoDomain: "shot", input: input(shotId),
 		description: "Delete a shot and leave its frames as free-camera time." },
 	{ id: "shot.setRange", label: "Set shot range", kind: "mutation", undoDomain: "shot", input: input({ ...shotId, range: StudioSchemas.FrameRange }),
 		description: "Move a shot's start and end to a half-open frame range, e.g. { shotId, range: { startFrame: 0, endFrameExclusive: 240 } } for frames 0-239. range: [0, 240] ([start, endExclusive]) and flat { shotId, startFrame: 0, endFrameExclusive: 240 } are taken as the same range. Edges are clamped to the timeline and refused where they would overlap another shot; the receipt's summary shows the range that landed (\"Set shot range: Shot 1 [0, 240).\")." },
 	{ id: "shot.reorder", label: "Move shot", kind: "mutation", undoDomain: "shot",
-		input: input(shotId, { startFrame: frame, index: stillIndex }),
-		description: "Move a shot; give exactly one of startFrame or index. With startFrame, a clip moves in time to start there, keeping its length and camera keys (a noop where it would overlap another shot), and a still moves to the place in the still order that frame falls in. With index (stills only), the still moves to that position among the stills (0 is first; past the end means last). Stills stay end to end from frame 0." },
+		input: input({ ...shotId, startFrame: frame }),
+		description: "Move a shot in time to start at startFrame, keeping its length and camera keys (a noop where it would overlap another shot)." },
 	{ id: "character.addWaypoint", label: "Add root waypoint", kind: "mutation", undoDomain: "cast", input: input({ ...characterId, position: floorPoint }, { frame: waypointFrame }),
 		description: `Pin a character's root path: at frame, the character's root stands at position (world x/z metres). Frame 0 is the character's own spot, so pins start at frame 1 and each frame holds one pin. Omit frame to pace the pin at a walk (1.4 m/s) from the previous one. ${WAYPOINT_RULES} Read paths with inspect_studio { scope: "motion" }.` },
 	{ id: "character.move", label: "Move character", kind: "mutation", undoDomain: "cast", input: input(characterId, { x: num, z: num, rot: num }),
-		description: "Move a character's stage placement. Inside a still this writes that panel's cast override; outside a still it changes the stage record." },
+		description: "Move a character's stage placement." },
 	{ id: "character.moveWaypoint", label: "Move root waypoint", kind: "mutation", undoDomain: "cast", input: input({ ...characterId, frame: waypointFrame, position: floorPoint }),
 		description: `Move the character's root waypoint at frame to a new floor position (world x/z metres), keeping its frame. ${WAYPOINT_RULES}` },
 	{ id: "character.removeWaypoint", label: "Remove root waypoint", kind: "mutation", undoDomain: "cast", input: input({ ...characterId, frame: waypointFrame }),
@@ -119,8 +95,8 @@ export const STUDIO_ACTIONS = freezeStudioData([
 	{ id: "shot.rename", label: "Rename shot", kind: "mutation", undoDomain: "shot", input: input({ ...shotId, name: { type: "string", maxLength: 240 } }),
 		description: "Rename a shot: its label on the timeline and in shot lists." },
 	{ id: "object.attach", label: "Attach to character", kind: "mutation", undoDomain: "objects",
-		input: input({ objectId: idSchema, ...characterId }, { bone: { type: "string", enum: STUDIO_ATTACH_BONES } }),
-		description: "Make a scene object ride a character, like dropping it on the character's Hierarchy row: on one bone (a cup in the right hand: bone \"rightHand\") or, with bone omitted, on the character's animated root so it travels with the body. The object keeps its place on screen: its position, rotation and scale are rewritten into the new frame (local to that bone while attached), and it leaves any group. Needs the character's rig on stage." },
+		input: input({ objectId: idSchema, ...characterId }, { bone: { type: "string", enum: STUDIO_ATTACH_BONES }, local: input({}, { x: num, y: num, z: num, rotX: num, rot: num, rotZ: num }) }),
+		description: "Make a scene object ride a character, like dropping it on the character's Hierarchy row: on one bone (a cup in the right hand: bone \"rightHand\") or, with bone omitted, on the character's animated root so it travels with the body. The object keeps its place on screen: its position, rotation and scale are rewritten into the new frame (local to that bone while attached), and it leaves any group. Needs the character's rig on stage. With local { x, y, z, rotX, rot, rotZ } (metres and degrees in the bone's own unscaled frame; left out: 0) it is put at that place in the frame instead, keeping its scale, and the rig need not be on stage." },
 	{ id: "object.detach", label: "Detach object", kind: "mutation", undoDomain: "objects", input: input({ objectId: idSchema }),
 		description: "Put an attached or grouped object back in the world where it is now, like the Inspector's Detach or dropping it on the Props row: it stops following the character, keeps its current world placement and leaves any group." },
 	{ id: "view.setPartColours", label: "Part colours", kind: "transient", input: input({ mode: { type: "string", enum: ["off", "flat", "shaded"] } }),
@@ -147,8 +123,6 @@ export const STUDIO_ACTIONS = freezeStudioData([
 		description: `Open another scene of the project, like the scene pill's menu; the scene being left keeps its state. ${SCENE_MOVES}` },
 	{ id: "project.save", exposure: "confirm", confirmationReason: "Saving may overwrite a file or open a file picker.", label: "Save project", kind: "document", input: input(),
 		description: "Save the whole project to its current file, like the Project menu's Save Project, and answer status \"completed\" with output.fileName. A browser file picker opens only from the user's own click, so it is refused, with the reason, when the project has no file yet this session or the browser must re-grant access to it; ask the user to press Save Project once. An unnamed project opens the Save dialog for the user to name it. Browsers without file access download the project file instead." },
-	{ id: "project.exportAsAnimation", exposure: "confirm", confirmationReason: "Exporting writes an animation project file outside the Studio.", label: "Export as Animation project", kind: "document", input: input(),
-		description: "Export the current storyboard as a new Animation project file, leaving the storyboard open and unchanged. Still shots become clip shots with their ranges, camera keys, captions, cast overrides and stylized asset references preserved. The browser asks where to save the new .cclayproject or downloads it when file access is unavailable." },
 	{ id: "asset.import", label: "Import asset", kind: "mutation", undoDomain: "objects",
 		input: input({ source: { type: "string", minLength: 1, maxLength: 8_000_000, pattern: "^(data:|https?://)" }, name: { type: "string", minLength: 1, maxLength: 120 },
 			placeAs: { type: "string", enum: ["cutout", "backdrop", "mesh"] } }),

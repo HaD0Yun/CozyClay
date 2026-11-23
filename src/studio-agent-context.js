@@ -36,8 +36,8 @@ export function validateStudioCursor(cursor, context) {
 /** The compact command index the turn carries: id and label for every
  * registered command, plus the declared generation and hub timeout. The
  * description and input schema stay out; the agent reads them on request. */
-export function studioActionIndex(actions, { previsMode } = {}) {
-	const available = actions.filter(action => !action.agentHidden && (previsMode !== "storyboard" || (action.generation !== "motion" && action.domain !== "motion")));
+export function studioActionIndex(actions) {
+	const available = actions.filter(action => !action.agentHidden);
 	return available.map(({ id, label, generation, timeoutMs }) => ({ id, ...(label ? { label: [...label].slice(0, 120).join("") } : {}),
 		...(generation ? { generation } : {}), ...(timeoutMs === undefined ? {} : { timeoutMs }) }));
 }
@@ -48,7 +48,7 @@ export function studioActionIndex(actions, { previsMode } = {}) {
 // truncation so forbidden data cannot hide in an omitted row.
 export function buildStudioContext({ actions, ...input }) {
 	const c = structuredClone(input);
-	if (actions) c.actionIndex = studioActionIndex(actions, { previsMode: c.scene?.previsMode });
+	if (actions) c.actionIndex = studioActionIndex(actions);
 	const boundDisplay = value => {
 		if (!value || typeof value !== "object") return;
 		for (const [key, child] of Object.entries(value)) {
@@ -62,9 +62,12 @@ export function buildStudioContext({ actions, ...input }) {
 	for (const key of ["entities", "shots", "assets", "recentReceipts"]) expanded.properties[key] = { ...schema.properties[key], maxItems: 10000 };
 	const raw = validateStudioSchema(expanded, c, "INVALID_CONTEXT");
 	if (new Set(raw.entities.map(e => e.id)).size !== raw.entities.length) fail("INVALID_CONTEXT", "Duplicate entity ID.");
+	// The editor's selection outlives a removal it did not make (a turn removed the selected prop): a selection
+	// that names no entity is no selection, not a target every later context would lack.
+	if (["object", "character", "rig"].includes(raw.selection?.kind) && !raw.entities.some(e => e.id === raw.selection.id)) raw.selection = null;
 	const mandatory = mandatoryStudioTargetIds(raw);
 	if (mandatory.length > STUDIO_CONTEXT_LIMITS.entities) fail("CONTEXT_LIMIT", "Mandatory targets exceed 24; narrow the operation rather than omit a target.");
-	for (const id of mandatory) if (!raw.entities.some(e => e.id === id)) fail("TARGET_NOT_READY", "Mandatory target is not available.");
+	for (const id of mandatory) if (!raw.entities.some(e => e.id === id)) fail("TARGET_NOT_READY", `Mandatory target ${id} is not in the scene.`);
 	const rank = new Map(mandatory.map((id, i) => [id, i]));
 	const anchor = raw.entities.find(e => e.id === mandatory[0])?.position;
 	const distance = e => anchor && e.position ? (e.position.x - anchor.x) ** 2 + (e.position.y - anchor.y) ** 2 + (e.position.z - anchor.z) ** 2 : 0;

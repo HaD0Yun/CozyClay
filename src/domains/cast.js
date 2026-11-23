@@ -3,17 +3,14 @@ import { useState, useMemo, useEffect, useSyncExternalStore, useContext } from "
 import { AppContext } from '../app-context.js';
 import { createDocumentStore } from "../document-store.js";
 import { createSceneUndo } from "./scene-undo.js";
-import { useDocumentDomain } from "../store/use-document-store.js";
 import { arrangement } from "../studio-agent-commands.js";
 import { timelineContentExtent, timelineSpan } from '../timeline-extent.js';
 import {
-	loadCustomPoses,
 	DEFAULT_POSE,
 	capturePose,
 	captureHipsOffset,
-	saveCustomPoses,
 } from "../poses.js";
-import { createCharacterEntry, createCharacterLayer, isProxyFigure, PROXY_FIGURE_MODEL } from "../scenes.js";
+import { createCharacterEntry, createCharacterLayer, isProxyFigure, NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL } from "../scenes.js";
 import { nextCharacterId, MAX_WAYPOINTS } from "../app-stage.jsx"; import { characterName } from "../character-name.js";
 import { ko } from "../locale.js";
 import { createIkState } from "../motion/ik.js";
@@ -22,16 +19,16 @@ import { judgeNextWaypoint } from "../motion/waypoints.js";
 import { StudioProtocolError } from "../studio-agent-protocol.js"; import { settleUiRefusal } from "./ui-refusal.js";
 import { studioActionRefusal } from "../studio-actions.js";
 import { createStableItemId, removeStableItem } from "../stable-items.js";
-import { track, trackFeature } from "../analytics.js";
+import { track } from "../analytics.js";
 
-import { shotAtFrame } from "../cuts.js";
 import { characterRowId, characterIdFromHierarchyId as charIdFromHierarchyId } from "../hierarchy-model.js";
 
 const sameCastValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-function createCastDomain(appContext, initial, customPoses = []) {
-	const normalize = value => ({ characters: (Array.isArray(value) ? value : value.characters).map(createCharacterEntry),
-		customPoses: Array.isArray(value) ? customPoses : value.customPoses ?? customPoses });
+// The cast document holds the characters only. A saved pose library from an
+// older build is dropped on load without an error.
+function createCastDomain(appContext, initial) {
+	const normalize = value => ({ characters: (Array.isArray(value) ? value : value.characters).map(createCharacterEntry) });
 	let native = createDocumentStore({ owned: { cast: normalize(initial) } });
 	const listeners = new Set(), motions = new Map(), placements = createCastPlacements(() => { publish(); notify(); });
 	const notify = () => { for (const listener of listeners) listener(); };
@@ -39,14 +36,12 @@ function createCastDomain(appContext, initial, customPoses = []) {
 	const documentStore = { ...Object.fromEntries(Object.keys(native).map(key => [key, (...args) => native[key](...args)])),
 		subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); } };
 	const state = () => documentStore.read('cast'), read = () => state().characters;
-	let projection = read(), previous = state();
+	let projection = read();
 	function publish() {
 		projection = read().map(entry => motions.has(entry.id) ? { ...placements.withKeys(entry), sessionMotion: motions.get(entry.id) } : placements.withKeys(entry));
 		appContext.publishCharacters(projection);
 		if (appContext.live.state) appContext.patchLive({ characters: projection });
 		domain.syncLayer?.();
-		if (!sameCastValue(previous.customPoses, state().customPoses) && !saveCustomPoses(state().customPoses)) console.warn('[cozyclay] could not save the pose library');
-		previous = state();
 	}
 	const unsubscribe = documentStore.subscribe(publish);
 	function writeState(update) {
@@ -69,20 +64,7 @@ function createCastDomain(appContext, initial, customPoses = []) {
 	function update(characterId, patch) {
 		const entry = read().find(entry => entry.id === characterId);
 		if (!entry) throw new StudioProtocolError('STALE_TARGET', `Character ${characterId} is not in this scene.`);
-		const raw = appContext.ports.read(), shot = shotAtFrame(raw.shots, raw.view.frame);
-		const fields = ['x', 'z', 'rot', 'posture', 'pose'];
-		const panelPatch = Object.fromEntries(Object.entries(patch).filter(([key, value]) => fields.includes(key) && value !== undefined));
-		if (shot?.kind === 'still' && !raw.targets?.get?.(characterId)?.motion && Object.keys(panelPatch).length) {
-			const current = { ...entry, ...shot.cast[characterId] };
-			const normalized = createCharacterEntry({ ...current, ...panelPatch });
-			const override = { x: normalized.x, z: normalized.z, rot: normalized.rot };
-			for (const key of ['posture', 'pose']) if (normalized[key] != null) override[key] = normalized[key];
-			// Enlist the shot owner in the already-open command/drag session:
-			// even a mixed scale + placement edit is one shared Undo entry.
-			const shots = appContext.storeDomain('shot');
-			appContext.recordAction('shot', () => shots.setCastOverride(shot.id, characterId, override), null, true);
-			patch = Object.fromEntries(Object.entries(patch).filter(([key]) => !fields.includes(key)));
-		}
+		const raw = appContext.ports.read();
 		// A character keyed in Pose mode (placement keys, no take) moves at the playhead: the move keys its placement there.
 		patch = placements.redirect(appContext, characterId, raw.view.frame, patch, motions.has(characterId)); if (Object.keys(patch).length) write(rows => rows.map(row => row.id === characterId ? { ...row, ...patch } : row));
 	}
@@ -126,7 +108,7 @@ function createCastDomain(appContext, initial, customPoses = []) {
 		bindRender(context) { appContext = context; },
 		beginAction: () => documentStore.beginAction('cast'), canUndo: id => documentStore.canUndo(id),
 		stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },
-		document: () => ({ characters: read(), customPoses: state().customPoses }), publish: value => write(value.characters), commitDraft: write,
+		document: () => ({ characters: read() }), publish: value => write(value.characters), commitDraft: write,
 		arrange(args) {
 			const current = appContext.ports.read();
 			const plan = arrangement({ name: 'arrange_characters', args }, { ...current, characters: read(), frame: current.view.frame }, { bounds: appContext.ports.bounds });
@@ -135,7 +117,7 @@ function createCastDomain(appContext, initial, customPoses = []) {
 		load(value) {
 			finishGesture(true);
 			release(); native.dispose(); motions.clear();
-			const next = normalize(Array.isArray(value) ? { characters: value, customPoses: state().customPoses } : value);
+			const next = normalize(value);
 			native = createDocumentStore({ owned: { cast: next } }); release = native.subscribe(notify);
 			domain.activeId = read()[0]?.id ?? null; domain.loadView?.(); notify();
 		},
@@ -151,9 +133,8 @@ export function useCastTransaction() {
 }
 
 export function useCast(appContext) {
-	const [domain] = useState(() => appContext.storeDomain('cast') ?? createCastDomain(appContext, appContext.shared.startupStage.characters, loadCustomPoses()));
+	const [domain] = useState(() => appContext.storeDomain('cast') ?? createCastDomain(appContext, appContext.shared.startupStage.characters));
 	domain.bindRender(appContext);
-	const { customPoses } = useDocumentDomain(domain.documentStore, 'cast');
 	const characters = useSyncExternalStore(domain.documentStore.subscribe, domain.projection, domain.projection);
 	const editCharacters = value => domain.write(value);
 	useEffect(() => {
@@ -178,14 +159,12 @@ export function useCast(appContext) {
 	const [emptyLayer] = useState(() => ({ ...createCharacterEntry(), id: null }));
 
 	function updateCharacterAt(index, next) {
-		const base = domain.read()[index], raw = appContext.ports.read();
-		const entry = base && { ...base, ...shotAtFrame(raw.shots, raw.view.frame)?.cast[base.id] };
+		const entry = domain.read()[index];
 		if (entry) return domain.edit('character.update', { characterId: entry.id, patch: typeof next === 'function' ? next(entry) : next });
 	}
 
 	function moveCharacter(charId, next) {
-		const base = domain.read().find(entry => entry.id === charId), raw = appContext.ports.read();
-		const entry = { ...base, ...shotAtFrame(raw.shots, raw.view.frame)?.cast[charId] };
+		const entry = domain.read().find(row => row.id === charId);
 		return domain.edit('character.update', { characterId: charId, patch: typeof next === 'function' ? next(entry) : next });
 	}
 
@@ -333,16 +312,9 @@ export function useCast(appContext) {
 
 	
 
-	// The library is the user's own material: poses read from photographs and
-	// poses saved off the rig, accumulating across sessions and projects. No
-	// presets ship in it — DEFAULT_POSE is the character's spawn state, not a
-	// library entry.
-	const allPoses = customPoses;
-
-	// The dropdowns must be able to show and re-select the pose a character is
-	// actually in, and a fresh character is in the default — which is not a
-	// library entry. An empty library would otherwise render a blank select.
-	const selectablePoses = useMemo(() => [DEFAULT_POSE, ...customPoses], [customPoses]);
+	// The pose tiles: the default standing pose a character spawns in and
+	// "Reset pose" returns to. There is no saved-pose library.
+	const selectablePoses = useMemo(() => [DEFAULT_POSE], []);
 
 	// The pose studio follows the character it was opened for: `posing` is a
 	// charId, so every cast member gets the same studio, not just the first two.
@@ -578,37 +550,10 @@ export function useCast(appContext) {
 		}, 190);
 	}
 
-	/** Save the ACTIVE character's rig exactly as it stands — the motion frame
-	 * with any IK corrections already composited — into the pose library.
-	 * Unlike savePose (the studio's FK author), this never writes back onto the
-	 * character: a running take must survive having its best frame bottled. */
-	function saveCurrentPose() {
-		if (!activeRig) return;
-		// Saving to the library, not editing: real bone edits are `pose_edit`
-		// from the semantic boundary (#466).
-		trackFeature("pose_save");
-		const pose = {
-			id: `custom_${Date.now()}`,
-			label: ko(`My Pose ${customPoses.length + 1}`, `내 포즈 ${customPoses.length + 1}`, `我的姿势 ${customPoses.length + 1}`),
-			prompt: "in the exact body pose shown in the blocking frame",
-			bones: capturePose(activeRig),
-			// A take frame carries its measured hips height; bottling the frame
-			// without it would save every crouch as a float.
-			rootY: captureHipsOffset(activeRig),
-			custom: true,
-		};
-		domain.run('cast.savePose', { pose });
-		setStudioPick(pose.id);
-		appContext.notify(appContext.shared.motion
-			? ko(`Saved this frame's pose to the library as “${pose.label}”`, `지금 프레임의 자세를 “${pose.label}”로 라이브러리에 저장했어요`, `已将当前帧的姿势以“${pose.label}”保存到姿势库`)
-			: ko(`Saved the current pose to the library as “${pose.label}”`, `지금 자세를 “${pose.label}”로 라이브러리에 저장했어요`, `已将当前姿势以“${pose.label}”保存到姿势库`));
-	}
-
 	/** A handle drag is an authored pose. When it ends, the rig as it now
 	 * stands becomes the posed character's own pose — so the scene autosaves
 	 * it and undo can step it back — instead of living only on the rig until
-	 * a reload re-applies the stored pose over it. The library is untouched;
-	 * Save pose still bottles a pose there. */
+	 * a reload re-applies the stored pose over it. */
 	function commitPosedPose() {
 		const rig = posedRig();
 		if (!rig || !posingChar) return;
@@ -619,27 +564,6 @@ export function useCast(appContext) {
 			bones: capturePose(rig),
 			rootY: captureHipsOffset(rig),
 		} });
-	}
-
-	function savePose() {
-		const rig = posedRig();
-		if (!rig) return;
-		trackFeature("pose_save");
-		const pose = {
-			id: `custom_${Date.now()}`,
-		label: ko(`My Pose ${customPoses.length + 1}`, `내 포즈 ${customPoses.length + 1}`, `我的姿势 ${customPoses.length + 1}`),
-			prompt: "in the exact body pose shown in the blocking frame",
-			bones: capturePose(rig),
-			custom: true,
-		};
-		domain.run('cast.savePose', { pose, ...(posingChar ? { characterId: posingChar.id } : {}) });
-		setStudioPick(pose.id);
-		appContext.notify(ko("Pose saved", "포즈 저장됨"));
-	}
-
-	function removePose(id) {
-		domain.run('cast.removePose', { id });
-		if (studioPick === id) setStudioPick(DEFAULT_POSE.id);
 	}
 
 	// Runs from the cross-tab scene subscription: a refusal ends here, logged, never in window.onerror (#1040).
@@ -709,7 +633,7 @@ export function useCast(appContext) {
 			const live = appContext.live.state;
 			const patch = finitePatch(args, ["x", "z", "rot"]);
 			const id = nextCharacterId(live.characters);
-			const entry = createCharacterEntry({ id, model: args.model, subject: args.subject, pose: DEFAULT_POSE, ...patch }, live.characters.length);
+			const entry = createCharacterEntry({ id, model: args.model ?? NEW_CHARACTER_MODEL, subject: args.subject, pose: DEFAULT_POSE, ...patch }, live.characters.length);
 			replaceCharacters([...live.characters, entry]);
 			if (isProxyFigure(entry)) track("cast:proxy_added", { surface: "mcp" });
 			return { id };
@@ -752,18 +676,19 @@ export function useCast(appContext) {
 		setActiveWaypointId(id => entry.layer.waypoints.some(waypoint => waypoint.id === id) ? id : null);
 	};
 	domain.loadView = () => { appContext.shared.loadedLayerCharRef.current = domain.activeId; setActiveCharacterId(domain.activeId); };
-	domain.poses = () => [...new Map([...appContext.ports.poses(), ...domain.state().customPoses].map(pose => [pose.id, pose])).values()];
-	domain.setTimeline = frameCount => {
+	domain.poses = () => appContext.ports.poses();
+	// follow(shots) -> shots: the shot ranges to write with the length, in the same entry
+	domain.setTimeline = (frameCount, follow = null) => {
 		const shots = appContext.storeDomain('shot');
-		if (shots && frameCount !== shots.state().frameCount) appContext.recordAction('shot', () => shots.writeState(before => ({ ...before, frameCount })), null, true);
+		if (shots && (follow || frameCount !== shots.state().frameCount)) appContext.recordAction('shot', () => shots.writeState(before => ({ ...before, frameCount, ...(follow && { shots: follow(before.shots) }) })), null, true);
 	};
-	domain.syncTimeline = () => {
+	domain.syncTimeline = (follow = null) => {
 		const shots = appContext.storeDomain('shot');
 		if (!shots) return;
 		const current = domain.projection(), active = current.find(entry => entry.id === domain.activeId) ?? current[0];
 		const extent = timelineContentExtent(current, active?.id ?? null, appContext.shared.bufferRef.current.motion, null);
 		// grow only: a take shorter than the timeline (or a 43-frame fill) never cuts the frames the user set
-		domain.setTimeline(Math.max(24, shots.state().frameCount, timelineSpan(extent, shots.read(), shots.state().frameCount)));
+		domain.setTimeline(Math.max(24, shots.state().frameCount, timelineSpan(extent, follow ? follow(shots.read()) : shots.read(), shots.state().frameCount)), follow);
 	};
 	domain.extendTimeline = domain.syncTimeline;
 	domain.applyPose = (characterId, pose, clearMotion) => {
@@ -777,7 +702,7 @@ export function useCast(appContext) {
 	return {
 		...domain,
 		applyExternalCharacters, publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain, removeLegacyRootWaypoint, switchActiveCharacterLayer, createLegacyCastHandlers, toggleCharacterHidden,
-		characters, editCharacters, customPoses, posing, setPosing, posingClosing,
+		characters, editCharacters, posing, setPosing, posingClosing,
 		studioPick, setStudioPick, commitPosedPose, rigs, rigMountEpoch, setRigMountEpoch, setPoseTick,
 		updateCharacterAt, moveCharacter, removeCharacter, reportRig,
 		spawnCharacter, charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId,
@@ -785,10 +710,9 @@ export function useCast(appContext) {
 		ghostLayers, snapshotCast, changeInspectorCharacter, hasCharSheet,
 		setHasCharSheet, waypointMode,
 		setWaypointMode, waypoints, setWaypoints, activeWaypointId, setActiveWaypointId, pendingWaypointFrame,
-		setPendingWaypointFrame, allPoses, selectablePoses,
+		setPendingWaypointFrame, selectablePoses,
 		posingIndex, posingChar, posedRig, rootStart, queueRootWaypointFrame, castMemberOf,
 		addCharacterWaypoint, moveCharacterWaypoint, removeCharacterWaypoint, clearCharacterWaypoints,
 		addFloorWaypoint, moveWaypoint, removeWaypoint, toggleWaypointMode, openStudio, closeStudio,
-		saveCurrentPose, savePose, removePose,
 	};
 }

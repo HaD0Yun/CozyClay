@@ -2,6 +2,7 @@
 // Other characters in a compile (people.js): their installed takes are bodies (QA PERSON), an anchor can sit on one of
 // their joints ({ kind: "person" }) and a ref can name one (person:<id>.<Bone>); a take keeps the joints its person
 // anchors read, so its saved source compiles the same without the others' takes (take-source.js).
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { runCompileJob } from "../../src/motion3/compile-job.js";
 import { bakeTake } from "../../src/motion3/take.js";

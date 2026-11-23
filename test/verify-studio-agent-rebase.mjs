@@ -15,6 +15,7 @@ delete process.env.CLIPROXY_API_KEY; delete process.env.CLIPROXY_BASE_URL;
 const { createStudioTools } = await import("../bin/agent/studio-tools.mjs");
 const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 const { createFakeModel } = await import("./fixtures/fake-model.mjs");
+const { withTurnControls } = await import("./fixtures/turn-controls.mjs");
 const { contextFixture, envelopeFixture } = await import("./verify-studio-agent-protocol.mjs");
 
 const HOST = contextFixture().host;
@@ -261,7 +262,7 @@ const moveA = x => ({ ops: [{ op: "update", id: "obj-a", position: { world: { x,
   ed.hooks.push(() => ed.bumpUnrelated()); // lands after turn admission, before the model's command
   const fake = createFakeModel();
   fake.script([{ type: "toolCall", id: "m1", name: "arrange_objects", arguments: moveA(3) }, { type: "text", text: "moved" }]);
-  const hub = { command: (name, payload) => ed.command(name, payload), workspaceId: () => HOST.workspaceId, resolveWorkspace: () => "handle-12", handleForWorkspaceId: () => "handle-12", connected: true, workspaceHandles: ["handle-12"] };
+  const hub = withTurnControls({ command: (name, payload) => ed.command(name, payload), workspaceId: () => HOST.workspaceId, resolveWorkspace: () => "handle-12", handleForWorkspaceId: () => "handle-12", connected: true, workspaceHandles: ["handle-12"] });
   let server;
   const handler = createAgentHandler({ auth: { getAccessToken: async () => "token" }, codex: { listModels: async () => ["gpt-5"], parseQuotaHeaders: () => ({}) }, models: fake.models, fauxProvider: fake.fauxProvider, liveHub: hub, port: () => server.address().port });
   server = createServer((req, res) => handler(req, res).catch(error => { if (!res.headersSent) res.writeHead(500); res.end(error.message); }));

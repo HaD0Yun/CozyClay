@@ -55,7 +55,7 @@ Mit CozyClay triffst du diese Entscheidungen zuerst, in 3D, wo Änderungen billi
 
 ```mermaid
 flowchart LR
-  S["Stage<br/>set + cast"] --> M["Motion<br/>compiled + QA"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
+  S["Stage<br/>set + cast"] --> M["Motion<br/>written + built"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
 ```
 
 ## Schnellstart
@@ -81,11 +81,11 @@ Das ist die ganze Installation. Du brauchst Node.js 22.19 oder neuer und einen C
 
 | | |
 | --- | --- |
-| **Stage** | Baue das Set aus Primitiven. Füge gerigte Figuren hinzu oder Kapsel-Platzhalter, wenn niemand ein Glied bewegen muss. Fliege durch die Ansicht wie in einem 3D-Editor. |
-| **Move** | Beschreibe die Aktion. Der Agent schreibt eine Bewegungsspezifikation, und ein deterministischer Compiler im Browser berechnet jedes Bild. QA prüft Kollisionen, Fußrutschen, Reichweite und Handkontakt, bevor du das Ergebnis siehst. |
-| **Shoot** | Lege Shots auf eine Timeline, zeichne Dolly-Schienen, schau durchs Objektiv. Jeder Shot kennt die Grenzen des Videomodells, auf das du zielst. |
-| **Export** | Keyframe-Paket (erstes und letztes Bild, Greybox-Clip, Kamera, Prompt), mp4, Tiefen- und Normalen-Passes, Kontaktbogen, OTIO-Schnittliste. |
-| **Storyboard** | Lieber Standbilder? Ein Storyboard-Projekt ist eine Reihe von Panels mit Beschriftungen, ein Animatic und ein Kontaktbogen. |
+| **Stage** | Baue das Set aus Primitiven und setze Punkt-, Spot- und Richtungslichter. Füge geriggte Figuren hinzu, die als Würfelfiguren gezeichnet werden, oder Kapsel-Platzhalter, wenn niemand ein Glied bewegen muss. Fliege durch die Ansicht wie in einem 3D-Editor. |
+| **Move** | Beschreibe die Aktion im Agent-Panel. Ein zweites Modell, der Motion Writer, schreibt eine Bewegungsspezifikation, und eine deterministische Engine erzeugt jedes Bild und misst Fußrutschen, Kontakte, Balance und Körper, die in Requisiten stecken. Der Writer liest diese Werte und Kontaktbögen des Ergebnisses, bevor der Take eingesetzt wird. Eine Bewegung kann auch Requisiten bewegen. Dafür braucht es eine Modell-Anmeldung im Agent-Panel. |
+| **Shoot** | Lege Shots auf eine Timeline, zeichne Dolly-Schienen in der Top-View, schau durchs Objektiv. Drehe eine Schienenkamera von Hand und wähle, wem sie folgt. Jeder Shot kennt die Grenzen des Videomodells, auf das du zielst. |
+| **Export** | Keyframe-Paket (erstes und letztes Bild, Greybox-Clip, Kamera, Prompt), KI-Video-Referenz als zip (ein Referenzvideo mit Mosaik und Unschärfe und ein Prompt), mp4, Tiefen- und Normalen-Passes, Kontaktbogen, OTIO-Schnittliste. |
+| **Look** | Der Toon-Look (flache Zwei-Ton-Schattierung mit schwarzen Linien) ist im Viewport und in jeder Aufnahme und jedem Export standardmäßig an. Schalte ihn unter **Show** in der Viewport-Werkzeugleiste aus. |
 | **Undo anything** | Jede Bearbeitung, auch jede Änderung des Agenten, ist ein Undo-Schritt. |
 
 ## Mit KI Regie führen
@@ -118,7 +118,7 @@ Die Beitragsregeln stehen in [`AGENTS.md`](AGENTS.md). Pull Requests gehen gegen
 | Lesen | Wofür |
 | --- | --- |
 | [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) | Installieren, starten und verbinden, für KI-Agenten geschrieben |
-| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | Bewegungsspezifikationen, Kompilierung und QA |
+| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | Die alte Bewegungs-Engine (MCP, `cclay live`, `COZYCLAY_MOTION_ENGINE=old`): Bewegungsspezifikationen, Kompilierung und QA |
 | [`docs/agent-cli.md`](docs/agent-cli.md) | `cclay live`, Modellanbieter, Sitzungen |
 | [`mcp/README.md`](mcp/README.md) | MCP-Werkzeuge und das Live-Protokoll |
 | [`docs/studio-ui-ia.md`](docs/studio-ui-ia.md) | Jedes Bedienelement und wo es sitzt |

@@ -32,6 +32,7 @@ const CLAIM_KEYS = [
 	"pathLine", // travel path: the drawn route itself — a press near it is aimed at the route
 	"craneAxis", // crane marks: axis-gizmo pick proxies (app-stage CraneHandles)
 	"craneIndex", // crane marks: height dots
+	"craneRing", // crane marks: the selected mark's pan / tilt rings under the rotate tool (CraneTurnRings)
 ];
 
 /** Whether this hit object — or any ancestor — is a marked press-claimer. */

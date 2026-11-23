@@ -123,7 +123,7 @@ expect("the All view has no visible folder rail", Math.abs((geometry.folders?.wi
 expect("search is 240 px", Math.abs((geometry.search?.width ?? 0) - 240) < 0.5, JSON.stringify(geometry.search));
 expect("asset grid has 3 columns", geometry.gridColumns === 3, String(geometry.gridColumns));
 expect("header tabs are Content | Log", JSON.stringify(geometry.tabs) === JSON.stringify(["Content", "Log"]), JSON.stringify(geometry.tabs));
-expect("folders are All, then the v2 six plus Sculpts (#740)", JSON.stringify(geometry.folderNames) === JSON.stringify(["All", "Basic Shapes", "Characters", "Props", "Cameras", "Motions", "Poses", "Sculpts"]), JSON.stringify(geometry.folderNames));
+expect("folders are All, then the v2 five (no saved poses) plus Sculpts (#740)", JSON.stringify(geometry.folderNames) === JSON.stringify(["All", "Basic Shapes", "Characters", "Props", "Cameras", "Motions", "Sculpts"]), JSON.stringify(geometry.folderNames));
 expect("pane uses the transparent shell surface", geometry.background === "rgba(0, 0, 0, 0)", geometry.background);
 
 // ---- All view / Basic Shapes: select, then drop outside / inside the viewport ----

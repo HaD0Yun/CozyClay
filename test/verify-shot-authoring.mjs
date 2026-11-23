@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { removeCameraRail } from "../src/camera-block.js";
+import { WORLD } from "../src/world-scale.js";
 import {
 	createShotAuthoringDocument,
 	loadShotAuthoring,
@@ -33,7 +34,6 @@ const shots = [
 		endFrame: 99,
 		cameraKeys: [{ id: "camera-key-wide", frame: 0, framing: framing(40) }],
 		camera: { mode: "keys", followCam, cameraRail: null, railFollow: null, craneHeight: null, dollyTiming: null },
-		kind: "clip", caption: "", cast: {}, stylizedAssetId: null,
 	},
 	{
 		id: "close",
@@ -42,11 +42,10 @@ const shots = [
 		endFrame: 299,
 		cameraKeys: [{ id: "camera-key-close", frame: 100, framing: framing(70) }],
 		camera: { mode: "rail", followCam, cameraRail, railFollow: { mode: "range", startFrame: 10, endFrame: 80 }, craneHeight: null, dollyTiming: null },
-		kind: "clip", caption: "", cast: {}, stylizedAssetId: null,
 	},
 ];
 
-// v6 writes only the canonical body and round-trips per-shot camera blocks.
+// v8 writes only the canonical body and round-trips per-shot camera blocks.
 const authored = {
 	shots,
 	waypoints: [{ id: "waypoint-authored", frame: 60, x: 1.5, z: -2, heading: null }],
@@ -56,7 +55,7 @@ const authored = {
 };
 const document = createShotAuthoringDocument(authored);
 assert.deepEqual(Object.keys(document), ["version", "frameCount", "waypoints", "shots"]);
-assert.equal(document.version, 6);
+assert.equal(document.version, 8);
 const objectRestored = readShotAuthoringDocument(document);
 assert.equal(objectRestored.status, "valid");
 assert.deepEqual(objectRestored.state, {
@@ -82,7 +81,7 @@ assert.equal("followCam" in restored.state, false);
 assert.equal("cameraRail" in restored.state, false);
 assert.deepEqual(restored.state.shots[1].camera.railFollow, { mode: "range", startFrame: 10, endFrame: 80 });
 
-const emptyV4 = readShotAuthoring(JSON.stringify({ version: 6, frameCount: 300, shots: [], waypoints: [] }));
+const emptyV4 = readShotAuthoring(JSON.stringify({ version: 8, frameCount: 300, shots: [], waypoints: [] }));
 assert.equal(emptyV4.status, "valid");
 assert.deepEqual(emptyV4.state.shots, [], "zero Shots is a normal persisted state");
 const highCamera = readShotAuthoring(JSON.stringify({
@@ -159,7 +158,7 @@ assert.deepEqual(v1.state.shots[0].camera.followCam, {
 	response: 0.7,
 	lead: 0.25,
 	railStartMode: "head",
-		maxDollySpeed: 4,
+		maxDollySpeed: WORLD.dollySpeed, // no default cap below the world's bound
 		pitchOffsetDeg: 0,
 		orbitOffsetDeg: 0,
 });
@@ -314,10 +313,10 @@ assert.equal(readShotAuthoring(JSON.stringify({ version: 4, frameCount: 100 })).
 assert.equal(readShotAuthoring(JSON.stringify({ version: 99, shots: [] })).status, "future");
 assert.equal(loadShotAuthoring("{nope"), null);
 
-assert.equal(SHOT_AUTHORING_KEY, "cozyclay.shot-authoring.v6");
-assert.equal(SHOT_AUTHORING_LEGACY_KEY, "cozyclay.shot-authoring.v5");
-assert.deepEqual(SHOT_AUTHORING_LEGACY_KEYS, ["cozyclay.shot-authoring.v5", "cozyclay.shot-authoring.v4", "cozyclay.shot-authoring.v3", "cozyclay.shot-authoring.v2", "cozyclay.shot-authoring.v1"]);
-assert.equal(SHOT_AUTHORING_QUARANTINE_KEY, "cozyclay.shot-authoring.v6.quarantine");
+assert.equal(SHOT_AUTHORING_KEY, "cozyclay.shot-authoring.v8");
+assert.equal(SHOT_AUTHORING_LEGACY_KEY, "cozyclay.shot-authoring.v7");
+assert.deepEqual(SHOT_AUTHORING_LEGACY_KEYS, ["cozyclay.shot-authoring.v7", "cozyclay.shot-authoring.v6", "cozyclay.shot-authoring.v5", "cozyclay.shot-authoring.v4", "cozyclay.shot-authoring.v3", "cozyclay.shot-authoring.v2", "cozyclay.shot-authoring.v1"]);
+assert.equal(SHOT_AUTHORING_QUARANTINE_KEY, "cozyclay.shot-authoring.v8.quarantine");
 
 const reviewed = loadShotAuthoring(serializeShotAuthoring({ frameCount: 100, shots: [{
 	...shots[0], endFrame: 99,

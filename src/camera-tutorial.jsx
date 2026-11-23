@@ -29,7 +29,7 @@ const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: re
  * Top-View inset, and never takes the pointer except on its own close button
  * — every step is completed by working the studio underneath it.
  */
-function CameraTutorial({ previsMode, previewing = false, playing = false, shotCount = 0, shotFrames = 0, railReady = false, onStepChange, onClose }) {
+function CameraTutorial({ previewing = false, playing = false, shotCount = 0, shotFrames = 0, railReady = false, onStepChange, onClose }) {
 	const [done, setDone] = useState(() => new Set());
 	const [walked, setWalked] = useState(() => new Set());
 	const [cue, setCue] = useState(null);
@@ -107,9 +107,6 @@ function CameraTutorial({ previsMode, previewing = false, playing = false, shotC
 	const cueKind = currentKind && NAV_KINDS.has(currentKind) ? currentKind : null;
 	if (cueKind && (cue?.kind !== cueKind || cue.leaving)) setCue({ kind: cueKind, leaving: false });
 	else if (!cueKind && cue && !cue.leaving) setCue(reducedMotion() ? null : { ...cue, leaving: true });
-
-	// Storyboard projects never show the camera tutorial (its steps are shot/rail/play).
-	if (previsMode === "storyboard") return null;
 
 	return (
 	<>
@@ -211,7 +208,6 @@ export default function StudioCameraTutorial({ onClose }) {
 	const shots = shell.shots ?? [];
 	return createPortal(
 		<CameraTutorial
-			previsMode={shell.previsMode}
 			previewing={looking}
 			playing={Boolean(shell.tlPlaying)}
 			shotCount={shots.length}

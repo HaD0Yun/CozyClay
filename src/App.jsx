@@ -63,23 +63,24 @@ import {
 	resolveStudioToast,
 } from "./studio-actions.js";
 import { createStudioAppActions } from "./commands/index.js";
-import { STORYBOARD_MOTION_REFUSAL } from "./commands/view.js";
 
 import { createStudioAppBinding } from "./studio-app-binding.js";
 import { AppContext, createAppContext } from "./app-context.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { PlanBoard } from "./planview.jsx";
-import { drawPlanDiagram } from "./plan-diagram.js";
+import { drawPlanDiagram } from "./plan-diagram.js"; import { planZoomLabel } from "./plan-navigation.js";
 import { placementAt } from "./root-path.js";
 import { proxyYaw } from "./proxy-figure.jsx";
 import { autoColorHex, loadAutoColor } from "./auto-color.js";
 import { DualRender, GIZMO_LAYER } from "./dualview.jsx";
 import { GridFloor } from "./grid-floor.jsx";
 import { readStoredGridView, writeStoredGridView } from "./grid-view.js";
+import { FinishSetting, useToonLook } from "./stage-finish-view.jsx";
 import { useUiTheme } from "./theme.js";
 
 import { Room, StageLights, StageAtmosphere } from "./room.jsx";
+import StageSceneProbe from "./stage-scene-probe.jsx";
 import { createDocumentMirrors } from "./document-mirrors.js";
 import { buildRail, simplifyStroke } from "./camera-follow.js";
 import { useShotCameraTracks, useShotSubjects } from "./use-shot-camera-tracks.js";
@@ -218,7 +219,7 @@ import {
 } from "./shot-guides.js";
 import { shotCaptureMeta } from "./shot-meta.js";
 import { buildShotPrompt } from "./shot-prompt.js";
-import { buildKeyframePack, keyframePackEntries, keyframePackName, slugifyTitle } from "./keyframe-pack.js"; import { openAiReferenceDialog } from "./ai-reference-export.js"; import AiReferenceDialog from "./ai-reference-dialog.jsx";
+import { keyframePackEntries, keyframePackName } from "./keyframe-pack.js"; import { openAiReferenceDialog } from "./ai-reference-export.js"; import AiReferenceDialog from "./ai-reference-dialog.jsx";
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
 import { DEPTH_RANGE_M, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
@@ -231,8 +232,17 @@ import {
 	shotIndexAtFrame,
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
+import { LowvisSkin } from "./lowvis/studio/skin.jsx";
+import { FIGURE, bodyScale, lookBody } from "./lowvis/studio/figure.js";
+import { TRACK_RIG } from "./lowvis/studio/take.js";
+import { LOWVIS_ID, installClip } from "./lowvis/studio/install.js";
+import { attachFrameAt } from "./effects/attach-history.js";
+import { clipFrame, loadLowvisClip } from "./lowvis/studio/clip-load.js";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
+import { withTops } from "./lowvis/studio/tops.js";
+import { contactGaps } from "./lowvis/studio/gaps.js";
+import { CraneTurnRings } from "./crane-turn-rings.jsx"; import { railViewAt } from "./camera-rail-head.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
 import {
 	CameraGlide,
@@ -266,7 +276,7 @@ import {
 	attachFrameMatrix,
 	captureMcpFrame,
 	characterModelUrl,
-	defaultCharacterTint,
+	defaultCharacterColour, defaultCharacterTint,
 	loadSceneStartup,
 	loadWorkspaceLayout,
 	moveSequenceSlateKo,
@@ -482,7 +492,7 @@ export default function App() {
 		get markSemanticEdit() { return markSemanticEdit; },
 		get motionPos() { return motionPos; },
 		get playMode() { return playMode; },
-		
+		get railCameraAt() { return railCameraAt; },
 
 		get runStudioAction() { return runStudioAction; },
 		get selectWorkflowMode() { return selectWorkflowMode; },
@@ -540,6 +550,8 @@ export default function App() {
 	useEffect(() => {
 		writeStoredGridView(globalThis.localStorage, gridView);
 	}, [gridView]);
+	// The toon look (stage-finish-view.jsx): a viewer preference like the grid; viewport, captures and exports follow it.
+	const [toonLook, setToonLook] = useToonLook();
 
 	const [camGlide, setCamGlide] = useState(null);
 	const filmback = useMemo(
@@ -569,6 +581,22 @@ export default function App() {
 	// Preview is the player for the finished motion: entering starts playback,
 	// leaving pauses it. The editor view stays the manipulation surface.
 	const [tlPlaying, setTlPlaying] = useState(false);
+	// lowvis: { name, clip } - a lowvis clip installed as Studio scene content (lowvis/studio/install.js: its props are
+	// objects, its characters X Bot cast members with ids "lowvis-<id>"). lowvisMade: the objects the last install made.
+	const [lowvis, setLowvis] = useState(null);
+	const lowvisMade = useRef([]);
+	const lowvisBefore = () => ({ characterIds: appContext.live.characters.filter(row => LOWVIS_ID.test(row.id)).map(row => row.id), objectIds: lowvisMade.current });
+	async function showLowvis(next) {
+		setTlPlaying(false);
+		const made = await installClip(next ? next.clip : { characters: [], props: [] }, runStudioAction, { label: next?.request ?? next?.name, remove: lowvisBefore(), body: lookBody() });
+		lowvisMade.current = made.objectIds;
+		if (!next) return setLowvis(null);
+		setLowvis(next); // the installed takes set the timeline length (shots domain syncTimelineExtent)
+		setTlFrame(0);
+		setTlPlaying(true);
+		const { target, radius } = clipFrame(next.clip);
+		frameWorldTarget(target, radius);
+	}
 	// Playback ticks stay outside React; stopping commits the live frame back to
 	// the edit-time state so exports and agent reads see the stopped frame.
 	useEffect(() => {
@@ -657,23 +685,12 @@ export default function App() {
 		}
 	}, [playgroundMode, workspaceLayout]);
 
-	// Wheel over the inset zooms the Top-View plan: scroll up closes in on
-	// the pucks (camera lower), scroll down widens out (camera higher) — the
-	// ortho extent is divided by planZoom in DualRender. React's onWheel is
-	// passive and could never keep the page still, so a real listener.
-	useEffect(() => {
-		const pane = insetPaneRef.current;
-		if (!pane) return;
-		const onWheel = (e) => {
-			e.preventDefault();
-			setWorkspaceLayout((current) => {
-				const next = Math.max(0.25, Math.min(4, current.planZoom * Math.pow(1.0015, -e.deltaY)));
-				return next === current.planZoom ? current : { ...current, planZoom: Math.round(next * 100) / 100 };
-			});
-		};
-		pane.addEventListener("wheel", onWheel, { passive: false });
-		return () => pane.removeEventListener("wheel", onWheel);
-	}, []);
+	// The Top-View's wheel zoom and pan live with the board (plan-navigation.js).
+	// The wheel's zoom is kept here with the workspace layout; a framing the
+	// view chose itself (an opening, Home) is only shown in the tag.
+	const [planZoomFit, setPlanZoomFit] = useState(null);
+	const setPlanZoom = (planZoom, kept) => { setPlanZoomFit(kept ? null : planZoom); if (kept) setWorkspaceLayout((current) => (current.planZoom === planZoom ? current : { ...current, planZoom })); };
+	const planZoomShown = planZoomFit ?? workspaceLayout.planZoom;
 
 	const [preferencesOpen, setPreferencesOpen] = useState(false);
 	const [flySpeed, setFlySpeed] = useState(1);
@@ -930,17 +947,17 @@ export default function App() {
 		get shotsDomain() { return shotsDomain; },
 	}));
 	const {
-		characters, customPoses, posing, posingClosing, studioPick, setStudioPick,
+		characters, posing, posingClosing, studioPick, setStudioPick,
 		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick,
 		updateCharacterAt, moveCharacter, removeCharacter, reportRig, spawnCharacter,
 		charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId, rowIdForCharIndex,
 		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, ghostLayers,
 		snapshotCast, hasCharSheet, setHasCharSheet,
 		waypointMode, setWaypointMode, waypoints, setWaypoints,
-		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
+		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
 		queueRootWaypointFrame, castMemberOf, addCharacterWaypoint, moveCharacterWaypoint,
 		removeCharacterWaypoint, clearCharacterWaypoints, addFloorWaypoint, moveWaypoint, removeWaypoint,
-		toggleWaypointMode, openStudio, closeStudio, saveCurrentPose, savePose, removePose,
+		toggleWaypointMode, openStudio, closeStudio,
 		
 	} = castDomain;
 	const { publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain } = castDomain;
@@ -1097,11 +1114,6 @@ export default function App() {
 			if (!poseEntry.request() && !hinted) setToast(poseEntry.plan.reason);
 			return poseEntry.plan.selectId != null;
 		}
-		// A storyboard is stills: there is no Motion department to open.
-		if (next === "motion" && storyboardProject) {
-			setToast(ko(STORYBOARD_MOTION_REFUSAL.en, STORYBOARD_MOTION_REFUSAL.ko, STORYBOARD_MOTION_REFUSAL.zh));
-			return false;
-		}
 		setWorkflowMode(next);
 		// A user's switch (tab, key, a shot or camera pick) toward nav:thrash; the agent's view.setMode does not come here.
 		if (next !== workflowMode) noteNavSwitch("mode");
@@ -1128,7 +1140,7 @@ export default function App() {
 	// ...and whatever else ends IK (a take starting playback, the rig going
 	// away) hands the operator back to Motion instead of a dead Pose mode.
 	useEffect(() => {
-		if (!ikMode && workflowMode === "pose") setWorkflowMode(storyboardProject ? "scene" : "motion");
+		if (!ikMode && workflowMode === "pose") setWorkflowMode("motion");
 	}, [ikMode]);
 
 	const toggleHierarchyHidden = (hierarchyId) => {
@@ -1267,7 +1279,6 @@ export default function App() {
 	const scenesDomain = useScenes(appContext.forRender({
 		get activeSceneIdRef() { return activeSceneIdRef; },
 		get actorStageRef() { return actorStageRef; },
-		get customPoses() { return customPoses; },
 		get dirtyRef() { return dirtyRef; },
 		get exportShotIdRef() { return exportShotIdRef; },
 		get ikStateRef() { return ikStateRef; },
@@ -1313,7 +1324,7 @@ export default function App() {
 		get objectsDomain() { return objectsDomain; },
 	}));
 	const {
-		scenes, activeSceneId, sceneSaveError, snapshotActiveScene, persistScenes, projectName, previsMode, projectDirty,
+		scenes, activeSceneId, sceneSaveError, snapshotActiveScene, persistScenes, projectName, projectDirty,
 		projectSaveState, projectMenuOpen, setProjectMenuOpen,
 		projectBrowserOpen, setProjectBrowserOpen, projectNameDialog, setProjectNameDialog, projectStartupOpen,
 		setProjectStartupOpen, projectManifest, setProjectManifest, saveBlockedReasons, setSaveBlockedReasons,
@@ -1330,12 +1341,6 @@ export default function App() {
 		if (!sculptMode) sculptRunRef.current?.cancel();
 	}, [sculptMode]);
 	useEffect(() => () => sculptRunRef.current?.cancel(), [activeSceneId]);
-	// A storyboard project has no Motion department: a project opened while
-	// Motion was up lands on Stage instead.
-	const storyboardProject = scenesDomain.previsMode === "storyboard";
-	useEffect(() => {
-		if (storyboardProject && workflowMode === "motion") setWorkflowMode("scene");
-	}, [storyboardProject, workflowMode]);
 
 	const saveBlockedRef = useRef(startup.saveBlocked);
 	const dirtyRef = useRef(false);
@@ -1496,8 +1501,9 @@ export default function App() {
 	}
 
 	function wholeSceneFrame() {
+		if (lowvis) return clipFrame(lowvis.clip);
 		const rows = [
-			...characters.map(entry => ({ x: entry.x, y: (entry.y ?? 0) + 0.9 * (entry.scale ?? 1), z: entry.z, radius: entry.scale ?? 1 })),
+			...characters.map(entry => ({ x: entry.x, y: (entry.y ?? 0) + 0.9 * bodyScale(entry), z: entry.z, radius: bodyScale(entry) })),
 			...sceneObjects.filter(entry => !isEffectivelyHidden(entry, sceneObjects, characters)).map(entry => ({ x: entry.x, y: (entry.y ?? 0) + (entry.height ?? 1) / 2, z: entry.z,
 				radius: Math.max(entry.height ?? 1, entry.footprint?.width ?? 1, entry.footprint?.depth ?? 1) / 2 })),
 		];
@@ -1568,8 +1574,6 @@ export default function App() {
 			// there is no rig to solve. The embedded player has no modes to pick.
 			const modeKey = { Digit1: "scene", Digit2: "pose", Digit3: "camera", Digit4: "motion", Digit5: "sculpt" }[event.code];
 			if (modeKey && !embedMode && !event.ctrlKey && !event.metaKey && !event.altKey) {
-				// A storyboard has no key 4: it does nothing, not even a refusal.
-				if (modeKey === "motion" && storyboardProject) return;
 				event.preventDefault();
 				if (modeKey !== workflowMode && selectWorkflowMode(modeKey) === false) noteShortcutIgnored("mode", "workflow_mode");
 				return;
@@ -1678,13 +1682,6 @@ export default function App() {
 	// Object travel-path drawing: the same Top-View stroke gesture as the rail,
 	// aimed at the selected object instead of the shot camera.
 	const [pathDraw, setPathDraw] = useState(false);
-	// Root-path (waypoint) authoring and Top-View path drawing are motion
-	// tooling; a storyboard never leaves either switched on.
-	useEffect(() => {
-		if (!storyboardProject) return;
-		if (waypointMode) setWaypointMode(false);
-		if (pathDraw) setPathDraw(false);
-	}, [storyboardProject, waypointMode, pathDraw]);
 	const [pathPointIndex, setPathPointIndex] = useState(null);
 	const pathDragTokenRef = useRef(null);
 	const planPathTokenRef = useRef(null);
@@ -1953,6 +1950,10 @@ export default function App() {
 	// prop value, so a fresh rig map never re-renders the set.
 	const attachFrameRef = useRef(null);
 	attachFrameRef.current = (characterId, bone, out) => attachFrameMatrix(rigs[characterId] ?? null, bone, out);
+	// the same frame at another timeline frame, from the character's take: where an attached emitter's particles were born
+	const attachFrameAtRef = useRef(null);
+	attachFrameAtRef.current = (characterId, bone, frame, now, out) => attachFrameAt({ rig: rigs[characterId] ?? null, take: appContext.storeDomain("motion")?.motionFor?.(characterId) ?? null,
+		model: appContext.live.characters.find((entry) => entry.id === characterId)?.model, bone, frame, now, out });
 	// The recorder renders through gl.render() directly, which never runs the
 	// r3f frame loop — so it asks the set for one placement pass itself, right
 	// after it has written that frame's bones.
@@ -2037,6 +2038,8 @@ export default function App() {
 		environment,
 		style,
 		hasEnvSheet,
+		// the body the rig characters' scales are of (scenes.js createSceneStage carries a stage of another one over)
+		...(lookBody() === 1 ? {} : { figureBody: lookBody() }),
 	};
 
 	const { firstSuccessGuideOpen, setFirstSuccessGuideOpen, useCaseAskOpen, setUseCaseAskOpen } = useFirstSuccessPrompt(); const [aiReferenceAsk, setAiReferenceAsk] = useState(null);
@@ -2176,7 +2179,7 @@ export default function App() {
 
 	const projectSnapshotRef = useRef("");
 	const projectStateRef = useRef(null);
-	projectStateRef.current = { workspaceLayout, customPoses, scenes, activeSceneId, sceneObjects };
+	projectStateRef.current = { workspaceLayout, scenes, activeSceneId, sceneObjects };
 
 	useEffect(() => {
 		const onStorage = (event) => {
@@ -2326,9 +2329,8 @@ export default function App() {
 					aspectRatio: live.filmback.aspectRatio,
 				},
 				stage: live.stage,
-				previsMode: scenesDomain.metadata().previsMode,
 				timeline: live.timeline,
-				activeCharacterId: live.activeCharacterId,
+				activeCharacterId: live.activeCharacterId, figure: FIGURE ?? "block", // the look this page draws rig characters in (figure.js lookClash)
 				characters: castDomain.read(),
 				objects: objectsDomain.read(),
 			};
@@ -2386,6 +2388,8 @@ export default function App() {
 			// footprints and every shot camera drawn from state (src/plan-diagram.js).
 			capture_plan_png: (args = {}) => appContext.live.state.capturePlanPng(requestedCaptureOutput(args) ?? undefined),
 	};
+	liveQueries.describe = withTops(liveQueries.describe, () => mcpCaptureRef.current?.scene); // describe { tops: true }: the flat heights of each solid object (tops.js)
+	liveQueries.contact_gaps = contactGaps(() => mcpCaptureRef.current?.scene); // how far points are from what the stage draws of an object (gaps.js)
 
 	const liveSceneName = scenes.find((entry) => entry.id === activeSceneId)?.name ?? "";
 	const liveMeta = () => ({
@@ -2476,7 +2480,7 @@ export default function App() {
 	appContext.patchLive({ setTlFrameCount });
 
 	// Dirty tracking: any divergence from the last saved file lights the dot.
-	useEffect(scenesDomain.refreshProjectDirty, [scenes, activeSceneId, workspaceLayout, customPoses, characters, shots, waypoints, projectName, keyLight, sceneObjects, shotAspectKey, environmentImage, environment, style, hasEnvSheet, sensorId, tlFrameCount, workflowRevision]);
+	useEffect(scenesDomain.refreshProjectDirty, [scenes, activeSceneId, workspaceLayout, characters, shots, waypoints, projectName, keyLight, sceneObjects, shotAspectKey, environmentImage, environment, style, hasEnvSheet, sensorId, tlFrameCount, workflowRevision]);
 
 	// The untrimmed take per CHARACTER. Trims are non-destructive views of the
 	// full take, so re-trimming and "restore full" always cut from the
@@ -2508,14 +2512,15 @@ export default function App() {
 			...(isProxyFigure(entry) ? {} : { url: characterModelUrl(entry.model) }),
 			position: [placement.x, entry.y ?? 0, placement.z],
 			rot: placement.rot,
-			tint: entry.tint ?? defaultCharacterTint(entry, index),
+			tint: entry.tint ?? defaultCharacterTint(entry, index), colour: entry.tint ?? defaultCharacterColour(entry, index),
 			partColoursEnabled,
 			partColoursMode,
 			pose: clip ? null : (placement.pose ?? DEFAULT_POSE),
 			posture: placement.posture,
 			// The stature the entry's take was extracted at. It rides with the
-			// clip, never separately — see Character for why.
-			scale: entry.scale ?? 1,
+			// clip, never separately — see Character for why. The world size:
+			// the scale times the body of the look it is drawn in (figure.js).
+			scale: bodyScale(entry),
 			...(isProxyFigure(entry) ? {} : { onRig: reportRig(entry.id) }),
 			pickId,
 			parent: entry.parent ?? null,
@@ -2880,7 +2885,7 @@ export default function App() {
 				node.updateMatrixWorld(true);
 			}
 			const plate = applyExportFrame(frame);
-			return render ? render() : plate;
+			return render ? render(plate) : plate;
 		} catch (error) {
 			throw Object.assign(new Error(error?.message || String(error), { cause: error }), { exportFailureCode: exportFailureCode(error, "render_failed") });
 		} finally {
@@ -2930,7 +2935,7 @@ export default function App() {
 			takeRoot: targetCharacter.id === (context?.activeId ?? activeChar.id) && (context?.motion ?? motion)
 				? sampleAt({ frameCount: (context?.motion ?? motion).frames, motion: context?.motion ?? motion }, null, frame).subject : null,
 		}) : null;
-		const target = at ? { x: at.x, y: 1.3 * (targetCharacter.scale ?? 1), z: at.z }
+		const target = at ? { x: at.x, y: 1.3 * bodyScale(targetCharacter), z: at.z }
 			: targetObject ? { x: targetObject.x, y: (targetObject.y ?? 0) + (targetObject.height ?? 0) / 2, z: targetObject.z } : null;
 		const output = recRef.current?.request.context?.output ?? shotOutput;
 		return burnInRgba(pixels, output.width, output.height, reviewSlate({ shot: shotForFrame, frame, fps: TIMELINE_FPS,
@@ -3244,9 +3249,8 @@ export default function App() {
 		return output;
 	}
 
-	// One storyboard panel as a picture: the shot's first frame through the
-	// offscreen capture rig, as a PNG data URL (null while the renderer has no
-	// frame). The contact sheet and the Board dock tab share it.
+	// One shot as a picture: its first frame through the offscreen capture rig,
+	// as a PNG data URL (null while the renderer has no frame).
 	function capturePanelThumbnail(entry) {
 		return captureShotFramePng(entry.startFrame);
 	}
@@ -3300,147 +3304,6 @@ export default function App() {
 		ctx.textAlign = "left";
 		ctx.textBaseline = "top";
 		return element;
-	}
-
-	/* ===================== storyboard exports (#644) =======================
-	 * A storyboard project's panels are its stills, in still order. Each
-	 * export runs as one export job (status panel, cancel, retry, analytics
-	 * export_kind contact_sheet | panel_pack | animatic) and draws its frames
-	 * through withExportFrame, so per-panel cast overrides and proxy paths
-	 * land exactly as the preview shows them.
-	 */
-
-	function storyboardPanels(list = shots) {
-		return list.filter((entry) => entry.kind === "still").sort((a, b) => a.startFrame - b.startFrame);
-	}
-
-	const noPanelsMessage = () => ko("Add a panel first — storyboard exports describe panels", "패널을 먼저 추가하세요 — 스토리보드 내보내기는 패널을 담습니다");
-
-	// The panel's stylized picture as PNG bytes, or null when it has none (or
-	// its asset is gone from this browser).
-	async function panelStylizedPng(entry) {
-		if (!entry.stylizedAssetId) return null;
-		const record = await assetRecord(entry.stylizedAssetId);
-		if (!record) {
-			console.warn(`[cozyclay] stylized panel ${entry.stylizedAssetId} is missing; exporting the greybox only`);
-			return null;
-		}
-		const bytes = new Uint8Array(record.bytes);
-		if (record.type === "image/png") return bytes;
-		const bitmap = await createImageBitmap(new Blob([bytes], { type: record.type }));
-		try {
-			const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-			canvas.getContext("2d").drawImage(bitmap, 0, 0);
-			return new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
-		} finally {
-			bitmap.close();
-		}
-	}
-
-	async function loadPngBytes(bytes) {
-		const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-		try { return await loadImage(url); }
-		finally { URL.revokeObjectURL(url); }
-	}
-
-	const panelFolder = (order) => `panel-${String(order + 1).padStart(2, "0")}`;
-
-	/** Contact sheet of the storyboard: the stylized picture with the greybox
-	 * inset when a panel has one, and the panel caption under it. */
-	async function exportContactSheet() {
-		if (recRef.current) return null;
-		if (!storyboardPanels().length) { setToast(noPanelsMessage()); return null; }
-		return executeExportRequest(exportRequest("contact_sheet", async (job) => {
-			const all = job.request.context.shots;
-			const panels = storyboardPanels(all);
-			updateExportStatus(job, "preparing", { stage: "frames", cancellable: true });
-			const cells = [];
-			for (const [order, entry] of panels.entries()) {
-				const dataUrl = captureShotFramePng(entry.startFrame);
-				if (!dataUrl) throw Object.assign(new Error(ko("The shot renderer is not ready", "샷 렌더러가 아직 준비되지 않았어요")), { exportFailureCode: "render_failed" });
-				const stylized = await panelStylizedPng(entry);
-				const meta = packMetaForShot(entry, all.indexOf(entry));
-				cells.push({
-					title: storyboardLine(`${order + 1}. ${entry.name}`),
-					durationSeconds: Number(((entry.endFrame - entry.startFrame + 1) / tlFps).toFixed(2)),
-					prompt: storyboardCaption(buildShotPrompt(meta, { target: "image" })),
-					caption: storyboardLine((entry.caption ?? "").trim()),
-					image: await loadImage(dataUrl),
-					stylized: stylized ? await loadPngBytes(stylized) : null,
-				});
-				await exportBoundary(job);
-			}
-			const canvas = composeStoryboard({ shots: cells, columns: Math.min(3, cells.length), cell: { width: 480, height: 300 }, createCanvas: storyboardCanvas });
-			job.controller.signal.throwIfAborted();
-			await saveExport(canvas.toDataURL("image/png"), "cozyclay-storyboard.png");
-			setToast(ko(`Contact sheet exported · ${cells.length} panels`, `콘택트 시트 내보내기 완료 · 패널 ${cells.length}개`, `缩略图总览已导出 · ${cells.length} 个面板`));
-			return { fileName: "cozyclay-storyboard.png", panelCount: cells.length };
-		}));
-	}
-
-	// One panel's pack: the greybox as first.png, the stylized picture when
-	// there is one, the still's camera and hold, and the image prompt plus caption.
-	async function panelPackArgs(entry, order, all) {
-		const firstUrl = captureShotFramePng(entry.startFrame);
-		if (!firstUrl) throw Object.assign(new Error(ko("The shot renderer is not ready", "샷 렌더러가 아직 준비되지 않았어요")), { exportFailureCode: "render_failed" });
-		const meta = packMetaForShot(entry, all.indexOf(entry));
-		const caption = (entry.caption ?? "").trim();
-		return {
-			shot: { title: entry.name, index: order + 1, startFrame: entry.startFrame, endFrame: entry.endFrame, kind: "still" },
-			fps: tlFps,
-			firstFramePng: dataUrlToBytes(firstUrl),
-			lastFramePng: null,
-			clip: null,
-			stylizedPng: await panelStylizedPng(entry),
-			camera: { ...meta, framing: { start: shotFramingAtFrame(entry, entry.startFrame) } },
-			prompt: buildShotPrompt(meta, { target: "image" }) + (caption ? `\nCAPTION: ${caption}` : ""),
-			folder: panelFolder(order),
-		};
-	}
-
-	/** Panel pack (zip) for one panel — the given one, else the selected one,
-	 * else the one under the playhead, else the first — or, with `every`, one
-	 * zip holding a panel-NN/ folder per panel. */
-	async function exportPanelPacks(every = false, shotId = null) {
-		if (recRef.current) return null;
-		const panels = storyboardPanels();
-		if (!panels.length) { setToast(noPanelsMessage()); return null; }
-		const target = shotId ? panels.find((entry) => entry.id === shotId)
-			: panels.find((entry) => entry.id === activeShot?.id)
-			?? panels.find((entry) => tlFrame >= entry.startFrame && tlFrame <= entry.endFrame) ?? panels[0];
-		if (!target) return null;
-		return executeExportRequest(exportRequest("panel_pack", async (job) => {
-			const all = job.request.context.shots;
-			const contextPanels = storyboardPanels(all);
-			const targets = every ? contextPanels : contextPanels.filter((entry) => entry.id === target.id);
-			updateExportStatus(job, "preparing", { stage: "frames", cancellable: true });
-			const packs = [];
-			for (const [step, entry] of targets.entries()) {
-				job.label = ko(`Panel ${step + 1} of ${targets.length}`, `패널 ${step + 1} / ${targets.length}`, `面板 ${step + 1} / ${targets.length}`);
-				packs.push(await panelPackArgs(entry, contextPanels.indexOf(entry), all));
-				await exportBoundary(job);
-			}
-			updateExportStatus(job, "finalizing", { stage: "archive", cancellable: true });
-			await exportBoundary(job);
-			const entries = packs.flatMap((args) => keyframePackEntries(args));
-			const bytes = every ? buildZip(entries) : buildKeyframePack(packs[0]);
-			const name = every ? "cozyclay-panels.zip" : `cozyclay-${packs[0].folder}-${slugifyTitle(target.name)}.zip`;
-			await exportBoundary(job);
-			await saveExport(new Blob([bytes], { type: "application/zip" }), name);
-			setToast(ko(`${name} exported · ${entries.length} files`, `${name} 내보내기 완료 · 파일 ${entries.length}개`, `${name} 已导出 · ${entries.length} 个文件`));
-			return { fileName: name, entries: entries.map((entry) => entry.name) };
-		}));
-	}
-
-	/** Animatic (mp4): every panel held for its hold, from frame 0 to the last
-	 * still's end, at the production fps. */
-	async function exportAnimatic() {
-		if (recRef.current) return null;
-		const panels = storyboardPanels();
-		if (!panels.length) { setToast(noPanelsMessage()); return null; }
-		const endFrame = panels.at(-1).endFrame;
-		return executeExportRequest(exportRequest("animatic",
-			(job) => runShotExport({ startFrame: 0, endFrame, fileName: "cozyclay-animatic.mp4" }, job)));
 	}
 
 	function captureCurrentFraming() {
@@ -3601,6 +3464,8 @@ export default function App() {
 	window.__cozyclay = {
 			// The same UI action path, with machine refusals exposed for QA.
 			runStudioAction: (id, args) => runStudioAction(id, args, true), setFrame: setTlFrame, setPlaying: setTlPlaying,
+			// lowvis QA: any clip of public/lowvis/clips/pi by name, installed as Studio scene content
+			showLowvisClip: async (name) => { const clip = await loadLowvisClip(name); if (clip) await showLowvis({ name, clip }); return Boolean(clip); },
 			rigA: activeRig, motion, tlFrame, frameCount: tlFrameCount, playing: tlPlaying, ikMode, ikChains, ikFocus, contactRadii: ikChains?.values().next().value?.contactRadii ?? null, ik: ikStateRef.current,
 			rangePins, rangePinResiduals,
 			rangePinApplySpec: motionDomain.rangePinApplySpec,
@@ -3620,7 +3485,7 @@ export default function App() {
 			get shotCam() { return shotCamRef.current; }, get shotMetrics() { return shot; }, get moveMetrics() { return moveSequence; },
 			sampleStateAt: (frame) => appContext.ports.sampleStateAt(frame),
 			poserCam: poserCamRef.current,
-			planCam: planCamRef.current,
+			get planCam() { return planCamRef.current; },
 			editorCam: editorCamRef.current,
 			// QA-only: swap the active character's body ("x-bot-tpose" / "y-bot-tpose")
 			// or stature, so a browser QA run can check every shipped rig.
@@ -3677,7 +3542,7 @@ export default function App() {
 			// framing, no material override.
 			capturePlate: () => appContext.live.state.captureFramingPng(appContext.live.state.captureCurrentFraming()),
 			captureFraming: (framing, output) => appContext.live.state.captureFramingPng(framing, output),
-			characterScale: activeChar?.scale ?? 1,
+			characterScale: activeChar ? bodyScale(activeChar) : 1,
 			characterModel: activeChar?.model ?? null,
 			// QA framing: the same move as run_action view.frame, without leaving Look Through.
 			frameEditorCam: (position, target) => frameEditorView(editorCamRef.current, editorLook.current, position, target),
@@ -3727,7 +3592,7 @@ export default function App() {
 				if (!result.ok) return result;
 				await rehydrateProjectAssets(result.project, result.warnings);
 				applyProject(result.project);
-				setToast(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems)}`);
+				setToast(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems, result.project)}`);
 				return result;
 			},
 			manifest: () => projectManifest,
@@ -3776,9 +3641,15 @@ export default function App() {
 
 	// A rail shot with an aim holds its cast (or a world point) instead of the subject.
 	const cameraAnchorTrack = cameraSubjects.track;
-	const followTrack = useShotCameraTracks({ shots, fps: tlFps, filmback, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion, subjects: cameraSubjects });
+	const followTrack = useShotCameraTracks({ shots, fps: tlFps, filmback, fovDeg, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion, subjects: cameraSubjects });
 
 	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack), [playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack]);
+	// A rail shot's camera as this render shows it (its aim take left out), with the head its track was built with:
+	// turning the camera by hand measures the new head against exactly this pair.
+	const railCameraAt = (shotId, frame) => {
+		const row = shots.find((entry) => entry.id === shotId);
+		return row ? { camera: sampleAt(playbackScene, { ...row, camera: { ...row.camera, aimTake: null } }, frame).camera, head: row.camera?.head ?? null } : null;
+	};
 	const cameraPerformance = useCameraPerformance({
 		shot: activeShot, scene: playbackScene, fps: tlFps, playing: tlPlaying, setPlaying: setTlPlaying,
 		setFrame: setTlFrame, frameRef: propFrameRef, camRef: shotCamRef, look, stageRef,
@@ -4137,7 +4008,7 @@ export default function App() {
 			preserveAuthoredMotion: Boolean(c.layer?.waypoints?.length) }]));
 		return { host: { workspaceId: liveWorkspaceIdRef.current, documentEpoch: studioDocumentEpochRef.current,
 				sceneId: activeSceneIdRef.current, sceneEpoch: studioSceneEpochRef.current }, workspaceHandle: liveWorkspaceHandleRef.current,
-			sceneName: live.scenes.find(s => s.id === activeSceneIdRef.current)?.name ?? "Untitled Scene", previsMode: scenesDomain.previsMode, castStyle: scenesDomain.castStyle, aspect: live.stage.shotAspect, stage: live.stage,
+			sceneName: live.scenes.find(s => s.id === activeSceneIdRef.current)?.name ?? "Untitled Scene", castStyle: scenesDomain.castStyle, aspect: live.stage.shotAspect, stage: live.stage,
 			objects: storeRef.current.objects, characters: list, targets, shots: live.shots, frameCount: live.timeline.frameCount,
 			selection: live.studioSelection, activeCharacterId: live.activeCharacterId, selectedShotId: live.studioShotId,
 			view: live.studioView, camera: live.studioCamera ?? readStudioCamera(), filmback: live.filmback, manual: manualCameraOverrideRef.current,
@@ -4208,9 +4079,10 @@ export default function App() {
 	function studioBounds({ entity, frame, state }) {
 		if (entity.renderer) {
 			if (entity.attach) {
-				// A carried prop's numbers are local to the frame it rides; measure it
-				// where it is drawn, the frame the arrange is evaluated at.
-				const world = sceneObjectWorldMatrix(entity);
+				// A carried prop's numbers are local to the frame it rides; measure it where they put it on the posed
+				// bone (the entity may be an arrange's draft, not drawn yet), else where it is drawn.
+				const rigFrame = attachFrameRef.current?.(entity.attach.characterId, entity.attach.bone ?? null, new THREE.Matrix4());
+				const world = rigFrame ? rigFrame.multiply(new THREE.Matrix4().compose(new THREE.Vector3(entity.x, entity.y ?? 0, entity.z), new THREE.Quaternion().setFromEuler(new THREE.Euler((entity.rotX ?? 0) * Math.PI / 180, (entity.rot ?? 0) * Math.PI / 180, (entity.rotZ ?? 0) * Math.PI / 180)), new THREE.Vector3(entity.scaleX, entity.scaleY, entity.scaleZ))) : sceneObjectWorldMatrix(entity);
 				if (!world) throw new StudioProtocolError("TARGET_NOT_READY", "Attached bounds require an evaluated attachment frame.");
 				const carried = new THREE.Box3(new THREE.Vector3(-entity.footprint.width / 2, 0, -entity.footprint.depth / 2), new THREE.Vector3(entity.footprint.width / 2, entity.height, entity.footprint.depth / 2));
 				carried.applyMatrix4(world); return { min: { ...carried.min }, max: { ...carried.max } };
@@ -4234,7 +4106,7 @@ export default function App() {
 			});
 			return proxyFigureBounds(original, placement);
 		}
-		if (!target?.rig) throw new StudioProtocolError("TARGET_NOT_READY", "Character bounds require its loaded rig.");
+		if (!target?.rig) throw new StudioProtocolError("TARGET_NOT_READY", "Character bounds require its loaded rig.", { transient: true });
 		const rig = cloneSkeleton(target.rig), parent = new THREE.Group();
 		const originals = [], copies = [];
 		target.rig.traverse(node => originals.push(node)); rig.traverse(node => copies.push(node));
@@ -4253,10 +4125,12 @@ export default function App() {
 			const resolved = resolveIkRig(rig);
 			if (resolved && target.ikState?.keys.size) ikEvaluate(resolved.chains, target.ikState, frame, resolved.fkJoints, target.motion ? IK_CORRECTION_BLEND_FRAMES : 0);
 			parent.updateMatrixWorld(true);
-			const transform = c => new THREE.Matrix4().compose(new THREE.Vector3(c.x, c.y ?? 0, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (c.rot ?? 0) * Math.PI / 180), new THREE.Vector3().setScalar(c.scale ?? 1));
+			const transform = c => new THREE.Matrix4().compose(new THREE.Vector3(c.x, c.y ?? 0, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (c.rot ?? 0) * Math.PI / 180), new THREE.Vector3().setScalar(bodyScale(c)));
 			const delta = transform(entity).multiply(transform(original).invert());
-			const box = new THREE.Box3().setFromObject(rig, true).applyMatrix4(delta);
-			return { min: { ...box.min }, max: { ...box.max } };
+			const box = new THREE.Box3().setFromObject(rig, true).applyMatrix4(delta), points = [], index = new Map();
+			// The posed bones as world points and the [parent, child] index pairs that join them: the sight-line, contact and frame-edge checks read the body, not its box.
+			rig.traverse(node => { if (node.isBone) { const p = node.getWorldPosition(new THREE.Vector3()).applyMatrix4(delta); index.set(node, points.push({ x: p.x, y: p.y, z: p.z }) - 1); } });
+			return { min: { ...box.min }, max: { ...box.max }, points, bones: [...index].filter(([node]) => index.has(node.parent)).map(([node, i]) => [index.get(node.parent), i]) };
 		} finally {
 			const skeletons = new Set(); rig.traverse(n => { if (n.isSkinnedMesh) skeletons.add(n.skeleton); });
 			for (const skeleton of skeletons) skeleton.dispose(); parent.remove(rig);
@@ -4294,14 +4168,21 @@ export default function App() {
 		// path captureShotFramePng uses; an export in flight renders at its output.
 		// With a view (verify_result's own cameras) the posed frame is seen by that
 		// camera instead, at view.output; the shot camera is left as it is.
-		renderFrameBuffer: (frame, view = null) => {
-			const output = view?.output ?? (recRef.current?.capture ? recRef.current.request.context.output : shotOutput), data = withExportFrame(frame, view && (() => captureRef.current.renderView(view)));
+		// inspect({ data, width, height, camera }) runs while the scene still stands as that frame drew it
+		// (the cast's poses, every record's place), before the editor's own state is put back.
+		renderFrameBuffer: (frame, view = null, inspect = null) => {
+			const output = view?.output ?? (recRef.current?.capture ? recRef.current.request.context.output : shotOutput);
+			const data = withExportFrame(frame, (view || inspect) && ((plate) => {
+				const drawn = view ? captureRef.current.renderView(view) : plate;
+				if (drawn) inspect?.({ data: drawn, width: output.width, height: output.height, camera: view ? null : shotCamRef.current });
+				return drawn;
+			}));
 			if (!data) throw new Error("The shot renderer is not ready");
 			return { data, width: output.width, height: output.height };
 		},
 		encodePng: (buffer, output) => bufferToPng(buffer, output),
-		// The pose library a character.pose patch resolves its id against.
-		poses: () => [DEFAULT_POSE, ...customPoses],
+		// The poses a character.pose patch resolves its id against.
+		poses: () => [DEFAULT_POSE],
 		
 		ikRevision: (id, stamp) => {
 			const prior = studioIkStampsRef.current.get(id);
@@ -4328,7 +4209,7 @@ export default function App() {
 			scenes: appContext.live.scenes.map(({ id, name }) => ({ id, name })), activeSceneId: activeSceneIdRef.current,
 			// What a save needs: a name, a file this session, and (to pick or
 			// re-grant a file) the user's click still active.
-			project: { name: projectName, previsMode, hasFile: Boolean(projectHandleRef.current), fileAccess: hasFileSystemAccess(),
+			project: { name: projectName, hasFile: Boolean(projectHandleRef.current), fileAccess: hasFileSystemAccess(),
 				gesture: globalThis.navigator?.userActivation?.isActive === true },
 			// What generate() reads for the Send-to-AI package, as this render has it.
 			aiShot: { mode, imageModel },
@@ -4433,14 +4314,12 @@ export default function App() {
 	// The single shell snapshot keeps subsequent region work out of App.
 	const shellContext = {
 		sculptPanel,
-		projectMenuOpen, setProjectMenuOpen, projectDirty, projectName, previsMode, castStyle: scenesDomain.castStyle, projectStartupOpen,
+		projectMenuOpen, setProjectMenuOpen, projectDirty, projectName, castStyle: scenesDomain.castStyle, projectStartupOpen,
 		setProjectStartupOpen, setProjectBrowserOpen, runStudioAction,
 		projectManifest, projectSaveState, recState, exportMenuTriggerRef, exportMenuOpen,
 		exportShotIdRef, setExportMenuOpen, exportPhaseLabel,
 		resultOpen, shots, exportKeyframePacks, exportAiReference: () => openAiReferenceDialog({ shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport, setAiReferenceAsk, characters, shotFramingAtFrame, cameraSubjectsAt, filmback }),
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
-		exportContactSheet, exportPanelPacks, exportAnimatic,
-		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,
 		downloadOtioCutList, projectStatus, liveWorkspaceHandle, selectedHierarchyId, selectHierarchy,
 		aimEditorAtKeyLight, characters, ikFrames, ikMode,
 		rowIdForCharIndex, activeCharIndex, waypoints, sceneObjects, scenes,
@@ -4451,7 +4330,7 @@ export default function App() {
 		preset, applyPreset, cameraPresetId, shotAspectKey,
 		fovDeg, shotsDomain, shot, setNonce, workspaceLayout,
 		viewMenuTriggerRef, viewMenuOpen, setViewMenuOpen, viewLooksActive,
-		gridView, setGridView, autoColor, setAutoColor,
+		gridView, setGridView, autoColor, setAutoColor, toonLook, setToonLook,
 		guideMode,
 		isCharacterSelection, partColoursChoice, embedMode, agentCollapsed, sceneSaveError,
 		studioAgentError, studioAgentMode, setStudioAgentMode, AgentPanel, setAgentCollapsed,
@@ -4461,7 +4340,7 @@ export default function App() {
 		cameraKeys, activeShot, openStudio,
 		posing, activeChar,
 		selectablePoses, ikApplyPoseAsKey,
-		setStudioPick, appContext, removePose, activeRig, saveCurrentPose,
+		setStudioPick, appContext, activeRig,
 		setTlFrame, tlFrameCount,
 		tlFrame, isRigSelection, ikChains, ikFocus, footSnap, poseObjectOpacity, setPoseObjectOpacity, capturePoseImage,
 		ikEditTool, setIkEditTool, ikSolve, ikDragEnd, ikTick, autoKey, setAutoKey, ikMoveKeyframe, handFingers, fingerEditing, setFingerEdit,
@@ -4475,8 +4354,8 @@ export default function App() {
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
 		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
-		posingIndex, posingChar, allPoses, studioPick,
-		posingClosing, closeStudio, castDomain, setToast, savePose,
+		posingIndex, posingChar, studioPick,
+		posingClosing, closeStudio, castDomain, setToast,
 		setBottomTab, beginAssetDrag, shelfImageIds, shelfMeshIds,
 		manageAssetStorage, setManageAssetStorage, unusedAssetIds, usedAssetIds, usageCounts,
 		projectAssetGraphSignature, assetTrash, deleteUnusedAsset, undoDeletedAsset, deletingAssetId,
@@ -4488,7 +4367,7 @@ export default function App() {
 		setWorkspaceLayout, timingTokenRef, railCurve, ikAddKeyframe, ikDeleteKeyframe, pathPointIndex, setPathPointIndex,
 		setBodyContact, setFootSnap, advanceFrame, stepFrame, cameraPreviewEndRef,
 		manualCameraOverrideRef, setTlPlaying, setWaypointMode, selectActiveCharacterInHierarchy,
-		toggleWaypointMode: storyboardProject ? undefined : toggleWaypointMode,
+		toggleWaypointMode,
 		setActiveWaypointId, setPendingWaypointFrame, removeWaypoint, queueRootWaypointFrame, setSelectedHierarchyId, addCameraKeyframe,
 		moveCameraKeyframe, removeCameraKeyframe, syncActiveCameraFraming, activeCamera, activeShotDuration,
 		changeActiveCamera, cameraRail, previewCameraShot, toggleCameraRailDraw, deleteCameraRail,
@@ -4496,7 +4375,7 @@ export default function App() {
 		spawnCharacter, stopShotRecording, retryExport, poseRefusal: poseEntry.blocked ? poseEntry.plan.reason : null,
 		beginWorkspaceResize, frameAll, setAxisView,
 		preferencesOpen, setPreferencesOpen,
-		flySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
+		flySpeed, setFlySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
 		agentOpen: !agentCollapsed,
 		toggleAgent: () => window.dispatchEvent(new CustomEvent("cozyclay:agent-panel-toggle")),
 		saveStatus: { state: projectSaveState, text: projectStatus, dirty: projectDirty, name: projectName },
@@ -4512,16 +4391,9 @@ export default function App() {
 	return (
 		<AppContext.Provider value={appContext}>
 		<StudioShellContext.Provider value={shellContext}>
-		<StudioShell className={"app" + (renderActive ? "" : " render-idle")} style={workspaceStyle} data-workflow-mode={workflowMode} data-previs-mode={scenesDomain.previsMode} data-embed-mode={embedMode ? "playview" : playgroundMode ? "playground" : undefined} data-rail-draw={railDraw ? 1 : undefined} data-shot-look={lookThroughShot && !embedMode ? 1 : undefined} data-plan-draw={railDraw || pathDraw || waypointMode ? 1 : undefined}
+		<StudioShell className={"app" + (renderActive ? "" : " render-idle")} style={workspaceStyle} data-workflow-mode={workflowMode} data-lowvis-skins={characterViews.filter((view) => view.model === TRACK_RIG && rigs[view.id]).length || undefined} data-embed-mode={embedMode ? "playview" : playgroundMode ? "playground" : undefined} data-rail-draw={railDraw ? 1 : undefined} data-shot-look={lookThroughShot && !embedMode ? 1 : undefined} data-plan-draw={railDraw || pathDraw || waypointMode ? 1 : undefined}
 			viewport={
-				<div className="viewport" data-drop={viewportDrop.over ? "over" : undefined} {...viewportDrop.handlers}
-					onWheel={(event) => {
-						// Read-only UI mirror of FlyControls' persistent wheel multiplier.
-						// Its native canvas listener handles navigation before this bubbles.
-						if (flyingRef.current && event.target.tagName === "CANVAS") {
-							setFlySpeed((speed) => THREE.MathUtils.clamp(speed * (event.deltaY > 0 ? 0.9 : 1.1), 0.15, 6));
-						}
-					}}>
+				<div className="viewport" data-drop={viewportDrop.over ? "over" : undefined} {...viewportDrop.handlers}>
 				<ViewportToolbar />
 				<ReviewOverlay />
 				{(embedMode || playgroundMode) && <CompositionGuideButton guideMode={guideMode} onCycle={(mode) => runStudioAction("view.setGuideMode", { mode })} />}
@@ -4576,7 +4448,9 @@ export default function App() {
 							/>
 							{/* Sky, fog and exposure of the stage look (stage-sky.jsx), for every pane and export. */}
 							<StageAtmosphere lighting={lighting} keyLight={keyLight} theme={uiTheme} grid={gridView} />
+							<FinishSetting on={toonLook} onChange={setToonLook} />
 							<StageLights keyLight={keyLight} lighting={lighting} neutral={gridView} light={uiTheme === "light"} />
+							<StageSceneProbe />
 							<KeyLightPuck
 								keyLight={keyLight}
 								selected={keyLightSelected}
@@ -4597,6 +4471,8 @@ export default function App() {
 								frameRef={propFrameRef}
 								take={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }}
 								attachFrameRef={attachFrameRef}
+								attachFrameAtRef={attachFrameAtRef}
+								cast={characters}
 								syncRef={propSyncRef}
 								worldRef={propWorldRef}
 								fadeOpacity={workflowMode === "pose" ? poseObjectOpacity : null}
@@ -4656,6 +4532,9 @@ export default function App() {
 								/>
 							)}
 
+							{/* Every X Bot character draws in the launch's figure look (cube unless named); its own meshes hide. Y Bots and imported rigs keep their mesh. */}
+							{characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} colour={view.colour} scale={view.scale} pickId={view.pickId} />)}
+							<group>
 							{characterViews.map((view) => (
 								// Always wrapped, grouped or not: giving or taking a parent
 								// must not remount the rig the playback effects hold.
@@ -4684,6 +4563,7 @@ export default function App() {
 									/>
 								</ObjectCarrier>
 							))}
+							</group>
 							<ViewGhosts rig={rigs[activeChar.id]} take={motion} frame={tlFrame} objects={sceneObjects} propTake={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }} /><PoseKeyGhosts app={appContext} rig={rigs[activeChar.id]} characterId={activeChar.id} frame={tlFrame} on={Boolean(ikMode)} hidden={lookThroughShot} /><FixOriginalGhost app={appContext} rig={rigs[activeChar.id]} characterId={activeChar.id} frame={tlFrame} on={Boolean(ikMode)} hidden={lookThroughShot} /><DraftGhost rigs={rigs} objects={sceneObjects} /><SculptSketch objects={sceneObjects} /><PhysicsOverlayLayer rig={rigs[activeChar.id]} take={motion} objects={sceneObjects} />
 
 							{/* Selection marker: XYZ tripod + ring on the picked cast
@@ -4701,12 +4581,13 @@ export default function App() {
 									shotAspect={lookThroughShot ? shotOutput.aspect : null}
 									onChange={(id, patch) => moveCharacter(activeChar.id, () => {
 										const next = {};
-										if (patch.x !== undefined) next.x = THREE.MathUtils.clamp(patch.x, CHARACTER_POSITION_BOUNDS.min.x, CHARACTER_POSITION_BOUNDS.max.x);
+										// the gizmo stands at the take's body, offset from the character's place (stage-gizmo.js)
+										if (patch.x !== undefined) next.x = THREE.MathUtils.clamp(patch.x - gizmoView.offset[0], CHARACTER_POSITION_BOUNDS.min.x, CHARACTER_POSITION_BOUNDS.max.x);
 										// Lift floors at the deck but has no ceiling — a crane
 										// shot may hoist the body as high as the move needs
 										// (the inspector's Height scrub agrees).
 										if (patch.y !== undefined) next.y = Math.max(CHARACTER_POSITION_BOUNDS.min.y, patch.y);
-										if (patch.z !== undefined) next.z = THREE.MathUtils.clamp(patch.z, CHARACTER_POSITION_BOUNDS.min.z, CHARACTER_POSITION_BOUNDS.max.z);
+										if (patch.z !== undefined) next.z = THREE.MathUtils.clamp(patch.z - gizmoView.offset[1], CHARACTER_POSITION_BOUNDS.min.z, CHARACTER_POSITION_BOUNDS.max.z);
 										// a body only yaws — the X/Z rings and the screen ring's
 										// other channels have nowhere to go on a character
 										if (patch.rotY !== undefined) next.rot = patch.rotY;
@@ -4782,6 +4663,8 @@ export default function App() {
 								if (flying) trackFeature("camera_fly");
 							}}
 								onCameraChange={lookThroughShot && !ikMode ? commitManualCameraFraming : undefined}
+								speed={flySpeed}
+								onSpeedChange={setFlySpeed}
 							/>
 							<PoseHandles
 								root={posedRig()}
@@ -4818,6 +4701,7 @@ export default function App() {
 								minimal={playgroundMode}
 								hostRef={planHostRef}
 								planCamRef={planCamRef}
+								planZoom={workspaceLayout.planZoom} onPlanZoom={setPlanZoom} planOpen={railDraw || pathDraw || waypointMode} cast={cameraSubjects.cast}
 								shotCamRef={shotCamRef}
 								look={look}
 								fovDeg={fovDeg}
@@ -4966,11 +4850,23 @@ export default function App() {
 									pathDragTokenRef.current = null;
 								}}
 							/>
+							{/* before CraneHandles: a press on a ring is the ring's, even over a dot */}
+							<CraneTurnRings
+								rail={railCurve}
+								crane={activeCamera.craneHeight}
+								selectedIndex={craneSelectedIndex}
+								enabled={gizmoMode === "rotate" && !preview && !lookThroughShot && !ikMode && !posing && !!railCurve && !!activeCamera.craneHeight}
+								view={railCurve && craneSelectedIndex != null ? railViewAt(followTrack, activeShot, railCurve, activeCamera.craneHeight?.points?.[craneSelectedIndex]?.t) : null}
+								paneRef={mainPaneRef}
+								camRef={editorCamRef}
+								onChangePoints={shotsDomain.changeCranePoints}
+							/>
 							<CraneHandles
 								rail={railCurve}
 								crane={activeCamera.craneHeight}
 								controlPoints={activeCamera.cameraRail}
 								selectedIndex={craneSelectedIndex}
+								mode={gizmoMode}
 								enabled={!preview && !lookThroughShot && !ikMode && !posing && !!railCurve && !!activeCamera.craneHeight}
 								paneRef={mainPaneRef}
 								camRef={editorCamRef}
@@ -5062,7 +4958,7 @@ export default function App() {
 						>
 							<span
 								className="vp-inset-tag"
-								title={workspaceLayout.insetCollapsed ? ko("Click or ▸ to expand · drag to move", "클릭 또는 ▸로 펼치기 · 드래그로 이동") : ko("Click or ▾ to fold · drag to move", "클릭 또는 ▾로 접기 · 드래그로 이동")}
+								title={workspaceLayout.insetCollapsed ? ko("Click or ▸ to expand · drag to move", "클릭 또는 ▸로 펼치기 · 드래그로 이동") : ikMode ? ko("Click or ▾ to fold · drag to move", "클릭 또는 ▾로 접기 · 드래그로 이동") : ko("Click or ▾ to fold · drag to move · in the view: middle-, right- or Alt-drag pans, wheel zooms, Home shows everything", "클릭 또는 ▾로 접기 · 드래그로 이동 · 뷰 안에서: 가운데·오른쪽·Alt 드래그로 이동, 휠로 확대·축소, Home으로 전체 보기")}
 								onPointerDown={beginInsetDrag}
 							>
 								<span
@@ -5084,8 +4980,8 @@ export default function App() {
 									{workspaceLayout.insetCollapsed ? "▸" : "▾"}
 								</span>
 								{ikMode ? ko("Shot view", "샷 뷰") : ko("Top-View", "탑뷰")}
-								{!ikMode && workspaceLayout.planZoom !== 1 && !workspaceLayout.insetCollapsed && (
-									<em className="vp-inset-zoom">{workspaceLayout.planZoom.toFixed(2).replace(/\.?0+$/, "")}×</em>
+								{!ikMode && planZoomShown !== 1 && !workspaceLayout.insetCollapsed && (
+									<em className="vp-inset-zoom">{planZoomLabel(planZoomShown)}×</em>
 								)}
 							</span>
 							{!workspaceLayout.insetCollapsed && (
@@ -5207,7 +5103,7 @@ export default function App() {
 				}}
 			/>
 			{/* The first-run tutorial no longer opens on Create (nothing sets it true); kept mounted for its telemetry wiring. */}
-			<FirstSuccessGuide open={firstSuccessGuideOpen} castCount={characters.length} previsMode={scenesDomain.previsMode} onDismiss={() => setFirstSuccessGuideOpen(false)} />
+			<FirstSuccessGuide open={firstSuccessGuideOpen} castCount={characters.length} onDismiss={() => setFirstSuccessGuideOpen(false)} />
 			<UseCaseQuestion
 				open={useCaseAskOpen}
 				isKo={isKo} isZh={isZh}

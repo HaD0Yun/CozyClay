@@ -45,10 +45,10 @@ export function splitSavedCamera(document) {
 }
 
 /** Shared project envelope and camera persistence for terminal saves. */
-export function serializeSavedProject({ document, camera = {}, name, workspaceLayout = null, customPoses = [], ...metadata }) {
+export function serializeSavedProject({ document, camera = {}, name, workspaceLayout = null, ...metadata }) {
 	return JSON.stringify(createProjectDocument({
 		...metadata,
 		scenesDocument: documentWithCamera(document, camera),
-		workspaceLayout, customPoses, name,
+		workspaceLayout, name,
 	}), null, "\t");
 }

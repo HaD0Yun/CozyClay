@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node tools/dev-full.mjs --host 127.0.0.1 --port 5180",
     "dev:ui": "vite",
-    "build": "vite build && node tools/sitemap.mjs && node tools/github-stars.mjs",
+    "build": "vite build && node tools/prune-dist.mjs && node tools/sitemap.mjs && node tools/github-stars.mjs",
     "build:pose-wasm": "cargo build --release --manifest-path native/pose-rs/Cargo.toml --target wasm32-unknown-unknown && cp native/pose-rs/target/wasm32-unknown-unknown/release/pose_rs.wasm src/motion3/compiler/pose-rs.wasm",
     "lint": "node tools/check-knip.mjs && node tools/check-loc.mjs && node tools/check-eslint.mjs",
     "lint:update": "node tools/check-knip.mjs --update && node tools/check-loc.mjs --update && node tools/check-eslint.mjs --update",
@@ -66,6 +66,7 @@
     "@earendil-works/pi-agent-core": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-codemode": "1.4.0",
+    "typebox": "1.3.27",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -100,8 +101,13 @@
     "dist",
     "!dist/media/*.mp4",
     "src",
+    "!src/lowvis/engine-m3",
+    "!src/lowvis/engine-simple/demos",
+    "!src/lowvis/kick-cc-free.js",
+    "!src/lowvis/viewer/main.js",
     "tools",
     "!tools/qa-*.mjs",
+    "!tools/lowvis",
     "mcp/server.mjs",
     "mcp/tool-handlers.mjs",
     "mcp/live-hub.mjs",

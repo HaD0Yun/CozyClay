@@ -18,6 +18,7 @@ import * as characterNames from '../src/character-name.js'; import { promptSubje
 import { judgeNextWaypoint } from '../src/motion/waypoints.js';
 import { createStableItemId, removeStableItem, updateStableItem } from '../src/stable-items.js';
 import { createCameraBlock, removeCameraRail, updateCameraBlock } from '../src/camera-block.js';
+import { bodyScale, lookBody } from '../src/lowvis/studio/figure.js';
 import { railFollowForNewGeometry } from '../src/camera-rail-schedule.js';
 import * as objects from '../src/scene-objects.js';
 import * as ik from '../src/motion/ik.js';
@@ -39,12 +40,12 @@ import { createStudioAppActions, commandDeclarations } from '../src/commands/ind
 import { HISTORY_LIMIT } from '../src/history.js';
 import { focalMmToFov, fovToFocalMm, IMAGE_MODELS, CUSTOM_MOVE, SUBJECT_HEIGHT_M, composePrompt, deriveShot } from '../src/shot.js';
 import { PART_COLOURS } from '../src/part-colours.js';
-import { objectTransformAt } from '../src/object-path.js'; import { createShotSubjectSampler } from '../src/camera-direction.js'; import { subjectsCenter } from '../src/shot-subjects.js';
+import { objectTransformAt } from '../src/object-path.js'; import { buildShotCameraTracks, createShotSubjectSampler } from '../src/camera-direction.js'; import { subjectsCenter } from '../src/shot-subjects.js';
 import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
 import { characterRowId } from '../src/hierarchy-model.js';
 
-const cases = ['previs-mode-and-character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'still-frame-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
+const cases = ['character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'held-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
 const argv = process.argv.slice(2);
 assert(!argv.length || (argv.length === 2 && argv[0] === '--case' && cases.includes(argv[1])), 'Unknown test arguments');
 import { readStudioSource } from './bus/verify-domain-modules.mjs';
@@ -121,7 +122,7 @@ function fixture(options={}) {
  liveWorkspaceIdRef:ref('workspace'),liveWorkspaceHandleRef:ref('handle'),studioDocumentEpochRef:ref('document'),activeSceneIdRef:ref('scene'),studioSceneEpochRef:ref('epoch'),
  look:ref({yaw:0,pitch:0}),shotCamRef:ref(camera),shotCameraPosRef:ref(null),manualCameraOverrideRef:ref(false),frameCountRef:ref(48),tlFrameRef:ref(0),
  physicsOptions:{protectedFrames:[]},bridge:{ok:false},ikBodyDragRef:ref(false),lineDragRef:ref(null),lineDrawRef:ref(null),linePinDragRef:ref(null),autoPhysicsRunRef:ref(null),recRef:ref(null),restoreRef:ref(null),
- committedIkEdits:[],IK_CORRECTION_BLEND_FRAMES:6,tlFps:24,MAX_WAYPOINTS:32,WALK_SPEED_MPS:1.4,clampRootPosition:v=>Math.max(-11,Math.min(11,v)),judgeNextWaypoint,createStableItemId,removeStableItem,createCharacterLayer,updateStableItem,createCameraBlock,removeCameraRail,updateCameraBlock,railFollowForNewGeometry,stageRef:ref(null),
+ committedIkEdits:[],IK_CORRECTION_BLEND_FRAMES:6,tlFps:24,MAX_WAYPOINTS:32,WALK_SPEED_MPS:1.4,clampRootPosition:v=>Math.max(-11,Math.min(11,v)),judgeNextWaypoint,bodyScale,lookBody,createStableItemId,removeStableItem,createCharacterLayer,updateStableItem,createCameraBlock,removeCameraRail,updateCameraBlock,railFollowForNewGeometry,stageRef:ref(null),
  ...carried,animatedSceneObjects:[],attachFrameRef:ref((characterId,bone,out)=>carried.attachFrameMatrix(rigs[characterId]??null,bone,out)),
  // Stands in for the mounted prop groups: where each prop is drawn right now.
  propWorldRef:ref((id,out)=>{const o=store.current.objects.find(row=>row.id===id);if(!o)return null;const local=carried.sceneObjectMatrix(o,new THREE.Matrix4());if(!o.attach)return out.copy(local);const frame=carried.attachFrameMatrix(rigs[o.attach.characterId]??null,o.attach.bone??null,new THREE.Matrix4());return frame?out.copy(frame.multiply(local)):null;}),snapshotCast:()=>({}),markSemanticEdit,setCharacters:castOwner.set,editCharacters:castOwner.edit,setShots:shotsOwner.set,editShots:shotsOwner.edit,
@@ -149,7 +150,6 @@ function fixture(options={}) {
  scope.appContext=createAppContext({characters:characterRef,state:live,scenes:scope.scenesRef,getBus:()=>scope.studioBindingRef.current.bus,notify:(...args)=>scope.setToast(...args)}).forRender(scope);
  scope.stageDomain=scope;
  scope.scenesDomain=scope;
- scope.previsMode=options.previsMode;
  scope.shotsDomain=scope;
  scope.castDomain=scope;
  scope.motionDomain=scope;
@@ -423,22 +423,20 @@ const implementations={
   const refused=await f.call('verify_result',f.request('verify_result',{receiptId:shot.receiptId,checks:['framing'],visual:'plan'}));
   assert.equal(refused.code,'CAPABILITY_MISSING',JSON.stringify(refused));
  },
- async 'previs-mode-and-character-kind'(){
+ async 'character-kind'(){
   const proxy=createCharacterEntry({id:'actor-cap',model:'proxy-figure',x:2,z:2,posture:'lie'});
-  const g=fixture({previsMode:'storyboard',characters:[createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}),proxy]});
+  const g=fixture({characters:[createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}),proxy,createCharacterEntry({id:'actor-x',model:'x-bot-tpose',x:-2,z:2,scale:1.2})]});
   try{
    const c=g.binding.context();
-   assert.equal(c.scene.previsMode,'storyboard');
-   assert.equal(c.capabilities.storyboard,true);
+   // how tall a body stands, as drawn (figure.js standingHeight: here the default cube look at its body; 2.086 under the block look), only where a look draws it
+   assert.deepEqual(['actor-a','actor-cap','actor-x'].map(id=>c.entities.find(e=>e.id===id).standingHeightM),[undefined,undefined,2.04]);
+   assert.equal(c.scene.previsMode,undefined,'the editor no longer reports a previs mode');
+   assert.equal(c.capabilities.storyboard,undefined);
    const rigged=c.entities.find(e=>e.id==='actor-a'),proxy=c.entities.find(e=>e.id==='actor-cap');
    assert.deepEqual({kind:rigged.characterKind,posture:rigged.posture},{kind:'rig',posture:undefined});
    assert.deepEqual({kind:proxy.characterKind,posture:proxy.posture,rigReady:proxy.capabilities.rigReady},{kind:'proxy',posture:'lie',rigReady:false});
    assert.deepEqual(c.view.mode,'scene','tool modes are untouched');
   }finally{g.dispose();}
-  const h=fixture({previsMode:'animation'});
-  try{const c=h.binding.context();assert.equal(c.scene.previsMode,'animation');assert.equal(c.capabilities.storyboard,false);}finally{h.dispose();}
-  const bare=fixture();
-  try{const c=bare.binding.context();assert.equal(c.scene.previsMode,undefined);assert.equal(c.capabilities.storyboard,undefined);}finally{bare.dispose();}
  },
  async 'inspect-entity-transforms'(f){
   const created=await f.call('arrange_objects',f.request('arrange_objects',{ops:Array.from({length:30},(_,i)=>({op:'create',source:{kind:'cube'},name:`Prop ${i}`,position:{world:{x:i+2,y:1,z:3}},facing:{yawDeg:30},scale:{x:2,y:3,z:4}}))}));
@@ -498,8 +496,8 @@ const implementations={
  async 'context-character-names'(f){
   // #1212: a character without a subject is named from its model and id, and the agent can use exactly that name.
   const c=f.binding.context(), names=c.entityIndex.filter(e=>e.kind==='character').map(e=>[e.id,e.name]);
-  assert.deepEqual(names,[['actor-a','Y Bot actor-a'],['actor-b','Y Bot actor-b']],'the context names each subject-less Y Bot from its model and id');
-  const placed=await f.call('arrange_objects',f.request('arrange_objects',{ops:[{op:'create',source:{kind:'cube'},name:'Marker',position:{relativeTo:'Y Bot actor-b',basis:'world',side:'left',gapM:0.5,support:'floor'}}]}));
+  assert.deepEqual(names,[['actor-a','Y Bot (old) actor-a'],['actor-b','Y Bot (old) actor-b']],'the context names each subject-less Y Bot from its model and id');
+  const placed=await f.call('arrange_objects',f.request('arrange_objects',{ops:[{op:'create',source:{kind:'cube'},name:'Marker',position:{relativeTo:'Y Bot (old) actor-b',basis:'world',side:'left',gapM:0.5,support:'floor'}}]}));
   assert.equal(placed.status,'applied',JSON.stringify(placed));
   assert.ok(f.store.current.objects.find(o=>o.name==='Marker').x>2,'the context name resolves to actor-b at x 4');
  },
@@ -867,9 +865,27 @@ const implementations={
   const point=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-3,z:4},{x:3,z:4}],aim:{x:0,y:1,z:0},focalMm:null,height:[{t:0,height:0.6},{t:1,height:3}]});
   assert.match(point.summary,/height 0\.60-3\.00 m, aim \(0\.00, 1\.00, 0\.00\), scene lens\.$/,point.summary);
   read=await camera();assert.deepEqual([read.camera.aim,'focalMm' in read.camera],[{point:{x:0,y:1,z:0}},false]);
-  // Past the dolly's speed cap it warns; an aim that is not in the scene is refused.
-  const fast=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]});
-  assert.deepEqual(fast.warnings.map(w=>w.code),['RAIL_TOO_FAST'],JSON.stringify(fast));
+  // A 10 m/s rail rides at its own speed (no default cap), and so does one past the world's fastest dolly (the default cap
+  // is that top, which is no cap: dolly-spring.js); a cap someone set warns; an aim that is not in the scene is refused.
+  const quick=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]});
+  assert.deepEqual(quick.warnings??[],[],JSON.stringify(quick));
+  const fast=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-50,z:4},{x:50,z:4}]});
+  // The answer states the lag a cap leaves: its numbers are the gap between this shot's own camera track with and without the cap, in 120 characters.
+  const lagOf=async answer=>{const laid=await camera(),track=cap=>buildShotCameraTracks({shots:[{...laid,camera:{...laid.camera,followCam:{...laid.camera.followCam,maxDollySpeed:cap}}}],subjectTrack:Array.from({length:48},()=>({x:0,z:0})),fps:24}).map(sample=>sample.s);
+   const cap=laid.camera.followCam.maxDollySpeed,held=track(cap),free=track(Infinity),gaps=free.map((s,i)=>s-held[i]),worst=Math.max(...gaps);
+   return {cap,worst,text:`Dolly cap ${cap} m/s, rail asks ${answer.summary.match(/\(([\d.]+) m\/s\)/)[1]}: rail alone, the cap holds the dolly ${worst.toFixed(1)} m back at frame ${gaps.indexOf(worst)}, ${gaps.at(-1).toFixed(1)} m at the end.`};};
+  const worldBound=await lagOf(fast);assert.equal(worldBound.cap,40);assert.equal(worldBound.worst,0,JSON.stringify(worldBound));
+  assert.deepEqual(fast.warnings??[],[],JSON.stringify(fast));
+  const setCap=async followCam=>{const stored=f.scope.shotsDomain.read()[0],next={...stored,camera:updateCameraBlock(stored.camera,{followCam})};f.scope.setShots([next]);f.live.current.shots=[next];};
+  await setCap({maxDollySpeed:2.5});
+  const lagged=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:4,z:4},{x:10,z:9}]}),userCap=await lagOf(lagged);
+  assert.equal(userCap.cap,2.5,'a re-laid rail keeps the cap someone set');assert.ok(userCap.worst>10,JSON.stringify(userCap));
+  assert.deepEqual(lagged.warnings,[{code:'RAIL_TOO_FAST',id:shot.id,message:userCap.text}],JSON.stringify(lagged));assert.ok(userCap.text.length<=120);
+  // Under the cap nothing is held back and nothing is said; a rail that opens nearest its subject has no lag to state without the subject: the two speeds only.
+  assert.deepEqual((await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-2,z:4},{x:2,z:4}]})).warnings??[],[]);
+  await setCap({railStartMode:'nearest'});
+  assert.deepEqual((await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-10,z:4},{x:10,z:4}]})).warnings,[{code:'RAIL_TOO_FAST',id:shot.id,message:'Dolly cap 2.5 m/s, rail asks 10.00 m/s.'}]);
+  await setCap({railStartMode:'head',maxDollySpeed:40});
   const ghost=await run('shot.setCameraRail',{shotId:shot.id,points:[{x:-2,z:4},{x:2,z:4}],aim:['actor-ghost']});
   assert.equal(ghost.ok,false);assert.equal(ghost.code,'STALE_TARGET',JSON.stringify(ghost));
   // frame_shot answers what it measured; on a rail shot it says the rail stopped driving it.
@@ -1085,10 +1101,10 @@ const implementations={
  async 'mid-gesture-target'(f){f.scope.ikBodyDragRef.current=true;const r=await f.call('arrange_objects',f.request('arrange_objects',createArgs));assert.equal(r.code,'TARGET_BUSY');assert.equal(f.store.current.depths().past,0);},
  async 'lost-acknowledgement'(f){const request=f.request('arrange_objects',createArgs);const r=await f.call('arrange_objects',request);assert(r.ok);const replay=await f.call('reconcile_studio_command',{host:f.host(),commandId:request.commandId});assert.equal(replay.status,'applied');assert.deepEqual(replay.receipt,r);assert.deepEqual(await f.call('arrange_objects',request),r);assert.equal(f.store.current.depths().past,1);assert.equal((await f.call('reconcile_studio_command',{host:f.host(),commandId:'unknown'})).status,'unknown');},
  async 'camera-undo'(f){const before=f.actual.snapshotStudioDomain('shot');const r=await f.call('frame_shot',f.request('frame_shot',{subjectIds:['actor-a'],keyAtFrame:0,framing:{exact:{position:{x:0,y:1.6,z:5},lookAt:{x:0,y:1,z:0},focalMm:35}}}));assert.equal(r.ok,true,JSON.stringify(r));assert.equal(f.live.current.shots[0].cameraKeys.length,1);assert.equal(f.scope.shotsDomain.documentStore.depths().past,1);assert.equal(f.history.current.past.length,0);assert(f.actual.stepStudioHistory(false));assert.deepEqual(f.live.current.shots,before.shots);assert.deepEqual(f.scope.shotCamRef.current.position.toArray(),Object.values(before.camera.position));assert(Math.abs(f.scope.shotCamRef.current.fov-focalMmToFov(before.camera.focalMm,'fullFrame',16/9)*180/Math.PI)<1e-9);},
- async 'still-frame-shot-camera-key'(f){
+ async 'held-shot-camera-key'(f){
   const keyA={pos:{x:0,y:1.6,z:5},yaw:0,pitch:0,fovDeg:40}, keyB={pos:{x:0.5,y:1.6,z:3},yaw:0,pitch:0,fovDeg:40};
-  const first={...createShot('Still A',0,23,[{frame:0,framing:keyA}]),kind:'still'};
-  const second={...createShot('Still B',24,47,[{frame:24,framing:keyB}]),kind:'still'};
+  const first=createShot('Held A',0,23,[{frame:0,framing:keyA}]);
+  const second=createShot('Held B',24,47,[{frame:24,framing:keyB}]);
   f.scope.setShots([first,second]);f.live.current.shots=[first,second];
   const beforeFirst=structuredClone(f.live.current.shots[0].cameraKeys[0]), beforeSecond=structuredClone(f.live.current.shots[1].cameraKeys[0]);
   const r=await f.call('frame_shot',f.request('frame_shot',{shotId:first.id,subjectIds:['actor-a'],framing:{exact:{position:{x:2,y:2,z:4},lookAt:{x:0,y:1,z:0},focalMm:35}}}));
@@ -1100,10 +1116,10 @@ const implementations={
   // #863: the retained key's receipt delta is its shot readback, never a removal marker.
   const keyDelta=r.delta.find(row=>row.id===afterFirst.id);
   assert(keyDelta,JSON.stringify(r.delta));assert.deepEqual(keyDelta.after,{shotId:first.id,frame:0});
-  console.log(`STILL FRAME SHOT CAMERA KEY first=${JSON.stringify(afterFirst.framing.pos)} previous=${JSON.stringify(afterSecond.framing.pos)} keyIdPreserved=true untouched=true`);
+  console.log(`HELD SHOT CAMERA KEY first=${JSON.stringify(afterFirst.framing.pos)} previous=${JSON.stringify(afterSecond.framing.pos)} keyIdPreserved=true untouched=true`);
  },
  async 'clip-frame-shot-camera-key'(f){
-  const first={...createShot('Clip',0,23,[{id:'camera-key-clip-0',frame:0,framing:{pos:{x:0,y:1.6,z:5},yaw:0,pitch:0,fovDeg:40}}]),kind:'clip'};
+  const first={...createShot('Clip',0,23,[{id:'camera-key-clip-0',frame:0,framing:{pos:{x:0,y:1.6,z:5},yaw:0,pitch:0,fovDeg:40}}])};
   f.scope.setShots([first]);f.live.current.shots=[first];
   const before=f.live.current.shots[0].cameraKeys[0];
   const r=await f.call('frame_shot',f.request('frame_shot',{shotId:first.id,subjectIds:['actor-a'],keyAtFrame:12,framing:{exact:{position:{x:2,y:2,z:4},lookAt:{x:0,y:1,z:0},focalMm:35}}}));

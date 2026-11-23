@@ -469,10 +469,9 @@ cclay live patch --target stage --set '{"keyLight.intensity":2.4,"keyLight.warmt
 That one receipt is one Cmd+Z in the editor: `undo --receipt receipt-mu9p1c2-7`
 and the key light goes back exactly where it was.
 
-A registry tool that does not apply to the project or to its target answers a
-structured refusal instead of acting: `NOT_IN_MODE` for an animation-only tool
-in a Storyboard project, `TARGET_NOT_READY` for motion or a take on a capsule
-figure (`model: "proxy-figure"`). Branch on `code`; `reason` is the sentence to
+A registry tool that does not apply to its target answers a structured refusal
+instead of acting: `TARGET_NOT_READY` for motion or a take on a capsule figure
+(`model: "proxy-figure"`). Branch on `code`; `reason` is the sentence to
 show. Here a capsule figure is cast and asked to move:
 
 ```sh
@@ -842,9 +841,13 @@ The other motion actions (`motion.qa`, `motion.sample`, `motion.describe`,
   motion owner mounted; otherwise `motion.compile`, `motion.qa`,
   `motion.sample` and `motion.keyObject` are refused as unavailable with
   "The motion owner is not mounted."
-- a rigged character at scale 1 (X Bot, Y Bot, or an imported character whose
-  rig adapted); a capsule figure, an imported body with an incomplete
-  skeleton, or any other scale answers `TARGET_NOT_READY` with the reason.
+- a rigged character (X Bot, Y Bot, or an imported character whose rig
+  adapted); a capsule figure or an imported body with an incomplete skeleton
+  answers `TARGET_NOT_READY` with the reason. The actions that compile
+  (`motion.compile`, `motion.qa`, `motion.report` by character,
+  `motion.keyObject`) also need the character at scale 1 and answer
+  `TARGET_NOT_READY` at any other; `motion.sample` reads the take's bones at
+  the character's place, turn and scale, whatever they are.
 - `motion.qa`, `motion.sample` and `motion.keyObject` need a compiled take on
   the character; compile first.
 

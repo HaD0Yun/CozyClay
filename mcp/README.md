@@ -72,7 +72,7 @@ generated frame matches the blocking instead of drifting off into a generic shot
 | `capture_frame` | a compressed live render with camera-plane, visibility and occlusion assertions |
 | `set_camera` | move the lens / change focal length directly |
 | `frame_shot` | frame by intent — size, view, level, side |
-| `add_character` / `place_character` / `remove_character` | the cast (`add_character { model: "proxy-figure", posture: "stand" \| "sit" \| "lie" }` adds a rigless capsule figure) |
+| `add_character` / `place_character` / `remove_character` | the cast: a new rig character is the rig figure (`x-bot-tpose`; an older `y-bot-tpose` is added as one), drawn in the Studio as the cube figure, or as the block figure when the Studio is started with `COZYCLAY_FIGURE=block`; `add_character { model: "proxy-figure", posture: "stand" \| "sit" \| "lie" }` adds a rigless capsule figure |
 | `focus_character` | choose who the camera frames |
 | `place_object` / `update_object` / `remove_object` | the set — `place_object` also accepts `name` and `parent`, so multi-part assets like "Building A" land as one named assembly |
 | `import_mesh` | load a local GLB, OBJ or FBX from a filesystem path as a mesh prop (live editor required); optional floor position, yaw, standing height, clay |
@@ -128,30 +128,24 @@ frame on the rig, answers the QA groups, and installs the take; `motion.sample` 
 `motion.qa` read it back. The spec format and the loop are in
 [`../docs/motion3-agent-guide.md`](../docs/motion3-agent-guide.md).
 
-## Storyboard projects and capsule figures
+This is the old motion engine, which MCP and `cclay live` keep. The Studio's own Agent panel makes
+body motion with its `motion` tool instead (a second model writes the motion, a deterministic
+engine builds it; see [`../INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). A
+compile is made for the body the character stands as: its scale times the figure look's body (the
+cube figure, the default, is 0.943 of the rig at scale 1).
+
+## Capsule figures
 
 The tool list is fixed when the server starts, so it is the same 27 tools in every project. A
-tool that does not apply to the project or to its target answers a structured refusal instead
-of acting; nothing is sent to the editor and nothing changes. The refusal is the tool's only
-text content, with `isError: true`:
-
-```json
-{ "ok": false, "code": "NOT_IN_MODE", "reason": "This project is a Storyboard - mark_camera_move is available in Animation projects." }
-```
+tool that does not apply to its target answers a structured refusal instead of acting; nothing
+changes. The refusal is the tool's only text content, with `isError: true`:
 
 | code | when | tools |
 | --- | --- | --- |
-| `NOT_IN_MODE` | the project's `previsMode` is `storyboard` | `mark_camera_move` |
 | `TARGET_NOT_READY` | the target character is a capsule figure (`model: "proxy-figure"`) | `studio_run` motion, take, IK and pose actions |
 
-`describe_scene` reports `previsMode: storyboard` or `previsMode: animation` (the connected
-editor's project; `open_project` sets it without one) and marks each cast member
-`kind: rig` or `kind: proxy`, with a capsule figure's `posture`.
-
-A **storyboard project** is a sequence of still shots: one picture per panel, held for a
-number of frames, with a caption. Block it with the camera, cast and set tools, and run the
-still-shot commands (`shot.createStill`, `shot.setCaption`, `shot.setHold`, ...) through
-`studio_run`. Motion and named camera moves belong to Animation projects.
+`describe_scene` marks each cast member `kind: rig` or `kind: proxy`, with a capsule figure's
+`posture`.
 
 A **capsule figure** is a rigless stand-in for blocking: `add_character { subject, model:
 "proxy-figure", posture: "sit" }`. It places, turns and frames like any cast member and holds a
@@ -159,7 +153,7 @@ posture (`stand`, `sit` or `lie`), but it has no skeleton, so motion and takes a
 `TARGET_NOT_READY` and the reason, for example `<name> is a proxy-figure body, which motion
 compile cannot drive; use an X Bot or Y Bot character.` for `motion.compile`. The editor refuses its own IK, pose, physics,
 collision and line-edit commands on a capsule figure with the same code when they arrive
-through `studio_run`. Use a rigged model for anything that moves a body.
+through `studio_run`. Use a rig character for anything that moves a body.
 
 ## Round-trips with the studio
 

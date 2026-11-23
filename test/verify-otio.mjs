@@ -127,20 +127,6 @@ const shots = [{
 	});
 }
 
-{
-	// Two stills held 48 and 24 frames end to end: each is a clip as long as its hold.
-	const scene = { ...baseScene, blocking: [] };
-	const stills = [
-		{ id: "still-1", name: "Panel 1", kind: "still", caption: "She enters", startFrame: 0, endFrame: 47, camera: { mode: "keys" }, cameraKeys: [{ frame: 0, framing: framing(0, 35) }] },
-		{ id: "still-2", name: "Panel 2", kind: "still", caption: "", startFrame: 48, endFrame: 71, camera: { mode: "keys" }, cameraKeys: [{ frame: 48, framing: framing(1, 50) }] },
-	];
-	const items = shotsToOtio(scene, stills).tracks.children[0].children;
-	assert.deepEqual(items.map((item) => item.OTIO_SCHEMA), ["Clip.1", "Clip.1"], "end-to-end stills leave no gaps");
-	assert.deepEqual(items.map((item) => item.source_range.duration.value), [48, 24], "still clip durations equal their holds");
-	assert.deepEqual(items.map((item) => [item.metadata.cozyclay.kind, item.metadata.cozyclay.hold, item.metadata.cozyclay.caption]), [["still", 48, "She enters"], ["still", 24, ""]]);
-	console.log("PASS OTIO stills: holds 48/24 -> clip durations 48/24");
-}
-
 assert.throws(
 	() => shotsToOtio(baseScene, [{ ...shots[0], startFrame: 20 }, { ...shots[1], startFrame: 30 }]),
 	/overlaps/,

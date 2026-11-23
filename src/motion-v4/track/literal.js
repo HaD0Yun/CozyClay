@@ -2,6 +2,7 @@
 // compileSpec and runCompileJob never run, so no flow, auto, fixes, retime, repair or thinning can touch it.
 //   rawOut           the `out` QA, measure and render read: takeOut plus empty diag/c and the tracked records moved
 //   placedTake       the take v3 the editor plays for a character at its placement (bakeTake's frame, take.js)
+//   rawCompile       what verify_result and frame_shot read of an installed raw take in place of a spec compile
 //   compileRawSource the reload hook: a saved source whose spec carries `raw` back into the installed take
 // Browser-safe: the editor loads it through install-action.js and take-source.js.
 import { takeOut, trackPose } from "../../motion3/physics-frames.js";
@@ -18,7 +19,7 @@ const outs = new WeakMap();
 function movedBoxes(scene, groups, tracks, f) {
 	const out = {};
 	for (const [id, o] of Object.entries(scene.objects)) {
-		const mover = [id, ...(o.ancestors ?? [])].find(k => tracks[k]);
+		const mover = [id, ...(o.ancestors ?? [])].find(k => tracks[k]?.pos); // a vis-only track moves nothing
 		const pose = mover ? trackPose(tracks[mover], f) : null, rest = mover ? scene.objects[mover] ?? groups[mover] : null;
 		out[id] = pose && rest ? { ...o, ...compose(pose, relative(rest, o)) } : o;
 	}
@@ -54,19 +55,32 @@ export function rawOut(raw, records = []) {
  */
 export function placedTake(raw, placement = { position: [0, 0, 0], yaw: 0 }, meta = {}) {
 	const F = raw.frameCount, B = raw.bones.length, h = raw.bones.indexOf("Hips"), yaw = placement.yaw ?? 0, at = placement.position ?? [0, 0, 0];
+	// a track of a body of another scale (codec.js) is in units of that body: so is the placement it is taken from
+	const s = raw.scale ?? 1, origin = s === 1 ? at : at.map(v => (v ?? 0) / s);
 	const unYaw = ry(-yaw), rot = new Float32Array(raw.rot), hips = new Float32Array(F * 3);
 	for (let f = 0; f < F; f++) {
 		const i = (f * B + h) * 4, p = [raw.hips[f * 3], raw.hips[f * 3 + 1], raw.hips[f * 3 + 2]];
 		// at yaw 0 the world rotation is the local one: keep its bytes
 		if (yaw !== 0) rot.set(quatFromMat(mul(unYaw, matFromQuat([raw.rot[i], raw.rot[i + 1], raw.rot[i + 2], raw.rot[i + 3]]))), i);
-		hips.set(apply(unYaw, sub(p, at)), f * 3);
+		hips.set(apply(unYaw, sub(p, origin)), f * 3);
 	}
 	const objects = {};
 	for (const [id, track] of Object.entries(raw.objects ?? {})) {
-		objects[id] = { pos: new Float32Array(track.pos), quat: new Float32Array(track.quat), world: new Uint8Array(F).fill(1) };
+		objects[id] = { ...(track.pos ? { pos: new Float32Array(track.pos), quat: new Float32Array(track.quat), world: new Uint8Array(F).fill(1) } : {}), ...(track.vis ? { vis: new Uint8Array(track.vis) } : {}) };
 	}
 	return { schema: TAKE_SCHEMA, fps: raw.fps ?? 24, frameCount: F, rig: raw.rig, bones: raw.bones.slice(), rot, hips, objects,
-		placement: { position: [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0], yaw }, ...meta };
+		placement: { position: [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0], yaw }, ...(s === 1 ? {} : { scale: s }), ...meta };
+}
+
+/**
+ * What a reader of an installed take gets from a lenient compile of its spec ({ out, timeline, qa, expanded }), for a take
+ * whose spec carries `raw`: the track itself (rawOut over the Studio records), since that spec holds no keys to compile.
+ * out is in the world of take.placement. null for any other take.
+ */
+export function rawCompile(take, records = []) {
+	const sk = take?.spec?.raw ? skeletonFor(take.rig) : null;
+	const out = sk ? rawOut(decodeRawTrack(take.spec.raw, sk), records) : null;
+	return out && { out, timeline: [], qa: { groups: [] }, expanded: out.ctx.spec };
 }
 
 /** A saved take source whose spec carries `raw` -> the installed take (with `frames`), as compileTakeSource answers. */

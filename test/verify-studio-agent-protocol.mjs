@@ -8,7 +8,6 @@ import * as protocol from "../src/studio-agent-protocol.js";
 import * as contextTools from "../src/studio-agent-context.js";
 import { STUDIO_ELEMENTS } from "../src/studio-elements.js";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
-import { PREVIS_MODES } from "../src/project.js";
 import { POSTURES } from "../src/scenes.js";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 import { validateToolArguments } from "@earendil-works/pi-ai";
@@ -127,9 +126,9 @@ function registerTests() {
 	test("D3 bogus typed object op, unknown nested fields and later variants cannot pass", () => {
 		for (const args of [{ ops: [{ op: "bogus" }] }, { ops: [] }, { ops: [createOp()], document: {} }, { ops: [{ ...createOp(), source: { imageId: "image-1", placeAs: "cutout" } }] }, { ops: [{ op: "attach", id: "a", characterId: "b", bone: null }] }, { ops: [{ ...createOp(), position: { world: { ...point(), password: "private" } } }] }, { ops: [{ op: "update", id: "a" }] }]) rejects(() => protocol.validateStudioCommand({ name: "arrange_objects", args }));
 	});
-	test("#637 context carries previsMode, character kind and storyboard capability, all optional", () => {
+	test("#637 context carries character kind; an older editor's previsMode and storyboard capability stay optional", () => {
 		const bare = contextFixture();
-		assert.deepEqual(protocol.StudioSchemas.StudioContextV1.properties.scene.properties.previsMode.enum, [...PREVIS_MODES], "protocol mirrors PREVIS_MODES");
+		assert.deepEqual(protocol.StudioSchemas.StudioContextV1.properties.scene.properties.previsMode.enum, ["storyboard", "animation"], "an older editor's previsMode still validates");
 		assert.deepEqual(protocol.StudioSchemas.Entity.properties.posture.enum, [...POSTURES], "protocol mirrors POSTURES");
 		assert.equal(protocol.validateStudioContext(bare).scene.previsMode, undefined, "a context without previsMode still validates");
 		const value = contextFixture();
@@ -223,13 +222,12 @@ function registerTests() {
 		assert.doesNotMatch(prompt, /Grouping carries position only/);
 	});
 	test("#742 the Studio prompt carries the previs procedure and keeps the protocol rules", async () => {
-		const { STUDIO_SYSTEM_PROMPT: prompt, STUDIO_SYSTEM_PROMPT_STORYBOARD: storyboard } = await import("../bin/agent/studio-prompt.mjs");
+		const { STUDIO_SYSTEM_PROMPT: prompt } = await import("../bin/agent/studio-prompt.mjs");
 		assert.match(prompt, /Previs procedure/);
 		assert.match(prompt, /180/);
 		assert.match(prompt, /axisConsistent/);
 		assert.ok(prompt.includes("On STALE_SCENE, the admission is already refreshed: adapt the operation to the listed changes and resubmit; inspect_studio only ids not listed"));
 		assert.ok(prompt.indexOf("Previs procedure") > prompt.indexOf("Ask concise questions only when"), "appended after the existing rules");
-		assert.doesNotMatch(storyboard, /Previs procedure/);
 	});
 	test("D3 patch_elements schema is derived from the element declaration table", () => {
 		assert.equal(protocol.STUDIO_TOOL_FAMILIES.length, 3);
@@ -245,7 +243,7 @@ function registerTests() {
 		assert.deepEqual(derived.stage.properties.spotlight, { type: "number", minimum: -2, maximum: 7 });
 		assert.equal(protocol.STUDIO_PATCH_SET_SCHEMAS.stage.properties.spotlight, undefined);
 		assert.equal(derived.character.properties.tint.pattern, "^#[0-9a-fA-F]{6}$");
-		assert.deepEqual(derived.character.properties.model.enum, ["y-bot-tpose", "x-bot-tpose", "proxy-figure"]);
+		assert.deepEqual(derived.character.properties.model.enum, ["x-bot-tpose", "proxy-figure"]);
 		assert.deepEqual(derived.character.properties.posture.enum, ["stand", "sit", "lie"]);
 		assert.equal(derived.character.properties.scale.minimum, 0.2);
 		assert.equal(derived.character.properties.scale.maximum, 3);
@@ -369,6 +367,30 @@ function registerTests() {
 		assert.ok(result.entities.every(e=>!e.name || [...e.name].length <= 120)); protocol.validateStudioContext(result);
 		const stale = structuredClone(result); stale.entities = stale.entities.filter(e=>e.id!=="char-alex"); stale.entityPage.returned--;
 		rejects(()=>protocol.validateStudioContext(stale));
+	});
+	test("D4 a selection that names nothing in the scene is no selection; a missing target is named", () => {
+		const base = contextFixture(), prop = { id: "object-001", kind: "object", name: "Crate", token: "t-1", position: { x: 1, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } };
+		// the selected thing was removed (an object, an attached object, a character, a rig): no selection, no refusal
+		for (const selection of [{ kind: "object", id: "object-gone" }, { kind: "character", id: "char-gone" }, { kind: "rig", id: "char-gone" }]) {
+			const c = structuredClone(base); c.selection = selection;
+			const result = contextTools.buildStudioContext(c);
+			assert.equal(result.selection, null, `${selection.kind} ${selection.id}`); protocol.validateStudioContext(result);
+		}
+		// the same selection with its object in the scene (not removed, or brought back by an undo) stays, and leads the detail
+		const kept = structuredClone(base); kept.entities.push(prop); kept.scene.objectCount = 1; kept.selection = { kind: "object", id: prop.id };
+		const selected = contextTools.buildStudioContext(kept);
+		assert.deepEqual(selected.selection, { kind: "object", id: prop.id }); assert.equal(selected.entities[0].id, prop.id);
+		// a selection that is not an entity (the camera, the scene) is untouched
+		for (const selection of [{ kind: "camera", id: "camera" }, { kind: "scene", id: base.host.sceneId }]) {
+			const c = structuredClone(base); c.selection = selection;
+			assert.deepEqual(contextTools.buildStudioContext(c).selection, selection);
+		}
+		// what is still mandatory and missing is refused by its id
+		const lost = structuredClone(base); lost.selection = null; lost.entities = lost.entities.filter(e => e.id !== lost.activeCharacterId);
+		assert.throws(() => contextTools.buildStudioContext(lost), error => error.code === "TARGET_NOT_READY" && error.message === `Mandatory target ${base.activeCharacterId} is not in the scene.`);
+		const subject = structuredClone(base); subject.shot = { id: "shot-1", name: "Current", range: { startFrame: 0, endFrameExclusive: 144 }, mode: "keys", subjectIds: ["object-gone"] };
+		subject.shots = [{ id: "shot-1", name: "Current", range: subject.shot.range, keyCount: 0 }];
+		assert.throws(() => contextTools.buildStudioContext(subject), error => error.code === "TARGET_NOT_READY" && error.message.includes("object-gone"));
 	});
 	test("D4 context indexes every entity (cap 400) beside at most 24 detailed ones", () => {
 		const c = contextFixture();

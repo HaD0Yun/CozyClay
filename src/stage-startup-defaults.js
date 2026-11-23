@@ -57,9 +57,16 @@ export const ASSET_DELETE_UNDO_MS = 7000;
 export const CLAY = "#ffffff";
 export const CLAY_B = "#ffffff";
 export const CLAY_X = "#ffffff";
+// Muted clay colours for untinted block figures after the first, so people in
+// one scene can be told apart without anyone picking a colour.
+const CAST_COLOURS = ["#8fa8c2", "#a9bf98", "#c79aa6", "#c9b7a4"];
+/** The colour a block figure (rig x-bot-tpose) is drawn in when it has no tint of
+ * its own: none for the first in the cast (the blockout grey, as before), else one
+ * of CAST_COLOURS by its place in the cast. Never saved into the entry. */
+export const defaultCharacterColour = (entry, index) => (entry.model === "x-bot-tpose" && index > 0 ? CAST_COLOURS[(index - 1) % CAST_COLOURS.length] : null);
 // Model/role default for a cast member; a user-picked entry.tint always wins
 // over this at render time.
-export const defaultCharacterTint = (entry, index) => (entry.model === "x-bot-tpose" ? CLAY_X : index === 0 ? CLAY : CLAY_B);
+export const defaultCharacterTint = (entry, index) => defaultCharacterColour(entry, index) ?? (entry.model === "x-bot-tpose" ? CLAY_X : index === 0 ? CLAY : CLAY_B);
 
 /**
  * The first editor view should read like a blocking desk, not a security

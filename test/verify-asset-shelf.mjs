@@ -6,7 +6,6 @@ import { LOG_LIMIT, logStore } from "../src/shell/log-store.js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
-import { CHARACTER_KIND_IDS } from "../src/scenes.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -154,8 +153,9 @@ finally { await server.close(); }
 const characterTiles = (query) => [...renderToStaticMarkup(createElement(pane.FolderGrid, { folder: "characters", query }))
 	.matchAll(/data-asset-key="character:([^"]+)"/g)].map((match) => match[1]);
 const listed = characterTiles("");
-expect("the Characters folder lists three tiles", listed.length === 3, listed.join(", "));
-expect("the Characters folder offers every character kind", JSON.stringify(listed) === JSON.stringify(CHARACTER_KIND_IDS), listed.join(", "));
+expect("the Characters folder lists two tiles", listed.length === 2, listed.join(", "));
+expect("the Characters folder offers the block figure and the capsule figure", JSON.stringify(listed) === JSON.stringify(["x-bot-tpose", "proxy-figure"]), listed.join(", "));
+expect("the rig tile is labelled with the default look, Cube figure", pane.CHARACTER_ASSETS.find((asset) => asset.id === "x-bot-tpose")?.label === "Cube figure");
 expect("the capsule figure tile is labelled", pane.CHARACTER_ASSETS.find((asset) => asset.id === "proxy-figure")?.label === "Capsule figure");
 expect("the capsule tile draws an SVG silhouette, not an FBX thumbnail",
 	renderToStaticMarkup(createElement(pane.FolderGrid, { folder: "characters", query: "capsule" })).includes('data-preview="proxy-figure"'));

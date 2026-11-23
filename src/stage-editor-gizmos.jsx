@@ -4,7 +4,7 @@ import { Line, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { craneHeightAt, prepareRailBend, railPoint } from "./camera-follow.js";
-import { floorDragStart } from "./rail-dot-drag.js";
+import { floorDragStart } from "./rail-dot-drag.js"; import { railTurnAt } from "./camera-rail-head.js";
 import { insertPathMark, MARK_GAP, MAX_PATH_LEAN, MAX_PATH_MARKS, MAX_PATH_POINTS, nearestPathFraction, pathCurve, pathMarkFractions, pathMarks, pathPointAtFraction } from "./object-path.js";
 
 /**
@@ -279,7 +279,7 @@ const CRANE_GIZMO_SCALE = 0.16; // metres of gizmo per metre of camera distance
  * A floating readout beside a drag — billboarded, sized to the screen, on
  * GIZMO_LAYER so it is editor furniture the recording never sees.
  */
-function GizmoLabel({ position, text, camRef }) {
+export function GizmoLabel({ position, text, camRef }) {
 	const ref = useRef(null);
 	useFrame(() => {
 		const cam = camRef?.current;
@@ -853,7 +853,9 @@ export function ObjectPathHandles({ path, selectedIndex, enabled, mode = "move",
 	);
 }
 
-export function CraneHandles({ rail, crane, controlPoints, selectedIndex, enabled, paneRef, camRef, onSelect, onChangePoints, onChangeRail, onDragStart, onDragEnd }) {
+// Under the rotate tool (mode "rotate") the selected mark shows no move arrows: its pan and tilt rings
+// (crane-turn-rings.jsx) turn the camera there instead.
+export function CraneHandles({ rail, crane, controlPoints, selectedIndex, enabled, mode = "move", paneRef, camRef, onSelect, onChangePoints, onChangeRail, onDragStart, onDragEnd }) {
 	const { gl } = useThree();
 	const invalidate = useThree((state) => state.invalidate);
 	const groupRef = useRef(null);
@@ -1065,7 +1067,7 @@ export function CraneHandles({ rail, crane, controlPoints, selectedIndex, enable
 			if (s.crane.points.some((entry) => Math.abs(entry.t - best.t) < 0.03)) return;
 			event.stopImmediatePropagation();
 			event.preventDefault();
-			const added = [...s.crane.points, { t: best.t, height: craneHeightAt(s.crane, best.t) }].sort((a, b) => a.t - b.t);
+			const added = [...s.crane.points, { t: best.t, height: craneHeightAt(s.crane, best.t), ...railTurnAt(s.crane, best.t) }].sort((a, b) => a.t - b.t);
 			s.onChangePoints(added);
 			s.onSelect(added.findIndex((entry) => entry.t === best.t));
 			invalidate();
@@ -1103,7 +1105,7 @@ export function CraneHandles({ rail, crane, controlPoints, selectedIndex, enable
 	const selectedBase = selectedPoint ? railPoint(rail, selectedPoint.t * rail.length) : null;
 	return (
 		<group ref={groupRef}>
-			{selectedPoint && (
+			{selectedPoint && mode !== "rotate" && (
 				<group ref={gizmoRef} position={[selectedBase.x, selectedPoint.height, selectedBase.z]} renderOrder={999}>
 					{CRANE_AXES.map(({ axis, dir, color }) => {
 						const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);

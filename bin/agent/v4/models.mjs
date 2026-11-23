@@ -3,6 +3,8 @@
 // "v4pi/claude-opus-5-5" runs the same tools and prompt on CozyClay's pi loop (pi-turn.mjs).
 // The route sends each key to its engine and every other key to the old engine.
 
+import { motionEngine } from "../motion-engine.mjs";
+
 export const V4_MODEL_KEY = "v4/claude-opus-5-5";
 export const V4_PI_MODEL_KEY = "v4pi/claude-opus-5-5";
 
@@ -18,9 +20,10 @@ const V4_PI_MODEL = { id: "claude-opus-5-5", key: V4_PI_MODEL_KEY, label: "Opus 
 /**
  * The model key a motion task runs on (bin/agent/motion-tasks.mjs): the v4 pi-loop key, while CLIProxyAPI is signed in
  * and lists Opus 5.5. null otherwise, or with COZYCLAY_MOTION_TASKS=off: task mode then runs as it did before v4.
+ * null under the lowvis engine (bin/agent/motion-engine.mjs): there a task makes motion with its motion tool.
  */
 export function motionTaskModel(listing, env = process.env) {
-	if (env?.COZYCLAY_MOTION_TASKS === "off") return null;
+	if (env?.COZYCLAY_MOTION_TASKS === "off" || motionEngine(env) !== "old") return null;
 	const cliproxy = Array.isArray(listing?.providers) ? listing.providers.find(provider => provider?.id === "cliproxy") : null;
 	return cliproxy?.signedIn && cliproxy.models?.some(model => model?.id === V4_PI_MODEL.id) ? V4_PI_MODEL_KEY : null;
 }

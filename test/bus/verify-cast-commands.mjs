@@ -98,6 +98,19 @@ test('cast: every patchable path matches patch_elements normalization and field 
   }
 });
 
+test('cast: a new rig character is the block figure; a saved Y Bot row keeps its body', () => {
+  const f = castFixture();
+  try {
+    owned(f);
+    ok(f.run('character.add', { character: { id: 'asked-y', model: 'y-bot-tpose' } }, 'agent'));
+    assert.equal(f.cast.read().find(row => row.id === 'asked-y').model, 'x-bot-tpose', 'an add asking for Y Bot is given the block figure');
+    ok(f.run('character.add', { character: { id: 'no-model' } }, 'agent'));
+    assert.equal(f.cast.read().find(row => row.id === 'no-model').model, 'x-bot-tpose');
+    assert.equal(f.run('character.add', { character: { id: 'unknown', model: 'nope' } }, 'agent').ok, false, 'an unknown body is refused, not turned into a Y Bot');
+    assert.equal(f.cast.read().find(row => row.id === 'actor-a').model, 'y-bot-tpose', 'a saved Y Bot row keeps its body');
+  } finally { f.dispose(); }
+});
+
 test('cast: a character groups only under an object that is in the scene (#655)', () => {
   const f = castFixture();
   try {
@@ -119,10 +132,7 @@ test('cast: a pose with a bone outside POSE_BONES is refused and leaves the cast
     assert.match(refused.message, /mixamorigRightArm.*rArm/);
     assert.equal(f.run('character.set', { id: 'actor-a', set: { pose: { id: 'probe', bones: { __probe__: [0, 0, 0] } } } }, 'agent').code, 'INVALID_ARGUMENT');
     assert.deepEqual(f.cast.read(), before);
-    const library = structuredClone(f.cast.state().customPoses);
-    assert.equal(f.run('cast.savePose', { pose: { id: 'bad', bones: { mixamorigRightArm: [0, 0, 1] } } }).code, 'INVALID_ARGUMENT');
-    assert.equal(f.run('cast.setCustomPoses', { poses: [...library, { id: 'bad', bones: { __probe__: [0, 0, 0] } }] }).code, 'INVALID_ARGUMENT');
-    assert.deepEqual(f.cast.state().customPoses, library, 'no malformed entry reaches the pose library');
+    for (const id of ['cast.savePose', 'cast.setCustomPoses', 'cast.removePose']) assert.equal(f.run(id, {}).ok, false, `${id} is gone`);
     ok(f.run('character.setPose', { characterId: 'actor-a', pose: { id: 'probe', bones: { rArm: [0, 0, 1] } } }, 'agent'));
   } finally { f.dispose(); }
 });

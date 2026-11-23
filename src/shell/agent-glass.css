@@ -334,8 +334,7 @@
 	color: var(--on-select);
 }
 .app[data-shell="glass"] .studio-agent-inspector .agent-send[disabled] { background: var(--chip-fill); color: var(--text-3); opacity: 1; }
-.app[data-shell="glass"] .studio-agent-inspector .agent-send.stop,
-.app[data-shell="glass"] .studio-agent-inspector .agent-send.agent-steer {
+.app[data-shell="glass"] .studio-agent-inspector .agent-send.stop {
 	width: auto;
 	padding: 0 12px;
 	font: 600 11.5px var(--sans);

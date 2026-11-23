@@ -1,41 +1,28 @@
 import Foldout from "./Foldout.jsx";
 import { ko } from "../locale.js";
-import { CHARACTER_MODEL_IDS, isProxyFigure } from "../scenes.js";
-import { PoseThumbPreview } from "../posestudio.jsx";
-import { DEFAULT_POSE } from "../poses.js";
-import { CHARACTER_MODEL_LABELS } from "../app-stage.jsx";
+import { NEW_CHARACTER_MODEL, isProxyFigure } from "../scenes.js";
+import { FIGURE_LABEL } from "../character-name.js";
 import { useBus } from '../app-context.js';
 import { isImportedCharacter } from "../character-rig.js";
 import ImportedRigPanel from "./ImportedRigPanel.jsx";
 
+// Every new character is the rig figure (the X Bot skeleton, drawn in the Studio's figure look), so an X Bot row has
+// nothing to pick here. A Y Bot row from an older project gets one button that changes it to that figure.
 export default function RigPanel({ isCharacterSelection, activeChar }) {
 	const { run } = useBus();
 	if (isProxyFigure(activeChar)) return null;
 	if (isImportedCharacter(activeChar)) return <ImportedRigPanel isCharacterSelection={isCharacterSelection} activeChar={activeChar} />;
+	if (activeChar.model === NEW_CHARACTER_MODEL) return null;
 	return (
 <Foldout hidden={!isCharacterSelection} defaultOpen={false} title={ko("Rig", "리그")}>
-					{/* The rig is a property of the character, and swapping it is a
-					    look decision made while blocking — so it belongs beside the
-					    subject, not buried in the project file. */}
-					<div className="rig-picker v2-details-rig-picker" role="radiogroup" aria-label={ko("Character rig", "인물 리그")}>
-						{CHARACTER_MODEL_IDS.map((id) => (
-							<button
-								type="button"
-								key={id}
-								role="radio"
-								aria-checked={activeChar.model === id}
-								className={"rig-option" + (activeChar.model === id ? " active" : "")}
-								data-rig-id={id}
-								onClick={() => {
-									if (activeChar.model === id) return;
-									run('character.update', { characterId: activeChar.id, patch: { model: id } });
-								}}
-							>
-								<PoseThumbPreview model={id} pose={activeChar.pose ?? DEFAULT_POSE} alt={CHARACTER_MODEL_LABELS[id]} />
-								<span>{CHARACTER_MODEL_LABELS[id]}</span>
-							</button>
-						))}
-					</div>
+					<button
+						type="button"
+						className="btn full"
+						data-rig-change={NEW_CHARACTER_MODEL}
+						onClick={() => run('character.update', { characterId: activeChar.id, patch: { model: NEW_CHARACTER_MODEL } })}
+					>
+						{ko(`Change to ${FIGURE_LABEL.toLowerCase()}`, `${FIGURE_LABEL}으로 바꾸기`, `改为${FIGURE_LABEL}`)}
+					</button>
 				</Foldout>
 	);
 }

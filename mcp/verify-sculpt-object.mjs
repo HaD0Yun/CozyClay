@@ -30,7 +30,7 @@ assert.equal(made.isError, undefined, made.content[0].text);
 assert.match(made.content[0].text, /^Sculpted Nerd turtle as sculpt: [\d.]+ x [\d.]+ m, 0\.\d+ m tall\./);
 assert.match((await describe.handler({})).content[0].text, /sculpt {2}Nerd turtle {2}at x 1, y 0, z -1 {2}yaw 20deg/);
 
-const refused = await sculpt.handler({ recipe: { parts: [{ id: "head", shape: "blob", size: [0.4, 40, 0.4] }] } });
+const refused = await sculpt.handler({ recipe: { parts: [{ id: "head", shape: "blob", size: [0.4, 400, 0.4] }] } });
 assert.equal(refused.isError, true);
 assert.match(refused.content[0].text, /^Recipe refused at parts\[head\]\.size\[1\]/);
 

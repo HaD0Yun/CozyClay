@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStudioPlaybackFrame, useStudioShell } from "./studio-shell-context.js";
 import ShotPreviewHeader from "./ShotPreviewHeader.jsx";
+import RailIcon from "./RailIcon.jsx"; import FlySpeedPill from "./FlySpeedPill.jsx";
 import { ko } from "../locale.js";
 import { PRESETS, SHOT_ASPECT_PRESETS } from "../app-stage.jsx";
 import { CAMERA_PRESETS } from "../camera-move.js";
@@ -21,45 +22,9 @@ const MODES = [
 	{ id: "pose", key: "2", label: ko("Pose", "포즈") },
 	{ id: "camera", key: "3", label: ko("Camera", "카메라") },
 	{ id: "motion", key: "4", label: ko("Motion", "모션") },
-	// #739: an isolated turntable for one sculpt. Every previs mode has it.
+	// #739: an isolated turntable for one sculpt.
 	{ id: "sculpt", key: "5", label: ko("Sculpt", "조형") },
 ];
-// A storyboard project has no Motion department: its pill reads 1 2 3 5.
-const modesFor = (previsMode) => (previsMode === "storyboard" ? MODES.filter((mode) => mode.id !== "motion") : MODES);
-
-// #570 line icons (16px, 1.3 stroke) for the floating rails.
-const ICON = {
-	scene: "M8 2 13.25 5v6L8 14 2.75 11V5z M2.75 5 8 8l5.25-3 M8 8v6",
-	pose: "M8 2.25a1.5 1.5 0 1 1 0 3 1.5 1.5 0 1 1 0-3z M5 7.25h6 M8 7.25v3.5 M6.25 13.75 8 10.75l1.75 3",
-	camera: "M2 5.75A1.5 1.5 0 0 1 3.5 4.25h6A1.5 1.5 0 0 1 11 5.75v4.5a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 2 10.25z M11 7l3-1.5v5L11 9",
-	motion: "M1.75 9.5c1.5 0 2-4 3.25-4s1.75 5 3 5 1.75-5 3-5 1.75 4 3.25 4",
-	sculpt: "M3.75 11.75c0-3.25 1.9-5.5 4.25-5.5s4.25 2.25 4.25 5.5z M2 11.75h12 M5.25 14h5.5 M10 2.25 8.5 5.25",
-	front: "M8 2.5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 1 1 0-3.5z M4.5 13.5v-2.75a3.5 3.5 0 0 1 7 0v2.75",
-	side: "M7.25 2.5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 1 1 0-3.5z M9 4.25h1.5 M6 13.5v-2.75a2.5 2.5 0 0 1 4.5-1.5",
-	back: "M8 2.5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 1 1 0-3.5z M4.5 13.5v-2.75a3.5 3.5 0 0 1 7 0v2.75 M8 9v4.5",
-	move: "M8 2v12 M2 8h12 M6.25 3.75 8 2l1.75 1.75 M6.25 12.25 8 14l1.75-1.75 M3.75 6.25 2 8l1.75 1.75 M12.25 6.25 14 8l-1.75 1.75",
-	rotate: "M13.25 8A5.25 5.25 0 1 1 11.7 4.3 M13.25 2.5v2.75H10.5",
-	scale: "M2.5 8.5v4a1 1 0 0 0 1 1h4 M8.5 2.5h5v5 M13.5 2.5 7.5 8.5",
-	ik: "M2.5 13.5 6.5 9l3 2.2 4-7.7 M6.5 9h.01 M9.5 11.2h.01",
-	pin: "M8 14.5v-4 M5 2h6 M6.2 2v3.6L4.5 10.5h7L9.8 5.6V2",
-	blocks: "M2 3.5h7.5v3.5H2z M6.5 9h7.5v3.5H6.5z",
-	refine: "M10.5 2.5l3 3L6 13H3v-3z",
-	plus: "M8 3.25v9.5 M3.25 8h9.5",
-	grid: "M2.5 5.75h11 M2.5 10.25h11 M5.75 2.5v11 M10.25 2.5v11",
-	angle: "M2.5 13.5h11 M2.5 13.5 11 5 M7 13.5a4.5 4.5 0 0 0-1.3-3.2",
-	view: "M2.75 5 8 2.5 13.25 5v6L8 13.5 2.75 11z M8 8v5.5 M2.75 5 8 8l5.25-3",
-	shading: "M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 1 1 0-11z M4.5 5.5a4 4 0 0 1 3-1.5",
-	show: "M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z M8 6.25a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 1 1 0-3.5z",
-	speed: "M2.5 11a5.5 5.5 0 1 1 11 0 M8 11l2.5-3",
-};
-
-function RailIcon({ name, size = 16 }) {
-	return (
-		<svg className="vp-icon" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-			<path d={ICON[name]} />
-		</svg>
-	);
-}
 
 // The gizmo's snap increments (TRANSLATE_SNAP / ROTATE_SNAP in
 // src/scene-objects.js). They are fixed, so the value group names them.
@@ -70,8 +35,6 @@ const FOV_MIN = 14, FOV_MAX = 90;
 
 // "+ Add › Character" stands the new body one metre along X per existing
 // character, inside the same stage clamp the Content drag applies.
-
-const trimNumber = (value, digits = 2) => String(Number(value.toFixed(digits)));
 
 /** One open overlay menu at a time; outside pointerdown or Escape closes it. */
 function useOverlayMenu() {
@@ -116,11 +79,11 @@ export default function ViewportToolbar() {
 		setSnapEnabled, preset, applyPreset, cameraPresetId,
 		runStudioAction, shotAspectKey, fovDeg, shotsDomain, shot: sceneShot, shots, activeShot,
 		setNonce, workspaceLayout, viewMenuTriggerRef, viewMenuOpen,
-		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode,
+		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode, toonLook, setToonLook,
 		autoColor, setAutoColor, isCharacterSelection, partColoursChoice, embedMode,
-		agentCollapsed, addSceneObject, flySpeed, frameAll, setAxisView,
+		agentCollapsed, addSceneObject, flySpeed, setFlySpeed, frameAll, setAxisView,
 		ikEditTool, setIkEditTool, motion, setRangePinPartPick,
-		previsMode, sculptView, requestSculptView, sculptParts,
+		sculptView, requestSculptView, sculptParts,
 		cameraReadoutAt,
 	} = useStudioShell();
 	const menu = useOverlayMenu(), viewportTools = useViewportTools(), shot = cameraReadoutAt(useStudioPlaybackFrame()).shot ?? sceneShot;
@@ -251,7 +214,7 @@ export default function ViewportToolbar() {
 		<div className="viewport-titlebar" data-testid="viewport-overlays">
 			<div className="vp-mode-toolbar" role="toolbar" data-testid="mode-toolbar" aria-label={ko("Mode and tools", "모드와 도구")}>
 				<div className="vp-mode-keys" role="tablist" aria-label={ko("Mode", "모드", "模式")}>
-					{modesFor(previsMode).map((mode) => {
+					{MODES.map((mode) => {
 						const active = workflowMode === mode.id;
 						const refused = mode.id === "pose" ? poseRefusal : null;
 						return (
@@ -476,6 +439,11 @@ export default function ViewportToolbar() {
 									<span className="view-menu-mark" aria-hidden="true">{gridView ? "✓" : ""}</span>
 									{ko("Reference grid", "기준 그리드")}
 								</button>
+								<button type="button" role="menuitemcheckbox" className={"view-menu-item toon-look-switch" + (toonLook ? " active" : "")} aria-checked={toonLook} aria-pressed={toonLook}
+									title={ko("Flat two-tone shading with black lines, in the viewport and in every capture and export", "검은 선과 2단 명암의 평평한 그림 — 뷰포트와 모든 캡처·내보내기에 적용")} onClick={() => setToonLook((v) => !v)}>
+									<span className="view-menu-mark" aria-hidden="true">{toonLook ? "✓" : ""}</span>
+									{ko("Toon look", "툰 룩")}
+								</button>
 								<button
 									type="button"
 									role="menuitemcheckbox"
@@ -561,14 +529,7 @@ export default function ViewportToolbar() {
 					</div>
 				</div>
 				<span className="vp-rail-divider" aria-hidden="true" />
-				<span
-					className="vp-pill vp-speed"
-					data-testid="fly-speed"
-					title={ko("Fly speed — scroll while right-dragging to change it", "비행 속도 — 오른쪽 드래그 중 스크롤로 조절")}
-				>
-					<RailIcon name="speed" size={14} />
-					<span className="vp-speed-value">{trimNumber(flySpeed, 1)}×</span>
-				</span>
+				<FlySpeedPill flySpeed={flySpeed} setFlySpeed={setFlySpeed} />
 			</div></div>
 
 			<ShotPreviewHeader name={activeShot?.name ?? ko("Shot", "샷")} lens={`${shot.focalMm}mm`} />

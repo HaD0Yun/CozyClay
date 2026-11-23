@@ -500,7 +500,7 @@ try {
 	const castAdded = castReceipt(await call("add_character", { subject: "Bus performer", model: "y-bot-tpose", x: 2, z: -1 }), "character.add");
 	const castId = castAdded.affectedIds.find(id => !JSON.parse(castBefore).characters.some(row => row.id === id));
 	const afterCastAdd = await description();
-	assert.equal(JSON.parse(afterCastAdd).characters.find(row => row.id === castId).model, "y-bot-tpose");
+	assert.equal(JSON.parse(afterCastAdd).characters.find(row => row.id === castId).model, "x-bot-tpose", "an older caller's y-bot-tpose becomes the block figure");
 	const castMoved = castReceipt(await call("place_character", { character: "B", x: 3, y: 0.5, facing: 90, hidden: true }), "character.update");
 	const movedActor = JSON.parse(await description()).characters.find(row => row.id === castId);
 	assert.deepEqual([movedActor.x, movedActor.y, movedActor.rot, movedActor.hidden], [3, 0.5, 90, true]);

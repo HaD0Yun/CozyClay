@@ -1,6 +1,10 @@
 // The encoded raw track (cozyclay.raw-track.v1): a RawTrack (a world-frame take v3, store.js) as JSON, its numbers
 // as little-endian Float32 bytes in base64. The track store sends it to the editor (motion.v4.install), and the
 // document keeps it at motionTake.spec.raw, so save, reload and the bench export read the same bytes.
+// scale (optional, 1 when left out): the track is of a body of that scale. It holds the unit skeleton's motion: the
+// world joints are scale times the skeleton's (the hips are the world hips divided by it); object tracks stay world.
+// An object track is { pos, quat } (Float32), with vis (one byte per frame, 1 shown, 0 hidden: object-travel.js
+// trackShown) when the take shows or hides the object, or { vis } alone for an object it only shows or hides.
 // Browser-safe: no Buffer and no node:* import, so the editor bundle can load it.
 const SCHEMA = "cozyclay.raw-track.v1";
 const TAKE_SCHEMA = "cozyclay.take.v3";
@@ -69,9 +73,9 @@ function decodeFloats(text, count, what) {
 /** RawTrack -> EncodedRawTrack (design 2.6). */
 export function encodeRawTrack(raw) {
 	const objects = {};
-	for (const [id, track] of Object.entries(raw.objects ?? {})) objects[id] = { pos: encodeFloats(track.pos), quat: encodeFloats(track.quat) };
+	for (const [id, track] of Object.entries(raw.objects ?? {})) objects[id] = { ...(track.pos ? { pos: encodeFloats(track.pos), quat: encodeFloats(track.quat) } : {}), ...(track.vis ? { vis: toBase64(Uint8Array.from(track.vis)) } : {}) };
 	return { schema: SCHEMA, rig: raw.rig, fps: FPS, frames: raw.frameCount, bones: raw.bones.slice(),
-		rot: encodeFloats(raw.rot), hips: encodeFloats(raw.hips), objects };
+		rot: encodeFloats(raw.rot), hips: encodeFloats(raw.hips), objects, ...((raw.scale ?? 1) === 1 ? {} : { scale: raw.scale }) };
 }
 
 /** EncodedRawTrack on skeleton sk -> RawTrack; throws RAW_TRACK_INVALID: <reason> when it does not fit sk. */
@@ -83,11 +87,14 @@ export function decodeRawTrack(encoded, sk) {
 	if (!Number.isSafeInteger(F) || F < 1) invalid("frames must be a positive integer");
 	if (!Array.isArray(encoded.bones) || encoded.bones.length !== B || encoded.bones.some((name, i) => name !== sk.names[i])) invalid(`bones must be the ${B} ${sk.model} bones in rig order`);
 	if (encoded.objects !== undefined && !plain(encoded.objects)) invalid("objects must be an object");
+	if (encoded.scale !== undefined && !(Number.isFinite(encoded.scale) && encoded.scale > 0)) invalid("scale must be a number over 0");
 	const rot = decodeFloats(encoded.rot, F * B * 4, "rot"), hips = decodeFloats(encoded.hips, F * 3, "hips"), objects = {};
 	for (const [id, track] of Object.entries(encoded.objects ?? {})) {
-		if (!plain(track)) invalid(`objects.${id} must be { pos, quat }`);
-		objects[id] = { pos: decodeFloats(track.pos, F * 3, `objects.${id}.pos`), quat: decodeFloats(track.quat, F * 4, `objects.${id}.quat`) };
+		if (!plain(track) || (track.vis === undefined && track.pos === undefined)) invalid(`objects.${id} must be { pos, quat, vis? } or { vis }`);
+		const vis = track.vis === undefined ? null : fromBase64(track.vis, `objects.${id}.vis`);
+		if (vis && (vis.length !== F || vis.some(v => v > 1))) invalid(`objects.${id}.vis must be ${F} bytes of 0 or 1`);
+		objects[id] = { ...(track.pos === undefined && vis ? {} : { pos: decodeFloats(track.pos, F * 3, `objects.${id}.pos`), quat: decodeFloats(track.quat, F * 4, `objects.${id}.quat`) }), ...(vis ? { vis } : {}) };
 	}
 	return { schema: TAKE_SCHEMA, fps: FPS, frameCount: F, rig: sk.model, bones: sk.names.slice(), rot, hips, objects,
-		placement: { position: [0, 0, 0], yaw: 0 }, spec: { schema: SPEC_SCHEMA, fps: FPS, frames: F } };
+		placement: { position: [0, 0, 0], yaw: 0 }, spec: { schema: SPEC_SCHEMA, fps: FPS, frames: F }, ...((encoded.scale ?? 1) === 1 ? {} : { scale: encoded.scale }) };
 }

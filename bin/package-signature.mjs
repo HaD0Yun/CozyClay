@@ -28,7 +28,10 @@ const CONTENT_ROOTS = [
 function ignored(relativePath) {
 	return relativePath === "dist/cozyclay-package.json"
 		|| (/^dist\/media\/[^/]+\.mp4$/i.test(relativePath))
-		|| /^tools\/qa-[^/]+\.mjs$/i.test(relativePath);
+		|| /^tools\/qa-[^/]+\.mjs$/i.test(relativePath)
+		// the lowvis development files package.json#files leaves out
+		|| /^(tools\/lowvis|src\/lowvis\/engine-m3|src\/lowvis\/engine-simple\/demos)(\/|$)/.test(relativePath)
+		|| /^src\/lowvis\/(kick-cc-free|viewer\/main)\.js$/.test(relativePath);
 }
 
 function collectFiles(path, packageRoot, output) {

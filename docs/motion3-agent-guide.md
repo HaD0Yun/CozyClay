@@ -1,5 +1,14 @@
 # Motion in CozyClay 3: how the agent authors it
 
+> **This is the old motion engine's guide.** Since 3.3.0 the Studio's Agent panel makes body motion
+> with the `motion` tool: a second model, the motion writer, writes the motion and a deterministic
+> engine builds it (see [`INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). This guide
+> still holds for `motion.compile` through MCP (`studio_run`) and `cclay live`, and for the Agent
+> panel when the Studio is started with `COZYCLAY_MOTION_ENGINE=old`. A compile is made for the body
+> the character stands as: its scale times the figure look's body (the cube figure, the default, is
+> 0.943 of the rig at scale 1; `COZYCLAY_MOTION_ENGINE=old` draws the block figure, the rig's own
+> body). New characters are X Bot rigs; the Y Bot is no longer offered.
+
 The agent writes a **motion spec**. The deterministic compiler bakes every frame on the real rig (X Bot or Y Bot), fixes small mechanical errors itself, and QA measures the result. Every QA issue group says what caused it and what to change. The agent edits the spec and compiles again until QA reports nothing. A 730-frame scene compiles in about 150 ms and QA takes about 80 ms, so iterate freely, normally inside one `script` call.
 
 `motion.compile` thins redundant free-span keys by default. The receipt reports `output.thinned {removed, kept, before, after}`. Use `thin: false` to keep every authored key when the spec is generated per frame.
@@ -126,7 +135,7 @@ Example: walking off past an open door. `turnDistance: { range: [0.2, 2.0] }` fo
 - `aswing` + swings the arm forward; `abend` + bends the elbow.
 - `wtwist`/`wflex` are clamped to ±85 and ±70. A mirrored pose negates them.
 - A hinge angle turns about its axis by the right-hand rule: about `[0, 1, 0]`, + turns +Z toward +X.
-- `root` is the hips joint. Standing hips height is about 1.03 m on the X Bot and 0.99 m on the Y Bot (an adapted rig: its `report.measured.hipsHeightM`). **`foot_*` is the ankle**: it stands 0.087 m (X Bot) or 0.105 m (Y Bot) above the floor, not 0 (an adapted rig: `ankleHeightM`).
+- `root` is the hips joint. Standing hips height is about 1.03 m on the X Bot and 0.99 m on the Y Bot (an adapted rig: its `report.measured.hipsHeightM`). **`foot_*` is the ankle**: it stands 0.087 m (X Bot) or 0.105 m (Y Bot) above the floor, not 0 (an adapted rig: `ankleHeightM`). These are the rig's own body: a character stands as its scale times its figure look's body, so an X Bot at scale 1 under the default cube figure (0.943 of the rig) has its hips at about 0.97 m and its ankles at 0.082 m. `inspect_studio` gives each rig character's `standingHeightM`; skills and named poses (`pose: "stand"`) fit themselves to that body, hand-keyed heights are yours to scale.
 - Anchor names must not end in `_l` or `_r`: the side goes on the weight channel (`w_handle_l`).
 
 The compiler validates the spec strictly and lists every problem with an exact message, one per line, e.g. `keys[3] (f32) sets unknown channel "fpitch_left"; did you mean "fpitch_l"?` or `keys[6] (f54) knee_l = [0,0,-1] points backward; knees bend toward +z.` Unknown channels, wrong vector arity, frames out of range, `fps` other than 24, unknown anchors, bones, objects, fields and skills are all refused.

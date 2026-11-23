@@ -352,7 +352,7 @@ try {
 	assert.equal(reopened.project.scenesDocument.scenes[0].name, "CLI");
 	assert.deepEqual(reopened.project.scenesDocument.scenes[0].stage.authoringCamera, { x: 0, y: 1.6, z: 4.5, focalMm: 35 });
 	assert.equal(reopened.project.workspaceLayout, null);
-	assert.deepEqual(reopened.project.customPoses, []);
+	assert.equal("customPoses" in reopened.project, false, "a project file carries no pose library");
 	const refusedSave = await run(["save", "--out", projectPath]);
 	assert.equal(refusedSave.code, 1);
 	assert.equal(only(refusedSave).error.code, "FILE_EXISTS");
@@ -362,12 +362,11 @@ try {
 	assert.equal(readProjectDocument(readFileSync(projectPath, "utf8")).ok, true);
 	assert.equal((await run(["save"])).code, 2);
 	assert.equal((await run(["save", "--out", join(scratch, "bad.json")])).code, 2);
-	const richer = { ...describeValue(), name: "Full project", previsMode: "storyboard", workspaceLayout: { panels: [] }, customPoses: [{ id: "pose-a", name: "Pose A", bones: {} }] };
+	const richer = { ...describeValue(), name: "Full project", workspaceLayout: { panels: [] } };
 	const richProject = readProjectDocument(serializeSavedProject(richer));
 	assert.equal(richProject.ok, true);
-	assert.equal(richProject.project.previsMode, "storyboard");
+	assert.equal(richProject.project.wasStoryboard, undefined);
 	assert.deepEqual(richProject.project.workspaceLayout, richer.workspaceLayout);
-	assert.deepEqual(richProject.project.customPoses, richer.customPoses);
 	// Installed CLI files have neither .git nor scene-model dependencies. They
 	// must use the existing staged runtime, without launching another hub.
 	const installed = join(scratch, "installed");

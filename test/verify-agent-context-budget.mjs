@@ -14,8 +14,10 @@ import { motionReference } from "../bin/agent/studio-motion-reference.mjs";
 import { STUDIO_SYSTEM_PROMPT } from "../bin/agent/studio-prompt.mjs";
 import { contextFixture } from "./verify-studio-agent-protocol.mjs";
 
+process.env.COZYCLAY_MOTION_ENGINE = "old"; // the system prompt it measures carries the old engine's motion reference
+
 const actionIndex = studioActionIndex([
-	{ id: "shot.createStill", label: "New still" },
+	{ id: "shot.split", label: "Split shot" },
 	{ id: "character.add", label: "Add character" },
 	{ id: "motion.generate", label: "Generate motion", timeoutMs: 300000 },
 ]);

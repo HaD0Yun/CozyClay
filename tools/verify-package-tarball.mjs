@@ -37,6 +37,10 @@ function missingImports(packedRoot) {
 	return missing;
 }
 
+// The lowvis development files stay in the repository and out of the package: package.json#files leaves the source
+// ones out (bin/package-signature.mjs ignores the same paths) and tools/prune-dist.mjs takes the clips out of dist/.
+const DEVELOPMENT_ONLY = ["tools/lowvis", "src/lowvis/engine-m3", "src/lowvis/engine-simple/demos", "src/lowvis/kick-cc-free.js", "src/lowvis/viewer/main.js", "dist/lowvis"];
+
 // The npm package is the one build that ships the Auto Pose model (git and the hosted site do not). A release
 // without it, or with another file under its name, must not go out: check the bytes against src/poser/config.js.
 async function verifyPoserModel(packedRoot) {
@@ -84,6 +88,9 @@ try {
 	const missing = missingImports(packedRoot);
 	if (missing.length > 0) throw new Error(`npm tarball is missing modules its bin/ and mcp/ code imports:\n  ${missing.join("\n  ")}`);
 	console.log("package tarball imports PASS (every relative import in bin/ and mcp/ resolves inside the tarball)");
+	const shipped = DEVELOPMENT_ONLY.filter((path) => existsSync(join(packedRoot, path)));
+	if (shipped.length > 0) throw new Error(`npm tarball carries development-only files: ${shipped.join(", ")} (package.json#files, tools/prune-dist.mjs)`);
+	console.log("package tarball development files PASS (no lowvis bench, sheet, demo or clip is in the tarball)");
 	if (!importsOnly) await verifyPoserModel(packedRoot);
 	if (!importsOnly) await verifySignature(packedRoot);
 } finally {

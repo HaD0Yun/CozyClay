@@ -5,6 +5,8 @@ import { fitAspect } from "./shot-frame.js";
 import { updateVisibleViewOffsets } from "./viewport-visible-rect.js";
 import { applyCameraOptics } from "./camera-optics.js";
 import { useViewportTools } from "./viewport-tools.js";
+import { createViewFinish } from "./stage-finish-view.jsx";
+import { applyPlanView } from "./plan-navigation.js";
 
 /**
  * Two live viewports out of one scene.
@@ -34,8 +36,6 @@ export const SHOT_ASPECT = 16 / 9;
 export const LETTERBOX = new THREE.Color("#1e1e1e");
 // The light theme's bars take the light panel tone, not a black slab.
 export const LETTERBOX_LIGHT = new THREE.Color("#dcdde1");
-/** half-height of the plan frustum, in metres — covers the full camera throw */
-export const PLAN_EXTENT = 12.4;
 
 const EDGE_VERTEX = `
 	varying vec2 vUv;
@@ -186,12 +186,10 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 		return { target, normalMaterial, material, passScene, passCamera };
 	}, []);
 
-	useEffect(() => () => {
-		edgePass.target.dispose();
-		edgePass.normalMaterial.dispose();
-		edgePass.material.dispose();
-		edgePass.passScene.children[0].geometry.dispose();
-	}, [edgePass]);
+	useEffect(() => () => { edgePass.target.dispose(); edgePass.normalMaterial.dispose(); edgePass.material.dispose(); edgePass.passScene.children[0].geometry.dispose(); }, [edgePass]);
+	// The finish (stage-finish-view.jsx): with a look on, a perspective pane draws the set through it instead of the ink pass.
+	const viewFinish = useMemo(() => createViewFinish(), []);
+	useEffect(() => viewFinish.dispose, [viewFinish]);
 
 	// Layer masks are set once. The shot camera must never pick up the plan
 	// overlay, or exported frames would carry pucks across the floor.
@@ -319,9 +317,11 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 			gl.clear(true, true, false);
 			const img = imageRect ?? pane;
 			const imgY = size.height - (img.y + img.h);
+			const targetWidth = Math.max(1, Math.round(img.w * gl.getPixelRatio()));
+			const targetHeight = Math.max(1, Math.round(img.h * gl.getPixelRatio()));
+			const look = !camera.isOrthographicCamera && scene.userData.finishLook;
+			if (look) { gl.setScissor(img.x, imgY, img.w, img.h); gl.setViewport(img.x, imgY, img.w, img.h); viewFinish.draw(gl, scene, camera, look, targetWidth, targetHeight); return; }
 			if (ink) {
-				const targetWidth = Math.max(1, Math.round(img.w * gl.getPixelRatio()));
-				const targetHeight = Math.max(1, Math.round(img.h * gl.getPixelRatio()));
 				edgePass.target.setSize(targetWidth, targetHeight);
 				edgePass.material.uniforms.texel.value.set(1 / targetWidth, 1 / targetHeight);
 				gl.setRenderTarget(edgePass.target);
@@ -429,13 +429,9 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 		// as a 3/4 view rather than a plan.
 		if (planCam.isOrthographicCamera) {
 			// planZoom is the Top-View's camera height: larger zoom = smaller
-			// extent = the pucks draw bigger.
-			const extent = PLAN_EXTENT / Math.max(0.25, planZoom);
-			const a = planPane.w / planPane.h;
-			planCam.top = extent;
-			planCam.bottom = -extent;
-			planCam.left = -extent * a;
-			planCam.right = extent * a;
+			// extent = the pucks draw bigger. The board's pan and zoom ride on
+			// the camera (plan-navigation.js); without them it is the stage centre.
+			applyPlanView(planCam, planCam.userData.planView ?? { x: 0, z: 0, zoom: planZoom }, planPane.w / planPane.h);
 		} else {
 			planCam.aspect = planPane.w / planPane.h;
 		}

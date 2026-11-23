@@ -5,7 +5,7 @@
 export const EXPORT_FAILURE_CODES = new Set(["unsupported_codec", "encode_failed", "render_failed", "aborted", "unknown"]);
 const COUNT_BUCKETS = new Set(["0", "1-3", "4-10", "gte11"]);
 const EXPORT_PROPERTY_VALUES = Object.freeze({
-	export_kind: new Set(["video", "depth_video", "frame", "keyframe_pack", "workflow_send", "animation_project", "contact_sheet", "panel_pack", "animatic", "storyboard", "render_pass", "otio", "ai_reference"]),
+	export_kind: new Set(["video", "depth_video", "frame", "keyframe_pack", "workflow_send", "storyboard", "render_pass", "otio", "ai_reference"]),
 	format: new Set(["mp4", "png", "zip", "cclayproject", "otio"]),
 	surface: new Set(["studio", "workflow", "embed"]),
 	duration_bucket: new Set(["lt1s", "1-3s", "3-10s", "10-30s", "gte30s"]),

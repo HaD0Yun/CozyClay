@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
 import { createAgentRunner } from "../bin/agent/agent-runner.mjs";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
+import { withTurnControls } from "./fixtures/turn-controls.mjs";
 
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-agent-steer-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
@@ -78,7 +79,7 @@ async function startServer(options) {
 	let steerStatus = null, steerBody = null;
 	const events = await readSseEvents(response, async (event) => {
 		if (event.type !== "tool.start" || steerStatus !== null) return;
-		const steerResponse = await fetch(`${origin}/agent/turn/${turnId}/steer`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ text: "actually, stop and summarize" }) });
+		const steerResponse = await fetch(`${origin}/agent/turn/${turnId}/steer`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ text: "actually, stop and summarize", id: "queued-row-1" }) });
 		steerStatus = steerResponse.status;
 		steerBody = await steerResponse.json();
 		slow.resolve();
@@ -86,6 +87,7 @@ async function startServer(options) {
 	expect("the steer request is accepted while the tool is still running", steerStatus === 200, `status ${steerStatus}`);
 	expect("the steer response acknowledges the queued message", steerBody?.ok === true && steerBody?.queued === true, JSON.stringify(steerBody));
 	expect("the turn completes", events.some((event) => event.type === "done"));
+	expect("the turn's stream names the steer it put in front of the model by the id it was sent with", events.some((event) => event.type === "steer.received" && event.id === "queued-row-1"), JSON.stringify(events.map((event) => event.type)));
 	expect("exactly one tool ran before the turn ended", events.filter((event) => event.type === "tool.start").length === 1);
 	assert.equal(fauxMain.calls.length, 2, "the tool result triggers exactly one further model call");
 	const secondContext = fauxMain.calls[1];
@@ -133,7 +135,7 @@ async function startServer(options) {
 	const slow = deferred();
 	const fauxStudio = createFakeModel();
 	fauxStudio.script([{ type: "toolCall", id: "s1", name: "inspect_studio", arguments: { scope: "scene" } }, "acknowledged"]);
-	const fakeLive = { command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } };
+	const fakeLive = withTurnControls({ command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } });
 	const studioRuntime = { readContext: async () => contextFixture() };
 	const { server, origin } = await startServer({ codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: fauxStudio.models, fauxProvider: fauxStudio.fauxProvider, liveHub: fakeLive, studioRuntime });
 	const envelope = envelopeFixture();
@@ -172,7 +174,7 @@ async function startServer(options) {
 	let now = 1_000_000;
 	const fauxStudio = createFakeModel();
 	fauxStudio.script([{ type: "toolCall", id: "p1", name: "inspect_studio", arguments: { scope: "scene" } }, "other session done", "long turn done"]);
-	const fakeLive = { command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } };
+	const fakeLive = withTurnControls({ command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } });
 	const { server, origin } = await startServer({ codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: fauxStudio.models, fauxProvider: fauxStudio.fauxProvider, liveHub: fakeLive, studioRuntime: { readContext: async () => contextFixture() }, clock: () => now });
 	const envelope = envelopeFixture(), other = { ...envelopeFixture(), sessionId: "00000000-0000-4000-8000-000000000003", turnId: "00000000-0000-4000-8000-000000000004", text: "another session" };
 	const post = (body) => fetch(`${origin}/agent/turn`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body) });

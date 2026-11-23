@@ -3,11 +3,10 @@
 // what changed; failed checks go to the model as its next message (a stage change also gets the shot frame): it repairs, or says why not.
 // Repeats after a repair, at most MAX_REVIEWS times a turn. BlenderGym (CVPR 2025): compute spent on verification is what moves 3D editing.
 import { layerOf } from "../../src/bus-task-scopes.js";
+import { findingItems, findingLines, itemKey } from "./review-findings.mjs";
 
 const MAX_REVIEWS = 3;
-// Estimates, not calibrated: a picture this share clipped or crushed is worth a look.
-const LIGHT_PCT = 10;
-const MAX_TARGETS = 32, QA_GROUPS = 5, LOOK_KIND = /"kind":"(?:point-light|spot-light|effect)"/;
+const MAX_TARGETS = 32, LOOK_KIND = /"kind":"(?:point-light|spot-light|directional-light|effect)"/;
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const changed = r => Number.isSafeInteger(r?.revision?.after) && r.revision.after !== r.revision.before;
 
@@ -33,21 +32,16 @@ export function turnEdits(frames) {
 	return { edited, ids: [...ids].slice(0, MAX_TARGETS), motionIds: [...motionIds], stage };
 }
 
-/** Failing numbers out of what the editor measured, one line each. Nothing that passed is listed. */
-export function reviewFindings({ placement, framing, motion = [], lighting, owned = null } = {}) {
-	// owned (a task's ids): a finding about none of them is another task's to fix, and is dropped
-	const mine = ids => (!owned || ids.some(id => owned.has(id)) ? ids : []);
-	const lines = [], p = placement?.checks?.placement ?? placement?.checks, f = framing?.checks?.framing, overlap = mine(p?.overlapIds ?? []), floating = (p?.unsupportedIds ?? []).filter(id => !owned || owned.has(id));
-	if (overlap.length) lines.push(`placement: footprints overlap for ${overlap.join(", ")} (deepest ${p.maximumFootprintOverlapM ?? "?"} m)`);
-	if (floating.length) lines.push(`placement: floating over 1 cm: ${floating.join(", ")}`);
-	for (const issue of (f?.issueFrames ?? []).slice(0, 6)) lines.push(`framing: ${issue.codes.join(", ")} at frame ${issue.frame}`);
-	if (!f?.issueFrames && (f?.clipped || f?.occluded || f?.behindCamera)) lines.push(`framing: ${["clipped", "occluded", "behindCamera"].filter(k => f[k]).join(", ")} at the current frame`);
-	for (const { id, qa } of motion) if (qa?.total > 0 && (!owned || owned.has(id))) lines.push(`motion ${id}: QA ${qa.total} frame issues: ${(qa.groups ?? []).slice(0, QA_GROUPS).map(g => `${g.kind} ${g.subject} x${g.count}`).join("; ")}`);
-	const l = lighting?.checks?.lighting;
-	if (l?.clippedPct >= LIGHT_PCT) lines.push(`lighting: ${l.clippedPct}% of the frame clipped`);
-	if (l?.crushedPct >= LIGHT_PCT) lines.push(`lighting: ${l.crushedPct}% of the frame pure black`);
-	return lines;
+/** Failing numbers out of what the editor measured, one line per distinct finding (review-findings.mjs). Nothing that passed is listed. */
+export function reviewFindings(measured = {}) { return findingLines(findingItems(measured)); }
+
+/** The verify_result answers the model got in this run, from its frames: what it was already told, by scene revision. A
+ * receipt's evidence returned after later edits (stale, an older evidenceRevision) measured another revision and is left out. */
+function ownChecks(frames) {
+	const verify = new Set(frames.filter(f => f?.type === "tool.start" && f.name === "verify_result" && !f.review).map(f => f.callId));
+	return frames.filter(f => f?.type === "tool.done" && f.ok === true && verify.has(f.callId) && Number.isSafeInteger(f.result?.revision) && f.result.stale !== true).map(f => f.result);
 }
+const measuredAt = r => (r.stale === true ? null : r.evidenceRevision ?? r.revision);
 
 const imagePart = captured => { const m = /^data:([^;]+);base64,(.*)$/.exec(captured?.dataUrl ?? ""); return m ? { type: "image", data: m[2], mimeType: m[1] } : null; };
 
@@ -56,7 +50,7 @@ const imagePart = captured => { const m = /^data:([^;]+);base64,(.*)$/.exec(capt
 // unfinished request (an undo of the lighting re-added a character and reframed the shot: 7 more minutes of a locked panel).
 export function reviewContent({ findings, relations = [], images = [], revision = null, request = "" }) {
 	const asks = findings.length
-		? `These checks failed:\n${findings.map(line => `- ${line}`).join("\n")}\nRepair what belongs to this request and stop when they pass. If one should stay or you cannot fix it, say why in one line.`
+		? `Measured on the scene after your edits:\n${findings.map(line => `- ${line}`).join("\n")}\nRepair what belongs to this request and stop when these are gone. If one is what the request means or you cannot fix it, say why in one line.`
 		: `The checks that ran passed. Look at the picture: if the light and look do not show what ${request ? "this request" : "was"} asked, fix it${request ? "; an earlier request is not this turn's to finish" : ""}. If they do, do not repeat your answer; finish in one short line.`;
 	const asked = request ? `\nThis turn's request: ${JSON.stringify(request.length > 300 ? `${request.slice(0, 299)}…` : request)}` : "";
 	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}${images.length ? ": the shot camera" : ""}.${asked}\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
@@ -69,7 +63,8 @@ export function reviewContent({ findings, relations = [], images = [], revision 
  */
 export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, scope = null }) {
 	const quiet = async work => { try { return await work(); } catch (error) { console.warn(`[agent] review check skipped: ${error.message}`); return null; } };
-	return async (edits, request = "") => {
+	// told: keys (review-findings.mjs itemKey: the finding with its numbers) an earlier review of this turn sent; own: the model's own verify_result answers.
+	return async (edits, request = "", { told = new Set(), own = [] } = {}) => {
 		const seen = await quiet(() => hub.command("inspect_studio", { scope: "relations" }, workspaceHandle));
 		const owned = scope ? new Set([...scope.map(key => layerOf(key)?.id ?? (key.startsWith("object:") ? key.slice(7) : null)).filter(Boolean), ...edits.ids, ...edits.motionIds]) : null;
 		const characters = (seen?.characters ?? []).map(c => c.id).filter(id => !owned || owned.has(id)), verify = args => quiet(() => invoke("verify_result", args));
@@ -80,11 +75,18 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, s
 		const lighting = edits.stage && characters.length ? await verify({ targets: characters.slice(0, MAX_TARGETS), checks: ["lighting"] }) : null;
 		const motion = [];
 		for (const id of edits.motionIds) { const r = await quiet(() => invoke("run_action", { action: "motion.qa", args: { characterId: id } })); if (r?.output?.qa) motion.push({ id, qa: r.output.qa }); }
-		const findings = reviewFindings({ placement, framing, motion, lighting, owned });
+		// Not told twice: a finding, numbers and frames included, the model's own check of this very scene revision gave it.
+		const revision = seen?.revision?.scene ?? null, items = findingItems({ placement, framing, motion, lighting, owned });
+		const answered = new Set(own.filter(r => revision !== null && measuredAt(r) === revision).flatMap(r => findingItems({ placement: r, framing: r, owned }).map(itemKey)));
+		const open = items.filter(item => !answered.has(itemKey(item))), keys = open.map(itemKey);
+		// A repair that brings back only what an earlier round sent, with the same numbers, made no progress: the loop ends and
+		// the user hears what stays (rule 7). Anything new or changed goes to the model with every failure still open.
+		const back = keys.length > 0 && keys.every(key => told.has(key)), findings = back ? [] : findingLines(open);
+		const left = back ? findingLines(open) : findings.length ? [] : findingLines(items);
 		// #1058: passed checks end the review with no model call (box QA: 5 of 7 such rounds only said "looks fine", one redid an
 		// earlier request). A stage change is the look no check measures, so it alone gets the shot picture; the top view never
-		// led to a repair (0 of 12 rounds) and is not sent.
-		if (!findings.length && !edits.stage) return seen ? { findings, content: null, images: 0 } : null;
+		// led to a repair (0 of 12 rounds) and is not sent. Failures the model already has end it too: nothing new to say.
+		if (!findings.length && (items.length || !edits.stage)) return seen ? { findings, keys, left, back, content: null, images: 0 } : null;
 		// Through verify_result, so the agent panel's progress card shows the user what the model looked at; a bare capture where it has no target.
 		const targets = (edited.length ? edited : characters).slice(0, MAX_TARGETS), images = [];
 		for (const [visual, capture] of findings.length ? [] : [["frame", "capture_framing_png"]]) {
@@ -95,7 +97,7 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, s
 		}
 		if (!seen && !images.length) return null; // the editor went away: nothing to show the model
 		// a task's request is its scope and brief (taskHeader); the main turn's is the user's message
-		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null, request: scope ? "" : String(request ?? "") }), images: images.length };
+		return { findings, keys, left, content: reviewContent({ findings, relations: seen?.relations, images, revision, request: scope ? "" : String(request ?? "") }), images: images.length };
 	};
 }
 
@@ -108,10 +110,43 @@ export async function turnRelations(hub, workspaceHandle) {
 const addUp = (a = {}, b = {}) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(k => [k, typeof a[k] === "number" || typeof b[k] === "number" ? (a[k] ?? 0) + (b[k] ?? 0) : b[k] ?? a[k]]));
 const addDone = (a, b) => (a ? { ...a, ...b, ...(a.usage || b.usage ? { usage: addUp(a.usage, b.usage) } : {}), ...(a.cost !== undefined || b.cost !== undefined ? { cost: (a.cost ?? 0) + (b.cost ?? 0) } : {}) } : b);
 
-/** start, wrapped: the model's runs and the reviews between them read as one run with one done frame. A failed or stopped run is not reviewed. */
-export function reviewedStart({ start, review, signal, now = Date.now }) {
+const ENDED_TASK = new Set(["done", "incomplete", "failed", "cancelled"]);
+/** The edits of a finished request in Tasks mode, once no task of the board is still to run: { edited, ids, motionIds, stage } for one
+ * review of the whole scene, else null. board: the task views (studio-tasks.mjs board()); pending: a Set of the scope keys and ids the
+ * ended tasks and the coordinator changed, emptied when handed over. A cup is "floating" until the table task lands and a body
+ * "overlaps" a stand-in a dress task is about to replace: a half-built scene is not judged. */
+export function settledEdits(board, pending) {
+	if (!pending?.size || board.some(task => !ENDED_TASK.has(task.status))) return null;
+	const keys = [...pending], idOf = key => layerOf(key)?.id ?? key.replace(/^(object|character):/, "");
+	pending.clear();
+	return { edited: true, ids: [...new Set(keys.map(idOf))].slice(0, MAX_TARGETS), motionIds: [...new Set(keys.filter(key => key.startsWith("character:")).map(idOf))], stage: false };
+}
+const settledNote = findings => `\n<scene-review>The tasks of this request are all done. Measured on the finished scene:\n${findings.map(line => `- ${line}`).join("\n")}\nDispatch one repair task for what a task can fix, or tell the user plainly what stays as it is.</scene-review>`;
+
+/**
+ * start, wrapped: the model's runs and the reviews between them read as one run with one done frame. A failed or stopped run is not reviewed.
+ * A plain turn: the review runs when the model stops after editing, and again after each repair, at most MAX_REVIEWS times; a review that
+ * finds only what an earlier round sent, with the same numbers (the repair made no progress, or the model chose to keep them), ends the
+ * loop and tells the user what is left (rule 7); one with anything new or changed sends every open failure again. A failure the model's
+ * own verify_result gave it, with the same numbers for the same scene revision, is not sent; when that leaves nothing, the user hears it.
+ * settled (the coordinator's turn in Tasks mode): { take() -> settledEdits(...) or null, note(ids) }. The finished request is reviewed
+ * once before the coordinator answers and its failures ride in the coordinator's context; the coordinator's own edits join the pending
+ * ones and are reviewed only when no task is still running.
+ */
+const stillFailing = (lines, repaired) => ({ type: "text.delta", text: `\n\nStill failing${repaired ? " after a repair" : ""}, left as it is:\n${lines.map(line => `- ${line}`).join("\n")}` });
+export function reviewedStart({ start, review, signal, now = Date.now, settled = null }) {
 	return async function* (input) {
-		let next = input, done = null;
+		let next = input, done = null, last = null;
+		const said = new Set(), own = []; // the findings the reviews sent, the model's own verify_result answers
+		const finished = settled?.take();
+		if (finished) {
+			const started = now();
+			yield { type: "tool.start", callId: "review-0", name: "verify_result", label: "Check the finished scene", args: { review: 0 }, review: true };
+			let result = null;
+			try { result = await review(finished, ""); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
+			yield { type: "tool.done", callId: "review-0", ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: 0 } } : { error: "The review could not run." }) };
+			if (result?.findings?.length) next = { ...input, contextText: `${input.contextText ?? ""}${settledNote(result.findings)}` };
+		}
 		for (let round = 0; ; round++) {
 			const frames = [];
 			let failed = false;
@@ -121,16 +156,26 @@ export function reviewedStart({ start, review, signal, now = Date.now }) {
 				if (frame.type === "tool.start" || frame.type === "tool.done") frames.push(frame);
 				yield frame;
 			}
-			const edits = turnEdits(frames);
+			let edits = turnEdits(frames);
+			own.push(...ownChecks(frames));
 			if (failed || signal?.aborted || !edits.edited || round >= MAX_REVIEWS) break;
+			if (settled) { settled.note(edits.ids); edits = settled.take(); if (!edits) break; }
 			const callId = `review-${round + 1}`, started = now();
 			// review: true: not the model's own call, so what it wrote before stays its reply (a task's summary, the main agent's claim check)
 			yield { type: "tool.start", callId, name: "verify_result", label: "Check the result", args: { review: round + 1 }, review: true };
 			let result = null;
 			// a stop (the main turn's no-progress guard among them) ends a review that waits on an editor that never answers
-			try { result = await Promise.race([review(edits, input.text), new Promise(resolve => signal?.addEventListener("abort", () => resolve(null), { once: true }))]); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
-			yield { type: "tool.done", callId, ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: result.images } } : { error: "The review could not run." }) };
-			if (!result?.content || signal?.aborted) break;
+			try { result = await Promise.race([review(edits, input.text, { told: said, own }), new Promise(resolve => signal?.addEventListener("abort", () => resolve(null), { once: true }))]); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
+			// the panel card shows what still fails even when nothing of it goes to the model
+			yield { type: "tool.done", callId, ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings.length ? result.findings : result.left ?? [], images: result.images } } : { error: "The review could not run." }) };
+			if (signal?.aborted) break;
+			// no review turn: the same failures came back after a repair, or the model's own check already gave it every one; the user hears what stays (rule 7)
+			if (!result?.content) { if (result?.left?.length) yield stillFailing(result.left, result.back); break; }
+			// the same lines as the round before: kept for a review that does not track what it sent (createTurnReview does, by keys)
+			const key = JSON.stringify(result.findings);
+			if (result.findings.length && key === last) { yield stillFailing(result.findings, true); break; }
+			last = key;
+			for (const told of result.keys ?? []) said.add(told);
 			next = { ...input, text: "", attachments: [], frameObservation: undefined, review: result.content };
 		}
 		if (done) yield done;

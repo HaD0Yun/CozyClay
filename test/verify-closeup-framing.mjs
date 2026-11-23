@@ -3,6 +3,7 @@
 // object's box (and the stand-in's lower body) inside the lens at any size, from the views they name.
 import assert from "node:assert/strict";
 import { CLOSEUP_PANE, closeupCameras, closeupTargets, figureSpot } from "../src/closeup-framing.js";
+import { standingHeight } from "../src/lowvis/studio/figure.js";
 import { matFromQuat, dot, sub } from "../src/motion3/compiler/math.js";
 import { validateStudioCommand } from "../src/studio-agent-protocol.js";
 
@@ -64,6 +65,6 @@ for (const [label, box] of Object.entries(cases)) {
 	assert.ok(side.name === "front" ? level[2] === mid(2) : level[0] === mid(0), `${label}: ${side.name} figure at the box's depth`);
 }
 // a tall thing shows the whole figure, a small one at least its shin
-const tallQuarter = closeupCameras(cases.tall)[0], [, headY] = screen(tallQuarter, [...figureSpot(cases.tall).slice(0, 1), 1.8, figureSpot(cases.tall)[2]]);
+const tallQuarter = closeupCameras(cases.tall)[0], [, headY] = screen(tallQuarter, [...figureSpot(cases.tall).slice(0, 1), standingHeight(), figureSpot(cases.tall)[2]]);
 assert.ok(Math.abs(headY) <= 1, "tall: the figure's head is in frame");
 console.log("closeup framing: ok");

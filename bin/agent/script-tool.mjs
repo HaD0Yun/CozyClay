@@ -11,19 +11,31 @@ const MAX_AFFECTED_IDS = 8;
  * image, and the sandbox, the call summary and the model never carry it. */
 const publicData = value => value === undefined ? null : JSON.parse(JSON.stringify(value, (key, entry) => key === "dataUrl" ? undefined : entry) ?? "null");
 
+// The object sizes a call's receipt states (src/receipt-sizes.js), every entry: a mixed patch_elements answers one receipt per domain.
+// With them, the text of its SIZES_ warning (sizes left out, or a partial receipt's sizes).
+function sizesOf(result) {
+	const receipts = Array.isArray(result?.commands) ? result.commands.map(row => row?.receipt).filter(Boolean) : [result];
+	const sizes = Object.assign({}, ...receipts.map(receipt => receipt?.output?.sizeM ?? {}));
+	const notes = receipts.flatMap(receipt => Array.isArray(receipt?.warnings) ? receipt.warnings : []).filter(warning => /^SIZES_/.test(warning?.code)).map(warning => warning.message);
+	return { ...(Object.keys(sizes).length ? { sizeM: sizes } : {}), ...(notes.length ? { sizesNote: notes.join(" ") } : {}) };
+}
+
 function callSummary(name, result, error) {
 	if (error) return { name, ok: false, receiptId: error.receipt?.receiptId ?? null, status: error.receipt?.status ?? null, revision: error.receipt?.revision ?? null,
 		affectedIds: (error.receipt?.affectedIds ?? []).slice(0, MAX_AFFECTED_IDS), code: error.code ?? null, message: error.message ?? String(error) };
 	return { name, ...(typeof result?.action === "string" ? { action: result.action } : {}), ok: result?.ok !== false, receiptId: result?.receiptId ?? null, status: result?.status ?? null, revision: result?.revision ?? null,
-		affectedIds: Array.isArray(result?.affectedIds) ? result.affectedIds.slice(0, MAX_AFFECTED_IDS) : [], code: result?.code ?? null, message: result?.message ?? null };
+		affectedIds: Array.isArray(result?.affectedIds) ? result.affectedIds.slice(0, MAX_AFFECTED_IDS) : [], code: result?.code ?? null, message: result?.message ?? null, ...sizesOf(result) };
 }
+
+/** A failed script whose nested calls moved the scene revision: its edits are rolled back (agent-routes.mjs). */
+export const scriptEditedBeforeFailing = result => !result.ok && result.calls.some(call => call.ok && Number.isSafeInteger(call.revision?.after) && call.revision.after !== call.revision.before);
 
 function description(names) {
 	return [
 		"Run a JavaScript body that calls Studio tools in code. Use script whenever a request needs 3 or more commands or any computed placement (circles, rows, symmetric coverage, repeated objects): one script replaces many tool calls.",
 		`Inside the script, \`await tools.<name>(args)\` calls a Studio tool with the same arguments as the direct tool and returns its parsed JSON result; a refused command throws an Error whose message starts with its code. Available: ${names.map(name => `tools.${name}`).join(", ")}.`,
 		"Compute coordinates in code: metres, +Y up, yaw in degrees, floor at y=0 (Math works; there are no timers, fetch or modules).",
-		"You see only what the script passes to text(value) or returns, plus a calls summary (name, ok, receiptId, status, revision, affectedIds, code, message per call). Nested results are not shown to you, so return what you need.",
+		"You see only what the script passes to text(value) or returns, plus a calls summary (name, ok, receiptId, status, revision, affectedIds, code, message per call; sizeM when its receipt states object sizes, sizesNote when it has a SIZES_ warning). Nested results are not shown to you, so return what you need.",
 		"Images never come back from a script: call verify_result OUTSIDE the script when you need to see the frame.",
 		"If the script fails after editing, the script's own edits are rolled back (edits made before the script stay) and the result says so; fix the script and run it again.",
 	].join("\n");

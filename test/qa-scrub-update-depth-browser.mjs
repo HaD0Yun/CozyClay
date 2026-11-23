@@ -11,6 +11,12 @@
 // Pose mode with the Pin tool, then scrub steps posted as user-blocking tasks,
 // which Chrome runs before React's scheduler task, the way it runs pointer
 // input on a busy page.
+//
+// The same throw with no tool open, in Stage mode (a scrub of a shot on a busy page): the Details panel's review box
+// cleared its draft from an effect on every frame, one pending update per scrub commit of a pointer scrub (the
+// posted steps below do not leave it pending there). So the Stage is scrubbed first, by real pointer moves on the
+// ruler, counting the commits that end with an update pending: what React counts toward the throw, and none when
+// no effect sets state on a frame.
 //   QA_URL=http://127.0.0.1:5241/app/ CDP_PORT=9341 node tools/qa-browser.mjs -- node test/qa-scrub-update-depth-browser.mjs
 import assert from "node:assert/strict";
 
@@ -62,6 +68,75 @@ const compiled = await evaluate(`(async () => {
 	return JSON.stringify(receipt).slice(0, 300);
 })()`);
 await waitFor(`a walk take (${JSON.stringify(compiled)})`, "window.__cozyclay.motion?.schema === 'cozyclay.take.v3'", 30_000);
+// --- Stage mode, as the Studio stands after the take: real pointer moves on the ruler ---
+// the left button: a move with it up, a press, a move with it down, a release
+const pointer = (type, x, y, held) => send("Input.dispatchMouseEvent", { type, x, y, button: held || type !== "mouseMoved" ? "left" : "none", buttons: held ? 1 : 0, clickCount: 1 });
+const clickAt = async (selector, label) => {
+	const at = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`);
+	assert.ok(at, label);
+	await pointer("mouseMoved", at.x, at.y, false); await pointer("mousePressed", at.x, at.y, true); await pointer("mouseReleased", at.x, at.y, false);
+};
+// Commits of the page's root that end with a sync, input or default update pending (lanes 2, 8, 32), read off the
+// DevTools hook the dev build installs: at the commit, and after the effects a sync commit flushes inside itself.
+const counted = await evaluate(`(() => {
+	const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+	if (!hook || typeof hook.onCommitFiberRoot !== "function") return false;
+	const counts = window.__qaCommits = { commits: 0, pending: 0 }, onCommit = hook.onCommitFiberRoot, onPost = hook.onPostCommitFiberRoot;
+	let flushing = null;
+	hook.onCommitFiberRoot = function (id, root, priority, ...rest) {
+		if (root?.containerInfo instanceof Element) {
+			counts.commits += 1;
+			if (root.pendingLanes & 42) counts.pending += 1;
+			else if (priority === 1) { flushing = root; queueMicrotask(() => { flushing = null; }); }
+		}
+		return onCommit.call(this, id, root, priority, ...rest);
+	};
+	hook.onPostCommitFiberRoot = function (id, root, ...rest) {
+		if (root === flushing) { flushing = null; if (root.pendingLanes & 42) counts.pending += 1; }
+		return onPost?.call(this, id, root, ...rest);
+	};
+	return true;
+})()`);
+const MOVES = 60;
+const ruler = await evaluate(`(() => { const r = document.querySelector(".tl-ruler-lane").getBoundingClientRect(); return { x: r.x + 4, y: r.y + r.height / 2, span: r.width - 8 }; })()`);
+await evaluate("window.__qaCommits && Object.assign(window.__qaCommits, { commits: 0, pending: 0 }); window.__qaFrames = new Set()");
+await pointer("mouseMoved", ruler.x, ruler.y, false);
+await pointer("mousePressed", ruler.x, ruler.y, true);
+for (let i = 1; i <= MOVES; i++) { await pointer("mouseMoved", ruler.x + ruler.span * i / MOVES, ruler.y, true); await evaluate("window.__qaFrames.add(window.__cozyclay.tlFrame)"); }
+await pointer("mouseReleased", ruler.x + ruler.span, ruler.y, false);
+await sleep(300);
+const scrubbed = await evaluate("({ frames: window.__qaFrames.size, ...(window.__qaCommits ?? {}) })");
+assert.ok(scrubbed.frames >= MOVES / 2, `the pointer scrub moved the playhead (${scrubbed.frames} frames in ${MOVES} moves)`);
+if (counted) {
+	assert.ok(scrubbed.commits >= scrubbed.frames, `every frame of the scrub committed (${JSON.stringify(scrubbed)})`);
+	assert.equal(scrubbed.pending, 0, `no scrub commit in Stage mode ends with an update pending, as when an effect sets state on every frame (${JSON.stringify(scrubbed)})`);
+	console.log(`PASS ${MOVES} pointer moves on the ruler in Stage mode: ${scrubbed.commits} commits, ${scrubbed.pending} with an update left pending`);
+} else console.log("SKIP commit count: this build has no DevTools hook");
+
+// The effect that is gone kept the review box's draft to its frame. It still does: typed on a frame of a shot, the
+// draft stays while the playhead stays and is dropped when it leaves, also after it comes back.
+await evaluate(`window.__cozyclay.runStudioAction("shot.create")`);
+await waitFor("the shot block", `!!document.querySelector(".tl-shot-block")`, 10_000);
+await clickAt('[data-node-id="camera"]', "the Outliner lists the camera");
+const box = `document.querySelector('textarea[aria-label="Frame comment"]')`;
+await waitFor("the Review fold of the camera's Details", `[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Review")`, 10_000);
+if (!(await evaluate(`!!${box}`))) await evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Review").click()`);
+await waitFor("the frame comment box", `!!${box}`, 10_000);
+// two frames of the shot: the draft is typed on the first
+const typedAt = await evaluate(`(async () => { const all = JSON.parse(await window.__cozyclayProject.export()).scenes; const scene = all.scenes.find((entry) => entry.id === all.activeSceneId) ?? all.scenes[0]; return scene.shotDocument.shots[0].startFrame; })()`), away = typedAt + 1;
+await evaluate(`window.__cozyclay.scrub(${typedAt})`);
+await waitFor("the playhead on the shot's first frame", `window.__cozyclay.tlFrame === ${typedAt} && !!${box}`, 5_000);
+await evaluate(`${box}.focus()`);
+await send("Input.insertText", { text: "hold this" });
+assert.equal(await evaluate(`${box}.value`), "hold this", "the draft shows what was typed");
+await evaluate(`window.__cozyclay.scrub(${away})`);
+await waitFor("the draft dropped on another frame", `window.__cozyclay.tlFrame === ${away} && ${box}.value === ""`, 5_000);
+await evaluate(`window.__cozyclay.scrub(${typedAt})`);
+await waitFor("the draft still empty back on its frame", `window.__cozyclay.tlFrame === ${typedAt} && ${box}.value === ""`, 5_000);
+console.log("PASS the review draft stays on its frame and is dropped when the playhead leaves");
+// back to the character, as the Pose mode part below found the Studio before
+await clickAt(`[data-node-id="character:${characterId}"]`, "the Outliner lists the character");
+
 await evaluate(`document.querySelector('.vp-mode-key[data-mode=pose]')?.click()`);
 await waitFor("Pose mode with IK", "window.__cozyclay.ikMode === true", 30_000);
 await waitFor("the Pin tool button", "!!document.querySelector('[data-testid=range-pin-tool]:not([disabled])')", 30_000);

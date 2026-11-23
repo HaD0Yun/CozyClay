@@ -17,7 +17,7 @@ export {
 	nextCharacterId,
 	OBJECT_DELETE_UNDO_MS,
 	ASSET_DELETE_UNDO_MS,
-	defaultCharacterTint,
+	defaultCharacterColour, defaultCharacterTint,
 	DEFAULT_CAMERA_POSITION,
 	REST_BONES,
 	GIZMO_HOTKEYS,

@@ -1,10 +1,10 @@
 import { ko } from "../locale.js";
 
-// The pose button draws the subject's body by its letter, so a Y Bot and an X Bot never share a glyph: Y Bot raises its
-// arms in a Y, X Bot spreads arms and legs in an X, a capsule figure is a capsule. Unknown bodies keep the plain figure.
+// The pose button draws the subject's body, so no two bodies share a glyph: an old Y Bot raises its arms in a Y, the
+// block figure (an X Bot row) is a stack of boxes, a capsule figure is a capsule. Unknown bodies keep the plain figure.
 const BODY_GLYPHS = {
 	"y-bot-tpose": "M8 1.75a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 1 1 0-2.8z M4.5 5.25 8 8.25l3.5-3 M8 8.25v2.5 M6.25 14 8 10.75 9.75 14",
-	"x-bot-tpose": "M8 1.5a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 1 1 0-2.8z M4.5 6.25l7 7.5 M11.5 6.25l-7 7.5",
+	"x-bot-tpose": "M6.6 1.75h2.8v2.8H6.6z M5.25 5.75h5.5v4.5h-5.5z M6.25 10.25v3.75 M9.75 10.25v3.75",
 	"proxy-figure": "M8 2.5a2.25 2.25 0 0 1 2.25 2.25v6.5a2.25 2.25 0 0 1-4.5 0v-6.5A2.25 2.25 0 0 1 8 2.5z",
 };
 const PLAIN_FIGURE = "M8 2.25a1.5 1.5 0 1 1 0 3 1.5 1.5 0 1 1 0-3z M5 7.25h6 M8 7.25v3.5 M6.25 13.75 8 10.75l1.75 3";

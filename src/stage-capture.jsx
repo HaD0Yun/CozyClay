@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { withFaded } from "./capture-fade.js";
 import { WORLD } from "./world-scale.js";
+import { createFinish } from "./stage-finish.js";
 
 export const CAPTURE_W = 1920;
 export const CAPTURE_H = 1080;
@@ -25,6 +26,12 @@ export const CAPTURE_FOG_FAR = WORLD.horizon.far;
 export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE_H }) {
 	const { gl, scene } = useThree();
 	useEffect(() => {
+		// The frame pass of the finish, shared by every capture of this rig; the look is the Studio's
+		// view setting (stage-finish-view.jsx puts it on scene.userData.finishLook). The rig and each capture it made
+		// hold it: an export still in flight when the editor resizes keeps drawing through it, and the last holder frees it.
+		const finish = createFinish();
+		let holders = 1;
+		const release = () => { holders -= 1; if (holders === 0) finish.dispose(); };
 		// Each attempt owns its target independently of the live output size.
 		// Resizing the editor cannot dispose an in-flight export's resources.
 		// `camera` makes the camera of each render: a clone of the shot camera unless a caller
@@ -34,10 +41,19 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 				colorSpace: THREE.SRGBColorSpace,
 				samples: 4,
 			});
+			// The look-off beauty draw's own target, made on first use. three tone-maps and encodes in the material
+			// only on the canvas and on a target flagged isXRRenderTarget (WebGLPrograms.js; the finish uses the same
+			// flag), so a draw into this one is the canvas's draw: its tone curve at the stage's exposure, with no
+			// light scaled to stand in for it. RGBA8 by name: the material has encoded already, and the samples and
+			// the texture they resolve into must be one format.
+			let canvasTarget = null;
+			const asCanvas = () => (canvasTarget ??= Object.assign(new THREE.WebGLRenderTarget(width, height, { colorSpace: THREE.SRGBColorSpace, samples: 4, internalFormat: "RGBA8" }), { isXRRenderTarget: true }));
 			const buffer = new Uint8Array(width * height * 4);
+			let held = true;
+			holders += 1;
 			return {
 				scene,
-				dispose: () => target.dispose(),
+				dispose: () => { if (!held) return; held = false; target.dispose(); canvasTarget?.dispose(); release(); },
 				render() {
 					const cam = camera();
 					if (!cam) return null;
@@ -66,32 +82,25 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 						fog.near = look?.fog?.near ?? CAPTURE_FOG_NEAR;
 						fog.far = look?.fog?.far ?? CAPTURE_FOG_FAR;
 					}
-					// three tone-maps only the canvas, never a render target, so the
-					// viewport's exposure reaches an export as light: every light, and
-					// the environment light, is scaled by it for this draw and put back after.
-					const scaled = [], environmentIntensity = scene.environmentIntensity, backgroundIntensity = scene.backgroundIntensity, fogColor = fog?.color.clone();
-					if (look && look.exposure !== 1) scene.traverse((node) => { if (node.isLight) scaled.push([node, node.intensity]); });
-					for (const [light, intensity] of scaled) light.intensity = intensity * look.exposure;
-					if (look && look.exposure !== 1) scene.environmentIntensity = environmentIntensity * look.exposure;
-					// An HDR backdrop (stage.lighting.hdrBackground) is light too, and so is the horizon the deck fades into.
-					if (look?.backdrop && look.exposure !== 1) {
-						scene.backgroundIntensity = backgroundIntensity * look.exposure;
-						fog?.color.multiplyScalar(look.exposure);
-					}
+					// three tone-maps only the canvas, never a plain render target. An export is the viewport's picture
+					// either way: with the look on the finish (stage-finish.js) draws the frame as the canvas does, tone
+					// curve and exposure included; with it off the frame is drawn into a target three treats as the
+					// canvas. A pass (render-passes.js, an override material) is data, drawn as is into the plain target.
+					const finishLook = scene.userData.finishLook ?? null;
+					const drawn = finishLook || scene.overrideMaterial ? target : asCanvas();
 					try {
-						gl.setRenderTarget(target);
-						gl.render(scene, cam);
-						gl.readRenderTargetPixels(target, 0, 0, width, height, buffer);
+						if (finishLook) finish.render(gl, scene, cam, target, finishLook);
+						else {
+							gl.setRenderTarget(drawn);
+							gl.render(scene, cam);
+						}
+						gl.readRenderTargetPixels(drawn, 0, 0, width, height, buffer);
 					} finally {
 						gl.setRenderTarget(previous);
 						if (fog) {
 							fog.near = fogNear;
 							fog.far = fogFar;
 						}
-						for (const [light, intensity] of scaled) light.intensity = intensity;
-						scene.environmentIntensity = environmentIntensity;
-						scene.backgroundIntensity = backgroundIntensity;
-						if (fogColor) fog.color.copy(fogColor);
 					}
 					return buffer;
 				},
@@ -142,6 +151,7 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			if (apiRef.current === api) apiRef.current = null;
 			if (width === MCP_CAPTURE_W && height === MCP_CAPTURE_H) window.__cozyclayMcpCaptureReady = false;
 			api.dispose();
+			release();
 		};
 	}, [gl, scene, camRef, apiRef, width, height]);
 	return null;

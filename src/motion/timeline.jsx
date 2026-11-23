@@ -11,7 +11,7 @@ import { NumberField } from "../ui.jsx";
 import { flatTiming, timingIsFlat, envelopeDrag, insertCut, removeCut, CUT_MIN_GAP } from "../speed-envelope.js";
 import { checkShotAgainstPreset, presetById } from "../model-presets.js";
 import { WORLD } from "../world-scale.js";
-import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands, IkPartLabels, IkPartsToggle, useIkParts } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
+import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands, IkPartLabels, IkPartsToggle, useIkParts } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx"; import { railShownPitchDeg } from "../camera-rail-head.js";
 import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
 
@@ -80,10 +80,12 @@ const CAMERA_BLOCK_DEFAULTS = {
 	response: 0.7,
 	lead: 0.25,
 	railStartMode: "head",
-	maxDollySpeed: 4,
+	maxDollySpeed: WORLD.dollySpeed,
 	pitchOffsetDeg: 0,
 	orbitOffsetDeg: 0,
 };
+// A rail is ridden on the shot clock, so its dolly never goes faster than its length over its time (to 0.1 m/s up).
+const railSpeedLimit = (shot, railLength, fps) => { const clip = shot.camera?.railFollow, frames = clip?.mode === "range" ? clip.endFrame - clip.startFrame : shot.endFrame - shot.startFrame; return railLength != null && frames > 0 ? Math.max(0.2, Math.ceil((railLength / (frames / fps)) * 10) / 10) : WORLD.dollySpeed; };
 
 function cameraBlockMode(shot) {
 	const mode = shot?.camera?.mode;
@@ -824,7 +826,7 @@ function CameraBlockEditor({
 			? { points: [{ t: 0, height: follow.height }, { t: 1, height: follow.height }] }
 			: null);
 	const patchCamera = (patch) => onChange?.(patch);
-	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const railFrames = shot.camera?.railFollow?.mode === "range" ? shot.camera.railFollow.endFrame - shot.camera.railFollow.startFrame : shot.endFrame - shot.startFrame; const speedLimit = mode === "rail" && railLength != null && railFrames > 0 ? Math.max(0.2, Math.ceil((railLength / (railFrames / fps)) * 10) / 10) : WORLD.dollySpeed; // the rail is ridden on the shot clock, so faster than length / time is never reached
+	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const speedLimit = mode === "rail" ? railSpeedLimit(shot, railLength, fps) : WORLD.dollySpeed;
 	const numberValue = (event) => Number(event.currentTarget.value);
 	const metric = (value, places = 1) => Number(value).toFixed(places);
 	return (
@@ -912,7 +914,7 @@ function CameraBlockEditor({
 					)}
 					<label title={ko("Read automatically from the camera tilt", "현재 카메라 틸트에서 자동으로 읽습니다")}>
 						<span>{ko("Pitch", "피치")}</span>
-						<output className="tl-camera-metric">{signedValue(follow.pitchOffsetDeg)}</output>
+						<output className="tl-camera-metric">{signedValue(mode === "rail" ? railShownPitchDeg(shot.camera, follow.pitchOffsetDeg) : follow.pitchOffsetDeg)}</output>
 						<small>°</small>
 					</label>
 					{mode === "rail" && crane && (() => {
@@ -1931,7 +1933,7 @@ export default function Timeline({
 										const stateLabel = mode === "keys" && keyCount === 0 ? "FREE" : "LOCKED";
 										const modeLabel = mode === "rail" ? "RAIL" : mode === "follow" ? "FOLLOW" : `KEYS ${keyCount}`;
 										const detailLabel = mode === "rail"
-											? `${follow.railStartMode === "head" ? "HEAD" : "NEAREST"} · ${Number(follow.maxDollySpeed).toFixed(1)} m/s · PITCH ${signedDegrees(follow.pitchOffsetDeg)}`
+											? `${follow.railStartMode === "head" ? "HEAD" : "NEAREST"} · ${Math.min(Number(follow.maxDollySpeed), railSpeedLimit(shot, railLengthByShot.get(shot.id), fps)).toFixed(1)} m/s · PITCH ${signedDegrees(railShownPitchDeg(shot.camera, follow.pitchOffsetDeg))}${shot.camera?.head?.follow === false ? " · FIXED" : ""}`
 											: mode === "follow"
 												? `${Number(follow.distance).toFixed(1)} m · PITCH ${signedDegrees(follow.pitchOffsetDeg)}`
 												: null;
@@ -1956,7 +1958,6 @@ export default function Timeline({
 											<div
 												key={shot.id}
 												className={"tl-shot-block" + (index === cameraBlockIdx ? " selected" : "") + (index === activeShotIdx ? " active" : "") + (movingShotId === shot.id ? " moving" : "") + (!railOff && railRange && railLengthByShot.has(shot.id) ? " has-dolly" : "")}
-												data-shot-kind={shot.kind === "still" ? "still" : undefined}
 												style={{ "--tl-f-start": geometry.startPct, "--tl-f-end": geometry.endPct }}
 												title={ko(`${shot.name} · frames ${shot.startFrame}–${lastFrame} · drag to reorder, trim cuts at either edge, click the empty lower strip to add a camera key`, `${shot.name} · ${shot.startFrame}–${lastFrame}프레임 · 드래그해 순서 이동, 양끝으로 컷 조절, 아래 빈 줄을 클릭해 카메라 키 추가`, `${shot.name} · 第 ${shot.startFrame}–${lastFrame} 帧 · 拖动调整顺序，拖动两端修剪剪辑，点击下方空条添加摄影机关键帧`)}
 												onPointerDown={(e) => beginShotMove(e, shot, index)}
@@ -2004,7 +2005,6 @@ export default function Timeline({
 													<span className="tl-shot-label">
 														<b>{shot.name}</b>
 														<small>{shot.startFrame}–{lastFrame} · {durationS.toFixed(1)}{ko("s", "초")}</small>
-														{shot.kind === "still" && shot.caption && <small className="tl-shot-caption" title={shot.caption}>{shot.caption}</small>}
 													</span>
 												)}
 												{modelWarnings.length > 0 && (

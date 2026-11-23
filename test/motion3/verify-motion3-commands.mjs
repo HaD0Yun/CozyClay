@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // motion.compile / motion.qa / motion.sample through the real action registry with stub ports.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { createStudioAppActions } from "../../src/commands/index.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { compileSpec } from "../../src/motion3/pipeline.js";

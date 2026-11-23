@@ -2,7 +2,6 @@ import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useS
 import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiRotateCw, FiX } from "react-icons/fi";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_MAX_COUNT, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
 import { isImeComposing } from "../ime.js";
-import { useStudioShell } from "../shell/studio-shell-context.js";
 import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
 import { ContextChips } from "./ContextChips.jsx"; import { captureAnnotatedImage, consumeMarks, markStills } from "../context-chips.js";
 import {
@@ -45,7 +44,8 @@ import { SIGN_IN_FAILURE_COPY, otherProviderModel, providerLabel } from "./agent
 import { TurnSteps } from "./AgentTurnSteps.jsx";
 import { PlanCard } from "./AgentPlanCard.jsx";
 import { ReplyText } from "./AgentReplyText.jsx";
-import { stepLabel, turnLayout } from "./agent-turn.js";
+import { stepLabel, turnLayout } from "./agent-turn.js"; import { createMessageQueue } from "./agent-queue.js"; import { AgentQueue } from "./AgentQueue.jsx";
+import { checkEdit, editableMessageId, resendEdited, steeredAfter } from "./agent-edit.js"; import { AgentUserBubble } from "./AgentUserBubble.jsx";
 import { connectAuthState, connectFinished, connectOpened, connectStarted, modelChanged } from "./connect-telemetry.js";
 import { noteChipDraft, noteDraftConsumed, noteDraftInput, stagePrompt } from "./prompt-telemetry.js";
 
@@ -248,11 +248,6 @@ export default function AgentPanel({
 	const transport = useMemo(() => injectedTransport || createAgentTransport({ surface }), [injectedTransport, surface]);
 	const mockState = transport.mock ? transport.state : null;
 
-	// Inside the studio the title names the project's previs mode (#650).
-	const previsMode = useStudioShell()?.previsMode;
-	const titleMode = surface === "studio" && previsMode
-		? (previsMode === "storyboard" ? ko("Storyboard", "스토리보드") : ko("Animation", "애니메이션"))
-		: null;
 	const [collapsed, setCollapsed] = useState(defaultCollapsed);
 	// Only the dock owns a width; an embedded host sizes the panel itself and
 	// never reads the dock's stored key.
@@ -346,8 +341,12 @@ export default function AgentPanel({
 		requestImageAction: (request) => (imageActionRef.current ?? transport.applyImage?.bind(transport) ?? requestHostImageAction)(request),
 		onReceipt: (receipt) => receiptRef.current?.(receipt),
 		onAuthLost: () => setAuthState("signed-out"),
+		onSteer: (event) => queueRef.current?.steered(event),
 	}), [surface, transport]);
 	const chat = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+	// Messages typed while a turn runs (agent-queue.js): a row goes as the next turn through runTurn with what it was typed with.
+	const queueRef = useRef(null), queue = useMemo(() => createMessageQueue({ store }), [store]);
+	const queued = useSyncExternalStore(queue.subscribe, queue.getState, queue.getState);
 	const { context, draft, items, pendingAttachments, quota, rateLimit, streaming } = chat;
 
 	// Studio history is sidecar-backed; Workflow keeps the existing in-memory UX.
@@ -614,34 +613,34 @@ export default function AgentPanel({
 		if (!event.defaultPrevented && takeTransfer(event.dataTransfer)) event.preventDefault();
 	}, [takeTransfer]);
 
-	// `via`: how the prompt was sent, for agent:prompt_sent (prompt-telemetry.js keeps no text).
-	const runTurn = useCallback((text, via = "typed") => {
-		setAttachNotice(null); setSteerNotice("");
+	// `via`: how the prompt was sent, for agent:prompt_sent (prompt-telemetry.js keeps no text). `typed`: a queued row's
+	// options (model, effort, frame switch, task mode and pictures as the message was typed); the composer's otherwise.
+	const runTurn = useCallback((text, via = "typed", typed = null) => {
+		setAttachNotice(null); setSteerNotice(""); const chosen = typed ?? { attachFrame, model, effort: effort ?? undefined, tasks: taskMode };
 		// An OpenAI-compatible server's address class (local, lan, hosted), never the address (#1043).
-		const endpoint = modelProviders.find((entry) => entry.id === String(model ?? "").split("/")[0])?.endpoint;
+		const endpoint = modelProviders.find((entry) => entry.id === String(chosen.model ?? "").split("/")[0])?.endpoint;
 		// Annotation marks (Studio): one annotated picture of the view rides after the composer's pictures, the marks in the context; a message Send took clears them (right after send's synchronous start).
 		const idle = surface === "studio" && !store.getState().streaming, annotated = idle ? captureAnnotatedImage() : null, chipImages = idle ? [...(annotated ? [{ dataUrl: annotated, name: "annotated-view.jpg" }] : []), ...markStills()] : [];
 		if (idle) queueMicrotask(() => { if (store.getState().streaming) consumeMarks(); });
 		// The marks are consumed with this message, so their pictures go first: the author's own pictures fill what is left
 		// of the message's ATTACHMENT_MAX_COUNT, and any left out are named.
-		const pending = store.getState().pendingAttachments, room = Math.max(0, ATTACHMENT_MAX_COUNT - chipImages.length);
+		const pending = typed ? typed.attachments ?? [] : store.getState().pendingAttachments, room = Math.max(0, ATTACHMENT_MAX_COUNT - chipImages.length);
 		if (chipImages.length && pending.length > room) setAttachNotice(`${pending.length - room} attached image${pending.length - room === 1 ? "" : "s"} left out: the marked view takes ${Math.min(chipImages.length, ATTACHMENT_MAX_COUNT)} of the ${ATTACHMENT_MAX_COUNT} images a message holds`);
-		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
-		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, ...(chipImages.length ? { attachments: [...pending.slice(0, room), ...chipImages] } : {}) });
+		stagePrompt(text, { via, model: chosen.model, endpoint, attached: chosen.attachFrame || pending.length > 0, taskMode: chosen.tasks });
+		return store.send(text, { ...chosen, ...(typed ? { queued: true } : {}), ...(typed || chipImages.length ? { attachments: [...pending.slice(0, room), ...chipImages] } : {}) });
 	}, [attachFrame, effort, model, modelProviders, store, surface, taskMode]);
+	useEffect(() => { queueRef.current = queue; return queue.connect((row) => runTurn(row.text, "typed", row.options)); }, [queue, runTurn]);
 	const taskStepLabel = useCallback((call) => stepLabel(call, presentation.toolLabels), [presentation.toolLabels]);
 	const stopTurn = useCallback(() => store.stop(), [store]);
-	// Steering the turn that is already running: the composer's text joins THAT
-	// turn instead of starting a second one. A refusal (the turn ended while the
-	// stream was still open, or this surface cannot be steered) says so and
-	// leaves the draft to be sent as a normal message.
-	const steerTurn = useCallback(async (text) => {
-		if (!String(text ?? "").trim()) return;
-		setAttachNotice(null); setSteerNotice("");
-		const result = await store.steer(text);
-		// An accepted steer consumed the draft: its typing time is not the next prompt's (prompt-telemetry.js).
-		if (result.ok) noteDraftConsumed(); else setSteerNotice(result.message || "The running turn did not take that message.");
-	}, [store]);
+	// While a turn runs, Enter and Send queue the draft with what it would be sent with now (agent-queue.js); the consumed
+	// draft's typing time is not the next prompt's (prompt-telemetry.js). Send now on a row gives it to the running turn
+	// at its next step; a refusal (the turn ended meanwhile) says so and the row stays queued.
+	const queueDraft = useCallback(() => { if (queue.add(draft, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, attachments: store.getState().pendingAttachments })) { setAttachNotice(null); store.setDraft(""); store.clearAttachments(); noteDraftConsumed(); } }, [attachFrame, draft, effort, model, queue, store, taskMode]);
+	const sendNow = useCallback(async (id) => { setSteerNotice(""); const result = await queue.sendNow(id); if (!result.ok && result.message) setSteerNotice(result.message); }, [queue]);
+	// The edit on the last message (agent-edit.js): sent with the composer's model and effort, the message's own frame switch and pictures. The pencil
+	// asks the sidecar first: a message sent with Tasks on (or one that is not the last turn any more) says why it cannot be edited.
+	const canEdit = useCallback(async (item) => { setSteerNotice(""); const result = await checkEdit({ store, transport, itemId: item.id }); if (!result.ok && result.message) setSteerNotice(result.message); return result.ok; }, [store, transport]);
+	const editMessage = useCallback(async (item, text, attachments) => { setSteerNotice(""); const result = await resendEdited({ store, transport, itemId: item.id, text, attachments, options: { attachFrame: Boolean(item.attachFrame), model, effort: effort ?? undefined } }); if (!result.ok && result.message) setSteerNotice(result.message); return result; }, [effort, model, store, transport]);
 
 	// A sign-in that succeeds is an authentication transition, not a status
 	// read: the grouped catalogue's `signedIn` flags — and with them every
@@ -746,12 +745,11 @@ export default function AgentPanel({
 		}
 		if (event.key === "Enter" && !isImeComposing(event) && !event.shiftKey) {
 			event.preventDefault();
-			// Enter does what the button under it says: Send, or Steer while a turn
-			// on a steerable surface is still running.
-			if (streaming) { if (presentation.steer) steerTurn(draft); return; }
+			// Enter does what the button under it says: Send, or Queue while a turn is still running.
+			if (streaming) { queueDraft(); return; }
 			runTurn(draft);
 		}
-	}, [draft, presentation, runTurn, steerTurn, stopTurn, streaming]);
+	}, [draft, queueDraft, runTurn, stopTurn, streaming]);
 
 	const panelState = rateLimit ? "rate-limited"
 		: authState !== "ready" ? authState
@@ -767,6 +765,7 @@ export default function AgentPanel({
 	// can send to: the composer stays shut instead of submitting a turn the
 	// provider would refuse.
 	const composerDisabled = panelState === "rate-limited" || !model || !modelIsSelectable(modelProviders, model);
+	const editableId = surface === "studio" && typeof transport.rewind === "function" ? editableMessageId(items) : null;
 	useEffect(() => {
 		if (hidden) focusPendingRef.current = false;
 		if (hidden || composerDisabled || !focusPendingRef.current) return;
@@ -811,7 +810,7 @@ export default function AgentPanel({
 
 		<header className="agent-header">
 			<StatusDot tone={statusTone} title={panelState} />
-			<h2 className="agent-title" data-previs-mode={titleMode ? previsMode : undefined}>{titleMode ? `Agent · ${titleMode}` : "Agent"}</h2>
+			<h2 className="agent-title">Agent</h2>
 			<span className="agent-header-spacer" />
 			<button type="button" className="agent-icon-button agent-new" aria-label="New conversation" title="New conversation" onClick={newSession}><FiPlus size={14} aria-hidden="true" /></button>
 			{presentation.history && <span className="agent-history-wrap">
@@ -883,12 +882,7 @@ export default function AgentPanel({
 					<div className="agent-row"><TurnSteps block={entry} now={activityNow} toolLabels={presentation.toolLabels} formatClock={formatTurnClock} onRetry={() => runTurn(chat.lastPrompt, "retry_button")} /></div>{taskMode && layout[index + 1]?.item?.kind !== "assistant" && <TaskRows steps={entry.steps} />}
 				</Fragment>;
 				const { item } = entry;
-				if (item.kind === "user") return <div className="agent-row user" key={item.id}>
-					{item.attachments?.length > 0 && <div className="agent-bubble-attachments">
-						{item.attachments.map((attachment, index) => <img key={`${item.id}-${index}`} src={attachment.dataUrl} alt={attachment.name || "Attached image"} onClick={() => setLightbox({ dataUrl: attachment.dataUrl, prompt: attachment.name })} />)}
-					</div>}
-					<div className="agent-bubble">{item.text}</div>
-				</div>;
+				if (item.kind === "user") return <AgentUserBubble key={item.id} item={item} editable={item.id === editableId} running={streaming} steered={item.id === editableId && steeredAfter(items, item.id)} disabled={composerDisabled} onCheck={canEdit} onEdit={editMessage} onOpen={setLightbox} />;
 				if (item.kind === "assistant") return <Fragment key={item.id}><div className="agent-row assistant"><div className="agent-assistant-text"><ReplyText text={item.text} tail={streaming && <span className="agent-caret">▌</span>} /></div></div>{taskMode && layout[index - 1]?.type === "steps" && <TaskRows steps={layout[index - 1].steps} />}</Fragment>;
 				if (item.kind === "job") return <div className="agent-row" key={item.id}><JobCard job={item} onStop={stopTurn} onAccept={(job) => store.acceptJob(job.jobId)} /></div>;
 				if (item.kind === "receipt") return <div className="agent-row" key={item.id}><ReceiptCard item={item} /></div>;
@@ -911,6 +905,7 @@ export default function AgentPanel({
 			{activity.detail && <span className="agent-activity-detail">{activity.detail}</span>}<AgentContextMeter context={context} />
 		</div>}
 
+		{authenticated && <AgentQueue queue={queued} actions={queue} streaming={streaming} onSendNow={sendNow} />}
 		{authenticated && <div
 			className="agent-composer"
 			data-agent-dropping={dropping ? "true" : "false"}
@@ -975,13 +970,13 @@ export default function AgentPanel({
 						</button>
 					)}
 					<span className="agent-composer-spacer" aria-hidden="true" />
-					{/* While a turn runs, Stop is still the way out of it; on a surface
-					    that can be steered, Send becomes the way INTO it. */}
+					{/* While a turn runs, Stop is still the way out of it, and Send queues
+					    the message above the composer (a row's Send now is the way INTO the turn). */}
 					{streaming
-						? <>
+						? <span className="agent-run-actions">
 							<button type="button" data-fid="agent_stop" className="agent-send stop agent-stop" onClick={stopTurn}>Stop</button>
-							{presentation.steer && <button type="button" data-fid="agent_steer" className="agent-send agent-steer" disabled={!draft.trim()} onClick={() => steerTurn(draft)}>Steer</button>}
-						</>
+							<button type="button" data-fid="agent_send" className="agent-send agent-queue-add" aria-label={ko("Queue", "대기열에 넣기", "加入队列")} title={ko("Queue: sent when this turn ends (Enter)", "대기열에 넣기: 이 턴이 끝나면 보내요 (Enter)", "加入队列：本轮结束后发送 (Enter)")} disabled={composerDisabled || !draft.trim()} onClick={queueDraft}><FiArrowUp size={14} aria-hidden="true" /></button>
+						</span>
 						: <button type="button" data-fid="agent_send" className="agent-send" aria-label="Send" title="Send (Enter)" disabled={composerDisabled || !draft.trim()} onClick={() => runTurn(draft)}><FiArrowUp size={14} aria-hidden="true" /></button>}
 				</div>
 				<ModelRolesLine model={model} roles={selectedModelRoles(modelRoles, model)} />

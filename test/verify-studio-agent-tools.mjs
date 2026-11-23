@@ -10,6 +10,7 @@ import { createStudioTools } from "../bin/agent/studio-tools.mjs";
 // The model-facing Studio tool list, as the sidecar builds it.
 const studioToolSchemas = () => createStudioTools({ liveHub: { command: async () => ({}) }, workspaceHandle: "schemas" });
 import { createFakeModel } from "./fixtures/fake-model.mjs";
+import { isTurnControl, turnControlReceipt } from "./fixtures/turn-controls.mjs";
 import { fauxAssistantMessage, fauxToolCall, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -22,7 +23,7 @@ const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-agent-sessions-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
 process.on("exit", () => rmSync(sessionDir, { recursive: true, force: true }));
 
-const CASES = new Set(["studio-tool-catalogue", "storyboard-tool-surface", "surface-context-and-images", "stale-host-and-post-install-rate-limit", "sequential-mutations-revision-chain", "external-revision-bump-refuses", "sequential-same-target-token-rotation", "rejection-receipt-surfaces-reason", "inspect-readmits-revision", "stale-scene-readmits-revision", "uncertain-apply-readmits-revision", "run-action-admission", "stale-scene-readmits-any-family", "run-action-job-timeout", "verify-motion-timeout", "scene-change-readmits-host"]);
+const CASES = new Set(["studio-tool-catalogue", "surface-context-and-images", "stale-host-and-post-install-rate-limit", "sequential-mutations-revision-chain", "external-revision-bump-refuses", "sequential-same-target-token-rotation", "rejection-receipt-surfaces-reason", "inspect-readmits-revision", "stale-scene-readmits-revision", "uncertain-apply-readmits-revision", "run-action-admission", "stale-scene-readmits-any-family", "run-action-job-timeout", "verify-motion-timeout", "scene-change-readmits-host"]);
 const index = process.argv.indexOf("--case");
 const selected = index >= 0 ? process.argv[index + 1] : null;
 if (selected && !CASES.has(selected)) { console.error(`unknown --case ${selected}`); process.exit(2); }
@@ -44,7 +45,7 @@ async function liveFixture({ bridge = null, command = null } = {}) {
   const hub = await startLiveHub(0); assert.ok(hub);
   const socket = new WebSocket(`ws://127.0.0.1:${hub.server.address().port}/live`);
   const ready = deferred();
-  socket.on("message", raw => { const frame = JSON.parse(raw); if (frame.type === "workspace") ready.resolve(frame.handle); else if (frame.type === "cmd") void (async () => { const value = await command(frame.name, frame.args); if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "result", id: frame.id, ok: true, value })); })(); });
+  socket.on("message", raw => { const frame = JSON.parse(raw); if (frame.type === "workspace") ready.resolve(frame.handle); else if (frame.type === "cmd") void (async () => { const value = isTurnControl(frame.name, frame.args) ? turnControlReceipt(frame.args) : await command(frame.name, frame.args); if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "result", id: frame.id, ok: true, value })); })(); });
   await once(socket, "open"); socket.send(JSON.stringify({ type: "hello", role: "editor", version: 1, workspaceId: "tab-7" }));
   const handle = await bounded(ready.promise);
   return { hub, socket, handle, async close() { socket.terminate(); for (const peer of hub.server.clients) peer.terminate(); await new Promise(resolve => hub.server.close(resolve)); if (bridge) await new Promise(resolve => bridge.close(resolve)); } };
@@ -185,23 +186,6 @@ if (shouldRun("studio-tool-catalogue")) {
     assert.ok(/inspect_studio/.test(tool.description) && /resubmit|re-?issue/i.test(tool.description), `${tool.name} description teaches inspect-then-resubmit for STALE_SCENE`);
   }
   console.log("PASS the Studio tool list is exactly the nine families and patch_elements is admitted");
-}
-
-if (shouldRun("storyboard-tool-surface")) {
-  const { createStudioTools } = await import("../bin/agent/studio-tools.mjs");
-  const { STUDIO_ACTIONS } = await import("../src/studio-actions.js");
-  const { studioActionIndex } = await import("../src/studio-agent-context.js");
-  const liveHub = { command: async () => ({ ok: true, status: "applied", revision: { before: 1, after: 2 } }) };
-  const session = { admission: { commandId: () => "cmd-1", host: host(), revision: 1, refresh: async () => {} } };
-  const storyboardTools = createStudioTools({ liveHub, workspaceHandle: "handle-1", previsMode: "storyboard", session });
-  const animationTools = createStudioTools({ liveHub, workspaceHandle: "handle-1", previsMode: "animation", session });
-  assert.deepEqual(storyboardTools.map(tool => tool.name), STUDIO_TOOLS);
-  assert.deepEqual(animationTools.map(tool => tool.name), STUDIO_TOOLS);
-  const storyboardActions = studioActionIndex(STUDIO_ACTIONS, { previsMode: "storyboard" });
-  const animationActions = studioActionIndex(STUDIO_ACTIONS, { previsMode: "animation" });
-  assert(!storyboardActions.some(action => action.generation === "motion" || action.id.startsWith("motion.")));
-  assert.deepEqual(animationActions, studioActionIndex(STUDIO_ACTIONS));
-  console.log("PASS storyboard tools and actions match animation, with no motion actions in the catalogue");
 }
 
 if (shouldRun("run-action-admission")) {

@@ -5,10 +5,10 @@ import { studioActionDeclaration } from "../studio-actions.js";
 import { characterOf, fail, changedIds, checkPoseBones } from "./shared.js";
 import { elementSetSchema, registerElementSet } from './elements.js';
 import './elements/character.js';
-import { createCharacterEntry, CHARACTER_KIND_IDS, POSTURES, PROXY_FIGURE_MODEL, isProxyFigure } from '../scenes.js';
+import { createCharacterEntry, NEW_CHARACTER_MODEL, POSTURES, PROXY_FIGURE_MODEL, isProxyFigure } from '../scenes.js';
+import { importedRigOf, isImportedModel } from '../character-rig.js';
 import { KIND_FIXED_REFUSAL } from '../character-kind.js';
 import { track } from '../analytics.js';
-import { DEFAULT_POSE } from '../poses.js';
 import { createStableItemId } from '../stable-items.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas } from '../studio-agent-protocol.js';
 import { characterName } from '../character-name.js';
@@ -18,14 +18,14 @@ const input = (properties, required = Object.keys(properties)) => ({ type: 'obje
 const record = { type: 'object', properties: {}, additionalProperties: true };
 // A capsule figure is cast by model id; its posture is the one body choice it
 // has. A patched posture outside POSTURES normalizes to "stand" (createCharacterEntry).
-const newCharacter = { ...record, properties: { model: { type: 'string', enum: [...CHARACTER_KIND_IDS] }, posture: { type: 'string', enum: [...POSTURES] },
+const newCharacter = { ...record, properties: { model: { type: 'string', description: `${NEW_CHARACTER_MODEL} (the default), ${PROXY_FIGURE_MODEL} or the model id of a rig imported into this scene. A new rig character is of model ${NEW_CHARACTER_MODEL}, drawn in the figure look the Studio was started with: y-bot-tpose is given ${NEW_CHARACTER_MODEL}.` }, posture: { type: 'string', enum: [...POSTURES] },
 	x: { type: 'number', description: 'floor position, metres (position { x, z } is read the same)' }, z: { type: 'number' }, rot: { type: 'number', description: 'yaw, degrees (yawDeg too)' } }, required: [] };
 const characterPatch = { ...record, properties: { posture: { type: 'string', description: `One of ${POSTURES.join(', ')}; anything else stands.` } }, required: [] };
 const mutation = (id, label, schema, exposure = 'open') => ({ id, label, description: label, kind: 'mutation', undoDomain: 'cast', input: schema, exposure });
 
 const semantic = [
 	mutation('character.set', 'Set character fields', elementSetSchema('character')),
-	mutation('character.add', 'Add character', input({ character: newCharacter })),
+	{ ...mutation('character.add', 'Add character', input({ character: newCharacter })), description: `Add character. A new rig character is of model ${NEW_CHARACTER_MODEL}, drawn in the figure look the Studio was started with.` },
 	mutation('character.remove', 'Remove character', input({ characterId: id })),
 	mutation('character.update', 'Update character', input({ characterId: id, patch: characterPatch })),
 	studioActionDeclaration('character.move'),
@@ -35,9 +35,6 @@ const semantic = [
 	// An empty cast is a legal stage (character.remove may empty it too); the UI replaces the cast with [] when the
 	// last character goes or an empty scene loads, and a minItems refusal there was thrown uncaught (#1040).
 	mutation('cast.replace', 'Replace cast', input({ characters: { type: 'array', items: record } }), 'ui-only'),
-	mutation('cast.setCustomPoses', 'Set pose library', input({ poses: { type: 'array', items: record } }), 'ui-only'),
-	mutation('cast.savePose', 'Save pose', input({ pose: record, characterId: id, clearMotion: { type: 'boolean' } }, ['pose']), 'ui-only'),
-	mutation('cast.removePose', 'Remove saved pose', input({ id }), 'ui-only'),
 	mutation('cast.setLayer', 'Set character layer', input({ characterId: id, layer: record }), 'ui-only'),
 ];
 // "Apply as walk" on a route sketch chip (workflow/ContextChips.jsx): the character's whole root path in one
@@ -71,7 +68,12 @@ export function register(registry, ports) {
 			const { position, yawDeg, ...value } = sent;
 			if (position && typeof position === 'object') { if (Number.isFinite(position.x) && value.x === undefined) value.x = position.x; if (Number.isFinite(position.z) && value.z === undefined) value.z = position.z; }
 			if (Number.isFinite(yawDeg) && value.rot === undefined) value.rot = yawDeg;
-			const row = createCharacterEntry({ ...value, id: value.id ?? createStableItemId('character') }, owner().read().length);
+			// A new rig character is of NEW_CHARACTER_MODEL (the rig figure): without a model, or asking for the old Y Bot body.
+			// Y Bot rows still load (CHARACTER_KIND_IDS); an imported rig id takes its rig from a cast member that has it.
+			const model = !value.model || value.model === 'y-bot-tpose' ? NEW_CHARACTER_MODEL : value.model;
+			const imported = isImportedModel(model) ? importedRigOf(owner().read().find(row => row.model === model)) : null;
+			if (model !== NEW_CHARACTER_MODEL && model !== PROXY_FIGURE_MODEL && !imported) fail('INVALID_ARGUMENT', `A new character's model is ${NEW_CHARACTER_MODEL}, ${PROXY_FIGURE_MODEL} or the model id of a rig imported into this scene; ${model} is none of these.`);
+			const row = createCharacterEntry({ ...value, ...imported, model, id: value.id ?? createStableItemId('character') }, owner().read().length);
 			if (owner().read().some(entry => entry.id === row.id)) fail('INVALID_ARGUMENT', 'Character id already exists.');
 			owner().write(rows => [...rows, row]);
 		},
@@ -87,17 +89,6 @@ export function register(registry, ports) {
 		'character.setPose': ({ characterId, pose: value, clearMotion }) => { character(characterId); owner().applyPose(characterId, pose(value), clearMotion); },
 		
 		'cast.replace': ({ characters }) => owner().write(characters),
-		'cast.setCustomPoses': ({ poses }) => { for (const entry of poses) checkPoseBones(entry?.bones); owner().writeState(before => ({ ...before, customPoses: poses })); },
-		'cast.savePose': ({ pose, characterId, clearMotion }) => {
-			checkPoseBones(pose?.bones);
-			if (characterId) character(characterId);
-			owner().writeState(before => ({ ...before, customPoses: [...before.customPoses.filter(entry => entry.id !== pose.id), pose] }));
-			if (characterId) owner().applyPose(characterId, pose, clearMotion);
-		},
-		'cast.removePose': ({ id }) => owner().writeState(before => ({
-			characters: before.characters.map(entry => entry.pose?.id === id ? { ...entry, pose: DEFAULT_POSE } : entry),
-			customPoses: before.customPoses.filter(entry => entry.id !== id),
-		})),
 
 		'cast.setLayer': ({ characterId, layer }) => patch(characterId, { layer: { ...character(characterId).layer, ...layer } }),
 	};

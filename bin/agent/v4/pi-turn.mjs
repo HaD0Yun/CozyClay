@@ -38,7 +38,7 @@ export async function runV4PiStudioTurn({ value, session, send, close, res, cont
 			const start = input => session.modelSession.start(input);
 			for await (const frame of (task && transaction ? transaction.run(start) : start)({
 				surface: "studio", sessionId: value.sessionId, model: fauxProvider ? `${fauxProvider.provider?.id || fauxProvider.provider || "faux"}/scripted` : PI_MODEL, effort: value.effort ?? "high",
-				text: value.text, attachments: value.attachments, studioContextText, contextView: "plain",
+				text: value.text, attachments: value.attachments, studioContextText, contextView: "plain", note: value.editNote,
 				systemPrompt: V4_SYSTEM_PROMPT, tools, signal, emit: send,
 				meta: { sceneName: value.context?.scene?.name ?? null, firstText: value.text, ...(task ? { parentId: task.parentId, taskId: task.taskId } : {}) }, reportCost: Boolean(task),
 			})) {

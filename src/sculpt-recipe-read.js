@@ -17,6 +17,9 @@ export class RecipeError extends Error {
 	}
 }
 
+/** A refusal before a part has a usable id names it by position, `parts[<n>]`; byPosition tells it from a digit id. */
+export const byPosition = (path, message) => Object.assign(new RecipeError(path, message), { byPosition: true });
+
 export function readVector(value, path, fallback, check) {
 	if (value === undefined && fallback) return [...fallback];
 	if (!Array.isArray(value) || value.length !== 3 || !value.every(isFiniteNumber)) {

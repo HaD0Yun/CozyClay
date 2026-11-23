@@ -27,9 +27,9 @@ import { EFFECT_KIND } from "./effects/effect-record.js";
 import { applyPoseFade } from "./pose-fade.js";
 import { coplanarDepthRanks } from "./coplanar-depth.js";
 import { autoFlat } from "./auto-flat.js";
-import { LIGHT_KIND, capPracticalShadows } from "./object-look.js";
+import { LIGHT_KIND, capPracticalLights } from "./object-look.js";
 import { SceneLight, useLookRefresh } from "./scene-lights.jsx";
-import { placeObjectLook } from "./scene-light-place.js";
+import { aimAtFor, placeObjectLook } from "./scene-light-place.js";
 
 /**
  * The creatable primitives, Unity's 3D Object menu in clay. Each one is built
@@ -279,7 +279,7 @@ const placeLocal = new THREE.Matrix4();
 const placeWorld = new THREE.Matrix4();
 const placeFrame = new THREE.Matrix4();
 
-function SceneObject({ object, selected, frameRef = null, take = null, attachFrameRef = null, registryRef = null, travelLookupRef = null, fadeOpacity = null, depthRank = 0 }) {
+function SceneObject({ object, selected, frameRef = null, take = null, attachFrameRef = null, registryRef = null, travelLookupRef = null, cast = null, fadeOpacity = null, depthRank = 0 }) {
 	const groupRef = useRef(null);
 	const attach = object.attach ?? null;
 	// An object on a travel path — or one CARRIED by a character — is placed
@@ -341,7 +341,7 @@ function SceneObject({ object, selected, frameRef = null, take = null, attachFra
 		}
 		applyPoseFade(group, fadeOpacity, object.opacity ?? 1);
 		// A light's level, flicker and aim, and a glow, for this frame (scene-light-place.js).
-		placeObjectLook(group, object, frame, take);
+		placeObjectLook(group, object, frame, take, aimAtFor(registryRef, travelLookupRef, attachFrameRef, cast));
 	};
 	useFrame(place);
 	useLookRefresh(object);
@@ -390,12 +390,12 @@ function SceneObject({ object, selected, frameRef = null, take = null, attachFra
 /** User-added scene objects, all driven by the shared object registry.
  *
  * `attachFrameRef.current(characterId, bone, out)` resolves the live world
- * frame a carried prop rides, or null. `syncRef` is filled with a "place every
- * prop now" callback for the offscreen export, which renders outside the frame
- * loop and would otherwise record props one frame stale; `worldRef` with a
+ * frame a carried prop rides, or null; `attachFrameAtRef.current(characterId, bone, frame, now, out)` that frame at
+ * another frame (an attached emitter's past: attach-history.js). `syncRef` is filled with a "place every prop now"
+ * callback for the offscreen export, which renders outside the frame loop and would otherwise record props one frame stale; `worldRef` with a
  * "where is this prop" lookup, so a reparent converts from the transform on
- * screen instead of from a second computation of it. */
-export function SetProps({ objects = [], authoredObjects = null, selectedId = null, frameRef = null, take = null, attachFrameRef = null, syncRef = null, worldRef = null, fadeOpacity = null }) {
+ * screen instead of from a second computation of it. `cast` is the characters on stage: a light aims only at one of them. */
+export function SetProps({ objects = [], authoredObjects = null, selectedId = null, frameRef = null, take = null, attachFrameRef = null, attachFrameAtRef = null, cast = null, syncRef = null, worldRef = null, fadeOpacity = null }) {
 	const registryRef = useRef(null);
 	// The authored records by id: a child's travel is its routed parent's
 	// route against the parent's AUTHORED pose, which the display copies in
@@ -406,12 +406,13 @@ export function SetProps({ objects = [], authoredObjects = null, selectedId = nu
 	// rigidly, so what shares a plane at rest shares it on every frame.
 	const depthRanks = useMemo(() => coplanarDepthRanks(authoredObjects ?? objects), [authoredObjects, objects]);
 	if (!registryRef.current) registryRef.current = new Map();
-	if (syncRef) syncRef.current = () => { for (const entry of registryRef.current.values()) entry.place(); };
+	// A light that aims at a record is placed again once every record stands where this frame puts it.
+	if (syncRef) syncRef.current = () => { for (const entry of registryRef.current.values()) entry.place(); for (const o of objects) if (o.light?.aim?.id) registryRef.current.get(o.id)?.place(); };
 	if (worldRef) worldRef.current = (id, out) => registryRef.current.get(id)?.world(out) ?? null;
 	return (
 		<group>
-			{/* Lights past the practical shadow cap draw without one (object-look.js). */}
-			{capPracticalShadows(objects).map((object) => (
+			{/* Lights past the practical shadow cap draw without one, past the light cap not at all (object-look.js). */}
+			{capPracticalLights(objects).map((object) => (
 				<SceneObject
 					key={object.id}
 					object={object}
@@ -420,12 +421,12 @@ export function SetProps({ objects = [], authoredObjects = null, selectedId = nu
 					take={take}
 					attachFrameRef={attachFrameRef}
 					registryRef={registryRef}
-					travelLookupRef={travelLookupRef}
+					travelLookupRef={travelLookupRef} cast={cast}
 					fadeOpacity={fadeOpacity}
 					depthRank={depthRanks.get(object.id) ?? 0}
 				/>
 			))}
-			<EffectsLayer objects={authoredObjects ?? objects} frameRef={frameRef} take={take} registryRef={registryRef} fadeOpacity={fadeOpacity} />
+			<EffectsLayer objects={authoredObjects ?? objects} frameRef={frameRef} take={take} registryRef={registryRef} attachFrameAtRef={attachFrameAtRef} fadeOpacity={fadeOpacity} />
 		</group>
 	);
 }

@@ -55,7 +55,7 @@ CozyClay te deja tomar esas decisiones primero, en 3D, donde cambiarlas sale bar
 
 ```mermaid
 flowchart LR
-  S["Stage<br/>set + cast"] --> M["Motion<br/>compiled + QA"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
+  S["Stage<br/>set + cast"] --> M["Motion<br/>written + built"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
 ```
 
 ## Inicio rápido
@@ -81,11 +81,11 @@ Esa es toda la instalación. Necesitas Node.js 22.19 o superior y un navegador b
 
 | | |
 | --- | --- |
-| **Stage** | Construye el set con primitivas. Añade personajes con rig, o dobles de cápsula cuando nadie necesita mover una extremidad. Vuela por la vista como en un editor 3D. |
-| **Move** | Describe la acción. El agente escribe una especificación de movimiento y un compilador determinista en el navegador calcula cada fotograma. QA comprueba colisiones, deslizamiento de pies, alcance y contacto de manos antes de que lo veas. |
-| **Shoot** | Pon planos en una línea de tiempo, dibuja raíles de dolly, mira a través del objetivo. Cada plano conoce los límites del modelo de vídeo al que apuntas. |
-| **Export** | Paquete de fotogramas clave (primer y último fotograma, clip greybox, cámara, prompt), mp4, pasadas de profundidad y normales, hoja de contactos, lista de cortes OTIO. |
-| **Storyboard** | ¿Prefieres imágenes fijas? Un proyecto Storyboard es una fila de paneles con subtítulos, un animatic y una hoja de contactos. |
+| **Stage** | Construye el set con primitivas y coloca luces puntuales, focos y luces direccionales. Añade personajes con rig, dibujados como figuras de cubos, o dobles de cápsula cuando nadie necesita mover una extremidad. Vuela por la vista como en un editor 3D. |
+| **Move** | Describe la acción en el panel Agent. Un segundo modelo, el escritor de movimiento, escribe una especificación de movimiento, y un motor determinista crea cada fotograma y mide el deslizamiento de pies, los contactos, el equilibrio y los cuerpos dentro de objetos. El escritor lee esas cifras y hojas de contactos del resultado antes de que entre la toma. Un movimiento también puede mover objetos. Necesita haber iniciado sesión en un modelo en el panel Agent. |
+| **Shoot** | Pon planos en una línea de tiempo, dibuja raíles de dolly en la Top-View, mira a través del objetivo. Gira a mano una cámara de raíl y elige a quién sigue. Cada plano conoce los límites del modelo de vídeo al que apuntas. |
+| **Export** | Paquete de fotogramas clave (primer y último fotograma, clip greybox, cámara, prompt), zip de referencia para vídeo con IA (un vídeo de referencia con mosaico y desenfoque, y un prompt), mp4, pasadas de profundidad y normales, hoja de contactos, lista de cortes OTIO. |
+| **Look** | El aspecto toon (sombreado plano de dos tonos con líneas negras) está activado por defecto en el visor y en cada captura y exportación. Desactívalo en **Show**, en la barra del visor. |
 | **Undo anything** | Cada edición, incluido cada cambio del agente, es un paso de deshacer. |
 
 ## Dirígelo con IA
@@ -118,7 +118,7 @@ Las reglas de contribución están en [`AGENTS.md`](AGENTS.md). Abre los pull re
 | Lee | Para |
 | --- | --- |
 | [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) | Instalar, ejecutar y conectar, escrito para agentes de IA |
-| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | Especificaciones de movimiento, compilación y QA |
+| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | El motor de movimiento anterior (MCP, `cclay live`, `COZYCLAY_MOTION_ENGINE=old`): especificaciones de movimiento, compilación y QA |
 | [`docs/agent-cli.md`](docs/agent-cli.md) | `cclay live`, proveedores de modelos, sesiones |
 | [`mcp/README.md`](mcp/README.md) | Herramientas MCP y el protocolo en vivo |
 | [`docs/studio-ui-ia.md`](docs/studio-ui-ia.md) | Cada control y dónde está |

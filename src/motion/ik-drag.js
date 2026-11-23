@@ -68,14 +68,18 @@ function restorePose(chain, pose) {
 	chain.bones[0].updateMatrixWorld(true);
 }
 
-/** The solve a chain or mid drag applies toward its handle (domains/motion.js
- * ikSolve). The contact probe runs this same call from the same starting pose,
- * so the pose it checks is exactly the pose the drag displays. (A probe on a
- * different solve, e.g. exactHinge, lands the elbow and hand elsewhere from a
- * bent pose and passed targets whose displayed limb sat inside the other body.) */
+// The solve a chain or mid drag applies toward its handle (domains/motion.js
+// ikSolve). The contact probe runs this same call from the same starting pose,
+// so the pose it checks is exactly the pose the drag displays. (A probe on a
+// different solve lands the elbow and hand elsewhere from a bent pose and passed
+// targets whose displayed limb sat inside the other body.)
+// A chain solves with exactHinge: one solve puts the hand or foot on a reachable
+// handle from a bent limb. The default hinge lands off it (15-24 cm measured on
+// an installed take) and only converges over repeated solves, so a short drag,
+// or a key made from a single solve, left the limb where nobody put it.
 export function solveDragTarget(kind, chain, target) {
 	if (kind === "mid") solveMidJoint(chain, target);
-	else solveIk(chain, target);
+	else solveIk(chain, target, { exactHinge: true });
 }
 
 /**

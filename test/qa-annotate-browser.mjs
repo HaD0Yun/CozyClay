@@ -252,7 +252,7 @@ expect("the cube stands behind the character's chest on screen", await evaluate(
 	return Math.abs(x - ${chest.x}) < 140 && Math.abs(y - ${chest.y}) < 140;
 })()`));
 await tap(chest);
-expect("the pin on the character's chest is mark 6: the character and a bone, not the cube behind", await waitFor(`/^⑥ Y Bot (Chest|Upper chest|Spine)/.test(document.querySelector('.agent-context-chip[data-mark="6"] .agent-context-chip-label')?.textContent ?? '')`), JSON.stringify(await chips()));
+expect("the pin on the character's chest is mark 6: the character and a bone, not the cube behind", await waitFor(`/^⑥ Cube figure (Chest|Upper chest|Spine)/.test(document.querySelector('.agent-context-chip[data-mark="6"] .agent-context-chip-label')?.textContent ?? '')`), JSON.stringify(await chips()));
 
 // --- 7c. A closed pen loop around the left hand names the hand, not the floor ----------------------
 const jointsOnScreen = () => evaluate(`(() => {
@@ -264,12 +264,12 @@ const jointsOnScreen = () => evaluate(`(() => {
 const j = await jointsOnScreen();
 const hand = { x: (j.LeftHand.x + j.LeftHandMiddle1.x) / 2, y: (j.LeftHand.y + j.LeftHandMiddle1.y) / 2 };
 await drag(Array.from({ length: 25 }, (_, i) => ({ x: hand.x + Math.cos(i / 24 * Math.PI * 2) * 22, y: hand.y + Math.sin(i / 24 * Math.PI * 2) * 22 })));
-expect("a closed loop around the left hand is mark 7: ⑦ Y Bot Left hand", await waitFor(`document.querySelector('.agent-context-chip[data-mark="7"] .agent-context-chip-label')?.textContent === '⑦ Y Bot Left hand'`), JSON.stringify(await chips()));
+expect("a closed loop around the left hand is mark 7: ⑦ Cube figure Left hand", await waitFor(`document.querySelector('.agent-context-chip[data-mark="7"] .agent-context-chip-label')?.textContent === '⑦ Cube figure Left hand'`), JSON.stringify(await chips()));
 await screenshot("04b-hand-loop.png");
 
 // --- 7d. An open stroke along the left arm names the arm bones ------------------------------------
 await drag([j.LeftArm, j.LeftForeArm, j.LeftHand].map((p) => ({ x: p.x, y: p.y })));
-expect("a stroke along the left arm is mark 8 on the character's arm", await waitFor(`/^⑧ Y Bot Left (arm|forearm)$/.test(document.querySelector('.agent-context-chip[data-mark="8"] .agent-context-chip-label')?.textContent ?? '')`), JSON.stringify(await chips()));
+expect("a stroke along the left arm is mark 8 on the character's arm", await waitFor(`/^⑧ Cube figure Left (arm|forearm)$/.test(document.querySelector('.agent-context-chip[data-mark="8"] .agent-context-chip-label')?.textContent ?? '')`), JSON.stringify(await chips()));
 await press("Escape", "Escape");
 await mouse("mouseMoved", 700, 300);
 expect("Apply as walk is a small icon button", await evaluate("(() => { const b = document.querySelector('[data-testid=chip-apply-walk]'); return !b || (b.getBoundingClientRect().width <= 17 && !!b.title); })()"));
@@ -335,9 +335,9 @@ await click("[data-testid=annotate]");
 for (const part of ["head", "hand", "foot"]) await tap(posed[part]);
 await screenshot("07-posed-points.png");
 list = await chips();
-expect("a click on the posed head names the head", /^① Y Bot Head$/.test(list[0]?.label ?? ""), JSON.stringify(list));
-expect("a click on the hand held forward names the left hand", /^② Y Bot Left hand$/.test(list[1]?.label ?? ""), JSON.stringify(list));
-expect("a click on the posed foot names the left foot", /^③ Y Bot Left foot$/.test(list[2]?.label ?? ""), JSON.stringify(list));
+expect("a click on the posed head names the head", /^① Cube figure Head$/.test(list[0]?.label ?? ""), JSON.stringify(list));
+expect("a click on the hand held forward names the left hand", /^② Cube figure Left hand$/.test(list[1]?.label ?? ""), JSON.stringify(list));
+expect("a click on the posed foot names the left foot", /^③ Cube figure Left foot$/.test(list[2]?.label ?? ""), JSON.stringify(list));
 expect("none of the three is the floor", list.length === 3 && list.every((chip) => !/Floor/.test(chip.label)), JSON.stringify(list));
 await press("Escape", "Escape");
 

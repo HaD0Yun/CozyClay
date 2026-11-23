@@ -7,7 +7,8 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
-const panel = readFileSync(new URL("../src/workflow/AgentPanel.jsx", import.meta.url), "utf8");
+// The panel with its user message rows, which live in AgentUserBubble.jsx (the edit on the last message).
+const panel = readFileSync(new URL("../src/workflow/AgentPanel.jsx", import.meta.url), "utf8") + readFileSync(new URL("../src/workflow/AgentUserBubble.jsx", import.meta.url), "utf8");
 // Connect a model is pi's own login (#pi-login): the list and the flow live in LoginPanel.jsx and login-client.js.
 const login = readFileSync(new URL("../src/workflow/LoginPanel.jsx", import.meta.url), "utf8");
 const loginClient = readFileSync(new URL("../src/workflow/login-client.js", import.meta.url), "utf8");
@@ -224,7 +225,7 @@ expect("pending pictures are thumbnails above the composer, each with a remove c
 expect("a paste the composer claimed is not also dropped on the canvas", /const onPaste = \(event\) => \{[\s\S]{0,240}if \(event\.defaultPrevented\) return;/.test(builder), "the builder's window paste listener must stand down for a handled paste");
 expect("a refused picture says why instead of vanishing", panel.includes("agent-attachment-notice") && client.includes("ATTACHMENT_MAX_COUNT"));
 expect("the sent bubble keeps the pictures it was sent with", panel.includes("agent-bubble-attachments") && client.includes('kind: "user", id: newId(), text: trimmed, attachFrame: Boolean(options.attachFrame), attachments'));
-expect("sending empties the composer's pictures with its draft", /set\(\{[\s\S]{0,200}draft: "",\n\t\t\t\tpendingAttachments: \[\],/.test(client));
+expect("sending empties the composer's pictures with its draft (a queued message leaves the composer alone)", client.includes('...(options.queued ? {} : { draft: "", pendingAttachments: [] }),'));
 expect("the attachment strip is token-driven", /\.agent-attachment\s*\{[^}]*width: var\(--agent-thumb\)/.test(css) && /\.agent-attachments\s*\{[^}]*gap: var\(--agent-space-2\)/.test(css));
 {
 	const attachments = await import("../src/workflow/attachment-image.js");
@@ -280,7 +281,7 @@ expect("the empty ready state offers exactly three suggestion chips", module_.SU
 	expect("the Studio panel drops every Workflow-only affordance", studioPresentation.imageHint === null && studioPresentation.imageEntitlement === false
 		&& studioPresentation.history === true && studioPresentation.persistWidth === false);
 	expect("the dock keeps them", workflow.imageHint === module_.IMAGE_COST_HINT && workflow.imageEntitlement === true && workflow.history === true && workflow.persistWidth === true);
-	expect("steering belongs to the Workflow turn alone", workflow.steer === true && studioPresentation.steer === false);
+	expect("both surfaces queue and steer the same way: no presentation switch for it", !("steer" in workflow) && !("steer" in studioPresentation));
 	expect("Studio History is enabled and backed by the session key", panel.includes("agent-history-popover") && panel.includes("STUDIO_SESSION_STORAGE_KEY") && client.includes('"cozyclay.agent.session.studio"'));
 	expect("Studio restore has a visible fallback notice", panel.includes("Previous conversation could not be restored") && panel.includes("store.restore"));
 	expect("the Studio offers three previs chips of its own", studioPresentation.suggestions.length === 3
@@ -668,11 +669,11 @@ expect("effort options come from the selected model", panel.includes("effortOpti
 	&& client.includes("entry.defaultEffort && efforts.includes(entry.defaultEffort)"));
 expect("the transport can steer a running turn", client.includes("async steer(turnId, body)") && client.includes("/agent/turn/${encodeURIComponent(turnId)}/steer"));
 expect("the store steers instead of starting a second turn", client.includes("async steer(text, options = {})") && client.includes("if (!state.streaming || !wireTurnId"));
-expect("a refused steer names the code and keeps the draft", client.includes("export const STEER_ERROR_COPY") && client.includes("STEER_UNSUPPORTED")
+expect("a refused steer names the code and the row stays queued", client.includes("export const STEER_ERROR_COPY") && client.includes("STEER_UNSUPPORTED")
 	&& client.includes("NO_ACTIVE_TURN") && panel.includes("setSteerNotice(result.message"));
-expect("Send becomes Steer while a steerable turn runs, and Stop stays reachable", panel.includes('className="agent-send agent-steer"') && panel.includes(">Steer</button>")
+expect("Send queues while a turn runs, and Stop stays reachable", panel.includes('className="agent-send agent-queue-add"') && panel.includes("onClick={queueDraft}")
 	&& panel.includes('className="agent-send stop agent-stop"'));
-expect("only the Workflow surface offers Steer", panel.includes("presentation.steer &&") && panel.includes("if (streaming) { if (presentation.steer) steerTurn(draft); return; }"));
+expect("Enter queues on every surface while a turn runs", panel.includes("if (streaming) { queueDraft(); return; }") && !panel.includes("presentation.steer"));
 expect("a provider key is a way in, not only the ChatGPT sign-in", panel.includes("status?.signedIn || status?.providersConfigured > 0"));
 expect("the scripted transport answers the grouped list and the steer route", client.includes("const MOCK_PROVIDER_MODELS") && client.includes("cozyclay.mock.agent.last-steer"));
 expect("the notice line is token-driven", /\.agent-toast\s*\{[^}]*padding: var\(--agent-space-3\) var\(--agent-space-4\)/.test(css)
@@ -693,8 +694,8 @@ expect("preferredModel falls back to nothing rather than a guess", module_.prefe
 	await assert.rejects(() => mock.steer("mock-turn-404", { text: "too late" }), (error) => error.status === 409 && error.code === "NO_ACTIVE_TURN");
 	expect("the scripted steer refuses a turn that is not running", true);
 	await assert.rejects(() => module_.createMockTransport({ state: "ready", surface: "studio" }).steer("any", { text: "nope" }),
-		(error) => error.status === 409 && error.code === "STEER_UNSUPPORTED");
-	expect("the scripted Studio surface refuses steering outright", true);
+		(error) => error.status === 409 && error.code === "NO_ACTIVE_TURN");
+	expect("the scripted Studio surface refuses a steer only when no turn runs, like the Workflow one", true);
 	expect("a scripted session reports how many provider keys it has", Number.isInteger((await mock.status()).providersConfigured)
 		&& (await module_.createMockTransport({ state: "signed-out" }).status()).providersConfigured === 0);
 }
@@ -1283,7 +1284,7 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 			["\"retry_button\")", "\"regenerate\")", "\"supervisor\")"].every((via) => panelSource.includes(via)) && panelSource.includes("noteChipDraft(); store.setDraft(chip)")
 			&& panelSource.includes("noteDraftInput(); store.setDraft(event.target.value)") && /stagePrompt\(text, [^\n]*\n\s*return store\.send\(text/.test(panelSource));
 		expect("connect: the four openers and the ChatGPT attempt are wired", login.includes("connectStarted(provider.id, method.type)") && login.includes('connectFinished("cancelled", "user_closed")') && login.includes('connectFinished("abandoned", "user_closed")')
-			&& panelSource.includes('connectOpened("menu")') && panelSource.includes('openProviderKeys("signed_out")') && panelSource.includes('openProviderKeys("failure_card")') && panelSource.includes('connectStarted("openai-codex", "chatgpt")') && panelSource.includes("connectAuthState(authState, account)") && panelSource.includes("if (result.ok) noteDraftConsumed();"));
+			&& panelSource.includes('connectOpened("menu")') && panelSource.includes('openProviderKeys("signed_out")') && panelSource.includes('openProviderKeys("failure_card")') && panelSource.includes('connectStarted("openai-codex", "chatgpt")') && panelSource.includes("connectAuthState(authState, account)") && panelSource.includes("store.clearAttachments(); noteDraftConsumed();"));
 	} finally {
 		restore(); friction.reset();
 		if (saved) Object.defineProperty(globalThis, "localStorage", saved); else delete globalThis.localStorage;

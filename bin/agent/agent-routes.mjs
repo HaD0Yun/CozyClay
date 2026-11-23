@@ -9,11 +9,12 @@ import { createAgentTools, SYSTEM_PROMPT, pickWorkspace } from "./agent-tools.mj
 
 import { createVideoAdapters, validateFalVideoRequest } from "./video-adapters.mjs";
 import { createSessionStore, transcriptFromHistory } from "./session-store.mjs";
+import { handleRewind, markTurn, sceneEpoch, takeEditNote, withLastTurnId } from "./session-rewind.mjs";
 import { createAgentRunner } from "./agent-runner.mjs";
 import { createProviderRoutes } from "./provider-routes.mjs";
-import { STUDIO_SYSTEM_PROMPT_STORYBOARD } from "./studio-prompt.mjs";
 import { studioTransaction } from "./studio-turn-transaction.mjs";
 import { agentFailureCode, failureCodeOf, frameCodeOf } from "./agent-failure-codes.mjs";
+import { agentToolCategory, appliedCanvasResult, createTurnTelemetry } from "./turn-telemetry.mjs";
 
 // Values the codex backend accepts for reasoning.effort (its own 400 lists them).
 export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
@@ -59,65 +60,6 @@ function validAttachments(attachments) {
 	return attachments.every((entry) => entry && typeof entry === "object" && !Array.isArray(entry)
 		&& typeof entry.dataUrl === "string" && entry.dataUrl.length <= ATTACHMENT_MAX_CHARS && /^data:image\/(png|jpeg|webp);base64,/.test(entry.dataUrl)
 		&& (entry.name === undefined || (typeof entry.name === "string" && entry.name.length <= 120)));
-}
-
-// Keep this local relay self-contained: minimal sidecar installs omit src/.
-const advisory = (read, fallback) => { try { return read(); } catch { return fallback; } };
-const telemetryId = () => advisory(() => randomBytes(16).toString("hex"), null);
-const telemetryNow = () => advisory(() => { const value = performance.now(); return Number.isFinite(value) ? value : NaN; }, NaN);
-const bucketMs = (ms) => !Number.isFinite(ms) || ms < 1000 ? "lt1s" : ms < 3000 ? "1-3s" : ms < 10000 ? "3-10s" : ms < 30000 ? "10-30s" : "gte30s";
-const agentToolCategory = (name) => {
-	// Studio families are authored edits or reads; the analytics vocabulary has
-	// no Studio-specific category, so a write says so and everything else does not.
-	if (["arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "undo_edit"].includes(name)) return "scene_write";
-	if (name === "run_workflow") return "workflow_run";
-	if (name === "describe_workflow" || name === "focus_workflow_node") return "workflow_read";
-	if (["add_workflow_node", "update_workflow_node", "remove_workflow_node", "connect_workflow_nodes", "disconnect_workflow_nodes", "set_workflow_node_output"].includes(name)) return "workflow_write";
-	if (name === "capture_blocking_frame") return "frame_capture";
-	if (name === "add_reference_node") return "scene_write";
-	return "other";
-};
-// These existing canvas commands only return a node/edge after publishing a
-// new insertion. Read/focus, generic accepted responses, update no-ops and run
-// outputs (which can echo old values) are deliberately not application proof.
-const appliedCanvasResult = (name, result) => {
-	if (name === "add_workflow_node" || name === "add_reference_node") return typeof result?.node?.id === "string" && result.node.id.length > 0;
-	if (name === "connect_workflow_nodes") return typeof result?.edge?.id === "string" && result.edge.id.length > 0;
-	return false;
-};
-
-/**
- * One execution-telemetry emitter, shared by both surfaces. The turn that owns
- * the correlation id owns its frames: a turn without one stays unobserved
- * rather than emitting frames nothing can correlate.
- */
-function createTurnTelemetry(send, turnId) {
-	const turnStartedAt = telemetryNow();
-	let applied = false;
-	const emit = (event, props, toolId) => advisory(() => {
-		if (turnId) send({ type: "execution_telemetry", event, props, ...(toolId ? { telemetry_id: toolId } : {}) });
-	});
-	return {
-		/** One tool execution: the started frame now, its outcome when it ends. */
-		toolStarted(category) {
-			const startedAt = telemetryNow();
-			const toolId = telemetryId();
-			advisory(() => { if (turnId && toolId) send({ type: "execution_tool_started", turn_id: turnId, telemetry_id: toolId, tool_category: category }); });
-			return {
-				elapsedMs: () => Math.round(telemetryNow() - startedAt),
-				executed: (outcome) => {
-					if (toolId) emit("agent:tool_executed", { turn_id: turnId, tool_category: category, outcome, duration_bucket: bucketMs(telemetryNow() - startedAt) }, toolId);
-				},
-			};
-		},
-		/** The first proof that the scene actually changed, once per turn. */
-		applied: () => advisory(() => { if (!applied) { applied = true; emit("agent:result_applied", { turn_id: turnId }); } }),
-		finished: (outcome, failureCode) => emit(`agent:turn_${outcome}`, {
-			turn_id: turnId,
-			duration_bucket: bucketMs(telemetryNow() - turnStartedAt),
-			...(outcome !== "succeeded" ? { failure_code: failureCode } : {}),
-		}),
-	};
 }
 
 /** Reject anything that is not a list of {role, name?, dataUrl} inline images. */
@@ -338,15 +280,23 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	// Tests hand in a store of their own; only the real sidecar writes the
 	// author's config dir (#375).
 	const sessionStore = injectedSessionStore ?? createSessionStore();
-	const studioSessions = new Map();
+	const studioSessions = new Map(), edits = new Map(); // edits: a conversation whose last message was just edited -> { revision, epoch } (session-rewind.mjs)
 	const studioEvents = new Map();
 	const studioOwnerTokens = new Map();
 	const parseCookies = req => Object.fromEntries(String(req.headers.cookie || "").split(";").map(part => part.trim().split("=")).filter(([key, value]) => key && value).map(([key, value]) => [key, decodeURIComponent(value)]));
+	// A running turn keeps its session, and so does a coordinator whose tasks have not all ended (studio-task-routes.mjs busy).
+	const idle = (id, session) => !(session.activeTurnId && session.controller && !session.controller.signal.aborted) && !taskRouter?.busy(id);
+	// A stale session lets go of what only it used: its turns' event records, its model runner (the transcript with every
+	// picture; a later turn opens a new one from the session file), and a coordinator's board and feed (studio-task-routes.mjs).
+	const retire = (id, session) => {
+		studioSessions.delete(id); studioOwnerTokens.delete(id); for (const turn of session.turns.keys()) studioEvents.delete(turn);
+		void studioRunners.get(id)?.close?.(); studioRunners.delete(id); taskRouter?.retire(id);
+	};
 	const pruneStudioSessions = () => {
-		const now = clock(), idle = session => !(session.activeTurnId && session.controller && !session.controller.signal.aborted); // a running turn keeps its session
-		for (const [id, session] of studioSessions) if (idle(session) && now - session.updatedAt > 600_000) { studioSessions.delete(id); studioOwnerTokens.delete(id); for (const turn of session.turns.keys()) studioEvents.delete(turn); }
-		const retired = [...studioSessions.entries()].filter(([, session]) => idle(session)).sort((a, b) => a[1].updatedAt - b[1].updatedAt);
-		while (studioSessions.size > 256 && retired.length) { const [id, session] = retired.shift(); studioSessions.delete(id); studioOwnerTokens.delete(id); for (const turn of session.turns.keys()) studioEvents.delete(turn); }
+		const now = clock();
+		for (const [id, session] of studioSessions) if (idle(id, session) && now - session.updatedAt > 600_000) retire(id, session);
+		const retired = [...studioSessions.entries()].filter(([id, session]) => idle(id, session)).sort((a, b) => a[1].updatedAt - b[1].updatedAt);
+		while (studioSessions.size > 256 && retired.length) retire(...retired.shift());
 	};
 	const studioOwner = (req, sessionId, create = false) => {
 		pruneStudioSessions();
@@ -420,7 +370,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	};
 	const handleStudioTurn = async (req, res, value, path) => {
 		const { StudioProtocolError, validateStudioContextFreshness } = await import("../../src/studio-agent-protocol.js");
-		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
+		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool, scriptEditedBeforeFailing }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
 			import("./studio-tools.mjs"), import("../../src/studio-agent-context.js"), import("./script-tool.mjs"), import("./supervisor.mjs"), import("./plan-tool.mjs"), import("./studio-review.mjs"), import("./supervisor-followup.mjs"),
 		]);
 		const hubDeps = await runtime; const hub = hubDeps.liveHub || liveHub;
@@ -462,6 +412,11 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			studioSessions.set(value.sessionId, session);
 		}
 		session.updatedAt = clock();
+		// The turn's line in the session file, before its messages; the user's turn after an edit tells the model what it replaces
+		// (session-rewind.mjs), never a turn the user did not write (a task's run, the main agent's own report).
+		const epoch = sceneEpoch(value.context.host);
+		try { markTurn(sessionStore, value.sessionId, { turnId: value.turnId, revision: value.context.revision?.scene ?? null, epoch, model: value.model ?? null, main: Boolean(value.main) }); } catch (error) { console.warn(`[agent] turn line not written: ${error.message}`); }
+		value.editNote = value.hidden || value.task ? undefined : takeEditNote(edits, value.sessionId, value.context.revision?.scene, epoch);
 		if (studioRuntime?.handleTurn) { await studioRuntime.handleTurn(value, req, res); return true; }
 		const record = { next: 0, events: [], listeners: new Set(), terminal: false }; studioEvents.set(value.turnId, record); session.turns.set(value.turnId, record); session.host = studioIdentity(value.context.host);
 		res.setHeader("set-cookie", `studio_owner=${encodeURIComponent(session.owner)}; Path=/agent; HttpOnly; SameSite=Strict`);
@@ -504,11 +459,16 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				return refreshed;
 			},
 		};
-		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, previsMode: value.context.scene?.previsMode, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
+		// What the agent sees of the editor's actions under the lowvis engine (agent-view.mjs); tools.internal stays whole.
+		const agentView = (await import("./agent-view.mjs")).turnAgentView({ env, value, current, invoke: (name, args) => tools.internal.invoke(name, args) });
+		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
 		const turnTransaction = studioTransaction({ hub, context: current, turnId: value.turnId, admission, task: value.task, signal: controller.signal, plain: Boolean(value.main), onWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }); // the user mid-drag (studio-busy-wait.mjs)
+		// The lowvis motion engine (bin/agent/lowvis-turn.mjs, prototype) runs its own model key: the lowvis authoring loop, then the clip installed as scene content.
+		if (await (await import("./lowvis-turn.mjs")).runLowvisTurn({ value, session, send, close, res, controller, studioTools: tools, hub, studioRunners, env, models: ensureWorkflowModels, studioIdentity, admission })) return true;
 		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner (a motion task's run: inside its task transaction). Every other model goes on below.
 		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, transaction: turnTransaction, fauxProvider, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
-		const modelTools = tools.map(tool => ({
+		// An edit of an object the last motion uses answers how it now differs from the motion's box (motion-fit.mjs).
+		const modelTools = (await import("./motion-fit.mjs")).turnFitView({ value, env, hub }).tools(agentView.tools(tools.map(tool => ({
 			...tool,
 			handler: async (args, call) => {
 				const result = await tool.handler(args, call);
@@ -518,9 +478,12 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				const visual = await tools.resolveImage(ref.imageId || ref.id, { receiptId: result.receiptId, revision: result.revision });
 				return { ...result, visualStatus: visual.visualStatus, imageId: visual.imageId, revision: visual.revision, receiptId: visual.receiptId, ...(visual.dataUrl ? { dataUrl: visual.dataUrl } : {}) };
 			},
-		}));
+		}))));
+		// The motion tool (motion-door.mjs): body motion of rig characters goes to the motion environment.
+		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, models: ensureWorkflowModels, hub, tools, transaction: turnTransaction, admission, signal: controller.signal });
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.
-		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: [...modelTools, plan.nested], signal: controller.signal, emit: send });
+		// A script's tools tell the motion door every id they change (motionDoor.nested), so a running motion's guard sees past the summary.
+		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: motionDoor ? motionDoor.nested([...modelTools, plan.nested]) : [...modelTools, plan.nested], signal: controller.signal, emit: send });
 		const scriptTool = {
 			...script,
 			// A script that fails after it edited the scene rolls back its own edits, so
@@ -529,7 +492,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			handler: async (args, options) => {
 				await turnTransaction.mark();
 				const result = await script.handler(args, options);
-				if (result.ok || !result.calls.some(call => call.ok && Number.isSafeInteger(call.revision?.after) && call.revision.after !== call.revision.before)) return result;
+				if (!scriptEditedBeforeFailing(result)) return result;
 				const rollback = await turnTransaction.rollback();
 				return rollback ? { ...result, rollback: { status: "rolled_back", receiptId: rollback.receiptId, revision: rollback.revision, affectedIds: rollback.affectedIds.slice(0, 8) } } : result;
 			},
@@ -600,10 +563,10 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		try {
 			if (!session.modelSession) session.modelSession = await runner.openSession(value.sessionId, { surface: "studio" });
-			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
+			for await (const frame of turnTransaction.run(reviewing && !value.task ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, settled: value.main?.settled, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
-				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
-				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan], systemPrompt: value.main?.systemPrompt ?? (value.context.scene?.previsMode === "storyboard" ? STUDIO_SYSTEM_PROMPT_STORYBOARD : undefined), signal: controller.signal, emit: send,
+				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? "") + (motionDoor?.note() ? `\n${motionDoor.note()}` : ""), frameObservation,
+				reportCost: Boolean(value.task || value.main), context: value.context, note: value.editNote, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : motionDoor ? motionDoor.with([...modelTools, plan.track(scriptTool), plan]) : [...modelTools, plan.track(scriptTool), plan], motionTool: Boolean(motionDoor), unfinished: motionDoor?.unfinished, systemPrompt: value.main?.systemPrompt, signal: controller.signal, emit: send,
 				meta: persistenceMeta,
 				quotaEvent: headers => codex?.parseQuotaHeaders ? quotaEvent(codex, headers) : { type: "quota", plan: null, primary: { usedPercent: null, windowMinutes: null, resetAt: null }, credits: { has: null } },
 			})) emitFrame(frame);
@@ -638,8 +601,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		return true;
 	};
 	// Lazy, like every src/ import here: the minimal legacy-sidecar package omits src/.
-	let taskRoutesReady;
-	const taskRoutes = async (...args) => (await (taskRoutesReady ??= import("./studio-task-routes.mjs").then(({ createStudioTaskRoutes }) => createStudioTaskRoutes({ enabled: studioTasks, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, parseCookies, json, readBody: req => readBody(req, TURN_BODY_LIMIT), limits: taskLimits, motionModel: motionModel ?? (async () => (fauxProvider ? null : (await import("./v4/models.mjs")).motionTaskModel(await (await import("./providers.mjs")).listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env))),
+	let taskRoutesReady, taskRouter = null;
+	const taskRoutes = async (...args) => (await (taskRoutesReady ??= import("./studio-task-routes.mjs").then(({ createStudioTaskRoutes }) => taskRouter = createStudioTaskRoutes({ enabled: studioTasks, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, parseCookies, json, readBody: req => readBody(req, TURN_BODY_LIMIT), limits: taskLimits, motionModel: motionModel ?? (async () => (fauxProvider ? null : (await import("./v4/models.mjs")).motionTaskModel(await (await import("./providers.mjs")).listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env))),
 		newRecord: () => ({ next: 0, events: [], listeners: new Set(), terminal: false }),
 		validateEnvelope: async value => (await import("../../src/studio-agent-protocol.js")).validateStudioTurnEnvelope(value),
 		inspect: async (host, args) => ((await runtime).liveHub || liveHub).command("inspect_studio", args, host.workspaceHandle),
@@ -690,7 +653,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			let value;
 			try {
 				value = await readBody(req, TURN_BODY_LIMIT);
-				if (!value || typeof value.text !== "string" || !value.text.trim() || !validAttachments(value.attachments)) throw new Error("Invalid request.");
+				if (!value || typeof value.text !== "string" || !value.text.trim() || !validAttachments(value.attachments) || (value.id !== undefined && (typeof value.id !== "string" || value.id.length > 100))) throw new Error("Invalid request.");
 			} catch { json(res, 400, { error: "invalid request" }); return true; }
 			// Studio turns are keyed in studioSessions, never in the Workflow
 			// `sessions` map, so that lookup alone tells them apart. Only the cookie
@@ -700,14 +663,20 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			const session = studio ?? [...sessions.values()].find(candidate => candidate.turnId === turnId);
 			if (!session) { json(res, 404, { error: "turn not found" }); return true; }
 			const active = studio ? studio.activeTurnId === turnId && studio.controller && !studio.controller.signal.aborted : session.running;
-			if (!active || !session.modelSession) { json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: "This turn already ended." } }); return true; }
+			// turnSteer: the running turn's own loop when it is not the session's pi runner (lowvis-turn.mjs, the motion writer)
+			const steer = session.turnSteer ?? session.modelSession?.steer, ended = () => json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: "This turn already ended." } });
+			if (!active || !steer) { ended(); return true; }
 			const images = (Array.isArray(value.attachments) ? value.attachments : []).map(attachment => {
 				const match = /^data:([^;]+);base64,(.*)$/.exec(attachment?.dataUrl || "");
 				return match ? { type: "image", data: match[2], mimeType: match[1] } : null;
 			}).filter(Boolean);
-			await session.modelSession.steer(value.text, images);
+			// queued: in the turn's steering queue; the turn's stream says steer.received (in the context of its next model
+			// call) or steer.dropped (the turn ended first) with this id (steer-inbox.mjs). false: the run ended meanwhile.
+			if (await steer(value.text, images, value.id ?? null) === false) { ended(); return true; }
 			json(res, 200, { ok: true, queued: true }); return true;
 		}
+		// The edit on the last message: that turn leaves the conversation the model is given and the panel restores (session-rewind.mjs).
+		if (path.startsWith("/agent/sessions/") && path.endsWith("/rewind") && req.method === "POST") return handleRewind(req, res, decodeURIComponent(path.slice("/agent/sessions/".length, -"/rewind".length)), { studioSessions, studioRunners, sessionStore, edits, parseCookies, json, readBody: request => readBody(request) });
 		if (await providerRoutes(req, res, path)) return true;
 		if (path === "/agent/sessions" && req.method === "GET") {
 			const surface = new URL(req.url, "http://127.0.0.1").searchParams.get("surface") || undefined;
@@ -724,14 +693,14 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			const live = studioSessions.get(sessionId), mine = live && parseCookies(req).studio_owner === live.owner;
 			const running = mine && live.activeTurnId && live.controller && !live.controller.signal.aborted ? { active: { turnId: live.activeTurnId, ...(live.activeText ? { text: live.activeText } : {}) } } : {};
 			try { const persisted = sessionStore.read(sessionId);
-				if (!persisted && !running.active) { missing(); return true; }
-				json(res, 200, { sessionId, transcript: persisted ? transcriptFromHistory(persisted.history) : [], meta: persisted?.meta ?? null, ...running, ...(mine && studioEvents.has(`main:${sessionId}`) ? { main: true } : {}) });
+				if (!persisted?.history.length && !persisted?.turnErrors && !running.active) { missing(); return true; } // a file of turn lines alone (session-rewind.mjs) holds nothing yet
+				json(res, 200, { sessionId, transcript: persisted ? withLastTurnId(sessionStore, sessionId, transcriptFromHistory(persisted.history), transcriptFromHistory) : [], meta: persisted?.meta ?? null, ...running, ...(mine && studioEvents.has(`main:${sessionId}`) ? { main: true } : {}) });
 			} catch { missing(); } return true;
 		}
 		if (path === "/agent/models" && req.method === "GET") {
 			try {
-				// withV4Models: the v4 motion engine's picker entry (bin/agent/v4/models.mjs), listed while CLIProxyAPI is signed in.
-				const [{ listAgentModels }, { withV4Models }] = await Promise.all([import("./providers.mjs"), import("./v4/models.mjs")]); json(res, 200, withV4Models(await listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env })));
+				// withMotionModels: the motion engines' picker entries for the engine that is on (lowvis-turn.mjs).
+				const [{ listAgentModels }, { withMotionModels }] = await Promise.all([import("./providers.mjs"), import("./lowvis-turn.mjs")]); json(res, 200, await withMotionModels(await listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env));
 			} catch (error) { json(res, error.status === 401 ? 401 : 502, { error: errorInfo(error) }); }
 			return true;
 		}

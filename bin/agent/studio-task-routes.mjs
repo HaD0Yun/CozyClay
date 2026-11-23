@@ -14,11 +14,14 @@
 import { randomUUID } from "node:crypto";
 import { createTaskBoard, taskHeader, TASK_LIMITS } from "./studio-tasks.mjs";
 import { createMainTools, doneClaimCorrection, mainContextText } from "./main-agent.mjs";
-import { MAIN_SYSTEM_PROMPT } from "./main-prompt.mjs";
+import { MAIN_SYSTEM_PROMPT, mainSystemPrompt } from "./main-prompt.mjs";
+import { motionEngine } from "./motion-engine.mjs";
 import { motionHeader, motionMainPrompt, motionScope, motionSubject } from "./motion-tasks.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
+import { settledEdits } from "./studio-review.mjs";
 import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
 
+const ENDED = new Set(["done", "incomplete", "failed", "cancelled"]);
 const TERMINAL = new Set(["task.review", "task.done", "task.incomplete", "task.failed", "task.cancelled", "task.paused"]);
 const PREEMPT_WAIT_MS = 5000;
 // A main turn with no model or tool event for idleMs ends with the reason (#1058), like a task's idle watchdog (studio-tasks.mjs).
@@ -45,16 +48,20 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		let main = mains.get(sessionId);
 		if (main) return main;
 		const feedId = `main:${sessionId}`;
-		main = { sessionId, feedId, feed: newRecord(), events: [], host: null, model: undefined, effort: undefined, eventTimer: null, designs: new Map() };
+		main = { sessionId, feedId, feed: newRecord(), events: [], host: null, model: undefined, effort: undefined, eventTimer: null, designs: new Map(), changed: new Set() };
 		studioEvents.set(feedId, main.feed);
 		main.notify = event => {
 			main.events.push(event);
+			main.arrived = (main.arrived ?? 0) + 1;
+			for (const key of event.changed ?? []) main.changed.add(key); // reviewed once the request's tasks are all done (studio-review.mjs settledEdits)
 			emitStudioEvent(feedId, event);
+			// a new task keeps the user's last message as typed: its run's motion tool hands it to the motion writer (motion-door.mjs)
+			if (event.type === "task.queued" && main.board.get(event.taskId)) main.board.get(event.taskId).words ??= main.words ?? null;
 			// Lost on the old handle after the panel already reconnected on a new one: resume there now, not at the next message.
 			if (event.type === "task.paused" && main.host && main.board.get(event.taskId)?.host !== main.host) queueMicrotask(() => main.board.reconnect(main.host.sceneId));
 			if (TERMINAL.has(event.type)) eventTurnSoon(main);
 		};
-		main.board = createTaskBoard({ limits, run: (task, options) => runTask(main, task, options), emit: main.notify });
+		main.board = createTaskBoard({ limits, run: (task, options) => runTask(main, task, options), emit: main.notify, createOnly: motionEngine() === "lowvis" });
 		mains.set(sessionId, main);
 		return main;
 	}
@@ -68,7 +75,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			const session = studioSessions.get(main.sessionId);
 			if (!session?.owner || !main.host || !main.events.length || main.eventTurn) return;
 			if (session.activeTurnId) return eventTurnSoon(main);
-			const turn = main.eventTurn = { turnId: randomUUID(), told: [], preempted: false, done: null };
+			const turn = main.eventTurn = { turnId: randomUUID(), told: [], preempted: false, done: null }, arrivedBefore = main.arrived;
 			let context;
 			try { context = await readContext(main.host); } catch { main.eventTurn = null; return; }
 			// a user turn began while the context was read: it carries the events, or a later event turn does
@@ -77,6 +84,11 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			turn.done = runMain(main, ownerRequest(session.owner), fakeResponse(), { surface: "studio", sessionId: main.sessionId, turnId: turn.turnId, text: EVENT_TURN_TEXT, context, model: main.model, effort: main.effort }, turn).catch(() => {});
 			await turn.done;
 			if (main.eventTurn === turn) main.eventTurn = null;
+			// A task that ended while this turn ran: its event came after the turn read its context, and the timer it set
+			// found this turn running and stopped. The next turn tells it (and runs the review of a request now all done).
+			// Only an event that arrived during this turn starts another: a turn that failed before it took its events
+			// leaves them for the next user turn instead of running again and again.
+			if (main.events.length && main.arrived !== arrivedBefore) eventTurnSoon(main);
 		}, eventTurnDelayMs);
 	}
 
@@ -98,13 +110,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		const motion = Boolean(await motionNow());
 		main.board.reconnect(value.context.host.sceneId);
 		const userText = value.text, guard = watchMain(main, value.turnId);
+		if (userText !== EVENT_TURN_TEXT) main.words = userText; // the hidden event turn is no user message
 		// hidden: the main agent reporting on its own is no user message (a panel that reattaches to it shows no prompt)
 		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
-			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : MAIN_SYSTEM_PROMPT,
+			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : mainSystemPrompt({ engine: motionEngine() }), // lowvis: motion is an ordinary task with the motion tool (main-prompt.mjs)
 			// The live host, not this turn's: a reload mid-turn moves the Studio to a new handle (POST .../reconnect).
-			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, designs: main.designs }),
+			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, createOnly: !motion && motionEngine() === "lowvis", designs: main.designs }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
 			check: reply => (guard.tell() ? "" : doneClaimCorrection(reply, main.board.board(), userText)),
+			settled: { take: () => settledEdits(main.board.board(), main.changed), note: ids => ids.forEach(id => main.changed.add(id)) },
 		}, observe: guard.observe }, "/agent/turn").finally(guard.stop);
 	}
 
@@ -178,12 +192,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		signal.addEventListener("abort", stop, { once: true });
 		task.steer = text => session()?.modelSession?.steer(text, []);
 		let pending = 0, seenRead = Promise.resolve();
+		// the motion tool's calls (motion-door.mjs): the Missing text of the last one that answered rides in the summary
+		const motionCalls = new Set();
 		// The Studio reloaded on the same handle: its document epoch is new (POST .../reconnect), so this run's commands
 		// answer STALE_SCENE. That is a lost Studio too: pause, and resume on the new epoch.
 		const reloaded = frame => String(frame.error ?? "").startsWith("STALE_SCENE") && main.host && main.host.documentEpoch !== context.host.documentEpoch;
 		const observe = frame => {
 			task.onFrame?.(frame);
-			if (frame.type === "tool.start") pending++;
+			if (frame.type === "tool.start") { pending++; if (frame.name === "motion") motionCalls.add(frame.callId); }
+			if (frame.type === "tool.done" && frame.ok && motionCalls.has(frame.callId)) { out.motion = true; out.missing = typeof frame.result?.missing === "string" ? frame.result.missing : null; out.used = typeof frame.result?.used === "string" ? frame.result.used : null; }
 			if (frame.type === "tool.done") pending = Math.max(0, pending - 1);
 			// What the task last wrote: read again after each of its authored edits, while Studio is there to answer.
 			if (frame.type === "tool.done" && frame.ok && frame.result?.authored) seenRead = seenRead.then(() => readContext(main.host)).then(c => scopeFingerprint(c, task.scope)).then(seen => { task.seen = seen; }, () => {});
@@ -197,8 +214,8 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			else if (frame.type === "receipt" && /^task\.(cancel|finish)$/.test(frame.receipt?.action ?? "")) { out.ended = frame.receipt.action; if (engine && out.ended === "task.finish" && !out.receipts.length && frame.receipt.affectedIds?.length) out.receipts.push({ receiptId: frame.receipt.receiptId, action: "motion.v4.install", affectedIds: frame.receipt.affectedIds.slice(0, 6) }); } // the engine's tools carry no receipts: what it changed is in the task's own
 		};
 		try {
-			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: (engine ? motionHeader : taskHeader)(task, { deps, resume }), context: withTaskActions(context), model: engine ?? main.model, effort: engine ? undefined : main.effort, observe,
-				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, ...(engine ? { motion: { characterId: task.motion.characterId } } : {}), get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
+			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: (engine ? motionHeader : taskHeader)(task, { deps, resume, lowvis: motionEngine() === "lowvis" }), context: withTaskActions(context), model: engine ?? main.model, effort: engine ? undefined : main.effort, observe,
+				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, words: task.words ?? null, ...(engine ? { motion: { characterId: task.motion.characterId } } : {}), get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
 			return { status: "failed", error, usage: out.usage };
@@ -209,7 +226,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		if (adopted && main.host && adopted.workspaceId === main.host.workspaceId && adopted.sceneId !== main.host.sceneId) main.host = { ...main.host, ...adopted };
 		await seenRead;
 		if (out.lost && pending > 0) task.midCommand = true;
-		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}) };
+		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}), ...(out.motion ? { missing: out.missing, used: out.used } : {}) };
 		if (out.lost) return { status: "lost", sceneId: context.host.sceneId, ...common };
 		if (out.busy) return { status: "scopeBusy", error: out.error, ...common };
 		if (signal.aborted && out.ended !== "task.finish") return { status: "cancelled", ...common };
@@ -236,7 +253,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 	const owned = (req, sessionId) => sessionId && ownerOf(sessionId) && parseCookies(req).studio_owner === ownerOf(sessionId);
 	const taskOwner = taskId => [...mains.values()].find(main => main.board.get(taskId));
 
-	return async function route(req, res, path) {
+	async function route(req, res, path) {
 		// Off unless the flag is on, or the panel's Tasks switch opted this session in: a main turn sent with the header
 		// x-cozyclay-tasks: on, after which that session's board and its tasks answer too.
 		const optedIn = path === "/agent/main" ? req.headers?.["x-cozyclay-tasks"] === "on" : [...mains.keys()].some(id => path.startsWith(`/agent/main/${encodeURIComponent(id)}/`)) || /^\/agent\/task\//.test(path) && mains.size > 0;
@@ -281,9 +298,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			const task = main.board.get(taskId);
 			if (typeof body?.text !== "string" || !body.text.trim()) { json(res, 400, { error: "invalid request" }); return true; }
 			if (!task.steer) { json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: `The task is ${task.status}.` } }); return true; }
-			await task.steer(body.text);
+			if (await task.steer(body.text) === false) { json(res, 409, { error: { code: "NO_ACTIVE_TURN", message: "The task's run already ended." } }); return true; }
 			json(res, 200, { ok: true, queued: true }); return true;
 		}
 		json(res, 404, { error: "not found" }); return true;
-	};
+	}
+	// A coordinator is busy while a task of its board has not ended or its event turn is due: its session is not stale.
+	const busy = sessionId => { const main = mains.get(sessionId); return Boolean(main && (main.eventTurn || main.eventTimer || main.board.board().some(task => !ENDED.has(task.status)))); };
+	// Its stale session (agent-routes.mjs pruneStudioSessions): the board, its events and its feed go. The tasks' sessions go
+	// on their own; their edits stay undoable in the editor (task.undo), which keeps them by taskId.
+	const retire = sessionId => { const main = mains.get(sessionId); if (!main || busy(sessionId)) return; mains.delete(sessionId); studioEvents.delete(main.feedId); };
+	return Object.assign(route, { busy, retire });
 }

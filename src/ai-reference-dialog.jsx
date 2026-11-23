@@ -50,9 +50,10 @@ export default function AiReferenceDialog({ open, shotCount, captionCount, onExp
 				onChange={(event) => setSetting(event.target.value)}
 			/>
 			<p className="ai-reference-ask-note">
-				{ko(`Camera moves, cuts, lens and cast come from the scene (${shotCount} shot${shotCount === 1 ? "" : "s"}). Each shot's caption is its action — ${captionCount} of ${shotCount} have one. English works best for the video model.`,
-					`카메라 무빙·컷·렌즈·캐스트는 씬에서 읽어요 (샷 ${shotCount}개). 샷 캡션이 그 샷의 행동이 돼요 — ${shotCount}개 중 ${captionCount}개에 캡션이 있어요. 영상 모델에는 영어가 가장 잘 먹혀요.`,
-					`机位运动、剪辑、镜头和演员从场景读取（${shotCount} 个镜头）。每个镜头的说明就是它的动作 — ${shotCount} 个中有 ${captionCount} 个有说明。视频模型对英文效果最好。`)}
+				{/* Shot documents v7 dropped the caption with the storyboard, so the caption line shows only once shots carry one again. */}
+				{ko(`Camera moves, cuts, lens and cast come from the scene (${shotCount} shot${shotCount === 1 ? "" : "s"}).${captionCount ? ` Each shot's caption is its action — ${captionCount} of ${shotCount} have one.` : ""} English works best for the video model.`,
+					`카메라 무빙·컷·렌즈·캐스트는 씬에서 읽어요 (샷 ${shotCount}개).${captionCount ? ` 샷 캡션이 그 샷의 행동이 돼요 — ${shotCount}개 중 ${captionCount}개에 캡션이 있어요.` : ""} 영상 모델에는 영어가 가장 잘 먹혀요.`,
+					`机位运动、剪辑、镜头和演员从场景读取（${shotCount} 个镜头）。${captionCount ? `每个镜头的说明就是它的动作 — ${shotCount} 个中有 ${captionCount} 个有说明。` : ""}视频模型对英文效果最好。`)}
 			</p>
 			<div className="ai-reference-ask-actions">
 				<button type="button" onClick={onCancel}>{ko("Cancel", "취소", "取消")}</button>

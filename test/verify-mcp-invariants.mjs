@@ -13,6 +13,8 @@ const ROOT_DEPENDENCY_ALLOWLIST = Object.freeze({
 	"@earendil-works/pi-agent-core": "1.4.0",
 	"@earendil-works/pi-ai": "1.4.0",
 	"@earendil-works/pi-codemode": "1.4.0",
+	// the tool schemas the pi agents take (bin/agent/pi-tools.mjs, src/lowvis/pi/harness.mjs); the version pi-ai pins
+	typebox: "1.3.27",
 	// JSON Schema → Zod shape for the SDK's tool() definitions (SDK already depends on zod)
 	zod: "^4.6.7",
 });

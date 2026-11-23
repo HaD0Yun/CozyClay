@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cube look sheet</title>
+    <style>
+      html, body { margin: 0; background: #f2f1ee; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #222; }
+      #sheet { position: relative; }
+      canvas { display: block; }
+      .t { position: absolute; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .tick { font-size: 18px; color: #777; transform: translateY(-50%); }
+      .label { font-size: 19px; line-height: 1.35; transform: translateX(-50%); text-align: center; }
+      .label b { font-size: 30px; }
+      .note { font-size: 16px; color: #777; transform: translateX(-50%); }
+    </style>
+  </head>
+  <body>
+    <div id="sheet"><canvas id="c"></canvas></div>
+    <pre id="numbers" style="display:none"></pre>
+    <script type="module" src="./cube-sheet.js"></script>
+  </body>
+</html>

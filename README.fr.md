@@ -55,7 +55,7 @@ CozyClay vous laisse prendre ces décisions d'abord, en 3D, là où elles sont p
 
 ```mermaid
 flowchart LR
-  S["Stage<br/>set + cast"] --> M["Motion<br/>compiled + QA"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
+  S["Stage<br/>set + cast"] --> M["Motion<br/>written + built"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
 ```
 
 ## Démarrage rapide
@@ -81,11 +81,11 @@ C'est toute l'installation. Il faut Node.js 22.19 ou plus récent et un navigate
 
 | | |
 | --- | --- |
-| **Stage** | Construisez le décor avec des primitives. Ajoutez des personnages riggés, ou des doublures capsules quand personne n'a besoin de bouger un membre. Survolez la vue comme dans un éditeur 3D. |
-| **Move** | Décrivez l'action. L'agent écrit une spécification de mouvement, et un compilateur déterministe dans le navigateur calcule chaque image. Le QA vérifie collisions, glissement des pieds, portée et contact des mains avant que vous ne voyiez le résultat. |
-| **Shoot** | Placez les plans sur une timeline, tracez des rails de travelling, regardez à travers l'objectif. Chaque plan connaît les limites du modèle vidéo visé. |
-| **Export** | Pack d'images clés (première et dernière image, clip greybox, caméra, prompt), mp4, passes de profondeur et de normales, planche contact, liste de coupes OTIO. |
-| **Storyboard** | Vous préférez les images fixes ? Un projet Storyboard est une rangée de panneaux avec légendes, un animatic et une planche contact. |
+| **Stage** | Construisez le décor avec des primitives et placez des lumières ponctuelles, des projecteurs et des lumières directionnelles. Ajoutez des personnages riggés, dessinés en figurines de cubes, ou des doublures capsules quand personne n'a besoin de bouger un membre. Survolez la vue comme dans un éditeur 3D. |
+| **Move** | Décrivez l'action dans le panneau Agent. Un second modèle, le rédacteur de mouvement, écrit une spécification de mouvement, et un moteur déterministe produit chaque image et mesure le glissement des pieds, les contacts, l'équilibre et les corps entrés dans des accessoires. Le rédacteur lit ces mesures et des planches contact du résultat avant que la prise soit installée. Un mouvement peut aussi déplacer des accessoires. Il faut une connexion à un modèle dans le panneau Agent. |
+| **Shoot** | Placez les plans sur une timeline, tracez des rails de travelling dans la Top-View, regardez à travers l'objectif. Tournez à la main une caméra sur rail et choisissez qui elle suit. Chaque plan connaît les limites du modèle vidéo visé. |
+| **Export** | Pack d'images clés (première et dernière image, clip greybox, caméra, prompt), zip de référence pour vidéo IA (une vidéo de référence en mosaïque et flou, et un prompt), mp4, passes de profondeur et de normales, planche contact, liste de coupes OTIO. |
+| **Look** | Le rendu toon (ombrage plat en deux tons avec des lignes noires) est activé par défaut dans la vue et dans chaque capture et export. Désactivez-le sous **Show** dans la barre de la vue. |
 | **Undo anything** | Chaque modification, y compris chacune de celles de l'agent, est une étape d'annulation. |
 
 ## Dirigez avec l'IA
@@ -118,7 +118,7 @@ Les règles de contribution sont dans [`AGENTS.md`](AGENTS.md). Ouvrez les pull 
 | Lire | Pour |
 | --- | --- |
 | [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) | Installer, lancer et connecter, écrit pour les agents IA |
-| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | Spécifications de mouvement, compilation et QA |
+| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | L'ancien moteur de mouvement (MCP, `cclay live`, `COZYCLAY_MOTION_ENGINE=old`) : spécifications de mouvement, compilation et QA |
 | [`docs/agent-cli.md`](docs/agent-cli.md) | `cclay live`, fournisseurs de modèles, sessions |
 | [`mcp/README.md`](mcp/README.md) | Outils MCP et protocole live |
 | [`docs/studio-ui-ia.md`](docs/studio-ui-ia.md) | Chaque contrôle et où il se trouve |
