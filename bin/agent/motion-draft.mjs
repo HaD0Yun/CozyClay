@@ -9,7 +9,7 @@
 // its untouched stand-ins and says what it removed and what it left (failed). Only geometry, ids and records.
 //   draftOf(options)  -> { onCompiled, plan(props, standInOf), failed(error) }
 //   travelOf(clip)    the floor region the bodies cross
-import { boxesOf, floorCells, rememberBoxes, usedText } from "./motion-fit.mjs";
+import { boxesOf, contactLines, floorCells, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { standInLines } from "./motion-props.mjs";
 
 const NOTE = "A draft: the motion writer's first compiled scene. The motion is still being rewritten and is not installed. standIns are the objects added now for the props of this compile that the scene lacked, each the stand-in the install makes; used names the boxes and the floor of this compile, and an edit of one of these objects answers motionFit against its box here. At the install a stand-in is set to the final motion's place and turn, and one not changed since the draft to its size too (replaced by a new stand-in when the final box needs another kind of object); one tilted or attached to a body stays as it is beside a new stand-in; one whose prop the final motion no longer has is removed when not changed and kept otherwise. The result's propsSet says what the install changed since the draft. motion_result answers again once the motion is installed.";
@@ -37,7 +37,8 @@ export function travelOf(clip) {
  * under; known: studioScene ids.props (the props of the scene the writer read); boxed(placed): placed without the props that
  * are no boxes (motion-run.mjs: the objects with no box of their own); run(action, args): an editor step (null
  * when refused); describe(): the Studio's describe answer.
- * onCompiled({ n, scene, clip }): the writer's harness after each compile that went through (pi/harness.mjs).
+ * onCompiled({ n, scene, spec, clip }): the writer's harness after each compile that went through (pi/harness.mjs); the
+ * draft's answer names where the clip's bodies meet the objects (contacts: motion-fit.mjs contactLines).
  * plan(props): inside the install, the clip's props -> null (no draft) or { drafted: { <prop>: { id, untouched, size } }
  * (install.js drafted), remove: [{ prop, id, replaced? }] (untouched stand-ins to remove after the install), kept:
  * [{ prop, id }], lost: { <prop>: { id, why } } (a draft stand-in that cannot carry the final prop), replaced:
@@ -63,10 +64,10 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, boxe
 		const draft = job && await job;
 		if (draft) see(draft, byId((await describe())?.objects));
 	};
-	const onCompiled = ({ n, scene, clip: file }) => {
+	const onCompiled = ({ n, scene, spec, clip: file }) => {
 		if (!hold || job) return;
-		let clip;
-		try { clip = readClip(file); } catch { return; } // the next compile that goes through is the draft then
+		let clip, kept;
+		try { clip = readClip(file); kept = structuredClone(spec ?? null); } catch { return; } // the next compile that goes through is the draft then
 		job = hold(async () => {
 			const made = {};
 			for (const prop of clip.props ?? []) {
@@ -78,8 +79,8 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, boxe
 			}
 			const rows = byId((await describe())?.objects), ids = Object.values(made).map(entry => entry.id);
 			const placed = Object.fromEntries([...Object.entries(known).map(([prop, entry]) => [prop, entry.id]), ...Object.entries(made).map(([prop, entry]) => [prop, entry.id])]);
-			const undo = rememberBoxes(key, scene, boxed(placed), floorCells(clip));
-			const answer = { ok: true, draft: true, installed: false, compile: n, standIns: standInLines(made, rows), used: usedText(boxesOf(key), travelOf(clip)), note: NOTE };
+			const undo = rememberBoxes(key, scene, boxed(placed), floorCells(clip), { clip, spec: kept }), contacts = contactLines(key);
+			const answer = { ok: true, draft: true, installed: false, compile: n, standIns: standInLines(made, rows), used: usedText(boxesOf(key), travelOf(clip)), ...(contacts.length ? { contacts } : {}), note: NOTE };
 			return { made, records: new Map(ids.map(id => [id, recordOf(rows.get(id))])), undo, answer };
 		}).then(draft => { try { onDraft(draft.answer, watch); } catch { /* a failing view never fails the run */ } return draft; }, () => null);
 	};

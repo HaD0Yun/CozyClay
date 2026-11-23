@@ -138,7 +138,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
 			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}${r.kept && r.status === "ok" ? `, kept-spec${r.edit ? ` edit ${r.edit.replaced} replaced, ${r.edit.added} added, ${r.edit.removed} removed` : ""}` : ""}`);
-			if (r.status === "ok") try { onCompiled({ n: r.n, scene: motion.state.last.scene, clip: motion.clipFile }); } catch { /* a failing listener never fails the run */ }
+			if (r.status === "ok") try { onCompiled({ n: r.n, scene: motion.state.last.scene, spec: motion.state.last.spec, clip: motion.clipFile }); } catch { /* a failing listener never fails the run */ }
 			return { content: [{ type: "text", text: r.text }, ...r.images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))], details: { n: r.n, status: r.status } };
 		},
 	};

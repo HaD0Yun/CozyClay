@@ -243,7 +243,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
 		const animated = clip.characters.map(studioId).filter(Boolean);
 		if (memoryKey != null) last.set(`${open} ${memoryKey}`, name);
-		rememberBoxes(key, record.final.scene, boxed(result.placed ?? {}), floorCells(clip));
+		rememberBoxes(key, record.final.scene, boxed(result.placed ?? {}), floorCells(clip), { clip, spec: record.final.spec });
 		// what other calls changed or added while the motion was written (and the draft's stand-ins changed meanwhile, read
 		// from the scene), against the boxes and the floor it used; with a draft, what the install changed since it
 		const plan = result.plan;

@@ -12,16 +12,22 @@
 // A body is as large as its character's scale: the motion is written for one scale, and a character whose scale is
 // then changed plays its take that many times as large about its place, off the floor spots and objects it was put on.
 // An edit of an animated character answers with motionFit.bodies when its scale is no longer the motion's.
-//   rememberBoxes(key, scene, placed, floor)  the boxes of one motion and the floor its feet use, per conversation
+// Where the motion's bodies meet each object (src/lowvis/studio/contacts.js) is kept with its boxes: an edit of an
+// object a body meets, and the install (installFit), answer how far each of those places is from the drawn look.
+//   rememberBoxes(key, scene, placed, floor, motion)  the boxes of one motion, the floor its feet use and, with motion
+//                                             ({ clip, spec }), where its bodies meet them, per conversation
 //   rememberBodies(key, list), bodiesOf(key)  the scale each animated character's motion was written for
 //   bodyFitOf(body, row)                      the difference of one describe character row from that body: [text]
 //   boxesOf(key), floorOf(key)                Map(<Studio id> -> box) and [[x, z], ...] floor cells, empty when none
 //   fitOf(box, row, floor)                    the differences of one describe row from its box: [text]
 //   usedText(boxes, travel)                   one line for the agent: the objects the motion uses and the floor the bodies cross
 //   changedFit(ids, rows, boxes, floor)       the motion result's motionFit: objects changed or added while it was written
+//   contactLines(key)                         one line per object a body meets: where (contacts)
+//   installFit(key, hub)                      { contacts, gaps } of the motion just installed, or {} when no body meets an object
 //   turnFitView({ value, env, hub })          { tools(list) }: under the lowvis engine, a tool result that changed a used
 //                                             object gains motionFit
 import { motionEngine } from "./motion-engine.mjs";
+import { auxOf, contactLine, contactsOf, gapLine, gapsOf, probesOf } from "../../src/lowvis/studio/contacts.js";
 
 const PLACE = 0.01, SIZE = 0.02, TURN = 0.5; // metres, metres, degrees: smaller differences are not told
 const TOP = 0.02, COVER = 0.5; // a flat top within 2 cm of the box's top height, over at least half of its footprint
@@ -29,18 +35,28 @@ const FLOOR_CELL = 0.1, FOOT = 0.15; // metres: the floor cells, and a joint low
 const RAD = Math.PI / 180;
 const bodies = new Map(); // conversation -> Map(<Studio character id> -> { id, scale, tint })
 const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves? }), [[x, z]]
+const touches = new Map(); // conversation -> Map(<Studio id> -> { name, rows, probes, still }): where the bodies meet each object
 const r2 = v => Math.round(v * 100) / 100;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
 const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
 
 /**
  * Keeps the boxes of a motion's scene ({ props: [{ id, size, at, turn?, shape?, moves? }] }) under key; placed:
- * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch.
+ * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch; motion: { clip, spec }
+ * the clip compiled from that scene (as the writer's tool read it) and spec, whose contacts are kept with the boxes.
  * -> undo(): keeps again what was kept under key before (a draft of a motion that then failed: motion-draft.mjs).
  */
-export function rememberBoxes(key, scene, placed = {}, floor = []) {
+export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null) {
 	if (key == null) return () => {};
-	const was = [boxes.get(key), floors.get(key)], next = new Map();
+	const was = [boxes.get(key), floors.get(key), touches.get(key)], next = new Map(), met = new Map();
+	// a clip whose contacts cannot be read (no bodies or poses in it) keeps none: the boxes stand as before
+	if (motion?.clip) try {
+		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip);
+		for (const [prop, rows] of contactsOf(clip, aux)) {
+			const id = placed[prop], p = clip.props.find(x => x.id === prop);
+			if (id) met.set(id, { name: prop, rows, probes: probesOf(clip, prop, rows), still: p.pos.length <= 3 });
+		}
+	} catch { met.clear(); }
 	for (const prop of scene?.props ?? []) {
 		const id = placed[prop.id];
 		if (!id || !Array.isArray(prop.size) || !Array.isArray(prop.at)) continue;
@@ -49,7 +65,58 @@ export function rememberBoxes(key, scene, placed = {}, floor = []) {
 	}
 	boxes.set(key, next);
 	floors.set(key, floor);
-	return () => { for (const [map, value] of [[boxes, was[0]], [floors, was[1]]]) if (value === undefined) map.delete(key); else map.set(key, value); };
+	touches.set(key, met);
+	return () => { for (const [map, value] of [[boxes, was[0]], [floors, was[1]], [touches, was[2]]]) if (value === undefined) map.delete(key); else map.set(key, value); };
+}
+
+/** One line per object a body of the conversation's last motion meets (contacts.js contactLine), [] when none. */
+export const contactLines = key => [...(touches.get(key) ?? [])].map(([id, t]) => contactLine(`${t.name} (${id})`, t.rows));
+
+/** A world point in the own frame of a describe row that stands still (its base pivot, turned by rotX, rot, rotZ in XYZ order). */
+function ownOf(row, p) {
+	const h = [finite(row.rotX), finite(row.rot), finite(row.rotZ)].map(v => (v * RAD) / 2), [cx, cy, cz] = h.map(Math.cos), [sx, sy, sz] = h.map(Math.sin);
+	const q = [-(sx * cy * cz + cx * sy * sz), -(cx * sy * cz - sx * cy * sz), -(cx * cy * sz + sx * sy * cz), cx * cy * cz - sx * sy * sz]; // the inverse turn
+	const v = [p[0] - finite(row.x), p[1] - finite(row.y), p[2] - finite(row.z)], t = [2 * (q[1] * v[2] - q[2] * v[1]), 2 * (q[2] * v[0] - q[0] * v[2]), 2 * (q[0] * v[1] - q[1] * v[0])];
+	return [v[0] + q[3] * t[0] + (q[1] * t[2] - q[2] * t[1]), v[1] + q[3] * t[1] + (q[2] * t[0] - q[0] * t[2]), v[2] + q[3] * t[2] + (q[0] * t[1] - q[1] * t[0])];
+}
+
+/**
+ * The gap line of each object of ids a body meets, measured on what the Studio draws now (hub.command("contact_gaps"),
+ * src/lowvis/studio/gaps.js): Map(<Studio id> -> line | null (every contact within contacts.js GAP)). rows: Map(id ->
+ * describe row): an object that stands still (not tracked, not attached) is read where it stands, as the Studio has it.
+ */
+async function gapLines(key, ids, rows, command) {
+	const touched = touches.get(key) ?? new Map(), list = ids.filter(id => touched.has(id)), out = new Map();
+	if (!list.length) return out;
+	// each probe in the object's own frame: where it stands now when it stands still, else where the clip has it
+	const framed = list.map(id => {
+		const t = touched.get(id), row = rows.get(id), still = t.still && row && !row.attach, own = probe => (still ? probe.world.map(p => ownOf(row, p)) : probe.local);
+		return { id, t, probes: { ...t.probes, seats: t.probes.seats.map(s => ({ ...s, local: still ? ownOf(row, s.world) : s.local })) }, points: [...t.probes.parts, ...t.probes.inside].map(own) };
+	});
+	const answer = await command("contact_gaps", { objects: framed.map(({ id, probes, points }) => ({ id, points, columns: probes.seats.map(s => [s.local[0], s.local[2], s.local[1]]) })) });
+	const byId = new Map((answer?.objects ?? []).map(entry => [entry?.id, entry]));
+	for (const { id, t, probes } of framed) {
+		const got = byId.get(id), label = `${t.name} (${id})`, n = probes.parts.length;
+		out.set(id, got?.drawn ? gapLine(label, gapsOf(t.rows, probes, { parts: got.points.slice(0, n), inside: got.points.slice(n), seats: got.columns })) : `${label}: not drawn now, so not measured`);
+	}
+	return out;
+}
+
+/**
+ * The contacts and gaps of the motion just installed (after delayMs: the Studio draws an install on its next frames):
+ * { contacts: [line], gaps: [line] } (gaps [] when every contact is within contacts.js GAP of the drawn look; { status:
+ * "unavailable", reason } when the Studio could not measure), or {} when no body meets an object. hub: { command(name, args) }.
+ */
+export async function installFit(key, hub, delayMs = 300) {
+	const contacts = contactLines(key);
+	if (!contacts.length) return {};
+	try {
+		await wait(delayMs);
+		const rows = new Map(((await hub.command("describe", {}))?.objects ?? []).map(row => [row?.id, row]));
+		return { contacts, gaps: [...(await gapLines(key, [...touches.get(key).keys()], rows, (name, args) => hub.command(name, args))).values()].filter(Boolean) };
+	} catch (error) {
+		return { contacts, gaps: { status: "unavailable", reason: error?.message ?? String(error) } };
+	}
 }
 
 /** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key. */
@@ -78,7 +145,7 @@ export function fitOf(box, row, floor = []) {
 	const out = [], base = [finite(row.x), finite(row.y), finite(row.z)], d = base.map((v, k) => v - box.base[k]);
 	const size = [finite(row.footprint?.width, 1) * finite(row.scaleX, 1), finite(row.height, 1) * finite(row.scaleY, 1), finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1)];
 	if (box.moves) {
-		out.push(...["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, the box's ${box.size[k]} m` : null).filter(Boolean));
+		out.push(...["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, ${r2(Math.abs(size[k] - box.size[k]))} m ${size[k] > box.size[k] ? "over" : "under"} the box's ${box.size[k]} m` : null).filter(Boolean));
 		return out;
 	}
 	if (Math.hypot(...d) > PLACE) out.push(`base at [${base.map(r2).join(", ")}], the box's at [${box.base.join(", ")}]`);
@@ -135,7 +202,7 @@ export function changedFit(ids, rows, used, floor) {
 	return objects.length ? { fits: false, objects, note: NOTE } : null;
 }
 
-const NOTE = "The motion was written against these boxes. Where the body meets an object (its top, the floor around it, a prop the hands hold), its look should match its box: fit the look to the box there.";
+const NOTE = "The motion was written against these boxes and meets them at its contacts. Fit the look so a drawn part is at each contact (gaps: how far each misses), or call motion again: it writes the motion against the looks as they are.";
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -156,7 +223,10 @@ export function turnFitView({ value, env = process.env, hub, delayMs = 300 }) {
 		try {
 			if (result.look?.status !== "attached") await wait(delayMs);
 			const scene = await hub.command("describe", { tops: true }, handle), rows = new Map((scene?.objects ?? []).map(row => [row?.id, row]));
-			const objects = ids.map(id => ({ id, name: used.get(id).name, differs: fitOf(used.get(id), rows.get(id), floorOf(key)) })).filter(entry => entry.differs.length);
+			// where a body meets an edited object: how far its drawn look now is from each of those places
+			let gaps = new Map();
+			try { gaps = await gapLines(key, ids, rows, (name, args) => hub.command(name, args, handle)); } catch (error) { gaps = new Map(ids.filter(id => touches.get(key)?.has(id)).map(id => [id, `not measured (${error?.message ?? String(error)})`])); }
+			const objects = ids.map(id => ({ id, name: used.get(id).name, differs: fitOf(used.get(id), rows.get(id), floorOf(key)), ...(gaps.get(id) ? { gaps: gaps.get(id) } : {}) })).filter(entry => entry.differs.length || entry.gaps);
 			const sized = people.map(id => ({ id, differs: bodyFitOf(cast.get(id), (scene?.characters ?? []).find(row => row?.id === id)) })).filter(entry => entry.differs.length);
 			if (!sized.length) return ids.length ? { ...result, motionFit: objects.length ? { fits: false, objects, note: NOTE } : { fits: true, ids } } : result;
 			return { ...result, motionFit: { fits: false, ...(objects.length ? { objects, note: NOTE } : {}), bodies: sized } };

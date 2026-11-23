@@ -1,0 +1,89 @@
+// How far points are from what the stage draws of an object, for the contact gaps of a motion (contacts.js; rule 6).
+// The drawn meshes of the object's group (visible, layer 0, not a nested object; a scatter's instances each), in the
+// object's own frame: its base pivot and turn without its scale, so every number is in metres, the frame a sculpt
+// recipe of it is written in. No object kinds or names: only the geometry. Browser only (three.js).
+//   contactGaps(sceneOf) -> query(args): the live query contact_gaps
+import * as THREE from "three";
+import { MeshBVH } from "three-mesh-bvh";
+
+const AXES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(a => new THREE.Vector3(...a));
+const COLUMN = 0.05; // m: the column round a point that a surface under it is looked for in
+const round = v => Math.round(v * 1000) / 1000;
+
+/** The meshes an object's group draws, as tops.js reads them, and a scatter's instanced meshes too. */
+function meshesOf(root) {
+	const meshes = [];
+	const walk = node => {
+		if (!node.visible || node.userData?.beautyOnly) return;
+		if (node.isMesh && node.layers.isEnabled(0) && node.geometry?.attributes?.position) meshes.push(node);
+		for (const child of node.children) if (!child.userData?.sceneObjectId) walk(child);
+	};
+	for (const child of root.children) walk(child);
+	return meshes;
+}
+
+/** One BVH per drawn mesh (and instance), in the object's own frame; [] when nothing is drawn. */
+function partsOf(root) {
+	root.updateWorldMatrix(true, true);
+	const place = new THREE.Vector3(), turn = new THREE.Quaternion(), scale = new THREE.Vector3();
+	root.matrixWorld.decompose(place, turn, scale);
+	const toOwn = new THREE.Matrix4().compose(place, turn, new THREE.Vector3(1, 1, 1)).invert(), m = new THREE.Matrix4(), one = new THREE.Matrix4();
+	return meshesOf(root).flatMap(mesh => Array.from({ length: mesh.isInstancedMesh ? mesh.count : 1 }, (_, k) => {
+		m.multiplyMatrices(toOwn, mesh.matrixWorld);
+		if (mesh.isInstancedMesh) { mesh.getMatrixAt(k, one); m.multiply(one); }
+		const soup = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone(), geometry = new THREE.BufferGeometry();
+		geometry.setAttribute("position", soup.getAttribute("position").clone().applyMatrix4(m));
+		soup.dispose();
+		return new MeshBVH(geometry);
+	}));
+}
+
+const q = new THREE.Vector3(), n = new THREE.Vector3(), tri = new THREE.Triangle(), ray = new THREE.Ray();
+/** True when q lies inside the closed part: behind its nearest face and walled in on every axis (solid-shape.js depth). */
+function inside(bvh, hit) {
+	tri.setFromAttributeAndIndices(bvh.geometry.getAttribute("position"), hit.faceIndex * 3, hit.faceIndex * 3 + 1, hit.faceIndex * 3 + 2).getNormal(n);
+	if (n.dot(q.clone().sub(hit.point)) >= 0) return false;
+	return AXES.every(axis => { ray.origin.copy(q); ray.direction.copy(axis); return Boolean(bvh.raycastFirst(ray, THREE.DoubleSide)); });
+}
+/** Signed distance (m) from p to the drawn parts: to the nearest surface outside, minus the depth inside the deepest part. */
+function signed(parts, p) {
+	q.set(p[0], p[1], p[2]);
+	let near = Infinity, deep = 0;
+	for (const bvh of parts) {
+		const hit = bvh.closestPointToPoint(q);
+		if (!hit) continue;
+		if (inside(bvh, hit)) deep = Math.max(deep, hit.distance); else near = Math.min(near, hit.distance);
+	}
+	return deep > 0 ? -deep : near;
+}
+/** The highest drawn surface under [x, z] below y (5 rays down in a COLUMN), or null. */
+function under(parts, [x, z, y]) {
+	let top = -Infinity;
+	for (const [dx, dz] of [[0, 0], [COLUMN, 0], [-COLUMN, 0], [0, COLUMN], [0, -COLUMN]]) for (const bvh of parts) {
+		ray.origin.set(x + dx, y, z + dz); ray.direction.set(0, -1, 0);
+		const hit = bvh.raycastFirst(ray, THREE.DoubleSide);
+		if (hit) top = Math.max(top, y - hit.distance);
+	}
+	return Number.isFinite(top) ? round(top) : null;
+}
+
+/**
+ * The live query contact_gaps: args { objects: [{ id, points: [[[x, y, z], ...], ...], columns: [[x, z, y], ...] }] }, every
+ * point in the object's own frame -> { objects: [{ id, drawn, points: [[d, ...], ...], columns: [top | null] }] }: d the
+ * signed distance of each point from the drawn surface (m; negative inside a drawn part), top the highest drawn surface
+ * under each column's point. drawn false (and no numbers) when the stage draws nothing of the object now.
+ */
+export function contactGaps(sceneOf) {
+	return (args = {}) => {
+		const groups = new Map();
+		sceneOf()?.traverse(node => { const id = node.userData?.sceneObjectId; if (typeof id === "string" && !node.userData.ghost && !groups.has(id)) groups.set(id, node); });
+		const objects = (Array.isArray(args.objects) ? args.objects : []).map(entry => {
+			const root = groups.get(entry?.id), parts = root ? partsOf(root) : [];
+			if (!parts.length) return { id: entry?.id, drawn: false };
+			const out = { id: entry.id, drawn: true, points: (entry.points ?? []).map(list => list.map(p => round(signed(parts, p)))), columns: (entry.columns ?? []).map(c => under(parts, c)) };
+			for (const bvh of parts) bvh.geometry.dispose();
+			return out;
+		});
+		return { objects };
+	};
+}
