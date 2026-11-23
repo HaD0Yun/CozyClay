@@ -70,7 +70,7 @@ export async function refitMotion({ hub, workspaceHandle, invoke, memoryKey = nu
 		const clip = readClip(tool.clipFile);
 		const done = await installClip(clip, run, { label: `refit of ${motion.name}`, existing: { ...studio.ids, attachedBefore: attachedBefore(takes) }, turn, body: lookBody(figure), source: { name, scene, spec: motion.spec } });
 		if (!done.ok) throw failure("studio", `The motion was compiled again (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
-		const sizes = motion.scene.characters.map(c => ({ id: studio.ids.characters[c.id], was: c.scale ?? 1, now: now(c).scale })).filter(s => s.id && s.was !== s.now);
+		const sizes = motion.scene.characters.map(c => ({ id: studio.ids.characters[c.id], was: c.scale ?? 1, now: now(c).scale })).filter(s => s.id && Math.abs(s.was - s.now) > 1e-6); // as beforeOf tells a scale apart
 		// the body this conversation's fit lines measure a later edit of one against (motion-fit.mjs) is the refit one
 		const known = bodiesOf(memoryKey);
 		for (const c of motion.scene.characters) { const id = studio.ids.characters[c.id]; if (known.has(id)) known.set(id, { id, scale: now(c).scale, tint: now(c).tint ?? null }); }

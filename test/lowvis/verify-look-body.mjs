@@ -88,10 +88,12 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 	// standingHeight (the closeup's stand-in, the agent's standingHeightM) is the drawn look at the body: here (node) the rig's own body
 	for (const [name, look] of Object.entries(LOOKS)) {
 		const drawn = top(look, c.pos, c.quat);
-		assert.ok(Math.abs(standingHeight(undefined, name) - drawn) < 0.001, `${name}: standingHeight ${standingHeight(undefined, name)} against the drawn ${drawn.toFixed(4)} m`);
+		assert.ok(Math.abs(standingHeight(undefined, name) - drawn) < 0.0006, `${name}: standingHeight ${standingHeight(undefined, name)} against the drawn ${drawn.toFixed(4)} m`);
 	}
 	assert.equal(standingHeight(undefined, "nope"), standingHeight(undefined, "block"), "an unknown look is drawn as the block look");
-	assert.equal(standingHeight({ model: TRACK_RIG, scale: 1.2 }, "block"), Math.round(1.738 * 1.2 * 1000) / 1000, "times the scale");
+	assert.equal(standingHeight({ model: TRACK_RIG, scale: 1.2 }, "block"), 2.086, "times the scale");
+	assert.equal(standingHeight({ model: TRACK_RIG, scale: B }, "cube"), 1.7, "the cube look's body (here a scale of the rig's own) is told as 1.7 m");
+	for (const s of [0.2, 0.5, 3]) assert.ok(Math.abs(standingHeight({ model: TRACK_RIG, scale: B * s }, "cube") - stand * s) < 0.0006, `at scale ${s} to the millimetre`);
 	assert.equal(standingHeight({ model: "y-bot-tpose", scale: 1 }), null, "no look draws another model");
 	console.log(`ok the cube look at scale 1: ${stand.toFixed(3)} m standing, ${tpose.toFixed(3)} m in the T-pose; every look's standingHeight is its drawn height`);
 }

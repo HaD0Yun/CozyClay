@@ -13,8 +13,9 @@ const LOOK_RIG = "x-bot-tpose";
 const BODY = { cube: 0.943 };
 
 /** How tall each look stands at the rig's own body with the arms down, in metres: the top of the drawn look over the
- *  floor in the engine's stand pose (three.js bounds; test/lowvis/verify-look-body.mjs measures them again). */
-const STANDS = { block: 1.738, box: 1.81, capsule: 1.811, stick: 1.805, man: 1.768, woman: 1.764, cube: 1.802 };
+ *  floor in the engine's stand pose, to a tenth of a millimetre (three.js bounds; test/lowvis/verify-look-body.mjs
+ *  measures them again). */
+const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man: 1.7679, woman: 1.7635, cube: 1.8024 };
 
 const LAUNCHED = import.meta.env?.VITE_COZYCLAY_FIGURE || null;
 /** The look this page draws rig characters in, or null for the block look. */

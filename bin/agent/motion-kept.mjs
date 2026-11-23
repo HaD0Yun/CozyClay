@@ -19,7 +19,10 @@ export function keptTakes(read) {
 		const entry = row.motionTake.spec?.lowvis, size = row.motionTake.spec?.raw ? row.motionTake.spec.raw.scale ?? 1 : null;
 		if (!(plain(entry) && typeof entry.name === "string" && plain(entry.scene) && Array.isArray(entry.scene.characters) && plain(entry.spec))) { bare.push(row.id); continue; }
 		kept[row.id] = entry;
-		const as = entry.as ?? (entry.scene.characters.length === 1 ? entry.scene.characters[0].id : undefined);
+		// which of the kept scene's characters this take is: the id its writer gave it (as), or for a take stored before
+		// that id was kept, the id the Studio's scene tells this character under (src/lowvis/studio/scene.js)
+		const told = row.id.replace(/^lowvis-/, "").trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+		const as = entry.as ?? (entry.scene.characters.length === 1 ? entry.scene.characters[0] : entry.scene.characters.find(c => String(c?.id) === told))?.id;
 		if (Number.isFinite(size) && as !== undefined) (made[entry.name] ??= {})[String(as)] = Math.round(size / body * 1e6) / 1e6;
 	}
 	for (const [id, entry] of Object.entries(kept)) {
