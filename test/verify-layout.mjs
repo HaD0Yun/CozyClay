@@ -44,9 +44,10 @@ expect("inset collapse state persists with the workspace layout", app.includes("
 expect("collapsed inset skips its render pass", dualview.includes("insetCollapsed = false") && dualview.includes("const insetOff = insetCollapsed ||") && dualview.includes("if (!insetOff) draw("));
 expect("resize handle hides while collapsed", app.includes("{!workspaceLayout.insetCollapsed && ("));
 expect("resize grip is visible on the clay viewport", css.includes(".vp-inset-resize:before,") && css.includes("rgba(255, 252, 247, .85)"));
-expect("Top-View plan zooms with the wheel over the inset", app.includes('pane.addEventListener("wheel", onWheel, { passive: false })') && app.includes("current.planZoom * Math.pow"));
+const planNavigation = readFileSync(new URL("../src/plan-navigation.js", import.meta.url), "utf8");
+expect("Top-View plan zooms with the wheel over the inset", planNavigation.includes('host.addEventListener("wheel", onWheel, { passive: false })') && planNavigation.includes("Math.pow(WHEEL_RATE, -event.deltaY)") && app.includes("onPlanZoom={setPlanZoom}"));
 expect("plan zoom persists with the workspace layout", app.includes("planZoom: 1,") && app.includes("WORKSPACE_LAYOUT_KEY"));
-expect("zoom shrinks the ortho extent, not the pane", dualview.includes("planZoom = 1") && dualview.includes("PLAN_EXTENT / Math.max(0.25, planZoom)"));
+expect("zoom shrinks the ortho extent, not the pane", dualview.includes("planZoom = 1") && dualview.includes("applyPlanView(planCam,") && planNavigation.includes("const extent = PLAN_EXTENT / clampZoom(view.zoom)"));
 expect("demand loop wakes on mount and model commit", dualview.includes("requestAnimationFrame(() => requestAnimationFrame(invalidate))") && app.includes("const frame = requestAnimationFrame(invalidate);"));
 expect("double-click no longer swaps Scene and Top-View", !app.includes('setViewMode((current) => (current === "plan" ? "shot" : "plan"))'));
 expect("Scene toolbar exposes shot preset, aspect, FOV, recenter, and Top-View controls", app.includes("viewport-toolbar-field shot-field") && app.includes("SHOT_ASPECT_PRESETS") && app.includes("viewport-fov-control") && app.includes("Recenter on subject") && app.includes('ko("Top", "탑")'));

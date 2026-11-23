@@ -69,7 +69,7 @@ import { AppContext, createAppContext } from "./app-context.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { PlanBoard } from "./planview.jsx";
-import { drawPlanDiagram } from "./plan-diagram.js";
+import { drawPlanDiagram } from "./plan-diagram.js"; import { planZoomLabel } from "./plan-navigation.js";
 import { placementAt } from "./root-path.js";
 import { proxyYaw } from "./proxy-figure.jsx";
 import { autoColorHex, loadAutoColor } from "./auto-color.js";
@@ -684,23 +684,12 @@ export default function App() {
 		}
 	}, [playgroundMode, workspaceLayout]);
 
-	// Wheel over the inset zooms the Top-View plan: scroll up closes in on
-	// the pucks (camera lower), scroll down widens out (camera higher) — the
-	// ortho extent is divided by planZoom in DualRender. React's onWheel is
-	// passive and could never keep the page still, so a real listener.
-	useEffect(() => {
-		const pane = insetPaneRef.current;
-		if (!pane) return;
-		const onWheel = (e) => {
-			e.preventDefault();
-			setWorkspaceLayout((current) => {
-				const next = Math.max(0.25, Math.min(4, current.planZoom * Math.pow(1.0015, -e.deltaY)));
-				return next === current.planZoom ? current : { ...current, planZoom: Math.round(next * 100) / 100 };
-			});
-		};
-		pane.addEventListener("wheel", onWheel, { passive: false });
-		return () => pane.removeEventListener("wheel", onWheel);
-	}, []);
+	// The Top-View's wheel zoom and pan live with the board (plan-navigation.js).
+	// The wheel's zoom is kept here with the workspace layout; a framing the
+	// view chose itself (an opening, Home) is only shown in the tag.
+	const [planZoomFit, setPlanZoomFit] = useState(null);
+	const setPlanZoom = (planZoom, kept) => { setPlanZoomFit(kept ? null : planZoom); if (kept) setWorkspaceLayout((current) => (current.planZoom === planZoom ? current : { ...current, planZoom })); };
+	const planZoomShown = planZoomFit ?? workspaceLayout.planZoom;
 
 	const [preferencesOpen, setPreferencesOpen] = useState(false);
 	const [flySpeed, setFlySpeed] = useState(1);
@@ -3494,7 +3483,7 @@ export default function App() {
 			get shotCam() { return shotCamRef.current; }, get shotMetrics() { return shot; }, get moveMetrics() { return moveSequence; },
 			sampleStateAt: (frame) => appContext.ports.sampleStateAt(frame),
 			poserCam: poserCamRef.current,
-			planCam: planCamRef.current,
+			get planCam() { return planCamRef.current; },
 			editorCam: editorCamRef.current,
 			// QA-only: swap the active character's body ("x-bot-tpose" / "y-bot-tpose")
 			// or stature, so a browser QA run can check every shipped rig.
@@ -4710,6 +4699,7 @@ export default function App() {
 								minimal={playgroundMode}
 								hostRef={planHostRef}
 								planCamRef={planCamRef}
+								planZoom={workspaceLayout.planZoom} onPlanZoom={setPlanZoom} planOpen={railDraw || pathDraw || waypointMode} cast={cameraSubjects.cast}
 								shotCamRef={shotCamRef}
 								look={look}
 								fovDeg={fovDeg}
@@ -4966,7 +4956,7 @@ export default function App() {
 						>
 							<span
 								className="vp-inset-tag"
-								title={workspaceLayout.insetCollapsed ? ko("Click or ▸ to expand · drag to move", "클릭 또는 ▸로 펼치기 · 드래그로 이동") : ko("Click or ▾ to fold · drag to move", "클릭 또는 ▾로 접기 · 드래그로 이동")}
+								title={workspaceLayout.insetCollapsed ? ko("Click or ▸ to expand · drag to move", "클릭 또는 ▸로 펼치기 · 드래그로 이동") : ikMode ? ko("Click or ▾ to fold · drag to move", "클릭 또는 ▾로 접기 · 드래그로 이동") : ko("Click or ▾ to fold · drag to move · in the view: middle-, right- or Alt-drag pans, wheel zooms, Home shows everything", "클릭 또는 ▾로 접기 · 드래그로 이동 · 뷰 안에서: 가운데·오른쪽·Alt 드래그로 이동, 휠로 확대·축소, Home으로 전체 보기")}
 								onPointerDown={beginInsetDrag}
 							>
 								<span
@@ -4988,8 +4978,8 @@ export default function App() {
 									{workspaceLayout.insetCollapsed ? "▸" : "▾"}
 								</span>
 								{ikMode ? ko("Shot view", "샷 뷰") : ko("Top-View", "탑뷰")}
-								{!ikMode && workspaceLayout.planZoom !== 1 && !workspaceLayout.insetCollapsed && (
-									<em className="vp-inset-zoom">{workspaceLayout.planZoom.toFixed(2).replace(/\.?0+$/, "")}×</em>
+								{!ikMode && planZoomShown !== 1 && !workspaceLayout.insetCollapsed && (
+									<em className="vp-inset-zoom">{planZoomLabel(planZoomShown)}×</em>
 								)}
 							</span>
 							{!workspaceLayout.insetCollapsed && (
