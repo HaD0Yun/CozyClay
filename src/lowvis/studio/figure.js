@@ -1,5 +1,5 @@
 // The look rig characters are drawn in, and the body that look stands for. The one home of the default: DEFAULT_LOOK.
-// COZYCLAY_FIGURE given at launch (npx cozyclay --figure, tools/lowvis/pi/try.mjs --figure) names the look in the page
+// COZYCLAY_FIGURE given at launch (COZYCLAY_FIGURE=block npx cozyclay, tools/lowvis/pi/try.mjs --figure) names the look in the page
 // and in the agent sidecar alike, both through launchLook: the sidecar reads its own environment (figureOf), the page the
 // value the server that serves it hands over (bin/cozyclay.mjs writes window.__COZYCLAY_FIGURE__ into the page from the
 // same environment; a dev server bakes it in at its start, vite.config.js). Nothing given: DEFAULT_LOOK; "block": the block look.

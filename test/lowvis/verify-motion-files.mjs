@@ -6,7 +6,7 @@
 // 2. in a copy of the package with no .git and its folder read-only, the compile tool and runScene write nothing under
 //    the package: the run record, the sheets and the clip land in the config folder
 // 3. bin/cozyclay.mjs serves such a clip at the address the page fetches (/lowvis/clips/pi/<name>.json), and hands the
-//    page the look it was launched with (--figure), the value the sidecar in the same process reads
+//    page the look it was launched with (COZYCLAY_FIGURE), the value the sidecar in the same process reads
 import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -70,16 +70,16 @@ try {
 		// --- 3: the launcher serves the clip and hands the page the look ---
 		const port = await new Promise((resolve, reject) => { const s = createServer(); s.once("error", reject); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 		const { COZYCLAY_FIGURE: _named, ...unnamed } = process.env; // a launch that names no look
-		const launch = async args => {
-			const child = spawn(process.execPath, ["bin/cozyclay.mjs", "--port", String(port), "--no-open", "--no-star", "--no-update-check", ...args], { cwd: pkg, env: { ...unnamed, CI: "", DO_NOT_TRACK: "1", XDG_CONFIG_HOME: join(TMP, "xdg-launch"), COZYCLAY_CONFIG_DIR: config, COZYCLAY_LIVE_PORT: String(port + 1) }, stdio: ["ignore", "pipe", "pipe"] });
+		const launch = async named => {
+			const child = spawn(process.execPath, ["bin/cozyclay.mjs", "--port", String(port), "--no-open", "--no-star", "--no-update-check"], { cwd: pkg, env: { ...unnamed, ...named, CI: "", DO_NOT_TRACK: "1", XDG_CONFIG_HOME: join(TMP, "xdg-launch"), COZYCLAY_CONFIG_DIR: config, COZYCLAY_LIVE_PORT: String(port + 1) }, stdio: ["ignore", "pipe", "pipe"] });
 			let said = "";
 			child.stdout.on("data", d => { said += d; }); child.stderr.on("data", d => { said += d; });
 			for (let i = 0; i < 100 && !said.includes("is running at"); i++) await new Promise(r => setTimeout(r, 100));
 			assert.ok(said.includes("is running at"), said);
 			return { child, get: path => fetch(`http://127.0.0.1:${port}${path}`) };
 		};
-		for (const [args, handed] of [[[], ""], [["--figure", "block"], "block"]]) {
-			const { child, get } = await launch(args);
+		for (const [named, handed] of [[{}, ""], [{ COZYCLAY_FIGURE: "block" }, "block"]]) {
+			const { child, get } = await launch(named);
 			try {
 				const clip = await get("/lowvis/clips/pi/agent-copy.json");
 				assert.equal(clip.status, 200, "the run's clip at the address the page fetches");
