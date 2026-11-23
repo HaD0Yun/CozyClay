@@ -140,5 +140,3 @@ HOW TO WORK
 ${WORK[f.text]}
 4. Then report in 2 or 3 sentences in the user's language, and end with one line:
 Missing: <what the engine could not express, or none>${variant === "studio" ? INSTALL : ""}`; };
-
-export const SYSTEM_PROMPT = systemPrompt();

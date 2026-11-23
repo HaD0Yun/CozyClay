@@ -19,7 +19,7 @@
 // }
 import { JOINTS, JOINT_COUNT, PARENT, REST } from "./rig17.js";
 
-export const CLIP_SCHEMA = "lowvis.clip.v1";
+const CLIP_SCHEMA = "lowvis.clip.v1";
 export const CLIP_FPS = 24;
 
 export function createClip({ demo, engine, frameCount, fps = CLIP_FPS }) {

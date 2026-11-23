@@ -75,7 +75,9 @@ await sleep(1200);
 await evaluate(`(() => { const c = window.__cozyclay; c.runStudioAction("object.add", { kind: "cylinder", placement: { x: 0.85, z: -0.35, rot: -30 } }); c.runStudioAction("object.add", { kind: "cube", placement: { x: -0.75, z: -0.5 } }); return true; })()`);
 await sleep(800);
 const studio = await evaluate(shotFrame);
-expect("the studio frame is the bright workbench", studio.meanLuma > 0.3, JSON.stringify(studio));
+// the default look since the toon finish is on by default and the key light is 0.9 (stage-finish-view.jsx,
+// stage-lighting.js DEFAULT_KEY_LIGHT): a mean luma near 0.28, against 0.3 and more before
+expect("the studio frame is the bright workbench", studio.meanLuma > 0.25, JSON.stringify(studio));
 
 const receipt = await evaluate(`(() => { const r = window.__cozyclay.runStudioAction("stage.applyLighting", { preset: "night" }); return { ok: r?.ok, status: r?.status, entries: r?.undo?.entries, receiptId: r?.receiptId }; })()`);
 expect("stage.applyLighting night is one undoable receipt", receipt.ok === true && receipt.status === "applied" && receipt.entries === 1, JSON.stringify(receipt));
@@ -84,7 +86,8 @@ const scene = await evaluate(`(() => { const s = ${sceneRoot}; let key; s.traver
 	// The background is chosen per camera as each render starts: ask for the shot camera's and the plan's.
 	const sky = (camera) => { s.onBeforeRender(null, s, camera); return s.background?.isTexture ? "gradient" : s.background?.getHexString(); };
 	return { fog: [s.fog.near, s.fog.far], shotSky: sky(window.__cozyclay.shotCam), planSky: sky(window.__cozyclay.planCam), key: key && { color: key.color.getHexString(), intensity: key.intensity, radius: key.shadow.radius } }; })()`);
-expect("the haze pulls the fog in", scene.fog[0] < 18.5 && scene.fog[1] < 40, JSON.stringify(scene.fog));
+// night's haze 0.45 pulls a sky look's 55..95 m horizon in evenly (stage-lighting.js hazeRange): 2 + 53 x 0.55, 14 + 81 x 0.55
+expect("the haze pulls the fog in", Math.abs(scene.fog[0] - 31.15) < 0.01 && Math.abs(scene.fog[1] - 58.55) < 0.01, JSON.stringify(scene.fog));
 expect("perspective views draw the gradient sky; the plan keeps the flat horizon colour", scene.shotSky === "gradient" && scene.planSky === "0b1426", `${scene.shotSky} / ${scene.planSky}`);
 expect("the key is the dim cool moon with a soft shadow", scene.key?.color === "9db6e6" && scene.key.intensity < 0.7 && scene.key.radius > 4, JSON.stringify(scene.key));
 await sleep(500);

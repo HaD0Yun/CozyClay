@@ -6,7 +6,7 @@ import { serializeClip, validateClip } from "../../src/lowvis/clip.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { checkClip } from "../../src/lowvis/engine-simple/checks.js";
-import { KICK, scene, spec } from "../../src/lowvis/kick-cc-free.js";
+import { scene, spec } from "../../src/lowvis/kick-cc-free.js";
 
 const outDir = new URL("../../public/lowvis/clips/cc-free/", import.meta.url);
 mkdirSync(outDir, { recursive: true });

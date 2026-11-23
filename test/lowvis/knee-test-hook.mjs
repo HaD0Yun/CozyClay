@@ -24,7 +24,7 @@ writeFileSync(join(tmp, "solve-wrap.mjs"), `
 import * as real from ${JSON.stringify(new URL("solve.js?real", es).href)};
 import { solve as base } from ${JSON.stringify(pathToFileURL(join(tmp, "solve-base.js")).href)};
 import { LIMBS, limbSide, poleAlongSide } from ${JSON.stringify(new URL("test/lowvis/knee-sweep.mjs", root).href)};
-export const { SIDES, ARM_LEN, LEG_LEN, TOE, SOLE, MAX_STEP, ASSIST_BEND, arc } = real;
+export const { ARM_LEN, LEG_LEN, TOE, SOLE, MAX_STEP, ASSIST_BEND, arc } = real;
 const flat = r => [...r.pos.flat(), ...r.quat.flat(), r.assist.bend, r.assist.drop, ...r.slow, ...r.late, ...r.lift];
 export function solve(B, U = {}) {
 	const b = base(structuredClone(B), structuredClone(U)), r = real.solve(B, U), S = globalThis.__knee, x = flat(b), y = flat(r);

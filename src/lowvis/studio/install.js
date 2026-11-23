@@ -29,7 +29,7 @@ const DEG = 180 / Math.PI, EPS = 1e-4;
 const safe = id => String(id).replace(/[^A-Za-z0-9_-]/g, "_");
 
 /** The start of clip character `index` as a Studio placement: { x, z, rot (degrees about Y, 0 faces +Z) }. */
-export function clipStart(clip, index) {
+function clipStart(clip, index) {
 	const c = clip.characters[index], forward = qRotate([c.quat[0], c.quat[1], c.quat[2], c.quat[3]], [0, 0, 1]); // the Hips joint at frame 0
 	return { x: c.pos[0], z: c.pos[2], rot: Math.round(Math.atan2(forward[0], forward[2]) * DEG * 10) / 10 };
 }

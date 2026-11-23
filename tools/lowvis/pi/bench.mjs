@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { DEFAULT_EFFORT, DEFAULT_MODEL, runScene } from "../../../src/lowvis/pi/harness.mjs";
 import { summary } from "./run.mjs";
 
-export const SCENES = [
+const SCENES = [
 	["push", "100kg 정도 되는 무거운 박스 미는거 한번 만들어줘"],
 	["chop", "한명이 검 들고 나무 베는거 만들어줘"],
 	["bowl", "볼링 치는 거 한번 만들어줘"],
