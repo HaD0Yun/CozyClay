@@ -99,8 +99,6 @@ export const FOLLOW_DEFAULTS = {
 	pitchOffsetDeg: 0,
 	/** authored position around the subject: 0 behind, ±90 side, 180 front */
 	orbitOffsetDeg: 0,
-	/** cap on unconstrained steering (m/s); exact follow distance wins */
-	maxSpeed: 2.8,
 	/** where a rail dolly opens: the authored head or legacy auto placement */
 	railStartMode: "head",
 	/** optional cap on rail-dolly travel (m/s); none, so the rail's schedule sets the speed */
@@ -108,10 +106,46 @@ export const FOLLOW_DEFAULTS = {
 	/** EMA weight for the BEHIND direction; slow on purpose, so a corner
 	 * sweeps the trailing position gradually and the camera cuts the corner
 	 * the way a steadicam op does instead of whipping around the subject.
-	 * Tuned with maxSpeed against a 90° corner walk: together they hold the
-	 * worst pan under ~60°/s (3°/frame @20), a brisk but human pan. */
+	 * On a 90° corner walk it holds the worst pan under ~60°/s (3°/frame @20),
+	 * a brisk but human pan. It is a weight per frame, not per metre, so a
+	 * faster subject's corner is swept in the same time, not left behind. */
 	dirBlend: 0.05,
 };
+
+/**
+ * How far the operator's aim may sit from the subject, as the tangent of the
+ * angle seen from the camera (0.25 is about 14°). The aim spring and its lead
+ * are in seconds, so the metres they put between aim and subject grow with the
+ * subject's speed; at a walk they are a few degrees of lead room, at a car's
+ * speed they would swing the subject out of the picture. This bound is a share
+ * of the frame, not a speed: it scales with the camera's distance to the
+ * subject and leaves any speed free.
+ */
+const AIM_REACH = 0.25;
+
+/**
+ * How fast the follow camera may steer toward its trailing position: twice the
+ * subject's own (smoothed) speed, and never under twice a walking pace
+ * (2.8 m/s) so a camera can still settle while its subject stands. The old
+ * fixed 2.8 m/s cap was tuned on a corner walk at 1.4 m/s, where it is this
+ * same budget; it bound any faster subject, so a side or front framing slid
+ * behind the subject and a front framing flipped round it on a straight.
+ */
+const STEER_SCALE = 2, STEER_FLOOR = 2.8;
+
+/**
+ * The aim point the camera looks at: the spring's point, pulled toward the
+ * subject only where it strays past AIM_REACH of the camera's distance. A
+ * smooth knee (x / (1 + x^4)^(1/4)) leaves a walk's lead within a few
+ * hundredths of a degree of what it was and never kinks the pan.
+ */
+function framedAim(aim, subject, camera) {
+	const ex = aim.x - subject.x, ez = aim.z - subject.z, e = Math.hypot(ex, ez);
+	const reach = AIM_REACH * Math.max(Math.hypot(camera.x - subject.x, camera.z - subject.z), 1e-3);
+	if (e < 1e-9) return aim;
+	const x = e / reach, k = 1 / Math.sqrt(Math.sqrt(1 + x ** 4));
+	return { ...aim, x: subject.x + ex * k, z: subject.z + ez * k };
+}
 
 /**
  * Subject travel directions, one unit XZ vector per frame. Velocity is
@@ -218,14 +252,16 @@ export function buildFollowTrack(subject, fps, params = {}) {
 			const previousZ = pz;
 			const tx = subject[f].x + offsets[f].x * p.distance + vels[f].x * lagComp;
 			const tz = subject[f].z + offsets[f].z * p.distance + vels[f].z * lagComp;
-			// planar spring integrated by hand so the SPEED cap binds the
-			// velocity vector, not each axis separately
 			vx += (omega * omega * (tx - px) - 2 * omega * vx) * dt;
 			vz += (omega * omega * (tz - pz) - 2 * omega * vz) * dt;
+			// the steering budget scales with the subject (STEER_SCALE), so the
+			// camera swings round a corner in the same share of the turn at any
+			// speed; planar, so it binds the velocity vector, not each axis
+			const cap = Math.max(STEER_FLOOR, STEER_SCALE * Math.hypot(vels[f].x, vels[f].z));
 			const speed = Math.hypot(vx, vz);
-			if (speed > p.maxSpeed) {
-				vx *= p.maxSpeed / speed;
-				vz *= p.maxSpeed / speed;
+			if (speed > cap) {
+				vx *= cap / speed;
+				vz *= cap / speed;
 			}
 			px += vx * dt;
 			pz += vz * dt;
@@ -255,7 +291,7 @@ export function buildFollowTrack(subject, fps, params = {}) {
 			[az, avz] = springStep(az, avz, aimTz, aimOmega, dt);
 		}
 		const pos = { x: px, y: py, z: pz };
-		const { yaw, pitch } = aimAngles(pos, { x: ax, y: p.aimHeight, z: az });
+		const { yaw, pitch } = aimAngles(pos, framedAim({ x: ax, y: p.aimHeight, z: az }, subject[f], pos));
 		track.push({ pos, yaw, pitch: offsetPitch(pitch, p.pitchOffsetDeg) });
 	}
 	return track;
@@ -495,7 +531,7 @@ export function buildRailFollowTrack(subject, fps, rail, params = {}) {
 		}
 		const rp = railPoint(rail, s);
 		const pos = { x: rp.x, y: py, z: rp.z };
-		const { yaw, pitch } = aimAngles(pos, { x: ax, y: p.aimPerFrame ? (subject[f].y ?? p.aimHeight) : p.aimHeight, z: az });
+		const { yaw, pitch } = aimAngles(pos, framedAim({ x: ax, y: p.aimPerFrame ? (subject[f].y ?? p.aimHeight) : p.aimHeight, z: az }, subject[f], pos));
 		track.push({ pos, yaw, pitch: offsetPitch(pitch, p.pitchOffsetDeg), s });
 	}
 	return track;
