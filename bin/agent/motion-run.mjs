@@ -208,11 +208,11 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
 	let record = await write();
-	// a sign-in that refuses the motion model for the account at the first call (agent-runner.mjs modelRefused; never a
+	// a sign-in that refuses the motion model for the account at the first call (motion-writer.mjs modelRefused; never a
 	// rate limit, an expired sign-in, a server error or the network): once, the route after it writes, and the answer and
 	// the record say who refused what. The refused run stays on file (the harness's infra-error record of this name).
 	if (writer?.refuse && !record.final && record.infraError?.at === "model call 1") {
-		const { modelRefused } = await import("./agent-runner.mjs"), next = modelRefused(record.infraError) ? await writer.refuse() : null;
+		const { modelRefused } = await import("./motion-writer.mjs"), next = (await modelRefused(record.infraError)) ? await writer.refuse() : null;
 		if (next) { writer = next; record = await write(); }
 	}
 	// the answer names the writer: the route's label, and the name the provider gave what it served when that is another one

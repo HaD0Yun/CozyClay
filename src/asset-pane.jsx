@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ko } from "./locale.js";
-import { NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL } from "./scenes.js";
-import { CHARACTER_MODEL_LABELS } from "./character-name.js";
+import { PROXY_FIGURE_MODEL } from "./scenes.js";
+import { addCharacterEntries } from "./shell/add-character-entries.js";
 import { OBJECT_LIBRARY } from "./scene-objects.js";
 import { displayObjectLabel } from "./object-catalog.jsx";
 import { assetAspect, isImageAssetId, isMeshAssetId, isSupportedMeshType } from "./scene-assets.js";
@@ -14,12 +14,9 @@ import { logStore } from "./shell/log-store.js";
 import { SearchEmpty } from "./search-friction.js";
 import "./asset-pane.css";
 
-/** Casting assets offered in the Content browser's Characters folder: the one rig, drawn in the Studio's figure look
- * (NEW_CHARACTER_MODEL, the X Bot skeleton), and the capsule figure, which has no FBX. */
-export const CHARACTER_ASSETS = [
-	{ id: NEW_CHARACTER_MODEL, label: CHARACTER_MODEL_LABELS[NEW_CHARACTER_MODEL] },
-	{ id: PROXY_FIGURE_MODEL, label: ko("Capsule figure", "캡슐 인물") },
-];
+/** Casting assets offered in the Content browser's Characters folder: the bodies of Add > Character, labelled as there:
+ * the one rig, drawn in the Studio's figure look (the X Bot skeleton), and the capsule figure, which has no FBX. */
+export const CHARACTER_ASSETS = addCharacterEntries("rig").map(entry => ({ id: entry.model, label: entry.label() }));
 
 function CharacterPreview({ model }) {
 	if (model === PROXY_FIGURE_MODEL) {

@@ -21,9 +21,9 @@ import { zstdDecompressSync } from "node:zlib";
 for (const name of Object.keys(process.env)) if (/_API_KEY$|^CLIPROXY_|^COZYCLAY_MOTION_/.test(name)) delete process.env[name];
 const TMP = mkdtempSync(join(tmpdir(), "writer-sign-ins-"));
 process.env.COZYCLAY_CONFIG_DIR = join(TMP, "config-0");
-const [{ createModels, resolveModel }, keys, { writerRoute }, { runMotion }, { runScene }, { createSubscriptionStream }, { createProvider, clampThinkingLevel }, { modelRefused }] = await Promise.all([
+const [{ createModels, resolveModel }, keys, { writerRoute, modelRefused }, { runMotion }, { runScene }, { createSubscriptionStream }, { createProvider, clampThinkingLevel }] = await Promise.all([
 	import("../../bin/agent/providers.mjs"), import("../../bin/agent/provider-keys.mjs"), import("../../bin/agent/motion-writer.mjs"), import("../../bin/agent/motion-run.mjs"),
-	import("../../src/lowvis/pi/harness.mjs"), import("../../bin/agent/anthropic-subscription-stream.mjs"), import("@earendil-works/pi-ai"), import("../../bin/agent/agent-runner.mjs"),
+	import("../../src/lowvis/pi/harness.mjs"), import("../../bin/agent/anthropic-subscription-stream.mjs"), import("@earendil-works/pi-ai"),
 ]);
 
 const REPORT = "Nothing was made.\nMissing: everything";
@@ -357,7 +357,7 @@ function reached(server, run, { key, model, count = 2 }) {
 	assert.ok(failed.message.startsWith("The model or the proxy failed: 404 ") && failed.message.includes("not_found_error") && failed.message.endsWith(sameWriter), failed.message);
 	assert.equal(server.requests.length, 1);
 	await server.close();
-	// the one place that tells a refusal of the model from the other failures (agent-runner.mjs modelRefused)
+	// the one place that tells a refusal of the model from the other failures (motion-writer.mjs modelRefused)
 	for (const [message, refused] of [
 		["There's an issue with the selected model (claude-opus-5-5). It may not exist or you may not have access to it.", true],
 		["403 {\"error\":{\"code\":403,\"message\":\"The caller does not have permission\",\"status\":\"PERMISSION_DENIED\"}}", true],
@@ -365,7 +365,7 @@ function reached(server, run, { key, model, count = 2 }) {
 		["400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"tools.0.custom.input_schema: JSON schema is invalid\"}}", false],
 		["You have hit your ChatGPT usage limit (plus plan).", false], ["529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}", false],
 		["Connection error.", false], ["fetch failed", false], ["Operation aborted", false],
-	]) assert.equal(modelRefused({ message }), refused, message);
+	]) assert.equal(await modelRefused({ message }), refused, message);
 	console.log("PASS a rate limit, a refused credential, a server error, a server that is gone: no other model is asked; a refusal with no other model to write on is the failure it is");
 }
 

@@ -16,6 +16,20 @@
 import { cleanBase, cliproxyBase, fetchModelList } from "./cliproxy-provider.mjs";
 import { motionWriter } from "./motion-engine.mjs";
 
+// agent-runner.mjs classifyError sorts a failed request into codes. No code of that vocabulary says "this account may not use this model": a 404 reads there as upstream, a 403 as
+// unauthorized beside an expired sign-in's 401. modelRefused is that one class, for a caller that has another model to go
+// on with (motion-run.mjs): the provider answered for the model, not for the credential, the rate, itself or the network.
+// A 404; or, with a 403, another 4xx or no status, an error type or words that say the model is not there, not
+// supported or not allowed for the account; or a 403 that does not speak of the credential.
+const CREDENTIAL_WORDS = /authenticat|api.?key|token|expired|sign.?in|log.?in/i;
+const MODEL_REFUSED_WORDS = /model_not_found|not_found_error|permission_error|permission_denied|model\b[\s\S]{0,120}?\b(?:not exist|not found|not supported|not available|not allowed|no access|not have access)/i;
+/** Whether a failed request's error ({ message, status? }) says the account may not use the model the request named. */
+export async function modelRefused(error) {
+	const message = typeof error?.message === "string" ? error.message : "", { code, status } = (await import("./agent-runner.mjs")).classifyError(error);
+	if (code === "rate_limit" || code === "overloaded" || code === "network" || status === 401 || status >= 500) return false;
+	return status === 404 || MODEL_REFUSED_WORDS.test(message) || (status === 403 && !CREDENTIAL_WORDS.test(message));
+}
+
 const LISTED_MS = 60_000;
 const DEFAULT_MODEL = "gpt-6-astra"; // the model a turn that names none runs on (agent-runner.mjs DEFAULT_MODEL)
 const listed = new Map(); // "<v1 base> <model id>" -> { at, ok }: a proxy's model list, asked once a minute
