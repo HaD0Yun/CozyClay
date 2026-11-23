@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Open parameters: { range: [lo, hi] } in place of a number is searched deterministically
 // within a compile budget, stops at QA 0, and reports the chosen values and the time.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { SCENE_OBJECTS } from "./fixtures/exitcar-scene.mjs";
 import { compileSpec } from "./fixtures/legacy-compile.mjs";
 import { motionScene } from "../../src/motion3/scene.js";

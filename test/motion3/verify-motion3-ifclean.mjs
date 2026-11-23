@@ -3,6 +3,7 @@
 // beats the installed take's (fewer blocking groups, then fewer of their frame issues: qa/blocking.js, #1114); "never" never
 // installs. A hand pushed into a board by 3.5 / 4.0 / 3.6 / 3.8 cm gives one COLLIDE group of a different length each (a
 // warning: a palm in a body) and one GOAL group (the hand holds its place within 2.5 cm) that blocks, longer the deeper it goes.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { readFileSync } from "node:fs";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";

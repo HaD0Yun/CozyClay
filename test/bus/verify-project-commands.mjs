@@ -1,3 +1,4 @@
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import assert from 'node:assert/strict';
 import { projectFixture, ok } from './project-fixture.mjs';
 import { SCENES_STORAGE_KEY } from '../../src/scenes.js';
