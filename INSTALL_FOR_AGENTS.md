@@ -113,7 +113,15 @@ imported rigs are not animated: they stand as they are, and the motion writer is
 
 The writer needs a model sign-in in the Agent panel (section 5). It runs `claude-opus-5-5` at
 effort medium when a sign-in offers that model, and otherwise the model the conversation runs on.
-The tool's answer names the writer in its `writer` field.
+A sign-in that lists that model and then refuses it for the account (not found, not permitted, not
+on the plan) is asked once per conversation: the model the conversation runs on writes that motion
+and the later ones. The tool's answer names the writer in its `writer` field, and the sign-in that
+refused when one did. A motion call takes minutes: the writer compiles and reads its result
+several times.
+
+An installed Studio writes each motion run's record, contact sheets and clip under `motion-runs/`
+in the CozyClay config folder (`~/.config/cozyclay/` by default) and keeps the newest 20 runs. A
+source checkout writes them under `lowvis-out/pi/` and `public/lowvis/clips/pi/` and keeps all.
 
 **Through MCP and `cclay live`** motion is the old engine's: you write a motion spec (key poses,
 hand anchors, props, walks), compile it with `motion.compile`, and read the QA report (collisions,
