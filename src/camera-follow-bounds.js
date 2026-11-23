@@ -3,13 +3,14 @@
 // a multiple of the subject's own pace, so a subject of any speed stays in the
 // picture and on the side the shot set.
 
-// How far the operator's aim may sit from the subject, as the tangent of the
-// angle seen from the camera (0.25 is about 14°). The aim spring and its
-// look-ahead are in seconds, so the metres they put between aim and subject
-// grow with the subject's speed: at a walk a few degrees of lead room, at a
-// car's speed enough to swing the subject out of the picture. The bound is an
-// angle, the same at every speed and every camera distance. It does not know
-// the lens: a lens whose half width is under it can still lose the subject.
+// How far the operator's aim may sit from the subject, as a share of the
+// camera's distance to it (0.25: at most 14.5° seen from the camera). The aim
+// spring and its look-ahead are in seconds, so the metres they put between aim
+// and subject grow with the subject's speed: at a walk a few degrees of lead
+// room, at a car's speed enough to swing the subject out of the picture. The
+// bound is an angle, the same at every speed and every camera distance. It
+// does not know the lens: one whose half width is under it (70 mm and longer
+// on the default sensor) can still put a fast subject at the picture's edge.
 const AIM_REACH = 0.25;
 
 // How fast the follow camera may steer toward its trailing position: twice the
