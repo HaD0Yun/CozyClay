@@ -89,7 +89,7 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 			if (!c) continue;
 			const j = HANDS[g.hand], hq = qConj(rot(c, f, j)), { c: pc, q: pq } = propAt(p, f), h = at(c, f, j);
 			const off = qRotate(hq, [pc[0] - h[0], pc[1] - h[1], pc[2] - h[2]]), axis = qRotate(hq, qRotate(pq, [0, 0, 1]));
-			ref ??= { off, axis };
+			if (ref?.from !== g.from) ref = { off, axis, from: g.from }; // from where it lay in the hand when that hand took it
 			drift = best(drift, { v: dist(off, ref.off), f, who: c.id, prop: p.id, note: p.id });
 			turn = best(turn, { v: Math.asin(Math.min(1, Math.hypot(axis[1] * ref.axis[2] - axis[2] * ref.axis[1], axis[2] * ref.axis[0] - axis[0] * ref.axis[2], axis[0] * ref.axis[1] - axis[1] * ref.axis[0]))), f, who: c.id, prop: p.id, note: p.id });
 		}

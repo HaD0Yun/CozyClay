@@ -21,7 +21,7 @@ const NEW_NOTE = "the side a knee bends to is the engine's: no spec word sets it
 assert.ok(NOTES.includes(NEW_NOTE), "the clip's notes say that an elbow can be given a target");
 // the note that changed with a prop held by several hands (share.js) goes back to its old text too
 const OLD_HELD = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
-const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis";
+const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it";
 assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by several hands does");
 
 // pinned again with autorl 010 (a walk's sway grows with its walking share, unless the walk begins the clip;
@@ -34,8 +34,8 @@ const BEFORE = {
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
 	duo: "14533d7f3f331bdca598f72e971af64c2743a796e85ed4078c89e8f4a3c6f3d8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
 	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
-	chop: "824581ded51cd1c1bb233b878186b62aa9f6bfb6d76b55da7d781f899acbd5e8", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
-	bowl: "1f18e651aee64862d299a7b1d3b27bd8a1f3f21179b9a10f1d4c793900a0959e", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
+	chop: "5744cf7780906abaf219774b5eb6b3f1552795ec685c747e52cc227a10c90a78", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
+	bowl: "c3bd185499566c735bbb7e5b0e6c4f37e44d3e80ab2e54398fea3eed4bb9c786", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};

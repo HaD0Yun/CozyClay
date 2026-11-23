@@ -357,7 +357,7 @@ function buildOnce(written, def, carrier) {
 		}
 		for (const { p, out } of outProps) {
 			p.h2 = p.h1; p.h1 = p.c.slice(); out.by?.push(carriersOf(p)); out.shown?.push(shownAt(p, f));
-			aux.holders[p.id].push(p.holder); aux.grips[p.id].push(p.holder && p.hand != null ? { c: p.holder, hand: p.hand } : null);
+			aux.holders[p.id].push(p.holder); aux.grips[p.id].push(p.holder && p.hand != null ? { c: p.holder, hand: p.hand, from: p.takenAt } : null); // from: the frame it took hold
 			if (out.pos.length === 3 && f > 0) continue;
 			out.pos.set(p.c, out.pos.length === 3 ? 0 : f * 3); out.quat.set(p.q, out.pos.length === 3 ? 0 : f * 4);
 		}

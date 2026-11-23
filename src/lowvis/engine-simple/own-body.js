@@ -22,7 +22,7 @@ export function ownPoint(c, to, f) {
 
 /** An aim as [axis of the hand, solve-space direction] pairs, one per axis of the prop held in it: an array is the
  *  prop's long z axis in the body frame; an object names any of its own x, y, z, in the body frame or, with world: true,
- *  the world. grip: the prop's turn in the hand (share.js; none = the prop's axes are the hand's). */
+ *  the world. grip: the prop's turn in the hand (share.js, take.js; none = the prop's axes are the hand's). */
 function aimAxes(aim, B, tilt, grip) {
 	const own = a => (grip ? qRotate(grip, a) : a);
 	if (Array.isArray(aim)) return [[own(Z), qRotate(qY(B.yaw), norm(aim))]];
@@ -32,8 +32,8 @@ function aimAxes(aim, B, tilt, grip) {
 }
 
 /** The aim of frame f on the hand that last took a prop in one hand (U.hands[c.gripHand ?? 1]). Two plain directions
- *  blend as directions (h.aim) when the prop lies in the hand along its axes; any other pair, or a prop held at a place
- *  in that hand alone (c.gripTurn, share.js), blends as two hand turns (h.axes). */
+ *  blend as directions (h.aim) when no turn of a prop in that hand is known; any other pair, or a prop held in that hand
+ *  alone (c.gripTurn: its turn in the hand, share.js and take.js), blends as two hand turns (h.axes). */
 export function aimOf(c, f, U, t) {
 	const B = c.body[f], ka = t.active(c.keys.aim, f);
 	if (!ka) return;

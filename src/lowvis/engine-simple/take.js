@@ -53,6 +53,6 @@ export function inHand(p, c, f) {
 		const beyond = len(sub(add(p.c, qRotate(p.q, g)), pose.pos[ARM[i]])) - ARM_LEN * c.s;
 		p.took = { f, d: len(sub(l, g)), why: { slow: c.solved.slow[i], beyond, near: true } };
 	}
-	if (p.took.f === f) Object.assign(c.U.hands[i], { took: p.took.d, tookWhy: p.took.why, prop: p.id });
+	if (p.took.f === f) Object.assign(c.U.hands[i], { took: p.took.d, tookWhy: p.took.why, prop: p.id, key: c.U.hands[i].by ?? c.U.hands[i].key }); // the hold's own frame
 	p.q = qMul(hq, p.gq); p.c = add(hp, qRotate(hq, p.grip));
 }

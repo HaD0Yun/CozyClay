@@ -29,7 +29,7 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	const LATER_NOTE = "the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target";
 	// and so is the held-prop note that came with several hands on one prop (verify-share-hands.mjs)
 	const HELD_WAS = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
-	const HELD_NOW = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis";
+	const HELD_NOW = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it";
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs): a walk with steps takes the path
 	// as any walk does and a backward move rolls its feet in reverse (was duo 7161b3b6dec47653, chop 0a274e59fda21b52, bowl 4667a47117f935bb);
 	// again with its repairs: the last plant of a backward move lands flat, a counted walk's hips arrive when its last foot
