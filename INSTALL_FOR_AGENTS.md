@@ -126,9 +126,9 @@ source checkout writes them under `lowvis-out/pi/` and `public/lowvis/clips/pi/`
 **Through MCP and `cclay live`** motion is the old engine's: you write a motion spec (key poses,
 hand anchors, props, walks), compile it with `motion.compile`, and read the QA report (collisions,
 foot slide, reach, contacts). Spec format and loop: [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md).
-Capsule figures refuse it with `TARGET_NOT_READY`. That engine compiles for the rig's own body: in
-a Studio drawn with the cube figure (the default) it refuses a character at scale 1 and names the
-scale to set (1.060445). Start the Studio with `COZYCLAY_FIGURE=block` to compile at scale 1.
+Capsule figures refuse it with `TARGET_NOT_READY`. A compile is made for the body the character
+stands as (its scale times the figure look's body: the cube figure at scale 1 is 0.943 of the rig),
+so the take plays at that size with its feet on the floor and its hands on the places the spec names.
 
 Switches, set in the environment of the process that starts the Studio:
 

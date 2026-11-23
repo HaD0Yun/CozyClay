@@ -4,11 +4,10 @@
 > with the `motion` tool: a second model, the motion writer, writes the motion and a deterministic
 > engine builds it (see [`INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). This guide
 > still holds for `motion.compile` through MCP (`studio_run`) and `cclay live`, and for the Agent
-> panel when the Studio is started with `COZYCLAY_MOTION_ENGINE=old`. The compiler works on the rig's
-> own body: in a Studio drawn with the cube figure (the default) a character at scale 1 is refused
-> with the scale to set; start the Studio with `COZYCLAY_FIGURE=block` (or with
-> `COZYCLAY_MOTION_ENGINE=old`, which draws the block figure) to compile at scale 1. New characters
-> are X Bot rigs; the Y Bot is no longer offered.
+> panel when the Studio is started with `COZYCLAY_MOTION_ENGINE=old`. A compile is made for the body
+> the character stands as: its scale times the figure look's body (the cube figure, the default, is
+> 0.943 of the rig at scale 1; `COZYCLAY_MOTION_ENGINE=old` draws the block figure, the rig's own
+> body). New characters are X Bot rigs; the Y Bot is no longer offered.
 
 The agent writes a **motion spec**. The deterministic compiler bakes every frame on the real rig (X Bot or Y Bot), fixes small mechanical errors itself, and QA measures the result. Every QA issue group says what caused it and what to change. The agent edits the spec and compiles again until QA reports nothing. A 730-frame scene compiles in about 150 ms and QA takes about 80 ms, so iterate freely, normally inside one `script` call.
 

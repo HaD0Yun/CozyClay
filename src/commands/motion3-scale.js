@@ -1,26 +1,34 @@
-// Motion compile computes for a body of the rig's own size: scale 1, or under a look with a body of its own (src/lowvis/
-// studio/figure.js) the scale at which the character stands that large (UNIT). An action that compiles (motion.compile, and motion.qa, motion.report,
-// motion.keyObject, which compile the installed take's spec again) is refused on a scaled character, saying what that
-// action does; reading the take's bones (motion.sample) is not compiling and reads at the character's own place and scale.
-// A raw track (motion.v4.install) has no spec to compile: the reads that measure by compiling say so at any scale.
+// A motion compile is made for the body the character stands as: its scale times its look's body (src/lowvis/studio/
+// figure.js bodyScale). The job compiles on the rig at that size (rigs/index.js sizedRig), so the spec's places,
+// the floor and the props are met in the world as written; the take then keeps its numbers in the rig's own size, as
+// every take does (the stage, motion.sample and people.js draw a take times the body it plays on), and carries the size
+// it was made for (take.scale, as a raw track does: physics-frames.js). A take made for one size and read on a body of
+// another (the character resized after the install) is not measured by compiling again: motion.qa and motion.report
+// say so; motion.sample reads the take's bones at the character's place and scale. A raw track (motion.v4.install)
+// has no spec to compile: the reads that measure by compiling say so at any scale.
 import { fail } from "./shared.js";
 import { characterName } from "../character-name.js";
 import { bodyScale, scaleOf } from "../lowvis/studio/figure.js";
+import { sizedRig } from "../motion3/rigs/index.js";
 
 const SAMPLE = "motion.sample reads the take's bones at the character's place and scale.";
-const scaled = character => Math.abs(bodyScale(character) - 1) > 1e-6;
-/** The scale at which this character stands as large as the rig's own body: 1 but under a look with a body of its own. */
-const unit = character => scaleOf(1, bodyScale({ model: character.model }));
+const same = (a, b) => Math.abs(a - b) <= 1e-6;
 
-/** Throws TARGET_NOT_READY when the character's scale is not 1; action names an action that compiles the installed take again and installs the result. */
-export function unitScale(character, action = null) {
-	if (!scaled(character)) return;
-	fail("TARGET_NOT_READY", action ? `${action} compiles the installed take's spec again, which motion compile does only for a body at scale ${unit(character)}; ${characterName(character)}'s scale is ${character.scale ?? 1}.`
-		: unit(character) === 1 ? "Set the character's scale back to 1 before compiling motion." : `Set the character's scale to ${unit(character)} before compiling motion.`);
+/**
+ * The compile job's body for `character`: { model, rigs } to send (the rig at the size it stands as, registered by the
+ * job), and unit(result), which gives the take back in the rig's own size with its size on it. At the rig's own size:
+ * the character's model and the result as it is.
+ */
+export function compileBody(character) {
+	const size = bodyScale(character), sized = same(size, 1) ? null : sizedRig(character.model, size);
+	if (!sized) return { model: character.model, rigs: {}, unit: r => r };
+	const unit = take => ({ ...take, rig: character.model, hips: take.hips.map(v => v / size), scale: size });
+	return { model: sized.id, rigs: { [sized.id]: sized.rig }, unit: r => (r?.take ? { ...r, take: unit(r.take) } : r) };
 }
 
 /** Throws TARGET_NOT_READY when `action` (a read that measures by compiling the installed take's spec again) cannot measure this body's take. */
 export function measurable(character, take, action) {
 	if (take.spec?.raw) fail("TARGET_NOT_READY", `${action} measures a take by compiling its motion spec again; ${characterName(character)}'s take was installed as a raw track and has no spec to compile, at any scale. ${SAMPLE}`);
-	if (scaled(character)) fail("TARGET_NOT_READY", `${action} measures a take by compiling its motion spec again, for the body at scale ${unit(character)}; ${characterName(character)} is at scale ${character.scale ?? 1}, so that would not measure the body as it is. ${SAMPLE}`);
+	const made = take.scale ?? 1;
+	if (!same(bodyScale(character), made)) fail("TARGET_NOT_READY", `${action} measures a take by compiling its motion spec again, for the body it was made for, at scale ${scaleOf(made, bodyScale({ model: character.model }))}; ${characterName(character)} is at scale ${character.scale ?? 1}, so that would not measure the take as it plays. ${SAMPLE}`);
 }

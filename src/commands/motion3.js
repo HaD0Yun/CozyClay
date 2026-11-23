@@ -35,7 +35,7 @@ import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
 import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
-import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { unitScale, measurable } from "./motion3-scale.js"; import { bodyScale } from "../lowvis/studio/figure.js";
+import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { compileBody, measurable } from "./motion3-scale.js"; import { bodyScale } from "../lowvis/studio/figure.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -137,10 +137,10 @@ export function register(registry, ports) {
 	 * names), qa, ..., take when bake is given }, at once or as a promise. opts: probes, checks, lenient, repair.
 	 */
 	const compile = (character, spec, opts = {}, bake, taskId = null, scene = sceneFor(character)) => {
-		rigOf(character); unitScale(character); // motion compile computes for the body at scale 1 (motion3-scale.js)
+		rigOf(character); const body = compileBody(character); // made for the body the character stands as (motion3-scale.js)
 		const placed = bake && { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0, ...bake };
-		const rigs = rigsOf(character, scene);
-		return runner.run({ model: character.model, ...(Object.keys(rigs).length ? { rigs } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
+		const rigs = { ...rigsOf(character, scene), ...body.rigs };
+		return after(runner.run({ model: body.model, ...(Object.keys(rigs).length ? { rigs } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id }), body.unit);
 	};
 	// where a take was baked: the body's place and a hash of the scene's bodies (a take kept for the stop rule fits only
 	// there): 0.14 ms for 860 bodies, where their JSON took 0.9 ms and 295 KB a key
@@ -295,7 +295,7 @@ export function register(registry, ports) {
 	// and installed whatever QA says (a user edit), as one undo entry
 	registry.register({ ...declarations[5], available: mounted, target: args => args.characterId, run({ characterId, ...args }, context) {
 		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character);
-		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args"); unitScale(character, "motion.keyObject");
+		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args");
 		return after(compile(character, spec, { lenient: true }, { prompt: take.prompt }), r => {
 			const timing = put(character, r.take, context);
 			return { affectedIds: [characterId], summary: `${keyed.removed ? "Removed the key of" : "Keyed"} ${keyed.objectId} at f${keyed.f}; QA ${qaSay(r.qa)}; installed.`,

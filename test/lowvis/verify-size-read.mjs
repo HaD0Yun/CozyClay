@@ -6,8 +6,8 @@
 //    install carries its take, and the answer goes with it
 //  - at scale 1 the answer is the one of before, byte for byte (the formula without the scale)
 //  - a compile's other people (people.js) are measured at their own scale: their joints and their thickness
-//  - the actions that compile for the body at scale 1 still refuse a scaled character, each saying what it does, and the
-//    reads that measure by compiling say of a raw track, at any scale, that it has no spec to compile
+//  - motion.compile compiles for the body a scaled character stands as (src/commands/motion3-scale.js), and the reads
+//    that measure by compiling say of a raw track, at any scale, that it has no spec to compile
 import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
@@ -67,15 +67,16 @@ for (const [scale, at, heading] of [[0.6, [1.5, 0.7], 170], [0.81, [0.4, -1.2], 
 	console.log(`ok motion.sample after a move, a turn, a lift and a resize ${of} -> ${now}: within ${(off * 1000).toFixed(3)} mm of where the stage puts the joints`);
 	Object.assign(character, { x: from[0], y: 0, z: from[2], rot: was, scale: of });
 
-	// the actions that compile for the body at scale 1 still refuse it, saying what they do
+	// the reads that measure by compiling cannot measure a raw track
 	const qa = errorOf(() => registry.run("motion.qa", { characterId: "S1" }));
 	assert.equal(qa?.code, "TARGET_NOT_READY");
 	// a lowvis take is a raw track: motion.qa and motion.report cannot measure it at any scale, and say that (not the scale)
 	assert.equal(qa.message, "motion.qa measures a take by compiling its motion spec again; Block figure S1's take was installed as a raw track and has no spec to compile, at any scale. motion.sample reads the take's bones at the character's place and scale.");
 	assert.match(errorOf(() => registry.run("motion.report", { characterId: "S1" }))?.message ?? "", /^motion\.report measures a take by compiling its motion spec again; .* no spec to compile, at any scale\./);
-	assert.equal(errorOf(() => registry.run("motion.compile", { characterId: "S1", spec: { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 10, keys: [] } }))?.message, "Set the character's scale back to 1 before compiling motion.", "compiling keeps its refusal of before");
+	const made = registry.run("motion.compile", { characterId: "S1", spec: { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 10, keys: [] }, repair: false });
+	assert.equal(made.output.frames, 10, `scale ${scale}: motion.compile compiles for the body the character stands as`);
 }
-console.log("ok the actions that compile refuse a scaled character with what they do; motion.sample does not refuse it");
+console.log("ok the reads that measure by compiling refuse a raw track with what they do; motion.compile and motion.sample take a scaled character");
 
 // --- the reads that measure by compiling: a raw track at scale 1 too, and a compiled take on a body scaled after ---
 {
@@ -97,7 +98,7 @@ console.log("ok the actions that compile refuse a scaled character with what the
 	character.scale = 0.8;
 	for (const action of ["motion.qa", "motion.report"]) {
 		// motion.report holds this spec's report of the scale-1 body: it is not served as the scaled body's
-		assert.equal(errorOf(() => old.run(action, { characterId: "C1" }))?.message, `${action} measures a take by compiling its motion spec again, for the body at scale 1; Cy is at scale 0.8, so that would not measure the body as it is. motion.sample reads the take's bones at the character's place and scale.`);
+		assert.equal(errorOf(() => old.run(action, { characterId: "C1" }))?.message, `${action} measures a take by compiling its motion spec again, for the body it was made for, at scale 1; Cy is at scale 0.8, so that would not measure the take as it plays. motion.sample reads the take's bones at the character's place and scale.`);
 	}
 	assert.equal(old.run("motion.report", { specId: compiled.output.specId }).output.specId, compiled.output.specId, "a report asked by specId is that compile's, whatever the body is now");
 	assert.equal(errorOf(() => old.run("motion.keyObject", { characterId: "C1", objectId: "x", frame: 3, pos: [0, 0, 0] }))?.code, "INVALID_ARGUMENT", "motion.keyObject refuses an object the take does not move before it looks at the scale");

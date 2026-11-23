@@ -130,10 +130,9 @@ frame on the rig, answers the QA groups, and installs the take; `motion.sample` 
 
 This is the old motion engine, which MCP and `cclay live` keep. The Studio's own Agent panel makes
 body motion with its `motion` tool instead (a second model writes the motion, a deterministic
-engine builds it; see [`../INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). The
-compiler works on the rig's own body: in a Studio drawn with the cube figure (the default),
-`motion.compile` refuses a character at scale 1 and names the scale to set (1.060445). Start the
-Studio with `COZYCLAY_FIGURE=block` to compile at scale 1.
+engine builds it; see [`../INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). A
+compile is made for the body the character stands as: its scale times the figure look's body (the
+cube figure, the default, is 0.943 of the rig at scale 1).
 
 ## Capsule figures
 

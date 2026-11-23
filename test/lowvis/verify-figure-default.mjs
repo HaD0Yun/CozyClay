@@ -7,8 +7,8 @@
 //    and as a dev server bakes it in (vite.config.js): FIGURE, lookBody() and bodyScale() equal the sidecar's; a worker
 //    the page starts (motion3-compile.js, named by workerName) reads the page's value
 // 3. every place that reads COZYCLAY_FIGURE goes through figure.js: no reader of its own anywhere in bin/ or src/
-// 4. the old motion engine (COZYCLAY_MOTION_ENGINE=old) with no look named: the block look on both sides, as it compiles
-//    for the rig's own body only; a look named with it is that look
+// 4. the old motion engine (COZYCLAY_MOTION_ENGINE=old) with no look named: the block look on both sides, the figure
+//    that engine's Studio agent was made with; a look named with it is that look
 // 5. lookClash: the page says the look it draws in its describe answer; another look than the launch's is told
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
