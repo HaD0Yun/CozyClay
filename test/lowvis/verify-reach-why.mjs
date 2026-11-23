@@ -11,6 +11,7 @@
 //     target off the upper arm's sphere, an elbow held by its wrist's own target, a late wrist, a foot under the floor,
 //     and the engine's own miss. A "why:" reason lies in the spec, an "engine limit:" one does not.
 // Every scene here is made up for this test.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "./lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { placementAt, resolveCharacterPlacement, sampleRootPath } from "../src/root-path.js";
 import { characterGizmoView } from "../src/stage-gizmo.js";

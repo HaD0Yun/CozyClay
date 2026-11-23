@@ -30,6 +30,7 @@
 //                                             object gains motionFit
 import { motionEngine } from "./motion-engine.mjs";
 import { attachOf } from "../../src/lowvis/studio/attach.js";
+import { figureOf } from "../../src/lowvis/studio/figure.js";
 import { auxOf, contactLine, contactsOf, frameOf, gapLine, gapsOf, probesOf } from "../../src/lowvis/studio/contacts.js";
 
 const PLACE = 0.01, SIZE = 0.02, TURN = 0.5; // metres, metres, degrees: smaller differences are not told
@@ -47,7 +48,7 @@ const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
  * Keeps the boxes of a motion's scene ({ props: [{ id, size, at, turn?, shape?, moves? }] }) under key; placed:
  * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch; motion: { clip, spec }
  * the clip compiled from that scene (as the writer's tool read it) and spec, whose contacts are kept with the boxes (a
- * carrying joint's drawn part in the look COZYCLAY_FIGURE names, as the Studio launched with it draws the bodies).
+ * carrying joint's drawn part in the look COZYCLAY_FIGURE names (figure.js figureOf), as the Studio launched with it draws the bodies).
  * -> undo(): keeps again what was kept under key before (a draft of a motion that then failed: motion-draft.mjs).
  */
 export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null) {
@@ -55,7 +56,7 @@ export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null
 	const was = [boxes.get(key), floors.get(key), touches.get(key)], next = new Map(), met = new Map();
 	// a clip whose contacts cannot be read (no bodies or poses in it) keeps none: the boxes stand as before
 	if (motion?.clip) try {
-		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip), look = process.env.COZYCLAY_FIGURE || null;
+		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip), look = figureOf();
 		for (const [prop, rows] of contactsOf(clip, aux, look)) {
 			const id = placed[prop], p = clip.props.find(x => x.id === prop);
 			if (id) met.set(id, { name: prop, rows, probes: probesOf(clip, prop, rows, look), still: p.pos.length <= 3, bone: attachOf(clip, p, f => { const at = frameOf(p, f); return { pos: at.o, quat: at.q }; }) });

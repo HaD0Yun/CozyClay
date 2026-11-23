@@ -4,6 +4,7 @@
 // analysis against the walk without a count over the same distance in the same time. The count is walked as written
 // or the writer is told what was walked and why (aux.walks, the travel line of the motion tool). Scenes and specs are
 // written here.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

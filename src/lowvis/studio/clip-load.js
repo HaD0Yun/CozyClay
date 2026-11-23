@@ -3,7 +3,9 @@
 import * as THREE from "three";
 import { clipBounds, clipUsable } from "../viewer/scene.js";
 
-/** The clip public/lowvis/clips/pi/<name>.json, or null when it is missing or not a usable lowvis clip. */
+/** The clip of the motion run <name> (bin/agent/motion-files.mjs: public/lowvis/clips/pi/<name>.json in a checkout, the
+ *  run's folder in an installed package, which bin/cozyclay.mjs serves at this address), or null when it is missing or not
+ *  a usable lowvis clip. */
 export async function loadLowvisClip(name) {
 	const res = await fetch(`${import.meta.env.BASE_URL}lowvis/clips/pi/${encodeURIComponent(name)}.json`, { cache: "no-store" });
 	if (!res.ok) return null;

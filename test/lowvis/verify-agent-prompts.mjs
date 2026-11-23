@@ -16,7 +16,7 @@ for (const motion of [true, false]) {
 	assert.deepEqual(FORBIDDEN.filter(token => text.includes(token)), [], `lowvis Studio prompt (motion ${motion})`);
 	assert.doesNotMatch(text, /previsMode|storyboard/i);
 	assert.ok(text.endsWith(`\n\n${motion ? MOTION_TOOL_PARAGRAPH : NO_MOTION_PARAGRAPH}`));
-	assert.ok(text.includes(" People are block figures: rig characters of model x-bot-tpose. Their body motion comes from the motion tool.\nAsk concise questions"), "one line on people where the cast-style gate was");
+	assert.ok(text.includes(" People are rig figures: rig characters of model x-bot-tpose. Their body motion comes from the motion tool.\nAsk concise questions"), "one line on people where the cast-style gate was");
 	assert.doesNotMatch(text, /capsule|proxy|hybrid|cast style|castStyle|cast gate|stand-in figure/i, "nothing on capsule figures or cast styles");
 	assert.doesNotMatch(text, /Y Bot|y-bot-tpose/, "a new character is never the old Y Bot body");
 }
@@ -49,7 +49,7 @@ assert.match(MOTION_TOOL_PARAGRAPH, /Once the motion writer has built its first 
 assert.match(MOTION_TOOL_PARAGRAPH, /the motion is still being rewritten and is not installed, and the next motion_result answers the installed result/);
 assert.match(MOTION_TOOL_PARAGRAPH, /At the install a stand-in keeps the look you gave it and is set to the final motion's place and turn, unless you tilted it or attached it to a body; the result's propsSet says per object what the install changed since the draft/);
 for (const gone of ["building", "took a prop", "keeps the size you made it", "top the Studio could not measure", "waits for its result"]) assert.equal(MOTION_TOOL_PARAGRAPH.includes(gone), false, gone);
-for (const motion of [true, false]) assert.ok((await studioSystemPrompt({ engine: "lowvis", motion })).includes(" receipt. Make independent calls in the same turn. People are block figures"), "the general sentence on calls stays for the lowvis agent");
+for (const motion of [true, false]) assert.ok((await studioSystemPrompt({ engine: "lowvis", motion })).includes(" receipt. Make independent calls in the same turn. People are rig figures"), "the general sentence on calls stays for the lowvis agent");
 assert.match(MOTION_TOOL_PARAGRAPH, /Give a stand-in its look in place with object\.sculpt \{ id, recipe \}/);
 assert.match(MOTION_TOOL_PARAGRAPH, /An edit of such an object answers motionFit/);
 assert.match(MOTION_TOOL_PARAGRAPH, /do not check the body motion again with verify_result\./);

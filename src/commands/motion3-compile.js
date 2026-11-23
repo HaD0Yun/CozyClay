@@ -9,6 +9,7 @@
 import { runCompileJob } from "../motion3/compile-job.js";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
 import { specRefusalPath } from "../motion3/schema/fields.js";
+import { workerName } from "../lowvis/studio/figure.js";
 
 const POOL = 2;
 
@@ -24,7 +25,7 @@ const local = job => { try { return runCompileJob(job); } catch (error) { return
 /** The browser's module worker, or null where there is none. */
 function browserWorker() {
 	if (typeof Worker !== "function") return null;
-	return new Worker(new URL("../motion3/compile-worker.js", import.meta.url), { type: "module", name: "motion-compile" });
+	return new Worker(new URL("../motion3/compile-worker.js", import.meta.url), { type: "module", name: workerName("motion-compile") });
 }
 
 // What the editor's compiles are doing, for the panel: { running: [meta], waiting: [meta] } (meta: { taskId, characterId }).

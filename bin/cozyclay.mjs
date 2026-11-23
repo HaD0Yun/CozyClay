@@ -319,7 +319,9 @@ server = createServer((req, res) => {
 		// npx-served studio can never attach to the MCP server's live hub.
 		// __COZYCLAY_LIVE_PORT__ tells the prebuilt bundle which hub port this
 		// launch chose (COZYCLAY_LIVE_PORT), since the build baked its own (#862).
-		const html = readFileSync(target, "utf8").replace("</head>", `<script>window.__COZYCLAY_RUNTIME__ = ${JSON.stringify(runtime).replaceAll("<", "\\u003c")}; window.__COZYCLAY_LIVE__ = true; window.__COZYCLAY_LIVE_PORT__ = ${JSON.stringify(liveHubPort())};</script>\n</head>`);
+		// __COZYCLAY_FIGURE__, __COZYCLAY_MOTION_ENGINE__: what this launch names of the figures' look, as given (src/lowvis/studio/figure.js
+		// launchValue reads both); the agent sidecar in this process reads the same two, so the look drawn and the body a motion is built for are one value.
+		const html = readFileSync(target, "utf8").replace("</head>", `<script>window.__COZYCLAY_RUNTIME__ = ${JSON.stringify(runtime).replaceAll("<", "\\u003c")}; window.__COZYCLAY_LIVE__ = true; window.__COZYCLAY_LIVE_PORT__ = ${JSON.stringify(liveHubPort())}; window.__COZYCLAY_FIGURE__ = ${JSON.stringify(process.env.COZYCLAY_FIGURE ?? "").replaceAll("<", "\\u003c")}; window.__COZYCLAY_MOTION_ENGINE__ = ${JSON.stringify(process.env.COZYCLAY_MOTION_ENGINE ?? "").replaceAll("<", "\\u003c")};</script>\n</head>`);
 		res.writeHead(200, {
 			"content-type": "text/html; charset=utf-8",
 			"content-length": Buffer.byteLength(html),

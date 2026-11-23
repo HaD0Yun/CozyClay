@@ -1,8 +1,12 @@
 /**
  * The launcher's own /__cozyclay/* routes, kept out of bin/cozyclay.mjs:
- * the telemetry toggle the Studio's privacy setting posts to, and the update
- * routes behind the Studio's update chip.
+ * the telemetry toggle the Studio's privacy setting posts to, the update
+ * routes behind the Studio's update chip, and the clip of a motion run, which
+ * lives outside the package (agent/motion-files.mjs) at the address the page
+ * fetches it from (src/lowvis/studio/clip-load.js).
  */
+import { existsSync, readFileSync } from "node:fs";
+import { runFiles } from "./agent/motion-files.mjs";
 import { setTelemetryEnabled } from "./telemetry-state.mjs";
 import { lookupLatest } from "./update-check.mjs";
 import { canSelfUpdate, createInstaller } from "./update-install.mjs";
@@ -28,6 +32,12 @@ export function createStudioRoutes({ port, stateFile, takeRuntime, update: { cur
 		restarter: restart ? createRestarter({ port, ...restart }) : null,
 	});
 	return function handleStudioRoute(req, res, url) {
+		const run = /^\/lowvis\/clips\/pi\/([A-Za-z0-9_-]+)\.json$/.exec(url.pathname), clip = run && runFiles(run[1]).clipFile;
+		if (clip && req.method === "GET" && existsSync(clip)) {
+			res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+			res.end(readFileSync(clip));
+			return true;
+		}
 		if (url.pathname === "/__cozyclay/update" || url.pathname === "/__cozyclay/update/restart") {
 			void updateRoute(req, res);
 			return true;

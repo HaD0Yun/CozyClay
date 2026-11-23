@@ -14,6 +14,7 @@
 // most p lies past them over 720 directions, then 400 about the best), the side from the pelvis's axes. A body this
 // file finds over the limit on a frame at rest is told; one it does not, is not. Scenes and specs are made here.
 // LOWVIS_BALANCE_N=<random cases> runs more (default 40), LOWVIS_BALANCE_SEED=<n> other ones.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

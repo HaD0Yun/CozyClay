@@ -4,6 +4,7 @@
 // receipt budget with `more` and motion.report, motion.describe answers every topic, JSON Patch,
 // point refs on the cup scene, the group message, readOnly declarations, unnamed checks and the
 // lenient reload of a saved take.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { createStudioAppActions } from "../../src/commands/index.js";
 import { declarations } from "../../src/commands/motion3.js";
 import { EXITCAR_SPEC, SCENE_OBJECTS as CAR_OBJECTS, CHARACTER as DRIVER } from "./fixtures/exitcar-scene.mjs";

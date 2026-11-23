@@ -19,14 +19,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const answers = async () => { try { return (await fetch(`http://127.0.0.1:${VIEW}/app/`)).ok; } catch { return false; } };
 const env = { ...process.env, COZYCLAY_LIVE_PORT: String(LIVE), COZYCLAY_CONFIG_DIR: process.env.COZYCLAY_CONFIG_DIR ?? join(ROOT, "lowvis-out/studio-config") };
 if (opt.direct !== false) env.COZYCLAY_MOTION_DIRECT = "on";
-// --figure <look>: new rig characters are drawn in that look of src/lowvis/looks and start at its size (src/lowvis/studio/figure.js)
+// --figure <look>: rig characters are drawn in that look of src/lowvis/looks and are of its body (src/lowvis/studio/figure.js;
+// none: the cube look, or the block figure under COZYCLAY_MOTION_ENGINE=old; "block": the block figure)
 if (opt.figure) env.COZYCLAY_FIGURE = opt.figure;
 
 const switches = () => [
 	`  COZYCLAY_MOTION_ENGINE=${env.COZYCLAY_MOTION_ENGINE ?? ""}  (old: the old motion engine; anything else: lowvis)`,
 	`  COZYCLAY_MOTION_DIRECT=${env.COZYCLAY_MOTION_DIRECT ?? ""}  (on: the direct key "Opus 5.5 (lowvis motion)" is in the model picker)`,
 	`  COZYCLAY_MOTION_OFF=${env.COZYCLAY_MOTION_OFF ?? ""}  (engine steps switched off, of pace, turn, tops, body)`,
-	`  COZYCLAY_FIGURE=${env.COZYCLAY_FIGURE ?? ""}  (a look of src/lowvis/looks for the rig characters, e.g. cube; empty: the block figure)`,
+	`  COZYCLAY_FIGURE=${env.COZYCLAY_FIGURE ?? ""}  (a look of src/lowvis/looks for the rig characters, e.g. block; empty: the cube look, under the old engine the block figure)`,
 ].join("\n");
 
 if (await answers()) {

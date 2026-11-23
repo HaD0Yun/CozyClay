@@ -4,6 +4,7 @@
 // A group just past its limit with no patch gets a small local search (repair-tune.js): the
 // live run3 cup take clears its walkTo thigh hits and its key-pair pop without the agent. The two
 // round-2 takes stuck on a grab goal reach qa.ok, and an arm at full reach brings the body closer.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { EXITCAR_SPEC, SCENE_OBJECTS } from "./fixtures/exitcar-scene.mjs";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";

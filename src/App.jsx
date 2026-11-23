@@ -233,7 +233,7 @@ import {
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
 import { LowvisSkin } from "./lowvis/studio/skin.jsx";
-import { bodyScale, lookBody } from "./lowvis/studio/figure.js";
+import { FIGURE, bodyScale, lookBody } from "./lowvis/studio/figure.js";
 import { TRACK_RIG } from "./lowvis/studio/take.js";
 import { LOWVIS_ID, installClip } from "./lowvis/studio/install.js";
 import { attachFrameAt } from "./effects/attach-history.js";
@@ -2330,7 +2330,7 @@ export default function App() {
 				},
 				stage: live.stage,
 				timeline: live.timeline,
-				activeCharacterId: live.activeCharacterId,
+				activeCharacterId: live.activeCharacterId, figure: FIGURE ?? "block", // the look this page draws rig characters in (figure.js lookClash)
 				characters: castDomain.read(),
 				objects: objectsDomain.read(),
 			};

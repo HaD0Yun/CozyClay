@@ -13,6 +13,7 @@
 //       localQuat, a rig without landmarks is dropped to the default body, registers nothing, and builds and plays
 //       nothing without throwing; the compile path registers the cast through registerCastRigs.
 //   (e) the Add menu's import reads the skeleton before it opens the asset store: a refused file is never stored.
+import "./lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildUe5Glb } from "./fixtures/ue5-character-glb.mjs";

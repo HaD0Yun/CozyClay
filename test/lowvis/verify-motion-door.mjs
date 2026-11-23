@@ -94,7 +94,7 @@ const USER = "USER'S WORDS (the user's message of this turn, exactly as typed):\
 const TASK_USER = "USER'S WORDS (the user's last message to the Studio, exactly as typed; this task may do only part of it):\n";
 // with a note (the Studio agent called), the writer hears that its props become stand-ins the agent dresses after it
 // ADDED_BEFORE: the line as it was before a body could have a scale and a tint; it is still the line while that step is off
-const ADDED_BEFORE = "What your scene adds becomes Studio content: a new character a block figure, a new prop a plain object named by its id, at the place, size and turn you give. After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
+const ADDED_BEFORE = "What your scene adds becomes Studio content: a new character a figure, a new prop a plain object named by its id, at the place, size and turn you give. After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
 // PLAIN: said while the kinds step is on (a new prop is never an object of another kind); with it off the line is as before
 const PLAIN = " A new prop is only ever a plain box or ball, never an object of another kind: when the request needs one the scene does not list with its kind, say so in the Missing line.";
 const ADDED = ADDED_BEFORE.replace(" After you,", `${PLAIN} A character's scale and tint are the Studio character's own scale and tint: the ones your scene gives are set on it, one it leaves out stays as the Studio has it. After you,`);

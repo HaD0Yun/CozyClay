@@ -8,6 +8,7 @@
 //  - a compile's other people (people.js) are measured at their own scale: their joints and their thickness
 //  - the actions that compile for the body at scale 1 still refuse a scaled character, each saying what it does, and the
 //    reads that measure by compiling say of a raw track, at any scale, that it has no spec to compile
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip } from "../../src/lowvis/clip.js";

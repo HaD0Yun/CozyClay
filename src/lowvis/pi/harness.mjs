@@ -1,5 +1,5 @@
 // The lowvis authoring loop on CozyClay's pi agent loop (pi-agent-core's Agent on a pi-ai model), not on Claude Code.
-//   const run = await runScene({ name, request, model, effort, images });   // also written to lowvis-out/pi/<name>/run.json
+//   const run = await runScene({ name, request, model, effort, images });   // also written to <run folder>/run.json (bin/agent/motion-files.mjs)
 // The model gets the system prompt (prompt.mjs), the user's request (with the pictures given with it) and one tool, motion (compile-tool.mjs). It has no files.
 // Context: the system prompt, the request and the conversation. Only the latest call's images stay in it: older
 // tool results are sent as their text. The prompt-cache mark sits on the last assistant message, the last block
@@ -11,7 +11,7 @@
 // A model or proxy error ends the run as an infrastructure error; it is not retried inside the run.
 // Safety limits against a runaway loop only (40 motion calls, 30 minutes); a run says when one was hit.
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, createModels } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -19,10 +19,10 @@ import { cliproxyBase, cliproxyLiveModel, cliproxyProvider, fetchModelList } fro
 import { auditCalls } from "./audit.mjs";
 import { VARIANTS, features, systemPrompt } from "./prompt.mjs";
 import { createCompileTool } from "./compile-tool.mjs";
+import { runFiles } from "../../../bin/agent/motion-files.mjs";
 import { shapedIds } from "./shapes.mjs";
-import { lookBody } from "../studio/figure.js";
+import { figureOf, lookBody } from "../studio/figure.js";
 
-const ROOT = resolve(import.meta.dirname, "../../..");
 export const DEFAULT_MODEL = "claude-fable-5-2", DEFAULT_EFFORT = "medium";
 const SAFETY = Object.freeze({ shots: 40, ms: 30 * 60_000 });
 const MAX_IMAGES = 4;
@@ -91,7 +91,7 @@ function markCache(payload) {
  * off: the feature flags of the variant switched off by name (prompt.mjs OFF).
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
  * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs).
- * env.COZYCLAY_FIGURE: the look the Studio draws characters in (src/lowvis/studio/figure.js): its body is the figure at
+ * env.COZYCLAY_FIGURE: the look the Studio draws characters in (src/lowvis/studio/figure.js figureOf; unset: the cube look): its body is the figure at
  * scale 1, which the system prompt states (prompt.mjs systemPrompt body) and the tool builds (compile-tool.mjs figure).
  * shapes: { <prop id>: { h, parts } | null }, the drawn shapes a Studio has (compile-tool.mjs; none given: no Studio);
  * reshape(): async, the ones it has now, asked before each motion call (a failure keeps the last ones). The record keeps
@@ -110,12 +110,12 @@ function markCache(payload) {
  * and not refused. On either path the prompt-cache mark is set on the anthropic-messages wire format only (other formats
  * cache by themselves).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null, writer = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = runFiles(name, { env, prune: true }).outDir, log = () => {}, onCompiled = () => {}, signal = null, inbox = null, writer = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL, ...(writer?.secrets ?? [])].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
 	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
-	const figure = env.COZYCLAY_FIGURE || null, SYSTEM_PROMPT = systemPrompt(variant, off, lookBody(figure), figure), PARAMETERS = motionParameters(variant, off);
+	const figure = figureOf(env), SYSTEM_PROMPT = systemPrompt(variant, off, lookBody(figure), figure), PARAMETERS = motionParameters(variant, off);
 	const record = { name, request, images: images.length, variant, off, ...(lookBody(figure) === 1 ? {} : { body: lookBody(figure) }), asked: { model: modelId, effort }, ...(writer ? { writer: { provider: writer.provider, via: writer.via, ...(writer.refused ? { refused: writer.refused } : {}) } } : {}), startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };

@@ -1,7 +1,12 @@
-// The look new rig characters are drawn in (prototype), and the body that look stands for.
-// COZYCLAY_FIGURE given at launch (tools/lowvis/pi/try.mjs --figure) sets both, in the page (vite.config.js hands it over)
-// and in the agent sidecar (its own environment), so a motion is written for the body the Studio draws.
-// ?figure=<look> in the page's address only draws that look, over the rig's own body. No figure: the block look, as before.
+// The look rig characters are drawn in, and the body that look stands for. The one home of the default: DEFAULT_LOOK.
+// COZYCLAY_FIGURE given at launch (COZYCLAY_FIGURE=block npx cozyclay, tools/lowvis/pi/try.mjs --figure) names the look in the page
+// and in the agent sidecar alike, both through launchValue and launchLook: the sidecar reads its own environment (figureOf),
+// the page what the server that serves it hands over of the same environment (bin/cozyclay.mjs writes COZYCLAY_FIGURE and
+// COZYCLAY_MOTION_ENGINE into the page as window.__COZYCLAY_FIGURE__ and window.__COZYCLAY_MOTION_ENGINE__; a dev server bakes
+// launchValue in at its start, vite.config.js). Nothing given: DEFAULT_LOOK; "block": the block look; nothing given under the
+// old motion engine (COZYCLAY_MOTION_ENGINE=old): the block look too.
+// ?figure=<look> in the page's address only draws that look, over the launched look's body; the page says the look it
+// draws in its describe answer (App.jsx), and the sidecar makes no motion for a page of another look than its own (lookClash).
 // No three.js here: the Studio's commands, the scene document and the sidecar import it.
 
 /** The rig the looks are drawn over (take.js TRACK_RIG): only its characters have a look's body. */
@@ -17,7 +22,33 @@ const BODY = { cube: 0.943 };
  *  measures them again). */
 const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man: 1.7679, woman: 1.7635, cube: 1.8024 };
 
-const LAUNCHED = import.meta.env?.VITE_COZYCLAY_FIGURE || null;
+/** The look rig characters are drawn in when the launch names none. */
+const DEFAULT_LOOK = "cube";
+/** The look a launch value names, or null for the block look: nothing (unset or empty) is DEFAULT_LOOK. */
+const launchLook = value => { const name = typeof value === "string" ? value.trim() : ""; return !name ? DEFAULT_LOOK : name === "block" ? null : name; };
+/** Whether an environment turns the old motion engine on (COZYCLAY_MOTION_ENGINE=old): the one judgement of the switch,
+ *  which bin/agent/motion-engine.mjs motionEngine reads too (this file is the one the page's bundle can import). */
+export const oldMotionEngine = env => env?.COZYCLAY_MOTION_ENGINE === "old";
+/** The launch value of an environment: its COZYCLAY_FIGURE; where that names none and the old motion engine is on
+ *  (oldMotionEngine), "block": the figure that engine's Studio agent was made with, the rig's own body. */
+export const launchValue = (env = globalThis.process?.env) => { const named = typeof env?.COZYCLAY_FIGURE === "string" ? env.COZYCLAY_FIGURE.trim() : ""; return named || (oldMotionEngine(env) ? "block" : ""); };
+/** The look of a launch environment (launchValue): what the sidecar draws and builds bodies in. */
+export const figureOf = (env = globalThis.process?.env) => launchLook(launchValue(env));
+/** Why no motion is made for the Studio page whose describe answer is `read`, or null: the page draws rig characters in
+ *  another look (read.figure, "block" for the block look) than the launch environment `env` names. A page that says no
+ *  look (a build before it did) is not checked. */
+export function lookClash(read, env) {
+	const drawn = read?.figure, own = figureOf(env) ?? "block";
+	return typeof drawn !== "string" || drawn === own ? null : `The Studio page draws rig characters in the look "${drawn}" and this Studio was started for the look "${own}": a motion is built for the body and the drawn parts of one look, so none was made. Open the page again from this Studio without ?figure= in its address, or start the Studio with COZYCLAY_FIGURE=${drawn}.`;
+}
+// the page served by bin/cozyclay.mjs: the launch value of what it was started with; a worker that page starts: the same
+// value, in the worker's name (workerName: a worker has no window); a dev server's page and its workers: the value baked in at its start
+const NAMED = "|figure=", own = typeof self === "undefined" || typeof self.name !== "string" ? -1 : self.name.indexOf(NAMED);
+const page = typeof window !== "undefined" && typeof window.__COZYCLAY_FIGURE__ === "string" ? launchValue({ COZYCLAY_FIGURE: window.__COZYCLAY_FIGURE__, COZYCLAY_MOTION_ENGINE: window.__COZYCLAY_MOTION_ENGINE__ }) : undefined;
+const handed = page ?? (typeof window === "undefined" && own >= 0 ? self.name.slice(own + NAMED.length) : undefined), baked = import.meta.env?.VITE_COZYCLAY_FIGURE;
+/** The name for a worker this page starts, carrying the look the page was handed, so the worker reads the page's look. */
+export const workerName = base => (typeof handed === "string" ? `${base}${NAMED}${handed}` : base);
+const LAUNCHED = typeof handed === "string" ? launchLook(handed) : typeof baked === "string" ? launchLook(baked) : figureOf();
 /** The look this page draws rig characters in, or null for the block look. */
 export const FIGURE = (typeof location === "undefined" ? null : new URLSearchParams(location.search).get("figure")) || LAUNCHED;
 

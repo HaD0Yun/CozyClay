@@ -4,6 +4,7 @@
 // a ride and a seat at a part (src/lowvis/engine-simple/parts.js), a body standing on the drawn tops, and the rows that
 // tell the gaps to the parts and the depth inside them (src/lowvis/pi/gaps.mjs, inside.mjs). Every scene here is made up
 // for this test; no object kind or part name has a word of its own.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";

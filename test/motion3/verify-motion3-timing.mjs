@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Timing edits on a take v3 (take-edit.js, commands/motion-timing.js): cut, per-segment speed,
 // remove, trim and reset, the resampled take, IK key remapping, and save/load of the edit.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { createStudioAppActions } from "../../src/commands/index.js";
 import { createTakeEdit, isIdentityEdit, remapFrameKeys, removeSegment, renderTakeEdit, segmentSpeedForFrames, setSegmentSpeed, sourceToTimeline, splitTakeEdit,
 	takeEditDuration, takeEditLayout, timelineToSource, trimTakeEdit } from "../../src/motion3/take-edit.js";

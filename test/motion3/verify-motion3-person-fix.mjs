@@ -4,6 +4,7 @@
 // verify-motion3-people.mjs. The poke keys A's right wrist into her chest at z tz from f24 to f52.
 // The closest-point escape (the normal as it is) passes the PERSON count too but takes the hand out through her back at
 // tz 1.93 and 2.00 (fingertip z 2.154 and 2.165 at f40 in the research prototype): that is why the fingertip is checked.
+import "../lowvis/block-figure.mjs"; // the rig's own body: scale 1 of the block figure (figure.js: the launch names the look)
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { bakeTake } from "../../src/motion3/take.js";
 import { motionScene } from "../../src/motion3/scene.js";

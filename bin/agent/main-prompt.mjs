@@ -36,7 +36,7 @@ const LOWVIS_EDITS = [
 	[" (\"make a cup, then have her pick it up\" is one task with the cup and her)", ""],
 	[", a camera that frames a motion still being made.", "."],
 	[" a new shot or shot ranges take timeline,", " a new shot needs no key and a range for it over free frames only its shot:<id> (growing the take, re-timing or moving into frames another shot uses takes timeline),"],
-	// people are block figures only under the lowvis engine: no cast style and no capsule figures to carry
+	// people are rig figures only under the lowvis engine: no cast style and no capsule figures to carry
 	[" Carry the project's cast style (context scene.castStyle: rig, capsule or hybrid) and any capsule figures the user approved for a shot into the instructions.", ""],
 	[" A task that only makes new things still needs one scope key: give it stage, and it makes the things and may set the light.", " A task that only makes new things needs no scope key: send an empty scope, and what it makes joins it; light and environment take stage."],
 ];

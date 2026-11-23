@@ -6,9 +6,10 @@
 //   COZYCLAY_MOTION_MODEL=<id>      the motion writer's model (default claude-opus-5-5); COZYCLAY_MOTION_EFFORT its effort (default medium)
 
 import { OFF as STEPS } from "../../src/lowvis/pi/prompt.mjs";
+import { oldMotionEngine } from "../../src/lowvis/studio/figure.js";
 
-/** "old" only when COZYCLAY_MOTION_ENGINE is "old", else "lowvis". */
-export const motionEngine = (env = process.env) => env?.COZYCLAY_MOTION_ENGINE === "old" ? "old" : "lowvis";
+/** "old" only when COZYCLAY_MOTION_ENGINE is "old", else "lowvis" (the judgement is figure.js oldMotionEngine, which the page reads too). */
+export const motionEngine = (env = process.env) => oldMotionEngine(env) ? "old" : "lowvis";
 
 /**
  * The motion writer's model and effort: claude-opus-5-5 at medium unless COZYCLAY_MOTION_MODEL / COZYCLAY_MOTION_EFFORT

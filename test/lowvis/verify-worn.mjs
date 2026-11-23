@@ -8,6 +8,7 @@
 //      and the box it spans in the prop's frame, read off the look's solids at the body's scale; gap rows of that part.
 //   4. an object attached to a bone (bin/agent/motion-fit.mjs): its gaps are asked where the Studio has it on that bone.
 // Every scene and spec here is made up for this check.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { INDEX as J } from "../../src/lowvis/rig17.js";

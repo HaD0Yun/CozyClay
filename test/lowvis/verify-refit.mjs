@@ -134,4 +134,12 @@ const refit = studio => refitMotion({ hub: studio.hub, workspaceHandle: "ws", in
 	assert.deepEqual(one.refit[0].sizes, [{ id: "lowvis-a", was: Math.round(carried * 1e6) / 1e6, now: 1 }], "only the resized body is told");
 	console.log("ok two bodies of an earlier body's motion whose takes name no writer id: no size change untouched; one resized, one told");
 }
+// a page that draws another look than the launch names: no refit, and the reason is told (figure.js lookClash)
+{
+	const studio = studioOf(written(CASES[5], 9), 0.8), read = await studio.hub.command();
+	await assert.rejects(refitMotion({ hub: { command: async () => ({ ...read, figure: "block" }) }, workspaceHandle: "ws", invoke: studio.invoke, env: ENV, deps }), error => error.code === "studio" && /^The Studio page draws rig characters in the look "block" and this Studio was started for the look "cube": /.test(error.message));
+	assert.deepEqual(studio.steps, [], "nothing is installed");
+	assert.equal((await refitMotion({ hub: { command: async () => ({ ...read, figure: "cube" }) }, workspaceHandle: "ws", invoke: studio.invoke, env: ENV, deps })).refit.length, 1, "the same Studio drawing the launch's look is refit");
+	console.log("ok a page of another look than the launch's: no refit and the reason");
+}
 console.log("PASS verify-refit");
