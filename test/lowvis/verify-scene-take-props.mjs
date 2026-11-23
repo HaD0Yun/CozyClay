@@ -51,11 +51,12 @@ const staged = ids => ({ characters: [{ id: "a", model: "x-bot-tpose", x: 0, z: 
 	assert.equal(on.scene.props.filter(p => p.kind).length, 41, "40 lamps and the puff");
 	assert.deepEqual(on.scene.tilted, ["can"], "the can is named as standing tilted");
 	assert.equal(off.scene.tilted, undefined);
-	// its drawn parts are measured in its own frame, tilted: no parts of the upright box are made of them
+	// its drawn parts are measured in its own frame, which is the prop's own (the take turns the prop as the object is turned): told as when upright
 	const topped = staged(["cylinder-3", "cube-2"]), drawn = [{ name: "a", at: [0, 0.02, 0], size: [0.05, 0.04, 0.05] }, { name: "b", at: [0, 0.05, 0], size: [0.02, 0.02, 0.02] }];
 	topped.objects = topped.objects.map(o => (["cylinder-3", "cube-2"].includes(o.id) ? { ...o, parts: drawn } : o));
-	const withTops = Object.fromEntries(studioScene(topped, { turn: true, kinds: true, tops: true }).scene.props.map(p => [p.id, p]));
-	assert.equal(withTops.can.parts, undefined, "no parts for the tilted can");
+	const bridged = studioScene(topped, { turn: true, kinds: true, tops: true }), withTops = Object.fromEntries(bridged.scene.props.map(p => [p.id, p]));
+	assert.deepEqual(withTops.can.parts, [{ name: "a", at: [0, -0.04, 0], size: [0.05, 0.04, 0.05] }, { name: "b", at: [0, -0.01, 0], size: [0.02, 0.02, 0.02] }], "the tilted can a take moves has its parts, from the centre of its upright box");
+	assert.deepEqual(bridged.ids.shapes.can, { h: 0.12, parts: drawn }, "and its shape from its base, for the motion tool");
 	assert.equal(withTops.Crate_2.parts.length, 2, "an upright crate a take moves keeps its parts");
 	// a take that moves offered objects (crates 3 and 39) changes nothing of what is offered but the Studio ids line
 	const inCount = studioScene(staged(["cube-3", "cube-39"]), { turn: true, kinds: true });

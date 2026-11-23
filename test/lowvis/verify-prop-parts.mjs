@@ -12,6 +12,8 @@ import { SEAT_UP } from "../../src/lowvis/engine-simple/posture.js";
 import { MAX_PARTS, mergeParts, propParts } from "../../src/lowvis/studio/parts.js";
 import { objectParts } from "../../src/lowvis/studio/tops.js";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
+import { sceneShapes } from "../../src/lowvis/pi/shapes.mjs";
+import { systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
 import { gapRows } from "../../src/lowvis/pi/gaps.mjs";
 import { insideRows } from "../../src/lowvis/pi/inside.mjs";
 import { INDEX as J } from "../../src/lowvis/rig17.js";
@@ -45,14 +47,22 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 	const forty = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, at: [Math.sin(i) * 0.8, 0.3 + (i % 7) * 0.1, Math.cos(i * 1.3) * 0.4], size: [0.05 + (i % 5) * 0.03, 0.02 + (i % 3) * 0.04, 0.04] }));
 	const merged = mergeParts(forty);
 	assert.equal(merged.length, MAX_PARTS, "40 parts are told as MAX_PARTS");
+	const inside = (b, home) => [0, 1, 2].every(k => Math.abs(b.at[k] - home.at[k]) + b.size[k] / 2 <= home.size[k] / 2 + 0.0011);
 	for (const b of forty) {
-		const home = merged.find(m => m.name.split("+").includes(b.name));
-		assert.ok(home, `${b.name} is in a merged part`);
-		[0, 1, 2].forEach(k => assert.ok(Math.abs(b.at[k] - home.at[k]) + b.size[k] / 2 <= home.size[k] / 2 + 0.0011, `${b.name} inside ${home.name} along ${k}`));
+		const home = merged.find(m => m.name.split("+").includes(b.name)) ?? merged.find(m => / more$/.test(m.name) && inside(b, m));
+		assert.ok(home && inside(b, home), `${b.name} lies inside the part it went into`);
 	}
 	const chars = JSON.stringify(merged).length;
 	assert.ok(chars < 2500, `40 parts in ${chars} characters`);
-	console.log(`ok mergeParts: 40 parts -> ${merged.length}, ${chars} characters of JSON; each part inside its merged box`);
+	assert.equal(new Set(merged.map(m => m.name)).size, merged.length, "every part has a name of its own");
+	// many parts with long names: still MAX_PARTS, a merged name lists 6 names and counts the rest, in bounded time and text
+	const many = Array.from({ length: 2000 }, (_, i) => ({ name: `a_mesh_with_a_name_of_forty_characters_${String(i).padStart(4, "0")}`.slice(0, 40), at: [Math.sin(i) * 2, (i % 11) * 0.1, Math.cos(i * 1.7)], size: [0.05, 0.02 + (i % 3) * 0.04, 0.04] }));
+	const t0 = performance.now(), told = mergeParts(many), text = JSON.stringify(told);
+	assert.equal(told.length, MAX_PARTS);
+	assert.ok(text.length < 6000 && performance.now() - t0 < 2000, `2000 parts in ${text.length} characters, ${Math.round(performance.now() - t0)} ms`);
+	assert.ok(told.every(m => m.name.split("+").length <= 7) && told.some(m => /\+\d+ more$/.test(m.name)), "a merged name lists 6 names, then the count of the rest");
+	for (const b of many) assert.ok(told.some(m => inside(b, m)), `${b.name} lies inside a told part`);
+	console.log(`ok mergeParts: 40 parts -> ${merged.length}, ${chars} characters of JSON; 2000 parts -> ${told.length}, ${text.length} characters; each part inside its merged box`);
 	// a part turned a quarter about Y is told square, its sides in order; five parts stay five
 	assert.deepEqual(mergeParts([{ name: "a", at: [0, 0, 0], size: [1, 0.2, 0.1], turn: [0, 90, 0] }]), [{ name: "a", at: [0, 0, 0], size: [0.1, 0.2, 1] }]);
 	assert.equal(mergeParts(PARTS.slice(0, 5)).length, 5);
@@ -79,6 +89,10 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 	assert.equal(parts[1].turn, undefined);
 	near(parts[2].turn, [0, 0, 20.1], 0.05, "a strut that leans keeps its turn");
 	assert.deepEqual(objectParts(null), []);
+	// names: an empty sculpt part id falls to the mesh's name, a second "part" is part_2 and never the name another mesh has, a long name is cut
+	const named = new THREE.Group(), mesh = (name, x, part) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1)); m.position.set(x, 0.05, 0); m.name = name; if (part !== undefined) m.userData.sculptPart = part; named.add(m); };
+	mesh("", 0); mesh("part_2", 0.2); mesh("", 0.4); mesh("wing", 0.6, ""); mesh("x".repeat(60), 0.8);
+	assert.deepEqual(objectParts(named).map(b => b.name), ["part", "part_2", "part_3", "wing", "x".repeat(40)]);
 	console.log(`ok objectParts: ${JSON.stringify(parts)}`);
 }
 
@@ -186,13 +200,14 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 // --- the motion tool ---
 {
 	const dir = mkdtempSync(join(tmpdir(), "lowvis-parts-"));
-	const base = PARTS.map(b => ({ ...b, at: [b.at[0], b.at[1] + 0.5, b.at[2]] })), shapes = { cart: { h: 1, parts: base } };
+	const base = PARTS.map(b => ({ ...b, at: [b.at[0], b.at[1] + 0.5, b.at[2]] })), shapes = { cart: { h: 1, parts: base }, crate: null };
 	const tool = createCompileTool({ name: "parts", outDir: dir, clipFile: join(dir, "clip.json"), variant: "studio", shapes });
 	const scene = { frames: 24, characters: [{ id: "a", at: [-0.3, 0], heading: 90 }], props: [{ id: "cart", size: BOX, at: [0, 0.5, 0] }] };
 	const r1 = tool.call({ scene, spec: { a: [[0, "sit", { on: "cart", part: "deck", over: 0 }]] } });
 	assert.equal(r1.status, "ok", r1.text);
 	assert.deepEqual(tool.state.last.scene.props[0].parts, PARTS.map(b => ({ ...b, at: [b.at[0], Math.round(b.at[1] * 1000) / 1000, b.at[2]] })), "the tool sets the parts from the centre of the box");
 	assert.doesNotMatch(r1.text, /parts of cart/, "parts as the request told them are not told again");
+	assert.deepEqual(sceneShapes(tool.state.last.scene), { cart: { h: 1, parts: base.map(b => ({ ...b, at: b.at.map(v => Math.round(v * 1000) / 1000) })) } }, "the compiled scene gives the shapes back from the box's base (a kept motion's, motion-run.mjs)");
 	// the writer gives the box another height: the parts lie as far from its base, and are told
 	const r2 = tool.call({ scene: { ...scene, props: [{ id: "cart", size: [2, 1.4, 0.8], at: [0, 0.7, 0] }] } });
 	assert.match(r2.text, /\nparts of cart \(the shape the Studio draws for it now[^\n]*"name":"deck","at":\[0,-0\.5,0\]/);
@@ -203,12 +218,48 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 	assert.match(r3.text, /"name":"deck","at":\[0,-0\.3,0\]/);
 	const after = joint(build(tool.state.last.scene, { a: [[0, "sit", { on: "cart", part: "deck", over: 0 }]] }).clip, "a", 10, J.Hips)[1];
 	near(after - before, 0.2, 0.002, "the seat follows the deck the Studio moved");
-	// parts that cannot be read, a part word that names none
-	const bad = tool.call({ scene: { ...scene, props: [{ id: "crate", size: [1, 1, 1], at: [3, 0.5, 0], parts: [{ name: "x", at: [0, 0], size: [1, 1, 1] }] }, scene.props[0]] } });
-	assert.equal(bad.status, "rejected");
-	assert.match(bad.text, /scene\.props\[0\]\.parts\[0\]: want \{ name, at: \[x, y, z\], size: \[w, h, d\] over 0/);
+	// with a Studio behind the tool its shapes are the only parts: parts a scene itself gives are not read (nor checked),
+	// on a prop the Studio draws as its box and on one it draws otherwise
+	const own = tool.call({ scene: { ...scene, props: [{ id: "crate", size: [1, 1, 1], at: [3, 0.5, 0], parts: [{ name: "x", at: [0, 0], size: [1, 1, 1] }] }, { ...scene.props[0], parts: [{ name: "mine", at: [0, 0, 0], size: [1, 1, 1] }] }] } });
+	assert.equal(own.status, "ok", own.text);
+	assert.deepEqual(tool.state.last.scene.props.map(p => p.parts?.map(b => b.name).join()), [undefined, PARTS.map(b => b.name).join()], "the crate has no parts, the cart the Studio's");
+	const lid = tool.call({ spec: { a: [[0, "pose", { R: { on: "crate", part: "x" } }]] } });
+	assert.match(lid.text, /crate has no parts \(the Studio has drawn none for it, or its shape is its box\); give at from its centre instead/);
 	const none = tool.call({ scene, spec: { a: [[0, "pose", { R: { on: "cart", part: "wheel" } }]] } });
 	assert.match(none.text, /engine error: engine-simple: a pose at frame 0: cart has no part "wheel"; its parts: deck/);
-	console.log("ok the motion tool: parts set at the writer's height, told when they differ from what was told, the Studio's new shape on the next call, refusals");
+	// what the Studio lists now replaces its last; a prop it no longer lists (on a bone, hidden) keeps its last shape; one it
+	// draws as its box now has no parts, and the writer is told
+	tool.setShapes({ crate: null });
+	const kept = tool.call({ spec: { a: [[0, "sit", { on: "cart", part: "deck", over: 0 }]] } });
+	assert.equal(kept.status, "ok", kept.text);
+	assert.doesNotMatch(kept.text, /parts of cart/);
+	tool.setShapes({ cart: null });
+	const gone = tool.call({ spec: { a: [[0, "sit", { on: "cart", over: 0 }]] } });
+	assert.match(gone.text, /\nparts of cart: none now \(the Studio draws it as its box\)\n/);
+	assert.equal(tool.state.last.scene.props[0].parts, undefined);
+	// a part target out of the arm's reach: the reach rows say why, the gap rows how far the hands end from the drawn
+	tool.setShapes({ cart: { h: 1, parts: [...base, { name: "far", at: [0.95, 0.9, 0], size: [0.03, 0.03, 0.6] }] } });
+	const far = tool.call({ spec: { a: [[0, "sit", { on: "cart", part: "deck", over: 0 }], [0, "pose", { L: { on: "cart", part: "far", at: [0, 0, 0.25] }, R: { on: "cart", part: "far", at: [0, 0, -0.25] }, over: 8 }]] } });
+	assert.match(far.text, /\n- hand off its target: [\d.]+ mm @f\d+ a \(L hand[^\n]*beyond the arm's reach/);
+	assert.match(far.text, /\n- a's L hand to the drawn cart: [\d.]+ mm @f\d+ a \(nearest part [^;]+; past 30 mm on \d+ frames, from f\d+ to f\d+\)/);
+	// no Studio behind the tool (no shapes): a scene's own parts are read, and checked
+	const bare = createCompileTool({ name: "parts-bare", outDir: dir, clipFile: join(dir, "clip2.json"), variant: "base" });
+	const mine = bare.call({ scene: { ...scene, props: [cart()] }, spec: { a: [[0, "sit", { on: "cart", part: "deck", over: 0 }]] } });
+	assert.equal(mine.status, "ok", mine.text);
+	const bad = bare.call({ scene: { ...scene, props: [{ id: "crate", size: [1, 1, 1], at: [3, 0.5, 0], parts: [{ name: "x", at: [0, 0], size: [1, 1, 1] }] }, cart()] } });
+	assert.equal(bad.status, "rejected");
+	assert.match(bad.text, /scene\.props\[0\]\.parts\[0\]: want \{ name, at: \[x, y, z\], size: \[w, h, d\] over 0/);
+	console.log("ok the motion tool: the Studio's shapes are the only parts, set at the writer's height, told when they differ from what was told or go; a part out of reach is told; without a Studio a scene's own parts");
+}
+// --- the manual: the words for parts only where props are told with parts (the tops step) ---
+{
+	const studio = systemPrompt("studio"), off = systemPrompt("studio", ["tops"]), base = systemPrompt("base");
+	for (const word of ["{on:propId, part, at?}", "A prop with parts", "{on, part?, at?, pitch:deg}", "ride {on:propId, part?}", " parts (told by the Studio's scene and the tool", "- to the drawn:"]) {
+		assert.ok(studio.includes(word), `the studio manual has ${word}`);
+		assert.ok(!off.includes(word) && !base.includes(word), `without the tops step no manual has ${word}`);
+	}
+	assert.ok(base.includes("{on, at?, pitch:deg} (a place on a prop as for a hand)") && !/\bpart\?|, part,/.test(base) && !/\bpart\?|, part,/.test(off), "a foot on a prop is a word of every manual; the part words are not");
+	assert.doesNotMatch(studio, /parts\? \}\] \}/, "parts are no field of the scene the writer sends");
+	console.log(`ok the manual: studio ${studio.length} characters, with the tops step off ${off.length}, base ${base.length}`);
 }
 console.log("PASS verify-prop-parts");

@@ -47,8 +47,8 @@
 //                      ForeArm (elbow) Hand (wrist) UpLeg (hip) Leg (knee) Foot (ankle)
 //                    | {on:propId, at?:[x,y,z]}   a place on a prop that follows it; at = offset from its centre in
 //                      its own frame (the axes of its size)
-//                    | {on:propId, part, at?}   the same on one of the prop's parts: at from that part's centre, along
-//                      the prop's axes
+//                    | {on:propId, part, at?}   the same on one of the prop's parts, by its name: at from that part's
+//                      centre, along the prop's axes; a hold's at of a hand may be {part, at?} too
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
 //         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
 //         shoulder as one piece, keeping its bend (a wrist blending to or from its own target: by the part of the
@@ -60,7 +60,7 @@
 //     hold {prop, hand:"R"|"L"|"both", at?, over}   these hands of this character hold the prop until they let go;
 //       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). One hand alone
 //       with no `at`: the prop is fixed in it, its long z axis along the thumb side. at = each hand's place on the
-//       prop, [x,y,z] as in {on} or {part, at?} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
+//       prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
 //       hand speed limit below still holds) and take hold when they end; no at = the point of the prop nearest each hand.
 //       A holding hand stays where it took hold in the body frame until a later pose moves it. The prop follows its
 //       hands: in one hand fixed in it, as it lay in the hand when that hand came to hold it alone (aim turns it); in

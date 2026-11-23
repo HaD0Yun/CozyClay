@@ -10,6 +10,7 @@ import { MAX_PARTS, mergeParts } from "./parts.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
 const round = v => Math.round(v * 1000) / 1000;
+const NAME = 40; // the most characters of a mesh's name a part is named with (a sculpt part's id has no more)
 
 /** The meshes an object's group draws (visible, layer 0, not a nested object), as propSources (ghost-set.js) takes them. */
 function meshesOf(root) {
@@ -69,7 +70,7 @@ export function objectTops(root, { grid = 9, band = 0.03, minArea = 0.02, max = 
 /**
  * objectParts(root, max) -> the parts an object draws, each the box of one drawn mesh's geometry where the mesh puts it
  * (its centre, its sides along the mesh's own axes times its scale, the mesh's turn), in the object's own frame (place and
- * turn of the group, none of its scale), named by the mesh's sculpt part, else its name, else "part", merged down to max
+ * turn of the group, none of its scale), each with a name of its own (the mesh's sculpt part, else its name, else "part"), merged down to max
  * (parts.js mergeParts); [] when the group draws nothing.
  */
 export function objectParts(root, max = MAX_PARTS) {
@@ -78,7 +79,7 @@ export function objectParts(root, max = MAX_PARTS) {
 	const place = new THREE.Vector3(), turn = new THREE.Quaternion(), scale = new THREE.Vector3();
 	root.matrixWorld.decompose(place, turn, scale);
 	const toOwn = new THREE.Matrix4().compose(place, turn, new THREE.Vector3(1, 1, 1)).invert(), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-	const used = new Map(), parts = [];
+	const used = new Set(), parts = [];
 	for (const mesh of meshesOf(root)) {
 		if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
 		const box = mesh.geometry.boundingBox;
@@ -86,9 +87,12 @@ export function objectParts(root, max = MAX_PARTS) {
 		m.multiplyMatrices(toOwn, mesh.matrixWorld).decompose(place, q, scale);
 		const at = box.getCenter(new THREE.Vector3()).applyMatrix4(m), size = box.getSize(new THREE.Vector3()).multiply(scale);
 		e.setFromQuaternion(q, "XYZ");
-		const base = String(mesh.userData?.sculptPart ?? (mesh.name || "part")), n = (used.get(base) ?? 0) + 1, turned = [e.x, e.y, e.z].map(v => v * 180 / Math.PI);
-		used.set(base, n);
-		parts.push({ name: n > 1 ? `${base}_${n}` : base, at: at.toArray(), size: size.toArray().map(Math.abs), ...(turned.some(v => Math.abs(v) > 0.05) ? { turn: turned } : {}) });
+		// a name of its own: the sculpt part's id, else the mesh's name (its first NAME characters), else "part"; a second of a name is <name>_2
+		const base = String(mesh.userData?.sculptPart || mesh.name || "part").slice(0, NAME), turned = [e.x, e.y, e.z].map(v => v * 180 / Math.PI);
+		let name = base;
+		for (let n = 2; used.has(name); n++) name = `${base}_${n}`;
+		used.add(name);
+		parts.push({ name, at: at.toArray(), size: size.toArray().map(Math.abs), ...(turned.some(v => Math.abs(v) > 0.05) ? { turn: turned } : {}) });
 	}
 	return parts.length ? mergeParts(parts, max) : [];
 }

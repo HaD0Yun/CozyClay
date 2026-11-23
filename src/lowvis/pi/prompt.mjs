@@ -54,7 +54,9 @@ const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.mi
  *  its sizes, and that the engine's own lengths are given for the rig's body and multiplied by b too. */
 const SIZES = b => `It stands ${m(head * b)} m tall, Hips joint ${m(hips * b)} m and shoulders ${m(shoulder * b)} m over the floor, ${m(arm * b)} m from shoulder to wrist. That is the engine's reference figure (${m(head)} m tall) times ${b}: every length the SPEC text and the tool's lines give as the engine's own is the reference figure's, and the engine multiplies it by ${b}, as it does every length of the body.`;
 // tops: the Studio tells a prop's drawn shape (src/lowvis/studio/scene.js parts), which the tool keeps set (shapes.mjs)
-const PARTS = ` parts: the shape the Studio draws for a prop when it is not its box, as boxes { name, at: centre from the prop's centre, size, turn?: [x, y, z] degrees } in the prop's own frame; the tool sets them from the Studio on every call, and tells you when they change.`;
+const PARTS = ` parts (told by the Studio's scene and the tool, not written by you): the shape the Studio draws for a prop when it is not its box, as boxes { name, at: centre from the prop's centre, size, turn?: [x, y, z] degrees } in the prop's own frame; the tool sets them on your scene on every call and tells you when they change.`;
+/** The SPEC text without the words for a prop's parts (tops off: no prop is told with parts). */
+const noParts = text => text.replace(/\n {4}A prop with parts \(its drawn shape\)[^\n]*\n[^\n]*/, "").replace(/\n {19}\| \{on:propId, part, at\?\}[^\n]*\n[^\n]*/, "").replace("{on, part?, at?, pitch:deg}", "{on, at?, pitch:deg}").replace("ride {on:propId, part?}", "ride {on:propId}");
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop; with on as well: at that height instead of the prop's top.`;
 // The inside and the at rest rows: what the writer needs before its first spec. What a row measures in full and what it
 // leaves out is said by the tool once, in the answer where such a line first appears (inside.mjs insideText, balance.mjs BALANCE_TEXT).
@@ -108,11 +110,11 @@ Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90
 In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X and a blue one along +Z; the face has a dark visor; the figure's right arm and leg are darker than its left. The three-quarter camera of the sheet and of the final video looks down from the +X, +Z side, so a figure that faces +Z or +X shows its face.
 
 SCENE (you define it)
-{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""}${f.tops ? ", parts?" : ""} }] }
+{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""} }] }
 A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}${f.kinds ? KINDS : ""}${f.tops ? PARTS : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
-${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}
+${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : noParts(specFormat())}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}
 ease names: ${Object.keys(EASE).join(", ")}.
 
 THE TOOL

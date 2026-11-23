@@ -73,8 +73,8 @@ const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${ro
  * and turn about Y as the Studio holds them. switch: the listed characters whose model the install changes to the
  * clip's rig before it animates them. others: visible characters the clip cannot animate (Studio id and why).
  * turn: a prop is the object's own box [w, h, d] with turn = the object's turn about Y (degrees; left out at 0).
- * tops: describe was asked with { parts: true } (tops.js objectParts): a prop of an upright object whose drawn shape is
- * not its box gets parts: [{ name, at, size, turn? }] (parts.js propParts), its drawn shape in the prop's own frame from
+ * tops: describe was asked with { parts: true } (tops.js objectParts): a prop whose object's drawn shape is not its box
+ * gets parts: [{ name, at, size, turn? }] (parts.js propParts), its drawn shape in the prop's own frame from
  * its box centre, and ids.shapes: { <prop id>: { h: the box's height, parts: the same parts from its base } }
  * (bin/agent/motion-run.mjs gives them to the motion tool, which sets them on a prop of that id at the height the
  * writer gives it: the install stands the object on the base of that box).
@@ -94,8 +94,8 @@ const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${ro
  * track). group: true in ids.props marks an object other objects are grouped under: they go with it when a track moves
  * it and stay behind when it is attached to a bone, so the install keeps it on a track.
  * An object an installed take moves (an object track of a character's raw take, read from describe's open scene)
- * is offered whatever the counts, however small (a side under 1 mm is given as 1 mm) and, upright about its centre and
- * without heights, when it stands tilted; what is offered without the take keeps its id and its place in the counts.
+ * is offered whatever the counts, however small (a side under 1 mm is given as 1 mm) and, upright about its centre
+ * (with its parts as in its own frame), when it stands tilted; what is offered without the take keeps its id and its place in the counts.
  * scene.studioIds: { <prop or attached id>: <Studio id> } of these and the attached ones, left out when there is none;
  * scene.tilted: the ids of the props given upright that stand tilted in the Studio, left out when there is none.
  */
@@ -156,7 +156,8 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		const sphere = row.renderer === "sphere", own = turn && !sphere, yaw = round(finite(row.rot));
 		props.push({ id, size: sphere ? [side(w), side(w), side(w)] : own ? [side(w), side(h), side(d)] : [side(w * cs + d * sn), side(h), side(w * sn + d * cs)],
 			at: centre.map(round), ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
-		const drawn = tops && !tilted ? propParts(row.parts, { size: props.at(-1).size, own: own || sphere, yaw: finite(row.rot) }) : null; // measured in the object's own frame: not the upright box's
+		// measured in the object's own frame, which is the prop's (a tilted one a take moves: the take gives it its turn on every frame)
+		const drawn = tops ? propParts(row.parts, { size: props.at(-1).size, own: own || sphere, yaw: finite(row.rot) }) : null;
 		if (drawn) { props.at(-1).parts = drawn.centre; (ids.shapes ??= {})[id] = { h: props.at(-1).size[1], parts: drawn.base }; }
 	}
 	return { scene: { characters, props, others, ...(attached.length ? { attached } : {}), ...(Object.keys(studioIds).length ? { studioIds } : {}), ...(leaning.length ? { tilted: leaning } : {}) }, ids };

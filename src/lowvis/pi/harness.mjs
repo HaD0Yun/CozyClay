@@ -16,6 +16,7 @@ import { cliproxyBase, cliproxyLiveModel, cliproxyProvider, fetchModelList } fro
 import { auditCalls } from "./audit.mjs";
 import { VARIANTS, features, systemPrompt } from "./prompt.mjs";
 import { createCompileTool } from "./compile-tool.mjs";
+import { shapedIds } from "./shapes.mjs";
 import { lookBody } from "../studio/figure.js";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -95,11 +96,12 @@ function markCache(payload) {
  * send only an edit, a scene or a look. A compile whose spec came from it by edits alone logs "kept-spec".
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
- * shapes: { <prop id>: { h, parts } }, the drawn shapes the Studio has (compile-tool.mjs); reshape(): async, the ones it
- * has now, asked before each motion call (a failure keeps the last ones). The record keeps the ids of the shapes each
- * call compiled with (calls.shots[].shapes) and reshape: { ok, failed, error } (the last failure's message).
+ * shapes: { <prop id>: { h, parts } | null }, the drawn shapes a Studio has (compile-tool.mjs; none given: no Studio);
+ * reshape(): async, the ones it has now, asked before each motion call (a failure keeps the last ones). The record keeps
+ * the ids of the props each call compiled with a shape (calls.shots[].shapes) and reshape: { ok, failed, error } (the
+ * last failure's message).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = {}, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
@@ -138,7 +140,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			const started = now();
 			let r;
 			try { r = motion.call(params ?? {}); } catch (error) { r = { n: motion.state.calls, status: "rejected", error: `harness error: ${error?.message ?? error}`, text: `harness error (not yours): ${error?.message ?? error}`, images: [], files: [], scene: motion.state.scene, spec: motion.state.spec, shown: null, harnessError: true }; }
-			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, kept: r.kept, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, shapes: Object.keys(motion.state.shapes ?? {}), text: scrub(r.text) };
+			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, kept: r.kept, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, shapes: shapedIds(motion.state.shapes), text: scrub(r.text) };
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
 			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}${r.kept && r.status === "ok" ? `, kept-spec${r.edit ? ` edit ${r.edit.replaced} replaced, ${r.edit.added} added, ${r.edit.removed} removed` : ""}` : ""}`);

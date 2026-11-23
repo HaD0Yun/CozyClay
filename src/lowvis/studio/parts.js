@@ -9,6 +9,7 @@ import { qAxisAngle, qMul, qRotate } from "../rig17.js";
 
 /** The most parts one object is told with: about 1 to 1.5 k characters of JSON for one object. */
 export const MAX_PARTS = 16;
+const NAMES = 6, SEEDS = 64; // mergeParts: the names a merged part lists; the parts the pairs are merged among
 const RAD = Math.PI / 180, r3 = v => Math.round(v * 1000) / 1000, r1 = v => Math.round(v * 10) / 10;
 const quatOf = t => (t ? qMul(qMul(qAxisAngle([1, 0, 0], t[0] * RAD), qAxisAngle([0, 1, 0], t[1] * RAD)), qAxisAngle([0, 0, 1], t[2] * RAD)) : [0, 0, 0, 1]);
 const axes = t => [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map(a => qRotate(quatOf(t), a));
@@ -29,20 +30,30 @@ function squared(b) {
 }
 
 /** The parts merged down to at most max (MAX_PARTS): a merged part is the box around both along the frame's axes, its
- *  name the names joined by "+" (engine-simple/parts.js answers to each). Rounded to the millimetre and 0.1 degree. */
+ *  name the names joined by "+" (engine-simple/parts.js answers to each), the first NAMES of them when it has more
+ *  ("+<n> more" after them). More than SEEDS parts: the SEEDS largest each take the smaller ones whose box grows theirs
+ *  least, before the pairs are merged (the pairs alone would take the cube of the count). Rounded to the millimetre and
+ *  0.1 degree. */
 export function mergeParts(parts, max = MAX_PARTS) {
-	let list = parts.map(squared).map(b => ({ ...b, box: bounds(b) }));
+	let list = parts.map(squared).map(b => ({ ...b, names: [b.name], box: bounds(b) }));
+	const grown = (a, b) => { let v = 1; for (let k = 0; k < 3; k++) v *= Math.max(a[1][k], b[1][k]) - Math.min(a[0][k], b[0][k]); return v - volume(...a) - volume(...b); };
+	const both = (a, b) => { const lo = a.box[0].map((v, k) => Math.min(v, b.box[0][k])), hi = a.box[1].map((v, k) => Math.max(v, b.box[1][k])); return { names: [...a.names, ...b.names], at: lo.map((v, k) => (v + hi[k]) / 2), size: hi.map((v, k) => v - lo[k]), box: [lo, hi] }; };
+	if (list.length > SEEDS) {
+		const bySize = list.slice().sort((a, b) => volume(...b.box) - volume(...a.box)), seeds = bySize.slice(0, SEEDS);
+		for (const b of bySize.slice(SEEDS)) { let k = 0; for (let i = 1; i < SEEDS; i++) if (grown(seeds[i].box, b.box) < grown(seeds[k].box, b.box)) k = i; seeds[k] = both(seeds[k], b); }
+		list = seeds;
+	}
 	while (list.length > max) {
 		let best = null;
 		for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-			const a = list[i].box, b = list[j].box, lo = a[0].map((v, k) => Math.min(v, b[0][k])), hi = a[1].map((v, k) => Math.max(v, b[1][k]));
-			const cost = volume(lo, hi) - volume(...a) - volume(...b);
-			if (!best || cost < best.cost) best = { i, j, lo, hi, cost };
+			const cost = grown(list[i].box, list[j].box);
+			if (!best || cost < best.cost) best = { i, j, cost };
 		}
-		const { i, j, lo, hi } = best, name = `${list[i].name}+${list[j].name}`;
-		list = [...list.filter((_, k) => k !== i && k !== j), { name, at: lo.map((v, k) => (v + hi[k]) / 2), size: hi.map((v, k) => v - lo[k]), box: [lo, hi] }];
+		const { i, j } = best;
+		list = [...list.filter((_, k) => k !== i && k !== j), both(list[i], list[j])];
 	}
-	return list.map(({ name, at, size, turn }) => ({ name, at: at.map(r3), size: size.map(v => Math.max(0.001, r3(v))), ...(turn && turn.some(v => Math.abs(v) >= 0.05) ? { turn: turn.map(r1) } : {}) }));
+	const nameOf = names => (names.length > NAMES + 1 ? `${names.slice(0, NAMES).join("+")}+${names.length - NAMES} more` : names.join("+"));
+	return list.map(({ names, at, size, turn }) => ({ name: nameOf(names), at: at.map(r3), size: size.map(v => Math.max(0.001, r3(v))), ...(turn && turn.some(v => Math.abs(v) >= 0.05) ? { turn: turn.map(r1) } : {}) }));
 }
 
 /**

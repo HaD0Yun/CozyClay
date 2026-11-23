@@ -106,7 +106,7 @@ can wait for an editor instead of polling:
 
 All coordinates are metres, rotations are degrees of yaw, ids are the ids the
 scene document already uses.
-`describe` also takes an optional `{ tops: true }`: each visible solid object row then gains `tops: [{ y, x0, z0, x1, z1 }]`, the flat heights it offers in its own frame (metres, `y` over its base, largest first; `[]` when its geometry is not mounted).
+`describe` also takes an optional `{ tops: true }`: each visible solid object row then gains `tops: [{ y, x0, z0, x1, z1 }]`, the flat heights it offers in its own frame (metres, `y` over its base, largest first; `[]` when its geometry is not mounted). With `{ parts: true }` each such row gains `parts: [{ name, at, size, turn? }]`, one box per drawn mesh in the same frame (`at` its centre, `turn` in degrees about X, Y, Z; at most 16, the nearest merged; `[]` when its geometry is not mounted).
 
 | name | args | value | notes |
 | --- | --- | --- | --- |

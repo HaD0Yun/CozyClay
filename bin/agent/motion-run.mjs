@@ -65,8 +65,8 @@ const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0");
 const failure = (code, message) => Object.assign(new Error(message), { code });
 // loaded on a call only: they read src/
 async function realDeps() {
-	const [{ runScene }, { installClip, addStandIn, standInOf, placeSetLater }, { studioScene }, { eulerXYZ }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js"), import("../../src/lowvis/studio/attach.js")]);
-	return { runScene, installClip, addStandIn, standInOf, studioScene, placeSetLater, eulerXYZ, readClip: file => JSON.parse(readFileSync(file, "utf8")) };
+	const [{ runScene }, { installClip, addStandIn, standInOf, placeSetLater }, { studioScene }, { eulerXYZ }, { sceneShapes }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js"), import("../../src/lowvis/studio/attach.js"), import("../../src/lowvis/pi/shapes.mjs")]);
+	return { runScene, installClip, addStandIn, standInOf, studioScene, placeSetLater, eulerXYZ, sceneShapes, readClip: file => JSON.parse(readFileSync(file, "utf8")) };
 }
 
 // The labels of the two texts of a request. The user's words come as typed; the Studio agent's note is its own text.
@@ -100,7 +100,9 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (before) {
 		// the tool starts from them (harness.mjs kept); from the spec alone where the Studio scene is no longer that scene
 		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look.";
-		parts.push(`Your last scene and spec (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
+		// a prop's parts are told once: by the Studio scene above for a prop it lists, here for one it does not (on a bone, hidden)
+		const listed = new Set(studio.props.map(prop => prop.id)), scene = { ...before.scene, props: before.scene.props?.map(({ parts: drawn, ...prop }) => (drawn && !listed.has(prop.id) ? { ...prop, parts: drawn } : prop)) };
+		parts.push(`Your last scene and spec (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");
 }
@@ -147,13 +149,15 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * deps: { runScene, installClip, addStandIn, standInOf, studioScene, readClip(file) } in place of the real ones (tests).
  */
 export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, inbox = null, deps = null }) {
-	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip, placeSetLater = () => false, eulerXYZ = null } = deps ?? await realDeps();
+	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip, placeSetLater = () => false, eulerXYZ = null, sceneShapes = () => ({}) } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(env.COZYCLAY_FIGURE || null);
 	const read = await hub.command("describe", tops ? { parts: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
-	// the drawn shapes as the Studio has them before each motion call: a stand-in given its look while the writer works is told to it then (compile-tool.mjs)
-	const reshape = tops ? async () => studioScene(await hub.command("describe", { parts: true }, workspaceHandle), { turn, tops, body, kinds }).ids.shapes ?? {} : null;
+	// the drawn shape of each prop the Studio lists (null: drawn as its box), now and before each motion call: a stand-in
+	// given its look while the writer works is told to it then (compile-tool.mjs)
+	const shapesOf = s => Object.fromEntries(s.scene.props.map(prop => [prop.id, s.ids.shapes?.[prop.id] ?? null]));
+	const reshape = tops ? async () => shapesOf(studioScene(await hub.command("describe", { parts: true }, workspaceHandle), { turn, tops, body, kinds })) : null;
 	// the objects with no box of their own are no boxes the body meets: no fit line measures them (motion-fit.mjs)
 	const boxed = placed => Object.fromEntries(Object.entries(placed).filter(([prop]) => !studio.ids.props[prop]?.point));
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
@@ -189,7 +193,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const listed = new Set(Object.values(studio.ids.characters)), bare = takes.bare.filter(id => listed.has(id));
 	const from = playing ? { kept: { name: playing.name, characters: playing.cast } } : bare.length ? { keptNone: bare } : {};
 	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, shapes: studio.ids.shapes ?? {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...sceneShapes(before?.scene), ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
