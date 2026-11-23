@@ -4,7 +4,9 @@
 // What reads them, for every prop and every part alike (no part or object has a word of its own):
 //  - a place on a part: {on: propId, part, at?} as a hand, elbow or foot target, a hold's `at` of a hand as {part, at?},
 //    and a ride's {on, part, at?}: `at` from the part's centre along the prop's own axes (none: the part's centre).
-//    resolveParts writes them as the prop's own {on, at} before the engine reads the spec.
+//    resolveParts writes them as the prop's own {on, at} before the engine reads the spec. The same form with on: a
+//    character id names a drawn part of that body (body-parts.js; the scene's `figure`, the look it is drawn in): at
+//    from that part's centre in its joint's frame, written as {joint, of, at} (of left out on the own body).
 //  - a seat: sit {on, part} sits on that part's top; sit {on} on a prop with parts sits on the highest drawn top under the
 //    hips (spec-layers.js), the box top where nothing is drawn under them.
 //  - a stand: a foot of a body action {on: propId} on a prop with parts stands on the drawn top under it (spec-layers.js).
@@ -12,6 +14,7 @@
 // Pure JS: node, the browser and the sidecar.
 import { qAxisAngle, qConj, qMul, qRotate } from "../rig17.js";
 import { add, sub } from "./math.js";
+import { bodyPartOf } from "./body-parts.js";
 
 const RAD = Math.PI / 180;
 const vec = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
@@ -74,38 +77,45 @@ export function topUnder(boxes, x, z, most = Infinity) {
 	return top;
 }
 
-/** A place on a part written as the prop's own: { on, part, at?, ...rest } -> { on, at: the point, ...rest }. */
-function placeOf(to, props, where) {
-	if (typeof to?.on !== "string") throw new Error(`engine-simple: ${where}: {part} wants on: propId, got ${JSON.stringify(to)}`);
+/** A place on a part written as the prop's own: { on, part, at?, ...rest } -> { on, at: the point, ...rest }; on a
+ *  body's part (bodies: { <character id>: { look, s: its scale } }) as its joint's: { joint, of (but on self), at, ...rest }. */
+function placeOf(to, props, where, bodies = {}, self = null) {
+	if (typeof to?.on !== "string") throw new Error(`engine-simple: ${where}: {part} wants on: propId or characterId, got ${JSON.stringify(to)}`);
 	if (to.at !== undefined && !vec(to.at)) throw new Error(`engine-simple: ${where}: at wants [x, y, z], got ${JSON.stringify(to.at)}`);
-	const { part, ...rest } = to;
-	return { ...rest, at: add(partOf(props[to.on] ?? null, part, to.on, where).c, to.at ?? [0, 0, 0]) };
+	const { part, ...rest } = to, body = Object.hasOwn(bodies, to.on) ? bodies[to.on] : null;
+	if (!body) return { ...rest, at: add(partOf(props[to.on] ?? null, part, to.on, where).c, to.at ?? [0, 0, 0]) };
+	const { on, ...other } = rest, b = bodyPartOf(body.look, part, on, where);
+	return { ...other, joint: b.name, ...(on === self ? {} : { of: on }), at: add(b.c.map(v => v * body.s), to.at ?? [0, 0, 0]) };
 }
 const hasPart = t => t && typeof t === "object" && !Array.isArray(t) && t.part !== undefined;
 
 /**
- * The spec with every place on a part written as a place on the prop (placeOf); the spec itself when it has none.
- * def: the scene (its props' parts). Throws a refusal for a part that is not there or a prop without parts; a sit's part
+ * The spec with every place on a part written as a place on the prop or on the body's joint (placeOf); the spec itself
+ * when it has none. def: the scene (its props' parts, its characters' scale, its figure). Throws a refusal for a part that is not there or a prop without parts; a sit's part
  * is checked here and read by the body layer.
  */
 export function resolveParts(spec, def) {
 	const text = JSON.stringify(spec ?? {});
 	if (!text.includes("\"part\"")) return spec;
 	const props = Object.fromEntries((def?.props ?? []).map(p => [p.id, partBoxes(p)])), out = {};
+	const bodies = Object.fromEntries((def?.characters ?? []).map(c => [c.id, { look: def.figure, s: c.scale ?? 1 }]));
 	for (const [id, acts] of Object.entries(spec)) {
 		if (!Array.isArray(acts)) { out[id] = acts; continue; }
 		out[id] = acts.map(a => {
 			const [f, verb, o] = Array.isArray(a) ? a : [];
 			if (!o || typeof o !== "object") return a;
 			const where = `${id} ${verb} at frame ${f}`, next = { ...o };
-			if (verb === "pose") for (const k of ["hands", "L", "R", "elbowL", "elbowR", "footL", "footR"]) { if (hasPart(o[k])) next[k] = placeOf(o[k], props, where); }
+			// a hold's place and a seat are on a prop's part: a body's parts take a hand, an elbow, a foot or a ride
+			const aProp = (on, what) => { if (Object.hasOwn(bodies, on)) throw new Error(`engine-simple: ${where}: ${what} wants a part of a prop; ${on} is a character, whose drawn parts take a hand, an elbow, a foot or a ride`); };
+			if (verb === "pose") for (const k of ["hands", "L", "R", "elbowL", "elbowR", "footL", "footR"]) { if (hasPart(o[k])) next[k] = placeOf(o[k], props, where, bodies, id); }
 			if (verb === "hold" && o.at !== undefined) {
-				const one = v => (hasPart(v) ? placeOf({ on: o.prop, ...v }, props, where).at : v);
+				const one = v => { if (!hasPart(v)) return v; aProp(v.on ?? o.prop, "a hold's at"); return placeOf({ on: o.prop, ...v }, props, where).at; };
 				next.at = hasPart(o.at) ? one(o.at) : !Array.isArray(o.at) && o.at && typeof o.at === "object" ? Object.fromEntries(Object.entries(o.at).map(([k, v]) => [k, one(v)])) : o.at;
 			}
-			if (verb === "ride" && hasPart(o)) return [f, verb, placeOf(o, props, where)];
+			if (verb === "ride" && hasPart(o)) return [f, verb, placeOf(o, props, where, bodies, id)];
 			if (verb === "sit" && o.part !== undefined) {
 				if (typeof o.on !== "string") throw new Error(`engine-simple: ${where}: a sit on a part wants on: propId as well, got ${JSON.stringify(o)}`);
+				aProp(o.on, "a sit on a part");
 				partOf(props[o.on] ?? null, o.part, o.on, where);
 			}
 			return [f, verb, next];
@@ -113,6 +123,10 @@ export function resolveParts(spec, def) {
 	}
 	return out;
 }
+
+/** The scene with `figure`, the look its bodies are drawn in (a place on a body's part reads that look's parts,
+ *  body-parts.js), when the spec names a part and the look is known; else the scene itself (the block look's parts). */
+export const withFigure = (scene, spec, figure) => (figure && JSON.stringify(spec ?? {}).includes("\"part\"") ? { ...scene, figure } : scene);
 
 /** The most a foot steps up onto a drawn top, and the most its height on the parts changes per frame (rig metres). */
 const STEP = 0.5, RATE = 0.05;

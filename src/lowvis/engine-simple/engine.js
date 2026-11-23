@@ -49,6 +49,8 @@
 //                      its own frame (the axes of its size)
 //                    | {on:propId, part, at?}   the same on one of the prop's parts, by its name: at from that part's
 //                      centre, along the prop's axes; a hold's at of a hand may be {part, at?} too
+//                    | {on:characterId, part, at?}   a place on a body's drawn part, its own too (a part has its
+//                      joint's name): at from the part's centre in that joint's frame; as a ride: on that joint, there
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
 //         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
 //         shoulder as one piece, keeping its bend (a wrist blending to or from its own target: by the part of the
@@ -80,7 +82,7 @@
 //     pose {footL|footR: target, over, ease}   takes one foot off the floor: it leaves the body layer and goes to the
 //       target along an arc about its hip; "plant" gives it back to the body layer (blend it into a step or a stance).
 //       foot target: [x,y,z] | {at:[x,y,z], pitch:deg} | {world:[x,y,z], pitch:deg} | {joint, at?, of?, pitch:deg}
-//       (a place on a body as for a hand) | {on, part?, at?, pitch:deg} (a place on a prop as for a hand) | "plant". The point is the ankle
+//       (a place on a body as for a hand) | {on, part?, at?, pitch:deg} (a place on a prop or a body as for a hand) | "plant". The point is the ankle
 //       joint; `at` is in the body frame from the floor point under the Hips joint (y = height over the floor);
 //       pitch > 0 points the toes down. The other foot keeps the body; nothing moves a body to keep its balance (where
 //       the tool has a balance row, that row says what it measures of a body at rest).

@@ -6,6 +6,8 @@ import { INDEX, REST, TIPS } from "../rig17.js";
 import { EASE } from "../engine-simple/math.js";
 import { elementByPath } from "../../studio-elements.js";
 import { BALANCE } from "./balance.mjs";
+import { bodyParts } from "../engine-simple/body-parts.js";
+import { lookBody } from "../studio/figure.js";
 import { CLIP_FPS } from "../clip.js";
 import { POINT } from "../studio/scene.js";
 import { JUMP } from "../jumps.js";
@@ -55,8 +57,16 @@ const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.mi
 const SIZES = b => `It stands ${m(head * b)} m tall, Hips joint ${m(hips * b)} m and shoulders ${m(shoulder * b)} m over the floor, ${m(arm * b)} m from shoulder to wrist. That is the engine's reference figure (${m(head)} m tall) times ${b}: every length the SPEC text and the tool's lines give as the engine's own is the reference figure's, and the engine multiplies it by ${b}, as it does every length of the body.`;
 // tops: the Studio tells a prop's drawn shape (src/lowvis/studio/scene.js parts), which the tool keeps set (shapes.mjs)
 const PARTS = ` parts (told by the Studio's scene and the tool, not written by you): the shape the Studio draws for a prop when it is not its box, as boxes { name, at: centre from the prop's centre, size, turn?: [x, y, z] degrees } in the prop's own frame; the tool sets them on your scene on every call and tells you when they change.`;
-/** The SPEC text without the words for a prop's parts (tops off: no prop is told with parts). */
-const noParts = text => text.replace(/\n {4}A prop with parts \(its drawn shape\)[^\n]*\n[^\n]*/, "").replace(/\n {19}\| \{on:propId, part, at\?\}[^\n]*\n[^\n]*/, "").replace("{on, part?, at?, pitch:deg}", "{on, at?, pitch:deg}").replace("ride {on:propId, part?}", "ride {on:propId}");
+/** The SPEC text without the words for a prop's or a body's parts (tops off: no prop or body is told with parts). */
+const noParts = text => text.replace(/\n {4}A prop with parts \(its drawn shape\)[^\n]*\n[^\n]*/, "").replace(/\n {19}\| \{on:propId, part, at\?\}[^\n]*\n[^\n]*/, "").replace(/\n {19}\| \{on:characterId, part, at\?\}[^\n]*\n[^\n]*/, "").replace("{on, part?, at?, pitch:deg} (a place on a prop or a body as for a hand)", "{on, at?, pitch:deg} (a place on a prop as for a hand)").replace("ride {on:propId, part?}", "ride {on:propId}");
+// tops: a body's drawn parts (engine-simple/body-parts.js) of the look the Studio draws, at scale 1 (b: that look's body)
+const r3 = v => Number((Math.abs(v) < 5e-4 ? 0 : v).toFixed(3));
+const BODY_PARTS = look => {
+	const list = bodyParts(look), b = lookBody(look), box = p => `[${p.c.map(v => r3(v * b)).join(", ")}] [${p.h.map(v => r3(2 * v * b)).join(", ")}]`;
+	const mirror = p => { const l = list.find(q => q.name === p.name.replace(/^Right/, "Left")); return l && p.name.startsWith("Right") && [0, 1, 2].every(k => Math.abs(l.c[k] * (k ? 1 : -1) - p.c[k]) * b < 5e-4 && Math.abs(l.h[k] - p.h[k]) * b < 5e-4); };
+	const told = list.filter(p => !mirror(p)), mirrored = told.length < list.length;
+	return ` A body's drawn parts, named for their joints, each as its centre from the joint and its size in the joint's frame (as {joint, at}), at scale 1 (times the body's scale; hands are no parts): ${told.map(p => `${p.name} ${box(p)}`).join("; ")}${mirrored ? "; a Right part is its Left one with x negated" : ""}.`;
+};
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop; with on as well: at that height instead of the prop's top.`;
 // The inside and the at rest rows: what the writer needs before its first spec. What a row measures in full and what it
 // leaves out is said by the tool once, in the answer where such a line first appears (inside.mjs insideText, balance.mjs BALANCE_TEXT).
@@ -68,7 +78,8 @@ const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m b
  *  the whole clip, not of frames in a row: a pair that comes back again and again is on screen that long in all. */
 export const seenFrames = (fps = CLIP_FPS) => Math.ceil(0.1 * fps - 1e-9);
 const INSIDE = `\n- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${seenFrames()} frames or more, or on the clip's first or last frame. The first answer with such a line says what it measures and leaves out.`;
-const GAPS = `\n- to the drawn: a hand, a foot, standing feet or a seat your spec puts on a prop with parts, told when it ends more than 30 mm (times the body's scale) from the nearest part on ${seenFrames()} frames or more, with that part; a seat floats over or sinks into the part top under the hips.`;
+const GAPS = `\n- to the drawn: a hand, a foot, standing feet or a seat your spec puts on a prop with parts, told when it ends more than 30 mm (times the body's scale) from the nearest part on ${seenFrames()} frames or more, with that part; a seat floats over or sinks into the part top under the hips.
+- on a drawn body: a hand or foot your spec puts on a body, or a prop riding a joint, inside a drawn part past 25 mm or off the body past 30 mm, and an arm through its own body or a body through another past 25 mm (times the body's scale), on ${seenFrames()} frames or more, with the part.`;
 const HOLLOW = ` hollow: true marks a prop that things may be inside: it is left out of the inside numbers.`;
 const KINDS = ` A prop the Studio lists with kind is a Studio object that has no box of its own (an effect, a light, a group of objects; kind says which): a ${POINT} m box centred on its place, hollow. A motion moves it as any prop (a hand holds it, ride puts it on a joint or a prop, keys move it) and the Studio object goes with the box's centre on every frame, keeping its kind and its own turn against the box. Every prop you add is a plain box or ball.`;
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
@@ -100,8 +111,9 @@ const INSTALL = "\nYour last compile is installed once you report; to keep it ou
 
 /** The system prompt of a variant (VARIANTS), without the flags listed in off. body: the figure at scale 1 as a share of
  *  the rig's own body (src/lowvis/studio/figure.js lookBody: the body of the look the Studio draws; any value that is not
- *  over 0 is 1, the text of the rig's own body). */
-export const systemPrompt = (variant = "base", off = [], body = 1) => { const f = features(variant, off), b = Number.isFinite(body) && body > 0 ? body : 1; return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
+ *  over 0 is 1, the text of the rig's own body). look: the look the Studio draws (its drawn parts, with tops; none: the
+ *  block look's). */
+export const systemPrompt = (variant = "base", off = [], body = 1, look = null) => { const f = features(variant, off), b = Number.isFinite(body) && body > 0 ? body : 1; return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
 
 Make the action read at a glance. Weight, anticipation and contacts matter more than detail: where the weight is, what winds up before a fast move, what touches what and when, how the body settles after.${f.words ? WORDS : ""}
 
@@ -111,7 +123,7 @@ In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X
 
 SCENE (you define it)
 { frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""} }] }
-A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}${f.kinds ? KINDS : ""}${f.tops ? PARTS : ""}
+A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}${f.kinds ? KINDS : ""}${f.tops ? PARTS + BODY_PARTS(look) : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
 ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : noParts(specFormat())}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}
