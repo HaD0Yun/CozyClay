@@ -6,6 +6,7 @@ import { updateVisibleViewOffsets } from "./viewport-visible-rect.js";
 import { applyCameraOptics } from "./camera-optics.js";
 import { useViewportTools } from "./viewport-tools.js";
 import { createViewFinish } from "./stage-finish-view.jsx";
+import { applyPlanView } from "./plan-navigation.js";
 
 /**
  * Two live viewports out of one scene.
@@ -35,8 +36,6 @@ export const SHOT_ASPECT = 16 / 9;
 export const LETTERBOX = new THREE.Color("#1e1e1e");
 // The light theme's bars take the light panel tone, not a black slab.
 export const LETTERBOX_LIGHT = new THREE.Color("#dcdde1");
-/** half-height of the plan frustum, in metres — covers the full camera throw */
-export const PLAN_EXTENT = 12.4;
 
 const EDGE_VERTEX = `
 	varying vec2 vUv;
@@ -430,13 +429,9 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 		// as a 3/4 view rather than a plan.
 		if (planCam.isOrthographicCamera) {
 			// planZoom is the Top-View's camera height: larger zoom = smaller
-			// extent = the pucks draw bigger.
-			const extent = PLAN_EXTENT / Math.max(0.25, planZoom);
-			const a = planPane.w / planPane.h;
-			planCam.top = extent;
-			planCam.bottom = -extent;
-			planCam.left = -extent * a;
-			planCam.right = extent * a;
+			// extent = the pucks draw bigger. The board's pan and zoom ride on
+			// the camera (plan-navigation.js); without them it is the stage centre.
+			applyPlanView(planCam, planCam.userData.planView ?? { x: 0, z: 0, zoom: planZoom }, planPane.w / planPane.h);
 		} else {
 			planCam.aspect = planPane.w / planPane.h;
 		}
