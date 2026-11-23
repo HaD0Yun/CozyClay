@@ -4,8 +4,8 @@
 export const SCHEMA = "cozyclay.motion-spec.v1";
 
 const rad = d => d * Math.PI / 180;
-export const fwd = h => [Math.sin(rad(h)), 0, Math.cos(rad(h))];
-export const leftOf = h => [Math.cos(rad(h)), 0, -Math.sin(rad(h))];
+const fwd = h => [Math.sin(rad(h)), 0, Math.cos(rad(h))];
+const leftOf = h => [Math.cos(rad(h)), 0, -Math.sin(rad(h))];
 /** World point of a body-frame offset [left, up, forward] from floor point `at` = [x, z] at heading h. */
 export function world(at, h, [l, u, f]) {
 	const a = leftOf(h), b = fwd(h);
@@ -15,7 +15,7 @@ const smooth = t => { const x = Math.min(1, Math.max(0, t)); return x * x * (3 -
 const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
 /** The feet of a neutral stance at `at`, heading h (standIdle's). */
-export const stanceFeet = (B, at, h) => ({ foot_l: world(at, h, [0.09, B.ankleY, -0.03]), foot_r: world(at, h, [-0.09, B.ankleY, 0.03]) });
+const stanceFeet = (B, at, h) => ({ foot_l: world(at, h, [0.09, B.ankleY, -0.03]), foot_r: world(at, h, [-0.09, B.ankleY, 0.03]) });
 
 /** standIdle's whole key at `at`, heading h: use it to start or end a hand-keyed beat on a known pose. */
 export function standSet(B, at, h) {
@@ -25,7 +25,7 @@ export function standSet(B, at, h) {
 }
 
 /** Keys merged by frame (later sets win), sorted. */
-export function mergeKeys(keys) {
+function mergeKeys(keys) {
 	const by = new Map();
 	for (const k of keys) { const f = Math.round(k.f); by.set(f, { ...(by.get(f) ?? {}), ...k.set }); }
 	return [...by.entries()].sort((a, b) => a[0] - b[0]).map(([f, set]) => ({ f, set }));

@@ -32,7 +32,7 @@ function zero(start) {
 	}
 	return d;
 }
-export const ZEROS = [zero([0.79, 0.44, -0.44]), zero([-0.79, 0.44, -0.44])];
+const ZEROS = [zero([0.79, 0.44, -0.44]), zero([-0.79, 0.44, -0.44])];
 
 const LEG = Math.hypot(...OFFSET[J.LeftLeg]) + Math.hypot(...OFFSET[J.LeftFoot]);
 const HIP = [OFFSET[J.LeftUpLeg], OFFSET[J.RightUpLeg]];

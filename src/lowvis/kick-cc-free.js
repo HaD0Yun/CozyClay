@@ -2,7 +2,7 @@
 // bounce back and stop. The scene and the engine-simple spec in one file; tools/lowvis/kick-cc-free.mjs builds it.
 // Metres, Y up, floor y = 0, 24 fps; the figure faces +Z with +X on its left.
 
-export const KICK = 132; // the frame the right foot is on the ball; the ball is still in place on it and flies from the next
+const KICK = 132; // the frame the right foot is on the ball; the ball is still in place on it and flies from the next
 
 export const scene = {
 	frames: 240,

@@ -14,6 +14,8 @@ mkdirSync(join(directory, "tools"));
 writeFileSync(join(directory, "README.md"), "signed package\n");
 writeFileSync(join(directory, "dist", "media", "demo.mp4"), "demo video\n");
 writeFileSync(join(directory, "tools", "qa-check.mjs"), "qa script\n");
+mkdirSync(join(directory, "tools", "lowvis"));
+writeFileSync(join(directory, "tools", "lowvis", "bench.mjs"), "bench\n");
 const marker = join(directory, "dist", "cozyclay-package.json");
 const metadata = { version: "1.5.0" };
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
@@ -35,6 +37,7 @@ try {
 
 	writeFileSync(join(directory, "dist", "media", "demo.mp4"), "re-encoded demo video\n");
 	writeFileSync(join(directory, "tools", "qa-check.mjs"), "edited qa script\n");
+	writeFileSync(join(directory, "tools", "lowvis", "bench.mjs"), "edited bench\n");
 	assert.equal(
 		verifyPackageMarker(marker, directory, metadata, publicDer),
 		true,

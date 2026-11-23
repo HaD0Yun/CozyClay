@@ -1,8 +1,12 @@
 {
 	"$schema": "https://unpkg.com/knip@5/schema.json",
-	"entry": ["test/**/*.mjs", "tools/**/*.mjs", "bin/**/*.mjs", "mcp/**/*.mjs", "workers/api/src/**/*.js", "workers/api/scripts/**/*.mjs"],
+	"entry": ["test/**/*.mjs", "tools/**/*.mjs", "bin/**/*.mjs", "mcp/**/*.mjs", "workers/api/src/**/*.js", "workers/api/scripts/**/*.mjs", "tools/lowvis/cube-*.js"],
 	"project": ["src/**", "bin/**", "mcp/**", "tools/**", "test/**", "workers/**"],
 	"includeEntryExports": true,
 	"ignore": ["dist/**", "**/node_modules/**", "mcp/runtime/**"],
+	"ignoreIssues": {
+		"src/lowvis/engine-simple/demos/*.js": ["exports"],
+		"tools/lowvis/cube-motion-spec.js": ["exports"]
+	},
 	"ignoreDependencies": ["onnxruntime-node"]
 }

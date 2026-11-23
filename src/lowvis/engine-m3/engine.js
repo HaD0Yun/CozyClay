@@ -14,7 +14,7 @@ import { SPECS } from "./specs/index.js";
 export const ENGINES = Object.freeze({ "m3-xbot": "x-bot-tpose", "m3-17": "lowvis-17" });
 
 /** The motion3 skeleton an engine compiles on. */
-export function skeletonOf(engine) {
+function skeletonOf(engine) {
 	const model = ENGINES[engine];
 	if (!model) throw new Error(`unknown engine ${engine}`);
 	if (model === "lowvis-17" && !skeletonFor(model)) registerRig(model, RIG17_JSON);
@@ -22,7 +22,7 @@ export function skeletonOf(engine) {
 }
 
 /** What a spec needs to know of the body (the same numbers on both rigs: rig17 is the X Bot's joints). */
-export function bodyOf(sk) {
+function bodyOf(sk) {
 	const P = sk.restWorldPos, I = sk.index;
 	return { hipsY: P[I.Hips][1], ankleY: P[I.LeftFoot][1] };
 }

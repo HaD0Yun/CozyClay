@@ -18,7 +18,7 @@ import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS, qAxi
 import { kneePole } from "./knee.js";
 import { X, Y, Z, add, clamp, cross, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
 
-export const SIDES = [
+const SIDES = [
 	{ s: 1, arm: J.LeftArm, fore: J.LeftForeArm, hand: J.LeftHand, up: J.LeftUpLeg, leg: J.LeftLeg, foot: J.LeftFoot },
 	{ s: -1, arm: J.RightArm, fore: J.RightForeArm, hand: J.RightHand, up: J.RightUpLeg, leg: J.RightLeg, foot: J.RightFoot },
 ];
