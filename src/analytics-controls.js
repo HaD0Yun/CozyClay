@@ -7,7 +7,7 @@ export const CONTROL_IDS = Object.freeze([
 	"tool_move", "tool_rotate", "tool_scale", "tool_ik", "tool_pin", "tool_front", "tool_side", "tool_back",
 	"tl_play", "shot_add", "shot_delete", "camera_key_add",
 	"export_keyframe_pack", "export_video", "export_video_shot",
-	"export_render_passes", "export_depth_video", "export_storyboard", "export_otio",
+	"export_render_passes", "export_depth_video", "export_storyboard", "export_otio", "export_ai_reference",
 	"menu_undo", "menu_redo",
 	"agent_send", "agent_stop", "agent_steer", "agent_retry", "agent_connect", "agent_panel",
 ]);
