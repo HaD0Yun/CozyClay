@@ -56,9 +56,20 @@ function signed(parts, p) {
 	}
 	return deep > 0 ? -deep : near;
 }
-/** The highest drawn surface under [x, z] below y (5 rays down in a COLUMN), or null. */
+/** The drawn surface the point at [x, z], y up, rests on: the highest one under it (5 rays down in a COLUMN); where the point
+ *  itself is inside a closed part, that part's top over it (a ray down from there would find its underside); null when
+ *  there is none. */
 function under(parts, [x, z, y]) {
 	let top = -Infinity;
+	for (const bvh of parts) {
+		q.set(x, y, z);
+		const near = bvh.closestPointToPoint(q);
+		if (!near || !inside(bvh, near)) continue;
+		ray.origin.set(x, y, z); ray.direction.set(0, 1, 0);
+		const hit = bvh.raycastFirst(ray, THREE.DoubleSide);
+		if (hit) top = Math.max(top, y + hit.distance);
+	}
+	if (Number.isFinite(top)) return round(top);
 	for (const [dx, dz] of [[0, 0], [COLUMN, 0], [-COLUMN, 0], [0, COLUMN], [0, -COLUMN]]) for (const bvh of parts) {
 		ray.origin.set(x + dx, y, z + dz); ray.direction.set(0, -1, 0);
 		const hit = bvh.raycastFirst(ray, THREE.DoubleSide);
@@ -70,8 +81,9 @@ function under(parts, [x, z, y]) {
 /**
  * The live query contact_gaps: args { objects: [{ id, points: [[[x, y, z], ...], ...], columns: [[x, z, y], ...] }] }, every
  * point in the object's own frame -> { objects: [{ id, drawn, points: [[d, ...], ...], columns: [top | null] }] }: d the
- * signed distance of each point from the drawn surface (m; negative inside a drawn part), top the highest drawn surface
- * under each column's point. drawn false (and no numbers) when the stage draws nothing of the object now.
+ * signed distance of each point from the drawn surface (m; negative inside a drawn part), top the drawn surface each
+ * column's point rests on (the highest under it; the top of the part it is inside). drawn false (and no numbers) when
+ * the stage draws nothing of the object now.
  */
 export function contactGaps(sceneOf) {
 	return (args = {}) => {

@@ -13,7 +13,9 @@
 // then changed plays its take that many times as large about its place, off the floor spots and objects it was put on.
 // An edit of an animated character answers with motionFit.bodies when its scale is no longer the motion's.
 // Where the motion's bodies meet each object (src/lowvis/studio/contacts.js) is kept with its boxes: an edit of an
-// object a body meets, and the install (installFit), answer how far each of those places is from the drawn look.
+// object a body meets, and the install (installFit), answer how far each of those places is from the drawn look. The
+// places are the clip's: once a body has another scale than the one that clip was built for (resized, or the take fitted
+// again to another size: motion-refit.mjs), an edit answers that they were not measured.
 //   rememberBoxes(key, scene, placed, floor, motion)  the boxes of one motion, the floor its feet use and, with motion
 //                                             ({ clip, spec }), where its bodies meet them, per conversation
 //   rememberBodies(key, list), bodiesOf(key)  the scale each animated character's motion was written for
@@ -34,8 +36,8 @@ const TOP = 0.02, COVER = 0.5; // a flat top within 2 cm of the box's top height
 const FLOOR_CELL = 0.1, FOOT = 0.15; // metres: the floor cells, and a joint lower than this is a foot on the floor
 const RAD = Math.PI / 180;
 const bodies = new Map(); // conversation -> Map(<Studio character id> -> { id, scale, tint })
-const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves? }), [[x, z]]
-const touches = new Map(); // conversation -> Map(<Studio id> -> { name, rows, probes, still }): where the bodies meet each object
+const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves?, contacts? (a body meets it) }), [[x, z]]
+const touches = new Map(); // conversation -> Map(<Studio id> -> { name, rows, probes, still }): where the bodies meet each object; its .sizes: Map(<Studio character id> -> scale) of the installed clip, null for a draft
 const r2 = v => Math.round(v * 100) / 100;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
 const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
@@ -61,7 +63,7 @@ export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null
 		const id = placed[prop.id];
 		if (!id || !Array.isArray(prop.size) || !Array.isArray(prop.at)) continue;
 		const sphere = prop.shape === "sphere", size = sphere ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
-		next.set(id, { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}) });
+		next.set(id, { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}), ...(met.has(id) ? { contacts: true } : {}) });
 	}
 	boxes.set(key, next);
 	floors.set(key, floor);
@@ -119,8 +121,12 @@ export async function installFit(key, hub, delayMs = 300) {
 	}
 }
 
-/** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key. */
-export function rememberBodies(key, list = []) { if (key != null) bodies.set(key, new Map(list.map(body => [body.id, body]))); }
+/** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key: the sizes its contacts were read at. */
+export function rememberBodies(key, list = []) {
+	if (key == null) return;
+	bodies.set(key, new Map(list.map(body => [body.id, body])));
+	if (touches.has(key)) touches.get(key).sizes = new Map(list.map(body => [body.id, body.scale]));
+}
 export const bodiesOf = key => bodies.get(key) ?? new Map();
 /** What differs between a describe character row and the body its motion was written for, as short texts. */
 export function bodyFitOf(body, row) {
@@ -145,7 +151,9 @@ export function fitOf(box, row, floor = []) {
 	const out = [], base = [finite(row.x), finite(row.y), finite(row.z)], d = base.map((v, k) => v - box.base[k]);
 	const size = [finite(row.footprint?.width, 1) * finite(row.scaleX, 1), finite(row.height, 1) * finite(row.scaleY, 1), finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1)];
 	if (box.moves) {
-		out.push(...["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, ${r2(Math.abs(size[k] - box.size[k]))} m ${size[k] > box.size[k] ? "over" : "under"} the box's ${box.size[k]} m` : null).filter(Boolean));
+		// a box a body meets: with the difference, which is how far its sides went from the contacts
+		const over = k => (box.contacts ? `${r2(Math.abs(size[k] - box.size[k]))} m ${size[k] > box.size[k] ? "over" : "under"} ` : "");
+		out.push(...["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, ${over(k)}the box's ${box.size[k]} m` : null).filter(Boolean));
 		return out;
 	}
 	if (Math.hypot(...d) > PLACE) out.push(`base at [${base.map(r2).join(", ")}], the box's at [${box.base.join(", ")}]`);
@@ -199,18 +207,22 @@ export function changedFit(ids, rows, used, floor) {
 		const differs = box ? fitOf(box, row, floor) : row ? onFeetOf(row, floor) : [];
 		if (differs.length) objects.push({ id, name: box?.name ?? String(row?.name ?? id), differs });
 	}
-	return objects.length ? { fits: false, objects, note: NOTE } : null;
+	return objects.length ? { fits: false, objects, note: noteOf(objects, used) } : null;
 }
 
-const NOTE = "The motion was written against these boxes and meets them at its contacts. Fit the look so a drawn part is at each contact (gaps: how far each misses), or call motion again: it writes the motion against the looks as they are.";
+const NOTE = "The motion was written against these boxes. Where the body meets an object (its top, the floor around it, a prop the hands hold), its look should match its box: fit the look to the box there.";
+// when a body meets one of the objects named (a box with contacts: rememberBoxes)
+const CONTACT_NOTE = "The motion was written against these boxes and meets them at its contacts. Fit the look so a drawn part is at each contact (gaps: how far each is off), or call motion again: it is written for the objects as they then are.";
+const noteOf = (objects, used) => (objects.some(entry => used.get(entry.id)?.contacts) ? CONTACT_NOTE : NOTE);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * turnFitView({ value, env, hub, delayMs }) -> { tools(list) }. Under the lowvis engine, a tool whose result names in
  * affectedIds an object the conversation's last motion uses answers with motionFit: { fits: true, ids } or
- * { fits: false, objects: [{ id, name, differs: [text] }], note }; one that names an animated character whose scale is no
- * longer its motion's answers with motionFit: { fits: false, bodies: [{ id, differs: [text] }] } (beside objects and
- * note when an object differs too). The scene is read again with flat tops after delayMs
+ * { fits: false, objects: [{ id, name, differs: [text], gaps?: line }], note } (gaps: an object a body meets whose drawn
+ * look is off its contacts; motionFit.gaps "not measured (why)" when they could not be measured); one that names an
+ * animated character whose scale is no longer its motion's answers with motionFit: { fits: false, bodies: [{ id,
+ * differs: [text] }] } (beside objects and note when an object differs too). The scene is read again with flat tops after delayMs
  * (the Studio draws an edit on its next frame), or at once when a closeup was attached (it waited for the drawing).
  */
 export function turnFitView({ value, env = process.env, hub, delayMs = 300 }) {
@@ -223,16 +235,18 @@ export function turnFitView({ value, env = process.env, hub, delayMs = 300 }) {
 		try {
 			if (result.look?.status !== "attached") await wait(delayMs);
 			const scene = await hub.command("describe", { tops: true }, handle), rows = new Map((scene?.objects ?? []).map(row => [row?.id, row]));
-			// where a body meets an edited object: how far its drawn look now is from each of those places
-			// (the bodies' places are the motion's: once a body has another size than the motion's, they are not measured)
-			let gaps = new Map();
-			const resized = [...cast].some(([id, body]) => bodyFitOf(body, (scene?.characters ?? []).find(row => row?.id === id)).length), untold = why => new Map(ids.filter(id => touches.get(key)?.has(id)).map(id => [id, `not measured (${why})`]));
-			if (resized) gaps = untold("a body's scale is not the one the motion was written for");
-			else try { gaps = await gapLines(key, ids, rows, (name, args) => hub.command(name, args, handle)); } catch (error) { gaps = untold(error?.message ?? String(error)); }
+			// where a body meets an edited object: how far its drawn look now is from each of those places. The places are the
+			// clip's: once a body has another scale than that clip's (resized, or fitted again to another size) they are not
+			// measured, and gaps says so instead of a number
+			let gaps = new Map(), why = null;
+			const met = touches.get(key), scaleOf = id => finite((scene?.characters ?? []).find(row => row?.id === id)?.scale, 1);
+			if ([...(met?.sizes ?? [])].some(([id, scale]) => Math.abs(scaleOf(id) - scale) > 1e-6)) why = "a body's scale is not the one these contacts were read at";
+			else try { gaps = await gapLines(key, ids, rows, (name, args) => hub.command(name, args, handle)); } catch (error) { why = error?.message ?? String(error); }
+			const untold = why && ids.some(id => met?.has(id)) ? { gaps: `not measured (${why})` } : {};
 			const objects = ids.map(id => ({ id, name: used.get(id).name, differs: fitOf(used.get(id), rows.get(id), floorOf(key)), ...(gaps.get(id) ? { gaps: gaps.get(id) } : {}) })).filter(entry => entry.differs.length || entry.gaps);
 			const sized = people.map(id => ({ id, differs: bodyFitOf(cast.get(id), (scene?.characters ?? []).find(row => row?.id === id)) })).filter(entry => entry.differs.length);
-			if (!sized.length) return ids.length ? { ...result, motionFit: objects.length ? { fits: false, objects, note: NOTE } : { fits: true, ids } } : result;
-			return { ...result, motionFit: { fits: false, ...(objects.length ? { objects, note: NOTE } : {}), bodies: sized } };
+			if (!sized.length) return ids.length ? { ...result, motionFit: objects.length ? { fits: false, objects, note: noteOf(objects, used), ...untold } : { fits: true, ids, ...untold } } : result;
+			return { ...result, motionFit: { fits: false, ...(objects.length ? { objects, note: noteOf(objects, used) } : {}), ...untold, bodies: sized } };
 		} catch (error) {
 			return { ...result, motionFit: { status: "unavailable", reason: error?.message ?? String(error) } };
 		}

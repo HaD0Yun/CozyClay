@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fk, qAxisAngle, qRotate } from "../../src/lowvis/rig17.js";
 import { auxOf, contactLine, contactsOf, gapLine, gapsOf, probesOf } from "../../src/lowvis/studio/contacts.js";
+import { prop as boxAt, stage, written } from "./studio-draft-harness.mjs";
 
 const F = 24, REST = fk([0, 0, 0]);
 const yawQ = deg => qAxisAngle([0, 1, 0], (deg * Math.PI) / 180);
@@ -103,12 +104,47 @@ const still = v => () => v;
 	assert.deepEqual(gapsOf(rows, probes, sunk).gaps.map(g => g.text), [`a legs 81 mm inside the drawn look at f${probes.inside[0].f}`]);
 	const line = gapLine("stool (s1)", floating);
 	assert.equal(line, "stool (s1), off the drawn look: a seat at [0, 0.45, 0] f0-23: floats 100 mm over the drawn surface under it");
+	// a body group inside on one of its five sampled frames weighs a fifth of the frames the body meets the object
+	const once = { ...measured(0.35), inside: probes.inside.map((p, i) => (i === 0 ? p.local.map(() => -0.3) : far(0.2, p.local))) }, ranked = gapsOf(rows, probes, once).gaps;
+	assert.deepEqual(ranked.map(g => g.text.replace(/ at .*/, "")), ["a seat", "a legs 300 mm inside the drawn look"], "100 mm on 24 frames comes before 300 mm on one sampled frame of five");
+	assert.ok(Math.abs(ranked[1].frames - 24 / 5) < 1e-9);
 	const many = { gaps: [4, 3, 2, 1].map(k => ({ size: k, text: `g${k}` })), within: 2 };
 	assert.equal(gapLine("bike (o2)", many), "bike (o2), off the drawn look: g4; g3; g2; 1 more; 2 contacts within 0.03 m", "at most three, the count of the rest and of those within");
 	assert.equal(gapLine("stool (s1)", gapsOf(rows, probes, measured(0.45))), null);
 	assert.match(contactLine("stool (s1)", rows), /^stool \(s1\), where bodies meet it: .*a seat at \[0, 0.45, 0\] f0-23/);
 	assert.ok(seatRow >= 0);
 	console.log("PASS gaps: a seat floating, nothing under it, legs inside; one line per object, worst first");
+}
+
+// --- free rows: a seated body's hand or foot the engine holds at a target on no object ---
+{
+	// a body sits on a box that moves and turns; the writer aims its hands at points of the body's own frame
+	const keys = []; for (let f = 12, x = 0; f < 60; f += 6) { x += 0.3; keys.push([f, "move", { to: [x, 0.25, 0.1 * x * x], axis: [0, 1, 0], deg: 10 * x, over: 6, ease: "linear" }]); }
+	const scene = stage([boxAt("ride", [0.5, 0.5, 1.4], [0, 0, 0], { moves: true })], 72), sit = [0, "sit", { on: "ride", over: 0 }];
+	const rowsOf = (acts, withAux = true) => { const w = written(scene, { a1: [sit, ...acts], ride: keys }); return { clip: w.clip, rows: contactsOf(w.clip, withAux ? auxOf(w.scene, w.spec, w.clip) : null).get("ride") }; };
+	const aimed = [0, "pose", { L: [0.25, 1.0, 0.4], R: [-0.25, 1.0, 0.4], over: 6 }], { clip, rows } = rowsOf([aimed]), free = rows.filter(r => r.free);
+	assert.deepEqual(free.map(r => `${r.part} ${r.from}-${r.to} ${r.at}`).sort(), ["left hand 8-71 0.23,1.54,0.35", "right hand 8-71 -0.23,1.54,0.35"], "both hands, from the frame after the pose's blend, one place each in the box's frame while it moves and turns");
+	assert.ok(rows.some(r => r.part === "seat" && !r.free) && rows.every(r => !r.free || !r.tied));
+	const probes = probesOf(clip, "ride", rows), k = rows.indexOf(free[0]), off = probes.parts.filter(p => p.row === k).map(p => Math.hypot(...p.local[2].map((v, i) => v - free[0].at[i])));
+	assert.ok(off.slice(1).every(d => d < 0.01) && off[0] < 0.15, `the row's place is the hand's on the sampled frames (its first frame is still on the way: ${off.map(d => d.toFixed(3))})`);
+	assert.equal(contactLine("ride (o1)", rows), "ride (o1), where bodies meet it: a1 left foot at [0.08, 0, 0.07] f0-71; a1 right foot at [-0.08, 0, 0.07] f0-71; a1 seat at [0, 0.5, 0.02] f0-71; aimed at no object while the seat meets it: a1 left hand at [0.23, 1.54, 0.35] f8-71; a1 right hand at [-0.23, 1.54, 0.35] f8-71");
+	// their gaps stand apart from the contacts' and do not count as contacts
+	const far = (d, pts) => pts.map(() => d), found = gapsOf(rows, probes, { parts: probes.parts.map(p => far(rows[p.row].free ? 0.419 : 0.01, p.local)), seats: probes.seats.map(s => s.local[1] - s.up), inside: probes.inside.map(p => far(0.2, p.local)) });
+	assert.deepEqual([found.gaps.length, found.within, found.free.length], [0, 3, 2]);
+	assert.equal(gapLine("ride (o1)", found), "ride (o1), off the drawn look: aimed at no object while the seat meets it: a1 left hand at [0.23, 1.54, 0.35] f8-71: 419 mm from the drawn look; a1 right hand at [-0.23, 1.54, 0.35] f8-71: 419 mm from the drawn look");
+	assert.equal(gapLine("ride (o1)", gapsOf(rows, probes, { parts: probes.parts.map(p => far(0.01, p.local)), seats: probes.seats.map(s => s.local[1] - s.up), inside: probes.inside.map(p => far(0.2, p.local)) })), null, "a drawn part at each: nothing told");
+	// none: hands the writer did not aim (the sit's own: on the thighs), hands aimed on the box (contacts), a pose of 8
+	// frames, no engine facts, and a hand on the body's own joint is one (the engine's facts do not tell it from a point)
+	assert.equal(rowsOf([]).rows.some(r => r.free), false, "hands left to the sit");
+	const on = rowsOf([[0, "pose", { L: { on: "ride", at: [0.2, 0.25, 0.5] }, R: { on: "ride", at: [-0.2, 0.25, 0.5] }, over: 6 }]]).rows;
+	assert.ok(!on.some(r => r.free) && on.filter(r => r.part.endsWith("hand") && r.tied).length === 2, "hands aimed on the box are its contacts");
+	assert.equal(rowsOf([[0, "pose", { L: [0.25, 1.0, 0.4], over: 4 }], [12, "pose", { L: "rest", over: 4 }]]).rows.some(r => r.free), false, "held for 8 frames");
+	assert.equal(rowsOf([aimed], false).rows.some(r => r.free), false, "without the engine's facts");
+	assert.deepEqual(rowsOf([[0, "pose", { L: { joint: "LeftLeg", at: [0, 0.05, 0] }, R: [-0.25, 1.0, 0.4], over: 6 }]]).rows.filter(r => r.free).map(r => r.part), ["right hand"], "a left hand on the own shin lies in this box: a contact; the right is free");
+	// a body that stands by the box (no seat on it) has no free row, nor has a box only free rows would name
+	const stand = written(stage([boxAt("post", [0.3, 1, 0.3], [0, 0, 1.5])], 48), { a1: [[0, "idle"], [0, "pose", { L: [0.25, 1.0, 0.4], R: [-0.25, 1.0, 0.4], over: 6 }]] });
+	assert.equal(contactsOf(stand.clip, auxOf(stand.scene, stand.spec, stand.clip)).size, 0);
+	console.log("PASS free rows: a seated body's aimed hands on no object, apart from the contacts; none for hands not aimed, on the box, held briefly, or without a seat");
 }
 
 // --- the engine's ties, read again from a compiled clip (auxOf) ---

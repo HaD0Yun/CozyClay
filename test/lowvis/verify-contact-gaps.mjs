@@ -2,7 +2,8 @@
 // How far each contact of a motion is from what the Studio draws (src/lowvis/studio/gaps.js, the live query contact_gaps)
 // and what the Studio agent is told of it (bin/agent/motion-fit.mjs, motion-door.mjs):
 //  1. gaps.js on drawn sculpts (box parts: the signed distance of every probe is checked against this test's own box
-//     arithmetic): a look of 1 part and of 40, larger and smaller than its box, the plain stand-in (no look yet);
+//     arithmetic): a look of 1 part and of 40, larger and smaller than its box, the plain stand-in (no look yet); the
+//     surface a seat rests on: under it, or the top of the part it is inside;
 //  2. on the real door (turnMotionDoor, the draft harness's editor and scripted writer, the engine): the draft names the
 //     contacts, a look edit answers motionFit with the gaps, the install answers contacts and gaps; a motion whose
 //     bodies meet no object answers as before (no contacts, no gaps).
@@ -14,7 +15,7 @@ import { buildSculptGroup } from "../../src/sculpt-geometry.js";
 import { contactGaps } from "../../src/lowvis/studio/gaps.js";
 import { auxOf, contactsOf, gapLine, gapsOf, probesOf } from "../../src/lowvis/studio/contacts.js";
 import { turnMotionDoor } from "../../bin/agent/motion-door.mjs";
-import { turnFitView } from "../../bin/agent/motion-fit.mjs";
+import { bodiesOf, turnFitView } from "../../bin/agent/motion-fit.mjs";
 import { addStandIn, installClip, standInOf } from "../../src/lowvis/studio/install.js";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
 import { part, prop, recipe, scriptedWriter, stage, studioEditor, tick, written } from "./studio-draft-harness.mjs";
@@ -70,6 +71,12 @@ function boxes(parts, p) {
 	assert.match(told["1 part, smaller (the left half of the top)"], /^table \(t1\), off the drawn look: a1 right hand at \[[^\]]+\] f\d+-59: \d+ mm from the drawn look$/);
 	assert.match(told["larger (twice the box)"], /a1 right hand at .*: \d+ mm inside the drawn look/);
 	assert.deepEqual(contactGaps(() => drawn([]))({ objects: [{ id: "t1", points: [[[0, 0, 0]]] }] }).objects, [{ id: "t1", drawn: false }], "nothing drawn: no numbers");
+	// the surface under a point 0.58 m up: a top below it, the top of the solid part it is inside, the floor of a hollow
+	// shell (a lid over it is not what it rests on), a roof over an open seat left out, a hump that rises 0.04 m behind
+	// the point (in its column, the point not in it) left out too; nothing drawn there: null
+	const column = (list, at = [0, 0, 0.58]) => contactGaps(() => drawn([{ id: "s", renderer: "sculpt", recipe: recipe(...list), x: 0, y: 0, z: 0, rot: 0 }]))({ objects: [{ id: "s", columns: [at] }] }).objects[0].columns[0];
+	const seat = part("seat", [0.4, 0.45, 0.4], [0, 0, 0]);
+	assert.deepEqual([column([seat]), column([part("block", [0.4, 0.9, 0.4], [0, 0, 0])]), column([part("floor", [0.4, 0.05, 0.4], [0, 0, 0]), part("lid", [0.4, 0.05, 0.4], [0, 0.85, 0])]), column([seat, part("roof", [0.4, 0.05, 0.4], [0, 1.6, 0])]), column([seat, part("hump", [0.4, 0.8, 0.06], [0, 0, -0.07])]), column([seat], [1, 1, 0.58])], [0.45, 0.9, 0.05, 0.45, 0.45, null]);
 	console.log(`PASS gaps.js: every probe's distance equals the box arithmetic for 4 looks; ${Object.entries(told).map(([k, v]) => `${k}: ${v ?? "within"}`).join(" | ")}`);
 }
 
@@ -108,6 +115,24 @@ try {
 	assert.deepEqual(done.gaps, [entry.gaps], "and how far the drawn look is from them");
 	assert.ok(asked.includes("contact_gaps"));
 	assert.ok(!done.contacts.some(line => line.includes(crate)));
+	// a look taller than the box, the hips inside it: the seat is under that part's top (not "floating" over its underside)
+	const tall = (await sculpt.handler({ id: stool, recipe: recipe(part("block", [0.4, 0.9, 0.4], [0, 0, 0])) })).motionFit.objects.find(o => o.id === stool);
+	assert.match(tall.gaps, /a1 seat at \[0, 0\.45, 0\.02\] f0-59: sinks 450 mm below the drawn surface/);
+	assert.doesNotMatch(tall.gaps, /floats/);
+	// a body resized after the install: the contacts' places are the clip's, so an edit says they were not measured and
+	// gives no number; the box itself is still compared (the stand-in's own box fits)
+	const plain = recipe(part("box", [0.4, 0.45, 0.4], [0, 0, 0])), unread = "not measured (a body's scale is not the one these contacts were read at)";
+	assert.deepEqual((await sculpt.handler({ id: stool, recipe: plain })).motionFit, { fits: true, ids: [stool] }, "the body at the motion's size, the look the box: fits, no gap");
+	await studio.run("character.update", { characterId: "a1", patch: { scale: 2 } });
+	assert.deepEqual((await sculpt.handler({ id: stool, recipe: plain })).motionFit, { fits: true, ids: [stool], gaps: unread });
+	const lowAgain = (await sculpt.handler({ id: stool, recipe: low })).motionFit;
+	assert.deepEqual([lowAgain.fits, lowAgain.gaps, lowAgain.objects.some(o => "gaps" in o)], [false, unread, false]);
+	// and after the take was fitted again to that size (motion-refit.mjs sets the body the fit lines know): the contacts
+	// kept are still the first clip's
+	bodiesOf("conv-c").set("a1", { id: "a1", scale: 2, tint: null });
+	assert.equal((await sculpt.handler({ id: stool, recipe: plain })).motionFit.gaps, unread, "a refit does not read the contacts again");
+	await studio.run("character.update", { characterId: "a1", patch: { scale: 1 } });
+	assert.match((await sculpt.handler({ id: stool, recipe: low })).motionFit.objects[0].gaps, /floats 100 mm/, "back at the clip's size: measured again");
 
 	// a motion whose body meets no object answers as before: no contacts, no gaps
 	const stand = written(stage([prop("crate", [0.5, 0.5, 0.5], [3, 0, 3])]), { a1: [[0, "idle"]] });

@@ -1,7 +1,7 @@
-// A probe of test/lowvis/qa-install-browser.mjs (QA_SCENARIOS=<this file>): in a real Studio turn with the scripted
+// A probe of test/lowvis/qa-install-browser.mjs (QA_PROBE=contacts): in a real Studio turn with the scripted
 // agent and writer, the agent receives where the body meets the draft's stand-in (contacts), a look edit of it answers
 // motionFit with the gaps the Studio measures on what it draws, and the install answers contacts and gaps.
-//   QA_SCENARIOS=$PWD/test/lowvis/qa-contacts-scenarios.mjs node test/lowvis/qa-install-browser.mjs
+//   QA_PROBE=contacts node test/lowvis/qa-install-browser.mjs
 export async function scenarios(t) {
 	const { turn, writer, agent, gate, pass, report, assert, waitFor, sleep } = t;
 	// the writer's cup is held in the right hand from frame 0; the writer waits after its first compile until w1 opens
