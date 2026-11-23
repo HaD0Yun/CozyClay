@@ -185,10 +185,20 @@ const longScene = async () => {
 		before = now;
 		if (now.x + now.right > LONG + 5) break;
 	}
+	expect("the pans left the editor camera alone", JSON.stringify(before.editor) === JSON.stringify(opened.editor));
+	// The editor camera's own right-drag (fly) and middle-drag (pan) over the main view are not the Top-View's.
+	const mainView = await evaluate("(() => { const r = document.querySelector('.vp-main').getBoundingClientRect(); return { x: r.left + r.width * 0.7, y: r.top + r.height * 0.6 }; })()");
+	for (const button of ["right", "middle"]) {
+		const editorBefore = JSON.stringify((await planState()).editor);
+		const editorLook = await evaluate("JSON.stringify(window.__cozyclay.editorCam.quaternion.toArray())");
+		await drag(button, mainView, { x: mainView.x - 90, y: mainView.y + 36 });
+		const now = await planState();
+		const editorMoved = JSON.stringify(now.editor) !== editorBefore || (await evaluate("JSON.stringify(window.__cozyclay.editorCam.quaternion.toArray())")) !== editorLook;
+		expect(`a ${button}-drag over the main view moves the editor camera and leaves the Top-View`, editorMoved && now.x === before.x && now.z === before.z && now.top === before.top, JSON.stringify({ editorMoved, moved: [now.x - before.x, now.z - before.z] }));
+	}
 	expect("no rail was drawn by the pan gestures", (await storedRail()) === null || (await storedRail()) === undefined);
 	const panned = await planState();
 	expect("the view reaches the far end", panned.x + panned.right >= LONG && panned.x - panned.right > LONG / 2, JSON.stringify(panned));
-	expect("the pans left the editor camera alone", JSON.stringify(panned.editor) === JSON.stringify(opened.editor));
 	await screenshot("2-panned");
 
 	// A stroke at the far end, with a middle-button chord pan in its middle.

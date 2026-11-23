@@ -191,8 +191,13 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 		if (!host) return undefined;
 		const isPlan = () => host.classList.contains("plan");
 		let hovered = false;
+		// A left press that began on the board (a stroke, a puck): only then is a second button its chord.
+		// A fly or a pan of the editor camera holds the same buttons over the main view and is not the board's.
+		let stroke = false;
 		const onDown = (event) => {
-			if ((event.button !== 1 && event.button !== 2 && !(event.button === 0 && event.altKey)) || !isPlan()) return;
+			if (!isPlan()) return;
+			stroke = event.button === 0 && !event.altKey;
+			if (stroke || event.button > 2) return;
 			event.preventDefault();
 			event.stopPropagation();
 			pan.current = { x: event.clientX, y: event.clientY };
@@ -200,7 +205,7 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 		};
 		const onMove = (event) => {
 			// A middle or right button held during a left stroke is a pan too.
-			const chord = (event.buttons & 6) !== 0 && isPlan();
+			const chord = stroke && (event.buttons & 6) !== 0 && isPlan();
 			if (pan.current?.chord && !chord) {
 				// The chord's button lifted while the stroke's left button stays down.
 				pan.current = null;
@@ -214,6 +219,7 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 			if (dx || dy) publish(pannedPlanView(view.current, dx, dy, host.getBoundingClientRect().height));
 		};
 		const endPan = () => {
+			stroke = false;
 			if (!pan.current) return;
 			pan.current = null;
 			host.style.cursor = "";
