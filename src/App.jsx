@@ -218,7 +218,7 @@ import {
 } from "./shot-guides.js";
 import { shotCaptureMeta } from "./shot-meta.js";
 import { buildShotPrompt } from "./shot-prompt.js";
-import { buildKeyframePack, keyframePackEntries, keyframePackName, slugifyTitle } from "./keyframe-pack.js";
+import { buildKeyframePack, keyframePackEntries, keyframePackName, slugifyTitle } from "./keyframe-pack.js"; import { runAiReferenceExport } from "./ai-reference-export.js";
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
 import { DEPTH_RANGE_M, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
@@ -2697,7 +2697,7 @@ export default function App() {
 			ikStates: new Map([...ikStatesRef.current].map(([id, state]) => [id, copyIk(state)])),
 			rigStates: Object.values(rigs).filter(Boolean).map(snapshotExportRig),
 		};
-		return Object.freeze({ kind, format: kind === "frame" || kind === "contact_sheet" ? "png" : kind === "keyframe_pack" || kind === "panel_pack" ? "zip" : "mp4",
+		return Object.freeze({ kind, format: kind === "frame" || kind === "contact_sheet" ? "png" : kind === "keyframe_pack" || kind === "panel_pack" || kind === "ai_reference" ? "zip" : "mp4",
 			context, run, external, download, handedOff: new Set() });
 	}
 
@@ -2755,7 +2755,7 @@ export default function App() {
 			if (!request.external) {
 				if (request.kind === "video") { track("export:video_succeeded", { format: "mp4" }); trackFeature("export_video"); }
 				if (request.kind === "depth_video") trackFeature("export_depth_video");
-				if (request.kind === "keyframe_pack") trackFeature("export_keyframe_pack");
+				if (request.kind === "keyframe_pack" || request.kind === "ai_reference") trackFeature(`export_${request.kind}`);
 				if (request.kind === "frame") {
 					track("export:blocking_frame_succeeded", { format: "png" });
 					trackFeature("export_frame"); trackActivation("export");
@@ -2936,11 +2936,11 @@ export default function App() {
 		return burnInRgba(pixels, output.width, output.height, reviewSlate({ shot: shotForFrame, frame, fps: TIMELINE_FPS,
 			focalMm: sampled?.focalMm, projectName, focusDistance: focusDistance(sampled?.pos, target) }));
 	}
-	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "linear", fileName = null } = {}, job = null) {
+	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "linear", fileName = null, decorate = undefined } = {}, job = null) {
 		const resolvedEndFrame = endFrame ?? Math.max(0, currentRecordFrameCount() - 1);
 		// Preserve the download-free browser seam, without a nested lifecycle.
 		if (!job) return executeExportRequest(exportRequest(passKind === "depth" ? "depth_video" : "video",
-			(ownedJob) => runShotExport({ startFrame, endFrame: resolvedEndFrame, download, passKind, depthRange, depthCurve, fileName }, ownedJob),
+			(ownedJob) => runShotExport({ startFrame, endFrame: resolvedEndFrame, download, passKind, depthRange, depthCurve, fileName, decorate }, ownedJob),
 			{ external: true, download }));
 		job.controller.signal.throwIfAborted();
 		const output = job.request.context.output;
@@ -2949,7 +2949,7 @@ export default function App() {
 			width: output.width, height: output.height,
 			capture: (frame, kind) => withExportFrame(frame, kind
 				? () => renderPass(job.capture, job.capture.scene, shotCamRef.current, kind, null, { depthRange, depthCurve }) : null),
-			decorate: passKind ? null : exportReviewDecoration,
+			decorate: passKind ? null : exportReviewDecoration, ...(decorate !== undefined ? { decorate } : {}),
 			passKind, signal: job.controller.signal,
 			onFrame: ({ index, frameCount }) => updateExportStatus(job, "encoding", {
 				completedFrames: index + 1, frameCount, cancellable: true,
@@ -4437,7 +4437,7 @@ export default function App() {
 		setProjectStartupOpen, setProjectBrowserOpen, runStudioAction,
 		projectManifest, projectSaveState, recState, exportMenuTriggerRef, exportMenuOpen,
 		exportShotIdRef, setExportMenuOpen, exportPhaseLabel,
-		resultOpen, shots, exportKeyframePacks,
+		resultOpen, shots, exportKeyframePacks, exportAiReference: () => runAiReferenceExport({ shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport }),
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
 		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,

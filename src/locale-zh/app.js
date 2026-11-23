@@ -40,6 +40,7 @@ export const ZH_APP = {
 	"Add at least one Shot before exporting OTIO": "导出 OTIO 前请至少添加一个镜头",
 	"The shot renderer is not ready": "镜头渲染器尚未就绪",
 	"Add at least one Shot before exporting a keyframe pack": "导出关键帧包前请至少添加一个镜头",
+	"Add at least one Shot before exporting an AI video reference": "导出 AI 视频参考前请至少添加一个镜头",
 	"Depth and normal passes exported": "深度和法线通道已导出",
 	"Add at least one Shot before exporting a storyboard": "导出故事板前请至少添加一个镜头",
 	"Composing the storyboard…": "正在编排故事板…",

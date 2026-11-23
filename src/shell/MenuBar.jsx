@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStudioShell } from "./studio-shell-context.js";
-import SourceOffer from "../source-offer.jsx";
+import SourceOffer from "../source-offer.jsx"; import AiReferenceMenuItem from "./AiReferenceMenuItem.jsx";
 import { ko } from "../locale.js"; import { WORKFLOW_ENTRY_ENABLED } from "../workflow-entry.js";
 import { noteShortcutsOpened } from "../shortcut-friction.js";
 import { appVersion } from "../app-version.js";
@@ -174,7 +174,7 @@ export default function MenuBar({ preferences }) {
 	const shell = useStudioShell();
 	const {
 		runStudioAction, projectSaveState, previsMode, recState, exportMenuTriggerRef, exportMenuOpen,
-		exportShotIdRef, setExportMenuOpen, shots, exportKeyframePacks, hasCameraKeys, motion,
+		exportShotIdRef, setExportMenuOpen, shots, exportKeyframePacks, exportAiReference, hasCameraKeys, motion,
 		exportRenderPasses, exportDepthVideo, exportStoryboard, downloadOtioCutList,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
 		castDomain, preferencesOpen, setPreferencesOpen, agentOpen, toggleAgent,
@@ -406,7 +406,7 @@ export default function MenuBar({ preferences }) {
 							>
 								<span className="menubar-item-label">{ko("Keyframe pack (zip)", "키프레임 팩 (zip)")}</span>
 								<Shortcut keys={`${MOD}E`} />
-							</button>
+							</button>{shots.length > 0 && <AiReferenceMenuItem disabled={recording} onClick={() => { closeMenus(false); void exportAiReference(); }} />}
 							{(shots.length > 0 || hasCameraKeys || motion) && (
 								<button
 									type="button"
