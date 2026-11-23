@@ -30,9 +30,9 @@ const CASES = {
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const BEFORE = {
-	rideCarry: "89e7e80c3862fc90c6b06d1d47c0e7267da7a80f623d13f32b664a3235c62b17", // pinned again with autorl 010 (its walks: the sway by the walking share); was de27b72fcc147fb4...
-	holdShare: "a301a50f6fdf636419fbc2940aed8f28029f0e0a6fa50063d850a1f312efbae6",
-	rollKey: "18b0abf907fcdfc7f0841505f841b12b9d3bb7d01c8403f81a1be98152791813",
+	rideCarry: "e91d7ea82c2cb1d226f3812001a34ca1d18c6e2e6050977bb8e404222bbd7f9d", // pinned again with autorl 010 (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies, autorl 013)
+	holdShare: "417da90d1512687047bbdc1bc6ea02c1f3ef1b420bb1ef8bee4ee26e8d773af1", // was a301a50f... (before aux.grips said the frame a hand took hold, autorl 013; the clip is the same)
+	rollKey: "40e3f44ed85bb5dfa238aa78f2d21716486d0f12ce6cce6136507bbbbef91aed", // was 18b0abf9... (before a hand took a prop as it lies, autorl 013)
 };
 // the knee note said again when a knee's side came from knee.js (notes.js, stored in every clip) goes back to its text of then
 const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";

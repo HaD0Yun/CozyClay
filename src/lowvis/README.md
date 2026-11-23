@@ -63,7 +63,7 @@ motion writer reads lists them, a value its scene leaves out is the one the Stud
 tint), and the install sets what differs (`character.add`, `character.update`). The engine never chooses either.
 - The motion is of a body of that size: `engine-simple/size.js` builds the body layer and solves each frame for the
   rig's own figure in a world divided by the scale and multiplies the result by it, and the lengths `engine.js` keeps
-  for a body (the pad between a wrist and what it holds, the grip offsets, the default heights) are multiplied by the
+  for a body (the pad between a wrist and what it holds, the default heights) are multiplied by the
   scale of the body they belong to. Lengths in a spec stay world metres. The clip character carries `scale` and `tint`;
   `validateClip`, the checks (`checks.js`, `pi/measure.mjs`) and the sheets (`pi/render.mjs`) read them.
 - The Studio take of a sized body (`studio/take.js`, `motion-v4/track/codec.js` `scale`) holds the unit skeleton's

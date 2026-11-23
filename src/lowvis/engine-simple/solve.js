@@ -187,7 +187,7 @@ export function solve(B, U = {}) {
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
 		quat[S.hand] = qMul(qFrame(dir, A.perp), qConj(qFrame(OFFSET[S.hand], [0, 0, -1])));
-		// aim: the hand's thumb side (rest +Z, the long axis of a prop held in it) points along a world direction
+		// aim: the hand's thumb side (rest +Z) points along a world direction; axes: the held prop's axes (own-body.js)
 		if (H[i]?.aimW > 0 && !H[i].axes) quat[S.hand] = qSlerp(quat[S.hand], qMul(qFrame(H[i].aim, sub(A.end, A.mid)), qConj(qFrame(Z, OFFSET[S.hand]))), H[i].aimW);
 		else if (H[i]?.aimW > 0) { const fore = norm(sub(A.end, A.mid)), x = H[i].axes; quat[S.hand] = qSlerp(quat[S.hand], qSlerp(aimTurn(x.a, fore, OFFSET[S.hand]), aimTurn(x.b, fore, OFFSET[S.hand]), x.w), H[i].aimW); }
 		place(S.fore); place(S.hand);

@@ -36,8 +36,8 @@ const mm = v => (v * 1000).toFixed(1);
 	assert.ok(lw < 1, `aim {y}: the cup's own up stays within 1 deg of world up while the hand puts it down (worst ${lw.toFixed(2)} deg)`);
 	assert.ok(ow > 20 && pw > 20, `without it the cup turns with the wrist (worst ${ow.toFixed(0)} deg; plain aim [0,0,1] ${pw.toFixed(0)} deg)`);
 	assert.ok(check.gripDrift < 1e-4 && check.gripTurn < 1e-4, `the cup stays fixed in the hand: the hand turns, not the cup (${check.gripDrift}, ${check.gripTurn})`);
-	const down = prop(level.parsed, "cup", 100), top = 0.75 + 0.05;
-	assert.ok(Math.abs(down.c[1] - top) < 0.03 && tiltOf(down.q) < 1, `let go on the table it stands level, ${mm(down.c[1] - top)} mm over its place`);
+	const down = prop(level.parsed, "cup", 100), top = prop(level.parsed, "cup", 79).c[1];
+	assert.ok(Math.abs(down.c[1] - top) < 1e-6 && tiltOf(down.q) < 1, `let go it stays level where the hand left it, ${mm(down.c[1] - top)} mm off that place`);
 	console.log(`ok aim {y}: worst tilt ${lw.toFixed(2)} deg against ${ow.toFixed(0)} deg without aim and ${pw.toFixed(0)} deg with aim [0,0,1]; grip drift ${check.gripDrift.toExponential(1)} m`);
 
 	// world: true is the world, the default is the body frame (heading 90: the body's forward is world +X)

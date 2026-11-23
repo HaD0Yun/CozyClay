@@ -101,6 +101,7 @@ export function afterFirstPass(props, chars, f) {
 		Object.assign(c, { snap: c.poseNow, snapF: f, gripTurn: [null, null], spun: c.facing == null ? 0 : wrap(facing - c.facing), facing });
 	}
 	for (const p of Object.values(props)) {
+		if (p.hand != null && p.gq) chars.find(c => c.id === p.holder).gripTurn[p.hand] = p.gq; // in one hand alone (engine.js follow)
 		if (!p.grips) continue;
 		const hand = g => g.c.poseNow.pos[HAND[g.i]];
 		for (const g of p.grips) if (!g.g) {

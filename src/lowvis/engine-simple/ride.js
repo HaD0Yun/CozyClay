@@ -12,7 +12,8 @@ import { INDEX as J, qAxisAngle } from "../rig17.js";
 import { add, len, norm, qConj, qMul, qRotate, qY, rad, sub } from "./math.js";
 import { solveSized } from "./size.js";
 
-/** The key that drives free prop p on frame f (null while a hand holds it or while it rides) and its ride in p.ride.
+/** The key that drives free prop p on frame f (null while a hand holds it, while it rides, and for a key of its own
+ *  that a hand took the prop off: let go, the prop stays where it is until a later key of its own) and its ride in p.ride.
  *  k.off: the frame a hand took the prop off that ride (it rode the frame before); the ride is over from then on. On
  *  that frame the ride that carried it the frame before carries it once more (moveRiders), whatever key starts there.
  *  A key of the prop's own that moves it over some frames (tip, move) and starts on a frame the prop rode into: the
@@ -23,7 +24,8 @@ export function propKey(p, f) {
 	if (took) took.off ??= f;
 	const into = !p.holder && !riding && k?.f === f && k.verb !== "launch" && (k.over ?? 12) > 0 && p.rideAt === f - 1 && p.rel.k.off == null ? p.rel.k : null;
 	p.ride = took?.off === f ? took : into ?? (riding && !p.holder && k.off == null ? k : null);
-	return p.holder || riding || into ? null : k;
+	const left = !!k?.c0 && p.droveAt !== f - 1; // a key that drove the prop and not on the frame before: a hand had it since, and it stays where that hand let it go
+	return p.holder || riding || into || left ? null : k;
 }
 
 /** A joint's place and turn { c, q } as the current pass reads body o (a character of engine.js): on the first pass its

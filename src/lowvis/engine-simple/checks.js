@@ -90,14 +90,15 @@ export function checkClip(clip, aux) {
 		if (p.pos.length === 3) continue;
 		// travel of a prop that nothing holds and no key moves: must be 0
 		for (let f = 1; f < F; f++) if (!aux.holders[p.id][f] && !aux.holders[p.id][f - 1] && !aux.keyed[p.id][f]) r.freeTravel += Math.hypot(p.pos[f * 3] - p.pos[f * 3 - 3], p.pos[f * 3 + 1] - p.pos[f * 3 - 2], p.pos[f * 3 + 2] - p.pos[f * 3 - 1]);
-		// a prop fixed in one hand: drift of its centre and of its rotation in the hand's frame
+		// a prop fixed in one hand: drift of its centre and of its rotation in the hand's frame, from where it lay in the
+		// hand on the frame that hand took it (each take has its own: aux.grips from)
 		let ref = null;
 		for (let f = 0; f < F; f++) {
 			const g = aux.grips[p.id][f], c = g && clip.characters.find(ch => ch.id === g.c);
 			if (!c) continue;
 			const j = HANDS[g.hand], hq = qConj(rot(c, f, j)), { c: pc, q: pq } = propAt(p, f), h = at(c, f, j);
 			const off = qRotate(hq, [pc[0] - h[0], pc[1] - h[1], pc[2] - h[2]]), axis = qRotate(hq, qRotate(pq, [0, 0, 1]));
-			ref ??= { off, axis };
+			if (ref?.from !== g.from) ref = { off, axis, from: g.from };
 			r.gripDrift = Math.max(r.gripDrift ?? 0, Math.hypot(off[0] - ref.off[0], off[1] - ref.off[1], off[2] - ref.off[2]));
 			r.gripTurn = Math.max(r.gripTurn ?? 0, Math.asin(Math.min(1, Math.hypot(axis[1] * ref.axis[2] - axis[2] * ref.axis[1], axis[2] * ref.axis[0] - axis[0] * ref.axis[2], axis[0] * ref.axis[1] - axis[1] * ref.axis[0]))));
 		}

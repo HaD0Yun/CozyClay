@@ -76,10 +76,13 @@ function sled({ step = 0.4, one = false } = {}) {
 	assert.ok(at1.length === 1 && at1[0].value > 5.5 && at1[0].value < 6.5 && at1[0].spike === 100 * JUMP, `scale 1: ${at1[0]?.value}`);
 	assert.deepEqual(at14, [], "a 6 cm hop of a body at scale 1.4 is under its threshold");
 	assert.ok(Math.abs(small(1.4, 3.3)[0].spike - 100 * JUMP * 1.4) < 1e-9);
-	// props: a prop that snaps into the hand that takes it; a step a key of its own asks for; a jump onto the place of a ride
+	// props: a prop pulled to a hand that takes it at once (over 0) out of its reach, told also as the hand's own row; the
+	// same hold over 12 frames: the hand goes to it first, no jump; a step a key of its own asks for; a jump onto the place of a ride
 	const crate = (id, at) => ({ id, size: [0.3, 0.3, 0.3], at, moves: true });
-	const snap = jumps({ a: [[5, "hold", { prop: "stick", hand: "R", over: 12 }]] }, { frames: 60, characters: body(), props: [{ id: "stick", size: [0.03, 0.03, 0.7], at: [0.25, 0.9, 0.3], moves: true }] }).rows;
+	const stickAt = over => jumps({ a: [[5, "hold", { prop: "stick", hand: "R", over }]] }, { frames: 60, characters: body(), props: [{ id: "stick", size: [0.03, 0.03, 0.7], at: [0.25, 0.9, 0.3], moves: true }] }).rows;
+	const snap = stickAt(0);
 	assert.deepEqual(snap.map(r => [r.key, r.prop, r.frame]), [["jump:props", "stick", 5]]);
+	assert.deepEqual(stickAt(12), [], "a hold over 12 frames: the hand goes to the stick first and it does not jump");
 	assert.match(snap[0].note, /^stick; steps into f4, f5, f6: 0\.0, [\d.]+, 0\.0 cm$/);
 	for (const over of [0, 1]) assert.deepEqual(jumps({ a: [[0, "idle"]], p: [[20, "move", { to: [3, 0.15, 0], over }]] }, { frames: 40, characters: body(), props: [crate("p", [1, 0.15, 0])] }).rows, [], `over ${over} asks for the step`);
 	const rideSpec = { a: [[0, "idle"]], cart: [[10, "move", { to: [1, 0.2, 2], over: 50 }]], load: [[30, "ride", { on: "cart", at: [0, 0.35, 0] }]] };
