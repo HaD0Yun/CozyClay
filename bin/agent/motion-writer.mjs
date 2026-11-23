@@ -26,9 +26,10 @@ async function proxyLists(v1Base, apiKey, id) {
 	return ok;
 }
 
-/** Whether the environment's CLIProxyAPI (CLIPROXY_BASE_URL and CLIPROXY_API_KEY, which the harness reads) lists the motion model. */
-function environmentServes(env) {
-	return env?.CLIPROXY_BASE_URL && env?.CLIPROXY_API_KEY ? proxyLists(`${cliproxyBase({ env })}/v1`, env.CLIPROXY_API_KEY, motionWriter(env).model) : Promise.resolve(false);
+/** Whether the environment's CLIProxyAPI (CLIPROXY_BASE_URL and CLIPROXY_API_KEY, which the harness reads) lists the motion model; a value that is no address: false. */
+async function environmentServes(env) {
+	if (!env?.CLIPROXY_BASE_URL || !env?.CLIPROXY_API_KEY) return false;
+	try { return await proxyLists(`${cliproxyBase({ env })}/v1`, env.CLIPROXY_API_KEY, motionWriter(env).model); } catch { return false; }
 }
 
 /** "<provider>/<model> at <effort>, <how>": how the answer and the direct key name the writer of a motion. */
@@ -52,18 +53,24 @@ export async function writerRoute({ env = process.env, models = null, picked = n
 	const signable = new Set([...PROVIDERS.map(provider => provider.id), ...Object.keys(readKeys()), ...Object.keys(readCredentials())]);
 	const key = picked || DEFAULT_MODEL, slash = key.indexOf("/"), turnProvider = slash === -1 ? "openai-codex" : key.slice(0, slash);
 	const authOf = async provider => (signable.has(provider) ? registry.getAuth(provider).catch(() => undefined) : undefined);
-	const secretsOf = auth => [auth?.auth?.apiKey, auth?.env?.CLIPROXY_BASE_URL].filter(Boolean);
+	// what the run record and the messages of a failed run scrub, for any provider: the credential (key, headers), the
+	// values its sign-in stored with it (a server's address), the address the model is asked at and that address's host
+	const secretsOf = (auth, piModel) => {
+		let host = null;
+		try { host = new URL(piModel?.baseUrl).host; } catch { /* a model without an address */ }
+		return [...new Set([auth?.auth?.apiKey, ...Object.values(auth?.auth?.headers ?? {}), ...Object.values(auth?.env ?? {}), piModel?.baseUrl, host])].filter(value => typeof value === "string" && value.length >= 8).sort((a, b) => b.length - a.length);
+	};
 	for (const provider of new Set([turnProvider, ...signable])) {
 		const piModel = registry.getModel?.(provider, motionModel);
 		if (!piModel || clampThinkingLevel(piModel, effort) !== effort) continue;
 		const auth = await authOf(provider);
 		if (!auth) continue;
 		if (provider === "cliproxy" && !await proxyLists(`${cleanBase(piModel.baseUrl)}/v1`, auth.auth?.apiKey, motionModel)) continue;
-		return route({ via: "sign-in", provider, model: motionModel, models: registry, piModel, secrets: secretsOf(auth) });
+		return route({ via: "sign-in", provider, model: motionModel, models: registry, piModel, secrets: secretsOf(auth, piModel) });
 	}
 	if (!session || !signable.has(turnProvider)) return null;
 	const auth = await authOf(turnProvider);
 	const chosen = auth ? await resolveModel(key, { models: registry }).catch(() => null) : null;
 	if (!chosen) return null;
-	return route({ via: "session model", provider: chosen.provider, model: chosen.modelId, effort: clampThinkingLevel(chosen.model, effort), models: registry, piModel: chosen.model, secrets: secretsOf(auth) });
+	return route({ via: "session model", provider: chosen.provider, model: chosen.modelId, effort: clampThinkingLevel(chosen.model, effort), models: registry, piModel: chosen.model, secrets: secretsOf(auth, chosen.model) });
 }

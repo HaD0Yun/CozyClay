@@ -203,11 +203,14 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
-	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles, ...(writer ? { writer: writer.label } : {}), ...from }, none = { characterIds: [], objectIds: [], switched: [] };
+	// the answer names the writer: the route's label, and the name the provider gave what it served when that is another one
+	const servedAs = writer ? (record.served?.models ?? []).filter(id => !String(id).startsWith(writer.model)) : [];
+	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles, ...(writer ? { writer: servedAs.length ? `${writer.label}; the provider names what it served ${servedAs.join(", ")}` : writer.label } : {}), ...from }, none = { characterIds: [], objectIds: [], switched: [] };
 	if (!record.final) {
 		try {
 			if (signal?.aborted) throw failure("aborted", "The motion writer was stopped before it compiled a motion.");
-			if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
+			// with a route the failure names the writer, so the agent can say which sign-in or proxy to look at
+			if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}${writer ? ` (the motion writer: ${writer.label})` : ""}`);
 			if (record.report) return { ...base, frames: 0, clipSeconds: 0, ...none, installed: false, notInstalled: "The motion writer compiled no motion." };
 			throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
 		} catch (error) { throw await draft.failed(error); }
