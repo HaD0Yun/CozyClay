@@ -42,7 +42,7 @@ console.log("ok parts: one box per drawn joint, around its solids, named for the
 
 // --- 2. the manual: the parts of the look the Studio draws at scale 1, with the tops step only ---
 {
-	const cube = systemPrompt("studio", [], B, "cube"), block = systemPrompt("studio", [], 1, null), line = text => /A body's drawn parts, each named for its joint,[^\n]*/.exec(text)?.[0];
+	const cube = systemPrompt("studio", [], B, "cube"), block = systemPrompt("studio", [], 1, null), line = text => /A body's drawn parts, named for their joints,[^\n]*/.exec(text)?.[0];
 	const r3 = v => Number((Math.abs(v) < 5e-4 ? 0 : v).toFixed(3));
 	assert.ok(line(cube).includes(`Head [${HEAD.c.map(v => r3(v * B)).join(", ")}] [${HEAD.h.map(v => r3(2 * v * B)).join(", ")}]`), "the cube head as its solids give it, times the look's body");
 	assert.notEqual(line(cube), line(block), "another look, other parts");
@@ -175,6 +175,11 @@ const SCENE = { frames: 120, characters: [{ id: "figure1", at: [0, 0], heading: 
 	assert.equal(ride("pouch", hat([0.04, 0.04, 0.04]), { joint: "Hips", of: "a", at: [hip(0) + thigh.h[0] * B + 0.03, hip(1), hip(2)] }), undefined, "a prop off its joint's part but at another part: no row");
 	const out = ride("out", hat([0.04, 0.04, 0.04]), { joint: "Hips", of: "a", at: [hip(0) + thigh.h[0] * B + 0.3, hip(1), hip(2)] });
 	assert.ok(out && /off the body, its nearest part /.test(out.note), `far from every part: ${out?.note}`);
-	console.log(`ok rides: sunk ${sunk.value.toFixed(1)} mm, hollow none, around ${around.value.toFixed(1)} mm, off ${off.value.toFixed(1)} mm (${off.note.split(";")[0]}), beside the thigh none`);
+	// hands on a cap the head wears (10 mm over its top): on what the body wears, not off the body; with no cap they are
+	const capped = (name, props, extra) => { const r = tool(name).call({ scene: { frames: 60, characters: [{ id: "a", at: [0, 0], heading: 0 }], props }, spec: { a: [[0, "idle"], [5, "pose", { L: { joint: "Head", at: [0.1, hh + 0.07, HC[2]] }, R: { joint: "Head", at: [-0.1, hh + 0.07, HC[2]] }, over: 10 }]], ...extra } }); assert.equal(r.status, "ok", r.error); return r.rows.filter(x => /^body:a\.[LR] hand>a$/.test(x.key)); };
+	const bare = capped("bare", []), worn = capped("worn", hat([0.3, 0.06, 0.3]), { hat: [[0, "ride", { joint: "Head", of: "a", at: [0, hh + 0.03, HC[2]] }]] });
+	assert.ok(bare.length === 2 && bare.every(x => /off the body, its nearest part Head/.test(x.note)), `hands 70 mm over a bare head are off it: ${bare.map(x => x.note)}`);
+	assert.equal(worn.length, 0, `hands on the cap the head wears are not off the body: ${worn.map(x => `${x.value.toFixed(1)} ${x.note}`)}`);
+	console.log(`ok rides: sunk ${sunk.value.toFixed(1)} mm, hollow none, around ${around.value.toFixed(1)} mm, off ${off.value.toFixed(1)} mm (${off.note.split(";")[0]}), beside the thigh none; hands on a worn cap none (bare head ${bare[0].value.toFixed(1)} mm off)`);
 }
 console.log("PASS verify-body-parts");

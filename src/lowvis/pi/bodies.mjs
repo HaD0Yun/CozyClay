@@ -6,7 +6,8 @@
 //    resolveParts writes it), on the frames after that action's blend (aux.reach has the limb on that key): the hand is
 //    its wrist to its finger tip (5 points), the foot its sole and toe tip (gaps.mjs); against every drawn part of that
 //    body (on the own body, the parts of the limb's own arm or leg left out): inside past LIMIT (the deepest point), or
-//    off past GAP (the nearest point to the nearest part).
+//    off past GAP (the nearest point to the nearest part), and that far from every prop that rides that body too (a hand
+//    on a worn prop is on what the body wears).
 //  - ride: a prop that rides a joint that has a drawn part (aux.rides, while it rides: up to its next key or a hand
 //    taking it off; on frames it is shown), its box (its drawn parts when it has them; a ball as a ball): sunk into the
 //    parts of that joint past LIMIT (the least distance it would have to move to be clear of the part, as the inside
@@ -168,6 +169,8 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			}
 		}
 	}
+	/** The props that ride a joint of a body on frame f, while they ride and are shown: [{ r: the ride, p: the prop, b: the body }]. */
+	const riding = f => (aux.rides ?? []).flatMap(r => { const p = r.joint && r.began != null && f >= r.began && f < (r.next ?? F) && (r.cut ??= heldFrom(aux, r, F)) > f && clip.props.find(x => x.id === r.prop), b = bodyOf.get(r.of); return p && b && p.shown?.[f] !== 0 ? [{ r, p, b }] : []; });
 	const left = new Map(); // per hand or foot and body: the last frame it was the tied row's with that body
 	const bodyOf = new Map(chars.map(c => [c.id, c])), tiedTo = (c, f, i) => { const k = aux.reach?.[c.id]?.[f]?.[i]?.key; return k == null ? null : tied.get(c.id)[i].get(k) ?? null; };
 	const tiedSpan = (c, f, i, id) => spans.get(c.id)[i].some(e => e.body === id && f >= e.a && f < (e.b ?? F));
@@ -193,14 +196,12 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 				if (bound[n][k] >= near.v) return;
 				const d = Math.max(0, pointSd(W, p)); if (d < near.v) near = { v: d, part: JOINTS[joint] };
 			}));
-			const inside = deep.v > LIMIT * s, gone = !inside && near.v > GAP * s;
+			// off: past GAP from the body and from every prop that rides it (a hand on a worn prop is on what the body wears)
+			const inside = deep.v > LIMIT * s, gone = !inside && near.v > GAP * s && !riding(f).some(r => r.b === b && propShapes(r.p, f).some(x => pts.some(q => (x.ball ? Math.hypot(...sub(q, x.c)) - x.r : pointSd(x, q)) <= GAP * s)));
 			if (inside || gone) note(`body:${c.id}.${LIMB[i]}>${b.id}`, { who: c.id, body: b.id, limb: LIMB[i], kind: "tied", limits: [LIMIT * s, GAP * s] }, inside ? deep.v : near.v, f, inside ? { inside: true, part: deep.part } : { part: near.part });
 		}
 		// rides on a joint with a drawn part
-		for (const r of aux.rides ?? []) {
-			if (!r.joint || r.began == null || f < r.began || f >= (r.next ?? F)) continue;
-			const p = clip.props.find(x => x.id === r.prop), b = bodyOf.get(r.of);
-			if (!p || !b || p.shown?.[f] === 0 || (r.cut ??= heldFrom(aux, r, F)) <= f) continue;
+		for (const { r, p, b } of riding(f)) {
 			const parts = P.get(b.id).filter(x => x.joint === J[r.joint]);
 			if (!parts.length) continue;
 			const s = b.scale ?? 1, list = propShapes(p, f);
@@ -252,4 +253,4 @@ function rowOf(e) {
 }
 
 /** What the body lines measure and leave out, said once in a session (compile-tool.mjs): look, the look the bodies are drawn in. */
-export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; hands are not parts), on every frame. A hand (wrist to finger tip) or a foot (sole and toe tip) whose target is a place on a body, after its blend: inside or off that body's nearest part past the limits its line states (on the own body the limb's own arm or leg left out). A prop riding a joint with a drawn part, its box (its drawn parts; a ball as a ball): sunk into that part by the least move that clears it (a box around a part: no less than the part's size; a hollow prop is not told as sunk), or off every part of the body. Through: an upper arm, forearm, thigh, shin, hand or foot is the line of its joints (to the finger or toe tip), told by that line's depth inside a part, so not while it rests on one: a body's arms in its own parts (the arm's own and the part it hangs from left out; its own legs not measured), any limb in another body's parts, two bodies' other parts in each other as solids; each pair of parts by its own frames, the deepest named. Not counted: a hand or foot inside the body its target is on, up to its next key and while it leaves it (its own line says it). The engine moves nothing because of it.`;
+export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; hands are not parts), on every frame. A hand (wrist to finger tip) or a foot (sole and toe tip) whose target is a place on a body, after its blend: inside or off that body's nearest part past the limits its line states (on the own body the limb's own arm or leg left out; not off while on a prop that rides the body). A prop riding a joint with a drawn part, its box (its drawn parts; a ball as a ball): sunk into that part by the least move that clears it (a box around a part: no less than the part's size; a hollow prop is not told as sunk), or off every part of the body. Through: an upper arm, forearm, thigh, shin, hand or foot is the line of its joints (to the finger or toe tip), told by that line's depth inside a part, so not while it rests on one: a body's arms in its own parts (the arm's own and the part it hangs from left out; its own legs not measured), any limb in another body's parts, two bodies' other parts in each other as solids; each pair of parts by its own frames, the deepest named. Not counted: a hand or foot inside the body its target is on, up to its next key and while it leaves it (its own line says it). The engine moves nothing because of it.`;

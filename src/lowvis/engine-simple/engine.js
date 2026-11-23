@@ -49,9 +49,8 @@
 //                      its own frame (the axes of its size)
 //                    | {on:propId, part, at?}   the same on one of the prop's parts, by its name: at from that part's
 //                      centre, along the prop's axes; a hold's at of a hand may be {part, at?} too
-//                    | {on:characterId, part, at?}   a place on a drawn part of that body (its own or another's; a part
-//                      is named for its joint): at from that part's centre in the joint's frame, as {joint, at} gives
-//                      it; a ride's {on:characterId, part, at?} rides that part's joint, its centre at that place
+//                    | {on:characterId, part, at?}   a place on a body's drawn part, its own too (a part has its
+//                      joint's name): at from the part's centre in that joint's frame; as a ride: on that joint, there
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
 //         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
 //         shoulder as one piece, keeping its bend (a wrist blending to or from its own target: by the part of the
