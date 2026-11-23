@@ -1,9 +1,10 @@
 // frame_shot's view of the whole shot, read from lenient compiles of its named subjects' installed takes.
+// A take is compiled again for the body it was made for (take.scale: rigs/posted.js skeletonAt), so its joints are where the stage draws them.
 // over: "shot" fits one camera to every pose of the shot; any other framing that holds the shot still says what it will miss.
 import { compileSpec } from "../motion3/pipeline.js";
 import { rawCompile } from "../motion-v4/track/literal.js";
 import { motionScene } from "../motion3/scene.js";
-import { skeletonFor } from "../motion3/rigs/index.js";
+import { skeletonAt } from "../motion3/rigs/posted.js";
 import { fitHeld, heldIssues, placedOut } from "../motion3/shot-framing.js";
 import { shotAtFrame } from "../cuts.js";
 import { sampleContactSheetFrames } from "../studio-contact-sheet.js";
@@ -15,11 +16,11 @@ import { fail } from "./shared.js";
 const SAMPLES = 24, FPS = 24;
 
 function compiledTake(character, take, ports) {
-	const sk = take?.schema === "cozyclay.take.v3" && take.spec ? skeletonFor(take.rig ?? character.model) : null;
+	const of = take?.scale ?? 1, sk = take?.schema === "cozyclay.take.v3" && take.spec ? skeletonAt(take.rig ?? character.model, take.spec.raw ? 1 : of) : null;
 	if (!sk) return null;
 	try {
 		const objects = ports.state().objects, compiled = rawCompile(take, objects) ?? compileSpec({ fps: FPS, ...take.spec }, { sk, scene: motionScene(objects) }, { lenient: true });
-		return placedOut(compiled.out, take.placement, character, take.spec.raw ? take.scale ?? 1 : 1);
+		return placedOut(compiled.out, take.placement, character, of);
 	} catch { return null; }
 }
 

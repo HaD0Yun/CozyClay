@@ -10,21 +10,24 @@ import { fail } from "./shared.js";
 import { characterName } from "../character-name.js";
 import { bodyScale, scaleOf } from "../lowvis/studio/figure.js";
 import { sizedRig } from "../motion3/rigs/index.js";
+import { ownSize, skeletonAt, unitTake } from "../motion3/rigs/posted.js";
 
 const SAMPLE = "motion.sample reads the take's bones at the character's place and scale.";
 const same = (a, b) => Math.abs(a - b) <= 1e-6;
 
 /**
  * The compile job's body for `character`: { model, rigs } to send (the rig at the size it stands as, registered by the
- * job), and unit(result), which gives the take back in the rig's own size with its size on it. At the rig's own size:
- * the character's model and the result as it is.
+ * job), and unit(result), which gives the take back in the rig's own size with its size on it (posted.js unitTake). At
+ * the rig's own size: the character's model and the result as it is.
  */
 export function compileBody(character) {
-	const size = bodyScale(character), sized = same(size, 1) ? null : sizedRig(character.model, size);
+	const size = bodyScale(character), sized = ownSize(size) ? null : sizedRig(character.model, size);
 	if (!sized) return { model: character.model, rigs: {}, unit: r => r };
-	const unit = take => ({ ...take, rig: character.model, hips: take.hips.map(v => v / size), scale: size });
-	return { model: sized.id, rigs: { [sized.id]: sized.rig }, unit: r => (r?.take ? { ...r, take: unit(r.take) } : r) };
+	return { model: sized.id, rigs: { [sized.id]: sized.rig }, unit: r => (r?.take ? { ...r, take: unitTake(r.take, character.model, size) } : r) };
 }
+
+/** The skeleton of the body `character` stands as (posted.js skeletonAt): what a spec's named poses and skills are fitted to before the job. */
+export const bodySkeleton = character => skeletonAt(character.model, bodyScale(character));
 
 /** Throws TARGET_NOT_READY when `action` (a read that measures by compiling the installed take's spec again) cannot measure this body's take. */
 export function measurable(character, take, action) {

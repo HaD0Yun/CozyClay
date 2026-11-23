@@ -35,7 +35,7 @@ import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
 import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
-import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { compileBody, measurable } from "./motion3-scale.js"; import { bodyScale } from "../lowvis/studio/figure.js";
+import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js"; import { compileBody, bodySkeleton, measurable } from "./motion3-scale.js"; import { bodyScale } from "../lowvis/studio/figure.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -194,7 +194,7 @@ export function register(registry, ports) {
 		if (patch !== undefined && base === undefined) argumentFail("$.args.patch applies to base, the specId of a compiled spec; send base with it, or the whole spec.", "$.args.base", "missing");
 		// a base the store forgot (a reload) may still be the installed take's spec: a document read names it by specId
 		const installedSpec = () => { const take = owner().motionFor(characterId); return take?.spec && specIdOf(take.spec) === base ? structuredClone(take.spec) : null; };
-		const patched = [], source = spec ? expandPoses(spec, skeletonFor(characterOf(ports, characterId).model)) : asArgument(() => applyPatch(store.get(base) ?? installedSpec() ?? unknownSpec("base", base), patch ?? [], patched), "$.args.patch");
+		const patched = [], source = spec ? expandPoses(spec, bodySkeleton(character)) : asArgument(() => applyPatch(store.get(base) ?? installedSpec() ?? unknownSpec("base", base), patch ?? [], patched), "$.args.patch");
 		const scene = sceneFor(character), at = placeKey(character, scene);
 		// the take is always baked: the user watches every draft, installed or not
 		// MotionBricks fills between the authored key poses first when spec.fill is true and the dev server can run it (motion3-fill.js autoFill)
@@ -295,7 +295,7 @@ export function register(registry, ports) {
 	// and installed whatever QA says (a user edit), as one undo entry
 	registry.register({ ...declarations[5], available: mounted, target: args => args.characterId, run({ characterId, ...args }, context) {
 		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character);
-		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args");
+		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: (rigOf(character), bodySkeleton(character)), scene, lenient: true }).spec.objects), "$.args");
 		return after(compile(character, spec, { lenient: true }, { prompt: take.prompt }), r => {
 			const timing = put(character, r.take, context);
 			return { affectedIds: [characterId], summary: `${keyed.removed ? "Removed the key of" : "Keyed"} ${keyed.objectId} at f${keyed.f}; QA ${qaSay(r.qa)}; installed.`,

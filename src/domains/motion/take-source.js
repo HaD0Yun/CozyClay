@@ -3,10 +3,13 @@
 // deterministic, so compiling the source again rebuilds the same bones: this follows the
 // motion.compile install path step for step (pipeline compileSpec, then bakeTake). Searched
 // open parameters are already resolved in the stored spec, so no search runs again.
+// A take compiled for a body of another size than its rig's own (commands/motion3-scale.js) keeps that size in its
+// source (scale), and compiles back on the rig at that size: the same bones, places and object tracks. A raw track
+// keeps its size in spec.raw (motion-v4/track/codec.js).
 import { compileSpec } from "../../motion3/pipeline.js";
 import { bakeTake } from "../../motion3/take.js";
 import { motionScene } from "../../motion3/scene.js";
-import { skeletonFor } from "../../motion3/rigs/index.js";
+import { skeletonAt, ownSize, unitTake } from "../../motion3/rigs/posted.js";
 import { isTakeV3 } from "../../motion3/playback.js";
 import { normalizeTakeEdit } from "../../motion3/take-edit.js";
 import { compileRawSource } from "../../motion-v4/track/literal.js";
@@ -18,12 +21,14 @@ const SPEC_SCHEMA = "cozyclay.motion-spec.v1";
 const TIMELINE_FPS = 24;
 const plain = value => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const finite3 = value => Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+/** { scale } of a source whose compiled take was made for another size than its rig's own, else {}. */
+const sizeOf = ({ scale, spec }) => (!spec?.raw && Number.isFinite(scale) && !ownSize(scale) ? { scale } : {});
 
 /** The JSON source of an installed take v3 (null for any other motion). Skills, anchors and
  * hinges may read any scene object, so the whole compile scene is kept. */
 export function takeSource(take, sceneObjects = []) {
 	if (!isTakeV3(take) || !plain(take.spec)) return null;
-	return structuredClone({ schema: TAKE_SCHEMA, rig: take.rig, spec: take.spec,
+	return structuredClone({ schema: TAKE_SCHEMA, rig: take.rig, spec: take.spec, ...sizeOf(take),
 		placement: { position: take.placement?.position ?? [0, 0, 0], yaw: take.placement?.yaw ?? 0 }, scene: { ...motionScene(sceneObjects), ...(plain(take.people) ? { people: take.people } : {}) } });
 }
 
@@ -35,7 +40,7 @@ export function normalizeTakeSource(value) {
 	const objects = plain(value.scene?.objects) ? value.scene.objects : {}, others = plain(value.scene?.others) ? { others: value.scene.others } : {};
 	// the joints a person anchor named when it was compiled (people.js keptPeople)
 	const people = plain(value.scene?.people) && Object.values(value.scene.people).every(p => plain(p) && Array.isArray(p.names) && Array.isArray(p.P) && p.P.length === p.frames * p.names.length * 3) ? { people: value.scene.people } : {};
-	return structuredClone({ schema: TAKE_SCHEMA, rig: value.rig, spec: value.spec,
+	return structuredClone({ schema: TAKE_SCHEMA, rig: value.rig, spec: value.spec, ...sizeOf(value),
 		placement: { position: value.placement.position, yaw: value.placement.yaw }, scene: { objects, ...others, ...people },
 		...(typeof value.takeId === "string" && value.takeId ? { takeId: value.takeId } : {}),
 		...(normalizeTakeEdit(value.edit, value.spec.frames) ? { edit: normalizeTakeEdit(value.edit, value.spec.frames) } : {}),
@@ -49,9 +54,9 @@ export const savedTakeSource = descriptor => descriptor?.source ? { ...descripto
  * Leniently: a field a later, stricter validator does not know never blocks loading a saved take. */
 export function compileTakeSource(source) {
 	if (source?.spec?.raw) return compileRawSource(source);
-	const sk = skeletonFor(source?.rig);
+	const size = sizeOf(source ?? {}).scale ?? 1, sk = skeletonAt(source?.rig, size);
 	if (!sk || !plain(source.spec)) return null;
 	const { out } = compileSpec({ fps: TIMELINE_FPS, ...source.spec }, { sk, scene: source.scene ?? { objects: {} } }, { lenient: true });
-	const take = bakeTake(sk, out, source.placement, { spec: source.spec, prompt: source.spec.label ?? "" });
+	const take = unitTake(bakeTake(sk, out, source.placement, { spec: source.spec, prompt: source.spec.label ?? "" }), source.rig, size);
 	return { ...take, frames: take.frameCount };
 }
