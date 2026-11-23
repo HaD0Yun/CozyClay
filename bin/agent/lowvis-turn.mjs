@@ -36,7 +36,7 @@ export async function withMotionModels(listing, env = process.env) {
  * Ends the record with a done frame, then closes the stream and clears the session's running turn the way
  * agent-routes.mjs does.
  */
-export async function runLowvisTurn({ value, session, send, close, res, controller, studioTools, hub, studioRunners, env = process.env, studioIdentity, admission }) {
+export async function runLowvisTurn({ value, session, send, close, res, controller, studioTools, hub, studioRunners, env = process.env, models = null, studioIdentity, admission }) {
 	if (!isLowvisModel(value.model)) return false;
 	// a conversation that ran on another engine: its pi runner keeps that engine's prompt, so it is closed (v4/dispatch.mjs)
 	if (session.modelSession && (session.turnEngine ?? "studio") !== "lowvis") {
@@ -52,15 +52,17 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 	try {
 		try {
 			let compiles = 0;
-			const { runMotion } = await import("./motion-run.mjs");
-			const done = await runMotion({ words: value.text, memoryKey: value.sessionId, hub, workspaceHandle: value.context.host.workspaceHandle, invoke: (action, args) => studioTools.internal.invoke("run_action", { action, args }), signal, env, inbox, onCompile: ({ n, ok, line }) => {
+			const [{ runMotion }, { writerRoute }] = await Promise.all([import("./motion-run.mjs"), import("./motion-writer.mjs")]);
+			// the motion model through the environment's proxy or a sign-in (motion-writer.mjs); none: the run says why, as before
+			const writer = await writerRoute({ env, models, session: false });
+			const done = await runMotion({ ...(writer ? { writer } : {}), words: value.text, memoryKey: value.sessionId, hub, workspaceHandle: value.context.host.workspaceHandle, invoke: (action, args) => studioTools.internal.invoke("run_action", { action, args }), signal, env, inbox, onCompile: ({ n, ok, line }) => {
 				// one tool row per compile, as the panel shows any tool call
 				const callId = `lowvis-motion-${value.turnId}-${++compiles}`;
 				send({ type: "tool.start", callId, name: "motion", label: "compile the motion", args: { n } });
 				send(ok ? { type: "tool.done", callId, ok: true, elapsedMs: 0, result: { n } } : { type: "tool.done", callId, ok: false, elapsedMs: 0, error: line });
 			} });
 			// what was not installed is said (motion-run.mjs notInstalled); this key has no way to install it later
-			send({ type: "text.delta", text: `${done.report ?? (done.installed === false ? "" : "The motion is installed.")}${done.notInstalled ? `\n\n${done.notInstalled}` : ""}\n\n(${done.frames} frames = ${done.clipSeconds} s of motion, ${done.characterIds.length} character(s), ${done.objectIds.length} object(s), made in ${done.tookSeconds} s, ${done.compiles} compile(s))` });
+			send({ type: "text.delta", text: `${done.report ?? (done.installed === false ? "" : "The motion is installed.")}${done.notInstalled ? `\n\n${done.notInstalled}` : ""}\n\n(${done.frames} frames = ${done.clipSeconds} s of motion, ${done.characterIds.length} character(s), ${done.objectIds.length} object(s), made in ${done.tookSeconds} s, ${done.compiles} compile(s)${done.writer ? `; written by ${done.writer}` : ""})` });
 		} catch (error) {
 			if (!signal.aborted) send({ type: "error", code: typeof error?.code === "string" && error.code ? error.code : "upstream", message: String(error?.message ?? error) });
 		}

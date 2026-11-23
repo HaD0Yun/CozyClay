@@ -464,7 +464,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
 		const turnTransaction = studioTransaction({ hub, context: current, turnId: value.turnId, admission, task: value.task, signal: controller.signal, plain: Boolean(value.main), onWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }); // the user mid-drag (studio-busy-wait.mjs)
 		// The lowvis motion engine (bin/agent/lowvis-turn.mjs, prototype) runs its own model key: the lowvis authoring loop, then the clip installed as scene content.
-		if (await (await import("./lowvis-turn.mjs")).runLowvisTurn({ value, session, send, close, res, controller, studioTools: tools, hub, studioRunners, env, studioIdentity, admission })) return true;
+		if (await (await import("./lowvis-turn.mjs")).runLowvisTurn({ value, session, send, close, res, controller, studioTools: tools, hub, studioRunners, env, models: ensureWorkflowModels, studioIdentity, admission })) return true;
 		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner (a motion task's run: inside its task transaction). Every other model goes on below.
 		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, transaction: turnTransaction, fauxProvider, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
 		// An edit of an object the last motion uses answers how it now differs from the motion's box (motion-fit.mjs).
@@ -480,7 +480,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			},
 		}))));
 		// The motion tool (motion-door.mjs): body motion of rig characters goes to the motion environment.
-		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, hub, tools, transaction: turnTransaction, admission, signal: controller.signal });
+		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, models: ensureWorkflowModels, hub, tools, transaction: turnTransaction, admission, signal: controller.signal });
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.
 		// A script's tools tell the motion door every id they change (motionDoor.nested), so a running motion's guard sees past the summary.
 		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: motionDoor ? motionDoor.nested([...modelTools, plan.nested]) : [...modelTools, plan.nested], signal: controller.signal, emit: send });

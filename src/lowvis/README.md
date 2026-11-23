@@ -82,8 +82,14 @@ tint), and the install sets what differs (`character.add`, `character.update`). 
 The motion door. The Studio's default agent has one tool for body motion, `motion { request, images? }`
 (`bin/agent/motion-door.mjs`). It hands the user's words to `runMotion` (`bin/agent/motion-run.mjs`): the editor's
 describe answer becomes the props and characters of the scene, the motion writer (`src/lowvis/pi/harness.mjs`,
-claude-opus-5-5 at effort medium on CLIProxyAPI, variant `studio`) writes and checks the motion, and the clip is
-installed. The tool answers the motion writer's report, which ends with a Missing line; the agent repeats it. Pictures
+variant `studio`) writes and checks the motion, and the clip is installed. The writer's model
+(`bin/agent/motion-writer.mjs`): claude-opus-5-5 at effort medium through `CLIPROXY_BASE_URL` / `CLIPROXY_API_KEY` when
+they are set and that proxy lists it; else through a sign-in of the model picker that offers it, on the provider
+registry the agent's own turns use; else the model the turn runs on. With none of them the session has no motion tool,
+and the agent tells the user to sign in. A sign-in that lists the motion model and then refuses it for the account
+(not found, not permitted, not on the plan; never a rate limit, a refused credential or a server error) is asked once
+per conversation: the model the turn runs on writes that motion and the later ones. The answer's `writer` names the
+model that wrote, and the sign-in that refused which model when one did. The tool answers the motion writer's report, which ends with a Missing line; the agent repeats it. Pictures
 the user attached go along when the agent sets `images: true`. The scene and spec of the conversation's last motion
 go with the next request. The agent's prompt under this engine has no guidance for the old motion engine
 (`bin/agent/studio-prompt-lowvis.mjs`), and the old motion and hand-fix actions are out of its view

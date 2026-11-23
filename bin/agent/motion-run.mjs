@@ -1,7 +1,7 @@
 // One motion request on the lowvis engine, from the Studio's scene to installed takes.
 // The flow: the editor's describe answer -> the Studio scene as a lowvis scene (src/lowvis/studio/scene.js) -> the
-// request text -> the motion writer (src/lowvis/pi/harness.mjs: claude-opus-5-5 at effort medium on CLIProxyAPI with
-// one tool, motion) -> the clip it ended with -> installed as scene content (src/lowvis/studio/install.js).
+// request text -> the motion writer (src/lowvis/pi/harness.mjs with one tool, motion, on the model and sign-in
+// motion-writer.mjs chose; writer, its label in the answer) -> the clip it ended with -> installed as scene content (src/lowvis/studio/install.js).
 // The scene and spec the motion writer wrote go with the takes they installed (install.js source, motion-kept.mjs), so
 // the next request can change or continue the motion that plays: the next writer's tool starts from them (harness.mjs
 // kept) and takes a change as an edit of their actions, in any conversation, after a reload and after an undo.
@@ -149,7 +149,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * inbox: a steer inbox (steer-inbox.mjs) for what the user sends while the motion writer works (the direct key).
  * deps: { runScene, installClip, addStandIn, standInOf, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, inbox = null, deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, inbox = null, writer = null, deps = null }) {
 	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip, placeSetLater = () => false, eulerXYZ = null, sceneShapes = () => ({}) } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
@@ -197,15 +197,30 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const listed = new Set(Object.values(studio.ids.characters)), bare = takes.bare.filter(id => listed.has(id));
 	const from = playing ? { kept: { name: playing.name, characters: playing.cast } } : bare.length ? { keptNone: bare } : {};
 	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...held, ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
+	// the writer's route (motion-writer.mjs): its model and effort, and on a sign-in the Studio's provider registry
+	// a conversation whose sign-in refused the motion model before writes on the route after it (motion-writer.mjs instead)
+	writer = (await writer?.instead?.()) ?? writer;
+	const asked = () => (writer ? { model: writer.model, effort: writer.effort, ...(writer.piModel ? { writer: { models: writer.models, model: writer.piModel, provider: writer.provider, via: writer.via, secrets: writer.secrets, ...(writer.refused ? { refused: writer.refused } : {}) } } : {}) } : motionWriter(env));
+	const write = () => runScene({ name, request, ...asked(), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...held, ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
-	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles, ...from }, none = { characterIds: [], objectIds: [], switched: [] };
+	let record = await write();
+	// a sign-in that refuses the motion model for the account at the first call (agent-runner.mjs modelRefused; never a
+	// rate limit, an expired sign-in, a server error or the network): once, the route after it writes, and the answer and
+	// the record say who refused what. The refused run stays on file (the harness's infra-error record of this name).
+	if (writer?.refuse && !record.final && record.infraError?.at === "model call 1") {
+		const { modelRefused } = await import("./agent-runner.mjs"), next = modelRefused(record.infraError) ? await writer.refuse() : null;
+		if (next) { writer = next; record = await write(); }
+	}
+	// the answer names the writer: the route's label, and the name the provider gave what it served when that is another one
+	const servedAs = writer ? (record.served?.models ?? []).filter(id => !String(id).startsWith(writer.model)) : [];
+	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles, ...(writer ? { writer: servedAs.length ? `${writer.label}; the provider names what it served ${servedAs.join(", ")}` : writer.label } : {}), ...from }, none = { characterIds: [], objectIds: [], switched: [] };
 	if (!record.final) {
 		try {
 			if (signal?.aborted) throw failure("aborted", "The motion writer was stopped before it compiled a motion.");
-			if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
+			// with a route the failure names the writer, so the agent can say which sign-in or proxy to look at
+			if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}${writer ? ` (the motion writer: ${writer.label})` : ""}`);
 			if (record.report) return { ...base, frames: 0, clipSeconds: 0, ...none, installed: false, notInstalled: "The motion writer compiled no motion." };
 			throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
 		} catch (error) { throw await draft.failed(error); }
