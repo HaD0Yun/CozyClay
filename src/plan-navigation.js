@@ -11,9 +11,15 @@ import { WORLD } from "./world-scale.js";
  *   middle-drag or right-drag    pan; also while a stroke is held, and the
  *                                floor point under the pointer stays put, so
  *                                the stroke carries on across the pan
+ *   Alt + left-drag              pan (the editor's Alt-drag is the view's too):
+ *                                the drag a touchpad without those buttons has
  *   wheel                        zoom about the pointer
  *   horizontal two-finger swipe  pan sideways, like the timeline's swipe
  *   Home over the Top-View       back to the framing it opened with
+ *
+ * The layout keeps the zoom the wheel set. A framing the view chose itself
+ * (an opening, Home) is shown in the tag and not kept, so a long scene's
+ * framing is not the zoom the next small scene opens with.
  */
 
 /** Half the plan's height at zoom 1, in metres. */
@@ -28,6 +34,9 @@ const clampZoom = (zoom) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number.isFinit
 const clampCentre = (value) => Math.max(-WORLD.position, Math.min(WORLD.position, value));
 /** Three significant digits for the stored zoom (the tag's readout); the live view keeps its own. */
 const roundZoom = (zoom) => Number(clampZoom(zoom).toPrecision(3));
+/** The tag's readout: two decimals as before, two significant digits below 0.1 (a whole large floor is 0.0041). */
+export const planZoomLabel = (zoom) => (zoom >= 0.1 ? zoom.toFixed(2).replace(/\.?0+$/, "") : String(Number(zoom.toPrecision(2))));
+const isTyping = (target) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || !!target?.isContentEditable;
 
 /** Set the orthographic plan camera to a view, for a pane of this aspect. */
 export function applyPlanView(camera, view, aspect) {
@@ -59,6 +68,16 @@ export function planContentBounds({ points = [], boxes = [] }) {
 		}
 	}
 	return minX <= maxX ? { minX, maxX, minZ, maxZ } : null;
+}
+
+/** Where bodies are over the timeline (`at(id, frame)`: a take, a carrier), every few frames and at the last one. */
+export function travelPoints(ids, frameCount, at, step = 6) {
+	const points = [];
+	for (const id of ids) {
+		for (let frame = 0; frame < frameCount; frame += step) points.push(at(id, frame));
+		points.push(at(id, Math.max(0, frameCount - 1)));
+	}
+	return points.filter(Boolean);
 }
 
 /**
@@ -101,14 +120,18 @@ export function zoomedPlanView(view, factor, u, v, aspect) {
 /**
  * Wire the view gestures onto the Top-View host. The live view rides on the
  * plan camera (`userData.planView`), which the renderer reads, so a gesture
- * and a stroke always see one camera. Returns `isPanMove(event)`: true when a
- * window pointermove belongs to a pan, so the board's own drags skip it.
+ * and a stroke always see one camera. `open` is true while the Top-View is up
+ * for a drawing (a rail, an object path, root waypoints): each time it comes
+ * up, the view takes its opening framing. `onPlanZoom(zoom, kept)` reports the
+ * zoom to show, and whether the layout keeps it. Returns `isPanMove(event)`:
+ * true when a window pointermove belongs to a pan, so the board's own drags
+ * skip it.
  */
-export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoom, content, railDraw }) {
+export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoom, content, open }) {
 	const invalidate = useThree((three) => three.invalidate);
 	const view = useRef({ x: 0, z: 0, zoom: clampZoom(planZoom) });
-	// The zoom last handed to the layout: a prop equal to it is this view's echo.
-	const sentZoom = useRef(planZoom);
+	// The zoom the layout keeps (the wheel's): a prop equal to it is this view's echo.
+	const keptZoom = useRef(planZoom);
 	const home = useRef(null);
 	const pan = useRef(null);
 	const latest = useRef({});
@@ -120,7 +143,7 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 		const board = latest.current.content?.();
 		if (!board) return null;
 		return planContentBounds({
-			points: [...board.targets, ...(board.waypoints ?? []), ...(board.track ?? []), ...(board.rail ?? []), ...(board.objects ?? []).flatMap((object) => object.path?.points ?? [])],
+			points: [...board.targets, ...(board.waypoints ?? []), ...(board.track ?? []), ...(board.travel ?? []), ...(board.rail ?? []), ...(board.objects ?? []).flatMap((object) => object.path?.points ?? [])],
 			boxes: board.targets.filter((entry) => entry.footprint).map((entry) => ({ x: entry.x, z: entry.z, yaw: entry.yaw, ...entry.footprint })),
 		});
 	};
@@ -129,7 +152,8 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 		const rect = host.getBoundingClientRect();
 		return rect.width > 1 && rect.height > 1 ? rect.width / rect.height : 1;
 	};
-	const publish = (next) => {
+	// `zoom` says what a changed zoom is: "kept" (the wheel's, the layout keeps it) or "shown" (a framing's).
+	const publish = (next, zoom) => {
 		const host = hostRef.current;
 		view.current = next;
 		const camera = planCamRef.current;
@@ -137,30 +161,30 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 			camera.userData.planView = next;
 			applyPlanView(camera, next, aspectOf(host));
 		}
-		const stored = roundZoom(next.zoom);
-		if (stored !== sentZoom.current) {
-			sentZoom.current = stored;
-			latest.current.onPlanZoom?.(stored);
+		if (zoom) {
+			const stored = roundZoom(next.zoom);
+			if (zoom === "kept") keptZoom.current = stored;
+			latest.current.onPlanZoom?.(stored, zoom === "kept");
 		}
 		latest.current.invalidate?.();
 	};
 
 	// A zoom set elsewhere (a restored layout) is the view's zoom too.
 	useEffect(() => {
-		if (planZoom !== sentZoom.current) {
-			sentZoom.current = planZoom;
-			publish({ ...view.current, zoom: clampZoom(planZoom) });
+		if (planZoom !== keptZoom.current) {
+			keptZoom.current = planZoom;
+			publish({ ...view.current, zoom: clampZoom(planZoom) }, "kept");
 		} else if (planCamRef.current) planCamRef.current.userData.planView = view.current;
 	}, [planZoom]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// Opening the rail drawing frames what matters; Home returns there.
+	// Each time the Top-View comes up for a drawing it frames what matters; Home returns there.
+	const openingView = (host) => openingPlanView(contentBounds(), aspectOf(host), keptZoom.current);
 	useEffect(() => {
 		const host = hostRef.current;
-		if (!railDraw || !host) return;
-		const opening = openingPlanView(contentBounds(), aspectOf(host), view.current.zoom);
-		home.current = opening;
-		publish(opening);
-	}, [railDraw]); // eslint-disable-line react-hooks/exhaustive-deps
+		if (!open || !host) return;
+		home.current = openingView(host);
+		publish(home.current, "shown");
+	}, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	useEffect(() => {
 		const host = hostRef.current;
@@ -168,7 +192,7 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 		const isPlan = () => host.classList.contains("plan");
 		let hovered = false;
 		const onDown = (event) => {
-			if ((event.button !== 1 && event.button !== 2) || !isPlan()) return;
+			if ((event.button !== 1 && event.button !== 2 && !(event.button === 0 && event.altKey)) || !isPlan()) return;
 			event.preventDefault();
 			event.stopPropagation();
 			pan.current = { x: event.clientX, y: event.clientY };
@@ -205,14 +229,15 @@ export function usePlanNavigation({ hostRef, planCamRef, planZoom = 1, onPlanZoo
 			const u = rect.width > 1 ? ((event.clientX - rect.left) / rect.width) * 2 - 1 : 0;
 			const v = rect.height > 1 ? ((event.clientY - rect.top) / rect.height) * 2 - 1 : 0;
 			const factor = Math.pow(WHEEL_RATE, -event.deltaY);
-			publish(isPlan() ? zoomedPlanView(view.current, factor, u, v, aspectOf(host)) : { ...view.current, zoom: clampZoom(view.current.zoom * factor) });
+			publish(isPlan() ? zoomedPlanView(view.current, factor, u, v, aspectOf(host)) : { ...view.current, zoom: clampZoom(view.current.zoom * factor) }, "kept");
 		};
 		const onKey = (event) => {
-			if (event.code !== "Home" || !hovered || !isPlan() || host.classList.contains("collapsed")) return;
+			// In a text field Home is the caret's, wherever the pointer rests.
+			if (event.code !== "Home" || isTyping(event.target) || !hovered || !isPlan() || host.classList.contains("collapsed")) return;
 			// Capture phase: the same press must not also frame the editor camera.
 			event.preventDefault();
 			event.stopPropagation();
-			publish(home.current ?? openingPlanView(contentBounds(), aspectOf(host), view.current.zoom));
+			publish(home.current ?? openingView(host), "shown");
 		};
 		const onEnter = () => { hovered = true; };
 		const onLeave = () => { hovered = false; };

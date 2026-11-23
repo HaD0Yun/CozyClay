@@ -4,7 +4,11 @@
 // drawn at the far end (with a pan in the middle of the stroke) lands where
 // the pointer was on the floor, the wheel zooms about the pointer, Home over
 // the view returns to the opening framing, and on a small scene a rail drawn
-// without panning lands on the same points as before the pan existed.
+// without panning lands on the same points as before the pan existed. Also:
+// Alt + left-drag pans (a touchpad's drag), Home in a text field stays the
+// caret's, the Top-View opens framed for an object path too, a framing the
+// view chose is shown in the tag but is not the zoom the next scene opens with,
+// and the opening holds the whole travel of a body its take carries 300 m.
 // Run: node tools/qa-browser.mjs -- node test/verify-plan-pan-browser.mjs
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -64,11 +68,12 @@ const mouse = (type, x, y, button = "none", extra = {}) => {
 	if (type === "mouseReleased") held &= ~BUTTON_BITS[button];
 	return send("Input.dispatchMouseEvent", { type, x, y, button, buttons: held, clickCount: type === "mouseMoved" ? 0 : 1, ...extra });
 };
-const drag = async (button, from, to, steps = 8) => {
-	await mouse("mouseMoved", from.x, from.y);
-	await mouse("mousePressed", from.x, from.y, button);
-	for (let i = 1; i <= steps; i += 1) await mouse("mouseMoved", from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps, button);
-	await mouse("mouseReleased", to.x, to.y, button);
+const ALT = { modifiers: 1 };
+const drag = async (button, from, to, steps = 8, extra = {}) => {
+	await mouse("mouseMoved", from.x, from.y, "none", extra);
+	await mouse("mousePressed", from.x, from.y, button, extra);
+	for (let i = 1; i <= steps; i += 1) await mouse("mouseMoved", from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps, button, extra);
+	await mouse("mouseReleased", to.x, to.y, button, extra);
 	await frames();
 };
 const wheel = async (x, y, deltaY) => {
@@ -87,6 +92,8 @@ const planState = () => evaluate(`(() => {
 	if (!cam) throw new Error("no plan camera on window.__cozyclay");
 	return { x: cam.position.x, z: cam.position.z, left: cam.left, right: cam.right, top: cam.top, bottom: cam.bottom,
 		pane: { left: pane.left, top: pane.top, width: pane.width, height: pane.height },
+		keptZoom: JSON.parse(localStorage.getItem("cozyclay.workspace-layout.v1") || "{}").planZoom ?? 1,
+		readout: document.querySelector('.vp-inset-zoom')?.textContent ?? null,
 		editor: window.__cozyclay.editorCam ? window.__cozyclay.editorCam.position.toArray() : null };
 })()`);
 const floorAt = (state, px, py) => {
@@ -100,7 +107,7 @@ const settlePane = async () => {
 	await evaluate("Promise.all(document.querySelector('.vp-inset.plan').getAnimations({ subtree: true }).map((animation) => animation.finished)).then(() => true)");
 	await frames(3);
 };
-const seed = async ({ objects, characters }) => {
+const seed = async ({ objects, characters, keepLayout = false }) => {
 	await send("Page.navigate", { url: `${new URL(studioUrl).origin}/favicon.ico` });
 	const shot = {
 		id: "pan-qa", name: "Pan QA", startFrame: 0, endFrame: 239,
@@ -111,7 +118,9 @@ const seed = async ({ objects, characters }) => {
 		shotDocument: { version: 4, frameCount: 240, shots: [shot], waypoints: [] },
 		stage: { characters, hasCharSheet: false, shotAspect: "16:9" } }] };
 	await evaluate(`(() => {
+		const layout = ${keepLayout} ? localStorage.getItem("cozyclay.workspace-layout.v1") : null;
 		localStorage.clear();
+		if (layout) localStorage.setItem("cozyclay.workspace-layout.v1", layout);
 		localStorage.setItem("cozyclay.locale", "en");
 		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Pan QA", updatedAt: Date.now() }));
 		localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, ${JSON.stringify(JSON.stringify(scene))});
@@ -120,6 +129,9 @@ const seed = async ({ objects, characters }) => {
 	expect("studio renders", await waitFor("!!window.__cozyclay?.planCam && !!window.__cozyclay?.shotCam && !!document.querySelector('.tl-shot-block')", 60000));
 	await evaluate("document.querySelector('.tl-shot-block')?.click()");
 	expect("Draw rail is offered", await waitFor("!!document.querySelector('[data-testid=sequencer-draw-rail]')"));
+	await openRail();
+};
+const openRail = async () => {
 	await evaluate("document.querySelector('[data-testid=sequencer-draw-rail]').click()");
 	expect("the Top-View opens for the rail", await waitFor("document.querySelector('.app')?.dataset.railDraw === '1' && document.querySelector('.vp-inset.plan')?.getBoundingClientRect().width > 100"));
 	await settlePane();
@@ -147,6 +159,8 @@ const longScene = async () => {
 	});
 	const opened = await planState();
 	expect("the opening framing holds the whole 200 m", opened.x + opened.left <= 0 && opened.x + opened.right >= LONG, JSON.stringify(opened));
+	// The framing the view chose is what the tag shows; the layout keeps the zoom the wheel set (none yet).
+	expect("the opening framing is shown in the tag and is not the kept zoom", opened.keptZoom === 1 && opened.readout === `${Number((12.4 / opened.top).toFixed(2))}×`, JSON.stringify({ kept: opened.keptZoom, readout: opened.readout, top: opened.top }));
 	await screenshot("1-opened");
 
 	// Zoom in at the pane centre, then pan toward the far end: middle-drag, then right-drag.
@@ -159,12 +173,15 @@ const longScene = async () => {
 	expect("the wheel zoom keeps the floor point under the pointer", Math.abs(centreAfter.x - centreWorld.x) < 0.05 && Math.abs(centreAfter.z - centreWorld.z) < 0.05, JSON.stringify({ centreWorld, centreAfter }));
 	const span = opened.pane.width * 0.8;
 	let before = zoomedIn;
-	for (const button of ["middle", "right", "middle", "right", "middle", "right"]) {
-		await drag(button, { x: centre.x + span / 2, y: centre.y }, { x: centre.x - span / 2, y: centre.y + 10 });
+	// Alt + left-drag is the pan a touchpad has: it moves the view and starts no stroke.
+	for (const button of ["middle", "right", "alt-left", "middle", "right", "alt-left"]) {
+		const alt = button === "alt-left";
+		await drag(alt ? "left" : button, { x: centre.x + span / 2, y: centre.y }, { x: centre.x - span / 2, y: centre.y + 10 }, 8, alt ? ALT : {});
 		const now = await planState();
 		const moved = now.x - before.x;
 		const expected = (span / opened.pane.width) * 2 * now.right;
 		expect(`${button}-drag pans the view (the floor follows the pointer)`, Math.abs(moved - expected) < 0.05 && now.z < before.z, JSON.stringify({ moved, expected }));
+		expect(`${button}-drag leaves the rail drawing open`, await evaluate("document.querySelector('.app')?.dataset.railDraw === '1'"));
 		before = now;
 		if (now.x + now.right > LONG + 5) break;
 	}
@@ -222,8 +239,38 @@ const longScene = async () => {
 	const homed = await planState();
 	expect("Home over the Top-View returns to the opening framing", Math.abs(homed.x - reopened.x) < 1e-6 && Math.abs(homed.z - reopened.z) < 1e-6 && Math.abs(homed.top - reopened.top) < 1e-6, JSON.stringify({ homed, reopened }));
 	expect("Home over the Top-View leaves the editor camera alone", JSON.stringify(homed.editor) === JSON.stringify(zoomed.editor));
+
+	// Home in a text field is the caret's, also while the pointer rests over the Top-View.
+	await wheel(corner2.x, corner2.y, -300);
+	const beforeTyping = await planState();
+	const field = await evaluate("(() => { const r = document.querySelector('.v2-outliner-search').getBoundingClientRect(); return { x: r.left + 20, y: r.top + r.height / 2 }; })()");
+	await mouse("mouseMoved", field.x, field.y);
+	await mouse("mousePressed", field.x, field.y, "left");
+	await mouse("mouseReleased", field.x, field.y, "left");
+	await send("Input.insertText", { text: "abcdef" });
+	await mouse("mouseMoved", corner2.x, corner2.y);
+	await key("Home", "Home", 36);
+	const typed = await evaluate("({ field: document.activeElement.className, caret: document.activeElement.selectionStart, value: document.activeElement.value })");
+	const afterTyping = await planState();
+	expect("Home in a text field moves the caret, not the Top-View", typed.value === "abcdef" && typed.caret === 0 && afterTyping.x === beforeTyping.x && afterTyping.z === beforeTyping.z && afterTyping.top === beforeTyping.top, JSON.stringify({ typed, beforeTyping, afterTyping }));
+	// Empty the search again through the input's own setter, so the Outliner lists every row.
+	await evaluate("(() => { const field = document.activeElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ''); field.dispatchEvent(new Event('input', { bubbles: true })); field.blur(); })()");
 	await mouse("mouseMoved", 20, 400);
 	await key("Escape", "Escape", 27);
+	if (await evaluate("document.querySelector('.app')?.dataset.railDraw === '1'")) await evaluate("document.querySelector('[data-testid=sequencer-draw-rail]').click()");
+	expect("the rail drawing closes", await waitFor("document.querySelector('.app')?.dataset.railDraw !== '1'"));
+
+	// The Top-View opens framed for an object path too, not on the corner the rail drawing was left at.
+	await evaluate(`(() => { const fold = document.querySelector('[data-node-id="props"] .hierarchy-toggle'); if (fold && fold.textContent.trim() === "▸") fold.click(); })()`);
+	expect("the prop is listed", await waitFor(`!!document.querySelector('[data-node-id="object:post-end"] .hierarchy-row')`));
+	await evaluate(`document.querySelector('[data-node-id="object:post-end"] .hierarchy-row').click()`);
+	expect("Draw path is offered", await waitFor("!!document.querySelector('.objmo-tools .tl-camera-tool')"));
+	await evaluate("document.querySelector('.objmo-tools .tl-camera-tool').click()");
+	expect("the Top-View opens for the path", await waitFor("!!document.querySelector('.objmo-tools .tl-camera-tool.active') && document.querySelector('.vp-inset.plan')?.getBoundingClientRect().width > 100"));
+	await settlePane();
+	const forPath = await planState();
+	expect("the path drawing opens on the whole 200 m", forPath.x + forPath.left <= 0 && forPath.x + forPath.right >= LONG, JSON.stringify(forPath));
+	await evaluate("document.querySelector('.objmo-tools .tl-camera-tool.active')?.click()");
 };
 if (!process.env.QA_NO_PAN_ONLY) await longScene();
 
@@ -234,7 +281,9 @@ await seed({
 });
 const small = await planState();
 const aspect = small.pane.width / small.pane.height;
-expect("a small scene opens on the old view: the stage centre at the stored zoom", small.x === 0 && small.z === 0 && Math.abs(small.top - 12.4) < 1e-9 && Math.abs(small.right - 12.4 * aspect) < 1e-9, JSON.stringify(small));
+// The renderer sets the camera's width from the pane's rect each frame, and that rect carries float noise
+// while the pane rises into place (measured 9e-7 m): the width is held to 10 micrometres.
+expect("a small scene opens on the old view: the stage centre at the stored zoom", small.x === 0 && small.z === 0 && Math.abs(small.top - 12.4) < 1e-9 && Math.abs(small.right - 12.4 * aspect) < 1e-5, JSON.stringify(small));
 // The old mapping: an orthographic camera over the stage centre, 12.4 m half height.
 const oldFloor = (px, py) => ({ x: (((px - small.pane.left) / small.pane.width) * 2 - 1) * 12.4 * aspect, z: (((py - small.pane.top) / small.pane.height) * 2 - 1) * 12.4 });
 const path = [];
@@ -258,6 +307,38 @@ const smallRail = await storedRail();
 const equal = smallRail.length === expected.length && smallRail.every((point, i) => Math.abs(point.x - expected[i].x) < 1e-3 && Math.abs(point.z - expected[i].z) < 1e-3);
 expect("a rail drawn without panning has the branch point's points", equal, JSON.stringify({ smallRail, expected }));
 console.log(`no-pan rail: ${JSON.stringify(smallRail.map((point) => [Number(point.x.toFixed(3)), Number(point.z.toFixed(3))]))}`);
+
+// ---- 3. a long scene's framing is not the zoom the next scene opens with
+if (!process.env.QA_NO_PAN_ONLY) {
+	await seed({
+		objects: [{ ...createSceneObject("cube"), id: "runway", name: "Runway", x: 100, scaleX: 200, scaleY: 0.05, scaleZ: 4 }],
+		characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "a person" }],
+	});
+	const long = await planState();
+	expect("the long scene opens framed whole, the wheel untouched", long.x + long.right >= 200 && long.keptZoom === 1, JSON.stringify(long));
+	await seed({
+		objects: [{ ...createSceneObject("cube"), id: "box", name: "Box", x: 2, z: -3 }],
+		characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "a person" }],
+		keepLayout: true,
+	});
+	const next = await planState();
+	expect("the small scene opened next has the old view, not the long scene's framing", next.x === 0 && next.z === 0 && Math.abs(next.top - 12.4) < 1e-9 && next.readout === null, JSON.stringify(next));
+
+	// ---- 4. a body whose take carries it 300 m: the opening holds its whole travel, not only where it stands now
+	await evaluate("document.querySelector('[data-testid=sequencer-draw-rail]').click()");
+	expect("the rail drawing closes before the take", await waitFor("document.querySelector('.app')?.dataset.railDraw !== '1'"));
+	expect("the rig is up", await waitFor("!!window.__cozyclay.rigs?.['char-a']", 30000));
+	const rest = await evaluate(`(() => { const rig = window.__cozyclay.rigs["char-a"], out = {}; rig.updateMatrixWorld(true); rig.traverse((n) => { if (n.isBone && /Hips$/.test(n.name) && out.hips == null) out.hips = n.getWorldPosition(n.position.clone()).y; if (n.isBone && /LeftFoot$/.test(n.name) && out.ankle == null) out.ankle = n.getWorldPosition(n.position.clone()).y; }); return out; })()`);
+	const stand = (x) => ({ root: [x, rest.hips - 0.01, 0], yaw: 0, foot_l: [x + 0.09, rest.ankle, -0.03], foot_r: [x - 0.09, rest.ankle, 0.03], fyaw_l: 0, fyaw_r: 0 });
+	const spec = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 240, keys: [{ f: 0, set: stand(-150) }, { f: 239, set: stand(150) }] };
+	const compiled = await evaluate(`(async () => { const receipt = await window.__cozyclay.runStudioAction("motion.compile", ${JSON.stringify({ characterId: "char-a", spec, install: true })}); return { ok: receipt?.ok, message: receipt?.message ?? null }; })()`);
+	expect("a take that travels 300 m installs", compiled.ok && await waitFor("window.__cozyclay.motion?.schema === 'cozyclay.take.v3'", 20000), JSON.stringify(compiled));
+	await evaluate("document.querySelector('.tl-shot-block')?.click()");
+	expect("Draw rail is offered beside the take", await waitFor("!!document.querySelector('[data-testid=sequencer-draw-rail]')"));
+	await openRail();
+	const travel = await planState();
+	expect("the opening holds the body's whole 300 m travel", travel.x + travel.left <= -150 && travel.x + travel.right >= 150, JSON.stringify(travel));
+}
 
 ws.close();
 if (failures) process.exit(1);

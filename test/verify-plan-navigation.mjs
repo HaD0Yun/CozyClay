@@ -2,7 +2,7 @@
 // The Top-View's pan and zoom math: the opening framing keeps the old view
 // when the content fits it, frames a long scene whole, and a pan or a zoom
 // keeps the floor point under the pointer.
-import { PLAN_EXTENT, openingPlanView, pannedPlanView, planContentBounds, zoomedPlanView } from "../src/plan-navigation.js";
+import { PLAN_EXTENT, openingPlanView, pannedPlanView, planContentBounds, planZoomLabel, travelPoints, zoomedPlanView } from "../src/plan-navigation.js";
 import { WORLD } from "../src/world-scale.js";
 
 let failures = 0;
@@ -49,6 +49,18 @@ const zoomed = zoomedPlanView(start, 1.6, 0.5, -0.4, 1.4);
 const kept2 = floorAt(zoomed, 0.5, -0.4, 1.4), before2 = floorAt(start, 0.5, -0.4, 1.4);
 expect("a zoom keeps the floor point under the pointer", near(kept2.x, before2.x, 1e-9) && near(kept2.z, before2.z, 1e-9) && near(zoomed.zoom, 0.8), JSON.stringify({ zoomed, kept2, before2 }));
 expect("zoom stops at 4x in", zoomedPlanView(start, 100, 0, 0, 1).zoom === 4);
+
+// The tag's readout: as it always read down to 0.1, and never "0" for a view that holds a whole large floor.
+const labels = [[2, "2"], [1.26, "1.26"], [0.25, "0.25"], [0.141, "0.14"], [0.1, "0.1"], [0.0511, "0.051"], [0.00413, "0.0041"]].map(([zoom, text]) => [planZoomLabel(zoom), text]);
+expect("the zoom readout keeps two decimals and never reads 0", labels.every(([got, want]) => got === want), JSON.stringify(labels));
+// A body's travel: sampled every few frames and at the last frame, so both ends of a long move are in the bounds.
+const walked = travelPoints(["a", "gone"], 240, (id, frame) => (id === "a" ? { x: -150 + (300 * frame) / 239, z: 0 } : null));
+const walkedBounds = planContentBounds({ points: walked });
+expect("a body's travel reaches from its first frame to its last", walked.length === 41 && near(walkedBounds.minX, -150) && near(walkedBounds.maxX, 150), JSON.stringify({ count: walked.length, walkedBounds }));
+const walkedView = openingPlanView(walkedBounds, 280 / 240, 1);
+expect("a 300 m travel is framed whole", floorAt(walkedView, -1, 0, 280 / 240).x <= -150 && floorAt(walkedView, 1, 0, 280 / 240).x >= 150, JSON.stringify(walkedView));
+// A view farther out than the old one: its content fits, so a zoom the wheel set wide stays as set.
+expect("a wide kept zoom is kept for a small scene", openingPlanView(small, 1, 0.3).zoom === 0.3 && openingPlanView(small, 1, 0.3).x === 0);
 
 if (failures) process.exit(1);
 console.log("PASS plan navigation: old view kept when the content fits; 60 m and 200 m framed whole; widest view 99.2 m -> the whole floor; pan and zoom keep the point under the pointer");

@@ -10,7 +10,7 @@ import { ko } from "./locale.js";
 import { isProxyFigure } from "./scenes.js";
 import { prepareRailBend } from "./camera-follow.js";
 import { MARK_GAP, MAX_PATH_MARKS, MAX_PATH_POINTS, nearestPathFraction, pathCurve, pathMarkFractions, pathPointAtFraction } from "./object-path.js";
-import { WORLD } from "./world-scale.js"; import { usePlanNavigation } from "./plan-navigation.js";
+import { WORLD } from "./world-scale.js"; import { travelPoints, usePlanNavigation } from "./plan-navigation.js"; import { castAimPoint } from "./camera-direction.js";
 
 const ROOM_LIMIT = WORLD.position; // stay on the open stage (matches scene-objects' clamp)
 const ACTOR_LIMIT = 4; // matches the Subject sliders' range
@@ -501,7 +501,7 @@ function WaypointPath({ waypoints, start, activeWaypointId }) {
  * reports moves that still hit it, so a fast drag off the edge silently strands
  * the puck.
  */
-export function PlanBoard({ hostRef, planCamRef, shotCamRef, look, fovDeg, characters = [], characterPlacements = [], onMoveCharacter, onCharacterGestureStart, onWaypointGestureStart, onCameraGestureStart, pathStart = null, waypoints, activeWaypointId, onSelectWaypoint, onMoveWaypoint, onSelectEntity, sceneObjects = [], selectedSceneObjectId, onMoveSceneObject, onObjectMoveStart, onObjectMoveEnd, cameraRailPoints = null, railDraw = false, onRailStroke, pathDraw = false, onPathStroke, objectPath = null, objectPathSelectedIndex = null, onObjectPathPointSelect, onObjectPathChange, onObjectPathMarkInsert, onObjectPathGestureStart, onObjectPathGestureEnd, subjectTrack = null, onCameraChange, keyLight = null, minimal = false, planZoom = 1, onPlanZoom }) {
+export function PlanBoard({ hostRef, planCamRef, shotCamRef, look, fovDeg, characters = [], characterPlacements = [], onMoveCharacter, onCharacterGestureStart, onWaypointGestureStart, onCameraGestureStart, pathStart = null, waypoints, activeWaypointId, onSelectWaypoint, onMoveWaypoint, onSelectEntity, sceneObjects = [], selectedSceneObjectId, onMoveSceneObject, onObjectMoveStart, onObjectMoveEnd, cameraRailPoints = null, railDraw = false, onRailStroke, pathDraw = false, onPathStroke, objectPath = null, objectPathSelectedIndex = null, onObjectPathPointSelect, onObjectPathChange, onObjectPathMarkInsert, onObjectPathGestureStart, onObjectPathGestureEnd, subjectTrack = null, onCameraChange, keyLight = null, minimal = false, planZoom = 1, onPlanZoom, planOpen = false, cast = null }) {
 	characters = characters.map(entry => {
 		const placement = isProxyFigure(entry) && characterPlacements.find(view => view.id === entry.id);
 		return placement ? { ...entry, x: placement.position[0], z: placement.position[2], rot: placement.rot } : entry;
@@ -520,9 +520,12 @@ export function PlanBoard({ hostRef, planCamRef, shotCamRef, look, fovDeg, chara
 	// Numbered waypoints are direct-manipulation handles. Empty floor presses
 	// intentionally do nothing; root keyframes are authored in the timeline.
 	const tools = useMemo(() => createFloorRaycastTools(), []);
-	// The view's pan and zoom (plan-navigation.js). Opening the rail drawing
-	// frames the cast, the camera, the props, the routes and the drawn rail.
-	const isPanMove = usePlanNavigation({ hostRef, planCamRef, planZoom, onPlanZoom, railDraw, content: () => ({ targets: targets(), waypoints: latest.current.waypoints, track: subjectTrack, rail: cameraRailPoints, objects: latest.current.sceneObjects }) });
+	// The view's pan and zoom (plan-navigation.js). Coming up for a drawing it
+	// frames what this board draws: the cast, the camera and the drawn rail, and
+	// off the minimal board also the props, the routes and where each body of
+	// the cast is over the timeline (its take moves it, or what carries it).
+	const castTravel = () => (cast ? travelPoints(cast.characters.filter((entry) => !entry.hidden).map((entry) => entry.id), cast.frameCount, (id, frame) => castAimPoint(id, frame, cast)) : []);
+	const isPanMove = usePlanNavigation({ hostRef, planCamRef, planZoom, onPlanZoom, open: planOpen, content: () => (minimal ? { targets: targets().filter((entry) => !entry.objectId), rail: cameraRailPoints } : { targets: targets(), waypoints: latest.current.waypoints, track: subjectTrack, travel: castTravel(), rail: cameraRailPoints, objects: latest.current.sceneObjects }) });
 
 	// The overlay belongs to the plan camera alone. Without this the pucks would
 	// be drawn flat across the floor of the shot — and into exported frames.
