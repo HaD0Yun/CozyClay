@@ -169,8 +169,10 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			}
 		}
 	}
-	/** The props that ride a joint of a body on frame f, while they ride and are shown: [{ r: the ride, p: the prop, b: the body }]. */
-	const riding = f => (aux.rides ?? []).flatMap(r => { const p = r.joint && r.began != null && f >= r.began && f < (r.next ?? F) && (r.cut ??= heldFrom(aux, r, F)) > f && clip.props.find(x => x.id === r.prop), b = bodyOf.get(r.of); return p && b && p.shown?.[f] !== 0 ? [{ r, p, b }] : []; });
+	/** The props that ride a joint of a body on frame f, while they ride in their place and are shown: [{ r: the ride, p: the
+	 *  prop, b: the body }]. In its place: from the frame it began, or where a ride's entry says how many frames its way
+	 *  there took (r.over, ride.js), from the last of them. */
+	const riding = f => (aux.rides ?? []).flatMap(r => { const p = r.joint && r.began != null && f >= r.began + Math.max(0, (r.over ?? 0) - 1) && f < (r.next ?? F) && (r.cut ??= heldFrom(aux, r, F)) > f && clip.props.find(x => x.id === r.prop), b = bodyOf.get(r.of); return p && b && p.shown?.[f] !== 0 ? [{ r, p, b }] : []; });
 	const left = new Map(); // per hand or foot and body: the last frame it was the tied row's with that body
 	const bodyOf = new Map(chars.map(c => [c.id, c])), tiedTo = (c, f, i) => { const k = aux.reach?.[c.id]?.[f]?.[i]?.key; return k == null ? null : tied.get(c.id)[i].get(k) ?? null; };
 	const tiedSpan = (c, f, i, id) => spans.get(c.id)[i].some(e => e.body === id && f >= e.a && f < (e.b ?? F));
