@@ -10,13 +10,13 @@ import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINTS, JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
-import { badness, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
+import { badness, bodyText, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
 import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
 import { insideText } from "./inside.mjs";
 import { applyEdit } from "./edit.mjs";
 import { shapeLines, toldOf, withShapes } from "./shapes.mjs";
-import { checkParts, resolveParts } from "../engine-simple/parts.js";
+import { checkParts, resolveParts, withFigure } from "../engine-simple/parts.js";
 import { lookBody } from "../studio/figure.js";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
@@ -24,7 +24,7 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:|jump:|gap:)/; // the rows that are a difference between what the spec asked and what came out
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:|jump:|gap:|body:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -191,7 +191,7 @@ function travelLines(clip, aux, spec) {
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null, kept = null, shapes = null }) {
 	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
 	const seed = isObject(kept?.spec) ? structuredClone({ scene: isObject(kept.scene) ? kept.scene : null, spec: kept.spec }) : null;
-	const body = lookBody(figure), feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, shapes, said: toldOf(shapes), calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT };
+	const body = lookBody(figure), feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, shapes, said: toldOf(shapes), calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT, "body:": bodyText(figure) };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
@@ -213,12 +213,12 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		if (focus?.some(e => !ids.includes(e) && !joint(e))) return reject("look.focus", [`look.focus: want ids or { joint, of } of a character's joint, got ${JSON.stringify(look.focus)} (scene ids: ${ids.join(", ")}; joints: ${JOINTS.join(" ")})`]);
 		if (look?.props !== undefined && !["solid", "outline"].includes(look.props)) return reject("look.props", [`look.props: want "solid" or "outline", got ${JSON.stringify(look.props)}`]);
 
-		const moved = withMovers(withBodies(withShapes(state.scene, state.shapes), bodies, !!feature.body), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, world = inWorld(def, body), built = compile(state.spec, world, name);
+		const moved = withMovers(withFigure(withBodies(withShapes(state.scene, state.shapes), bodies, !!feature.body), state.spec, figure), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, world = inWorld(def, body), built = compile(state.spec, world, name);
 		if (built.error) {
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, world, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const asBuilt = resolveParts(expandRepeats(state.spec, F).spec, world), rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def: world, spec: asBuilt, look: figure }, spec: asBuilt }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, world) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
+		const asBuilt = resolveParts(expandRepeats(state.spec, F).spec, world), rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def: world, spec: asBuilt, look: figure, bodies: !!feature.tops }, spec: asBuilt }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, world) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });

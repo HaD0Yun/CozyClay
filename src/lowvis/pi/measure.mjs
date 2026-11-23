@@ -6,6 +6,7 @@
 // The `reach:` rows are not in checks.js either: a hand, a foot or an elbow that is not where its action put it (aux.reach).
 // Nor the `seat:` rows: a sit on a prop whose hips end off the prop's top or whose feet stand inside it (aux.seats).
 // Nor the `gap:` rows: a hand, a foot, the feet or a seat the spec puts on a prop with drawn parts, off them (gaps.mjs).
+// Nor the `body:` rows: a hand or a foot on a body, a prop riding a joint, a body's limbs, against the drawn bodies (bodies.mjs).
 // Nor the `jump:` rows: a body's Hips joint or a moving prop whose step between two frames is far from the steps around
 // it (jumps.js), within a frame of a key of the spec.
 //
@@ -20,6 +21,8 @@ import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
 import { insideRows } from "./inside.mjs";
 import { gapRows } from "./gaps.mjs";
+import { bodyRows } from "./bodies.mjs";
+export { bodyText } from "./bodies.mjs";
 import { JUMP, groupJumps } from "../jumps.js";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
@@ -30,7 +33,7 @@ const num1 = v => String(Math.round(v * 10) / 10);
 export const badness = row => row.worse > 0 ? row.value : row.worse < 0 ? Math.max(0, -row.value) : 0;
 export const isSpike = row => row.spike != null && row.frame != null && badness(row) > row.spike;
 
-/** inside: { def, spec, look } for the inside rows (inside.mjs); none without it. spec: the spec as built (repeats
+/** inside: { def, spec, look, bodies? } for the inside rows (inside.mjs) and, with bodies, the body rows (bodies.mjs); none without it. spec: the spec as built (repeats
  *  written out) for the jump rows; none without it. */
 export function measure(clip, aux, { stretch = 0, inside = null, spec = null } = {}) {
 	const F = clip.frameCount, rows = [];
@@ -155,6 +158,7 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 	for (const e of inside ? insideRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who ? `${e.who}'s body` : e.part} inside ${e.prop}`, short: "inside", value: e.value, unit: "mm", frame: e.frame, who: e.who ?? undefined, prop: e.prop, note: `${e.who ? `deepest part: ${e.part}; ` : ""}deeper than ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1 });
 	// a contact the spec asks for with a prop whose drawn parts are known, past the gap (gaps.mjs): one row per body, limb and prop
 	for (const e of inside ? gapRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who}'s ${e.limb} to the drawn ${e.prop}`, short: "off drawn", value: Math.abs(e.value), unit: "mm", frame: e.frame, who: e.who, prop: e.prop, note: `${e.part == null ? `${e.value > 0 ? "floats over" : "sinks into"} the drawn top under the hips` : `nearest part ${e.part}${e.limb === "seat" ? ", none drawn under the hips" : ""}`}; past ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1 });
+	if (inside?.bodies) rows.push(...bodyRows(clip, aux, inside)); // against the drawn bodies: one row per body, limb and body, riding prop and body, body and body
 	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that
 	// frame; why (share.js): no place was asked (the prop's nearest point), the hands' top speed, a place past the arm's reach
 	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point nearest the hand ${Math.round(PAD * s * MM)} mm off the surface of ${prop}`,

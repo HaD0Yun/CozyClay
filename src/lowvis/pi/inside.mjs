@@ -53,7 +53,7 @@ const solidsOf = name => (cache[solidsLook(name)] ??= prepared(LOOKS[solidsLook(
  *  cube look 20.1 mm), so a told part is deeper than a foot that walks on a prop; the thinnest drawn limb is 50 mm (the
  *  block look's forearm at the wrist; the cube look's 58 mm). A body through a thin plate is as deep as it would have
  *  to move to be clear of it, not the plate's thickness. */
-const LIMIT = 0.025;
+export const LIMIT = 0.025;
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]), BODY = new Set(["idle", "walk", "run", "push", "turn", ...POSTURE]);
 const LIMB = { L: ["LeftForeArm"], R: ["RightForeArm"], elbowL: ["LeftArm", "LeftForeArm"], elbowR: ["RightArm", "RightForeArm"] };
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
