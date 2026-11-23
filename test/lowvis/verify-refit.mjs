@@ -18,6 +18,7 @@ import { lookBody } from "../../src/lowvis/studio/figure.js";
 import { decodeRawTrack } from "../../src/motion-v4/track/codec.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { refitMotion } from "../../bin/agent/motion-refit.mjs";
+import { keptTakes } from "../../bin/agent/motion-kept.mjs";
 import { bodiesOf, bodyFitOf, rememberBodies } from "../../bin/agent/motion-fit.mjs";
 
 const ENV = { COZYCLAY_FIGURE: "cube" }, B = lookBody("cube");
@@ -104,5 +105,22 @@ const refit = studio => refitMotion({ hub: studio.hub, workspaceHandle: "ws", in
 	}
 	console.log(table.join("\n"));
 	console.log(`ok sweep: ${runs} refits of ${CASES.length} scenes at ${SIZES.join(", ")}; ${missed} told a new or worse row`);
+}
+// --- 4: a motion made under an earlier body of the look (0.81): its take is of that size and the stored character was
+// carried over to the scale that stands as large (scenes.js), so the refit finds no size change, and the follow-up and the
+// refit start from the size the take plays; a resize after that is refit from that size ---
+{
+	const OLD = 0.81, carried = OLD / B, source = { ...written(CASES[1], 9), as: "a" };
+	const studioAt = scale => {
+		const s = studioOf(source, scale), command = s.hub.command;
+		return { ...s, hub: { command: async () => { const read = await command(); read.document.scenes[0].stage = { figureBody: B, characters: [{ id: "a", motionTake: { spec: { lowvis: source, raw: { scale: OLD } } } }] }; return read; } } };
+	};
+	assert.ok(Math.abs(keptTakes(await studioAt(carried).hub.command()).kept.a.scene.characters[0].scale - carried) < 1e-6, "the kept scene has the size its take plays");
+	const same = await refit(studioAt(carried));
+	assert.deepEqual([same.refit.length, same.kept], [0, [{ name: source.name, characters: ["a"] }]], `no size change: ${JSON.stringify(same)}`);
+	const grown = await refit(studioAt(1));
+	assert.equal(grown.refit.length, 1, JSON.stringify(grown));
+	assert.deepEqual(grown.refit[0].sizes, [{ id: "a", was: Math.round(carried * 1e6) / 1e6, now: 1 }], "a resize is told from the size the take played");
+	console.log(`ok an earlier body's motion: kept at ${carried.toFixed(6)}; resized to 1 it is refit from that size (rows ${JSON.stringify(grown.refit[0].rows)})`);
 }
 console.log("PASS verify-refit");
