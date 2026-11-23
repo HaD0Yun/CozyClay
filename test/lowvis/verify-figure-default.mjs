@@ -20,8 +20,8 @@ const REPO = fileURLToPath(new URL("../..", import.meta.url)), FIGURE = join(REP
 const { COZYCLAY_FIGURE: _named, ...bare } = process.env;
 /** figure.js imported fresh in a process of its own: the sidecar with COZYCLAY_FIGURE = env, a page handed `handed`,
  *  or a worker of the name `worker`. */
-const read = ({ env, handed, worker, engine } = {}) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
-	${handed === undefined ? "" : `globalThis.window = { __COZYCLAY_FIGURE__: ${JSON.stringify(handed)} };`}
+const read = ({ env, handed, handedEngine, worker, engine } = {}) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
+	${handed === undefined ? "" : `globalThis.window = { __COZYCLAY_FIGURE__: ${JSON.stringify(handed)}, __COZYCLAY_MOTION_ENGINE__: ${JSON.stringify(handedEngine ?? "")} };`}
 	${worker === undefined ? "" : `globalThis.self = { name: ${JSON.stringify(worker)} };`}
 	const m = await import(${JSON.stringify(FIGURE)});
 	console.log(JSON.stringify({ value: m.launchValue(), sidecar: m.figureOf(), page: m.FIGURE, body: m.lookBody(), sidecarBody: m.lookBody(m.figureOf()), scaled: m.bodyScale({ model: "x-bot-tpose", scale: 1.2 }), standing: m.standingHeight(), worker: m.workerName("motion-compile") }));
@@ -45,13 +45,14 @@ for (const [value, look, body] of [[undefined, "cube", CUBE], ["", "cube", CUBE]
 }
 assert.equal(read().standing, 1.7, "nothing named: a character at scale 1 stands 1.70 m");
 assert.equal(read({ env: "block" }).standing, 1.739, "the block figure: 1.739 m, as before");
+const HANDS = 'window.__COZYCLAY_FIGURE__ = ${JSON.stringify(process.env.COZYCLAY_FIGURE ?? "").replaceAll("<", "\\\\u003c")}; window.__COZYCLAY_MOTION_ENGINE__ = ${JSON.stringify(process.env.COZYCLAY_MOTION_ENGINE ?? "").replaceAll("<", "\\\\u003c")};';
 const baked = readFileSync(join(REPO, "vite.config.js"), "utf8");
 assert.match(baked, /"import\.meta\.env\.VITE_COZYCLAY_FIGURE": JSON\.stringify\(launchValue\(process\.env\)\)/, "a dev server bakes in its launch's value (launchValue): figure.js reads it with the same launchLook");
-assert.match(readFileSync(join(REPO, "bin/cozyclay.mjs"), "utf8"), /window\.__COZYCLAY_FIGURE__ = \$\{JSON\.stringify\(launchValue\(\)\)/, "the launcher hands the page the same launchValue");
+assert.ok(readFileSync(join(REPO, "bin/cozyclay.mjs"), "utf8").includes(HANDS), "the launcher hands the page its launch's COZYCLAY_FIGURE and COZYCLAY_MOTION_ENGINE as given: figure.js reads them with the same launchValue");
 console.log("ok one value: for every launch value the page and the sidecar read the same look and body; nothing named is the cube look");
 
 // --- 3: no reader of its own ---
-const SETS = new Set(["src/lowvis/studio/figure.js"]), HANDS = "window.__COZYCLAY_FIGURE__ = ${JSON.stringify(launchValue())"; // the one reader (launchValue); bin/cozyclay.mjs hands its value on
+const SETS = new Set(["src/lowvis/studio/figure.js"]); // the one reader (launchValue); bin/cozyclay.mjs only hands the launch's two values on (HANDS)
 const files = dir => readdirSync(join(REPO, dir), { recursive: true }).filter(f => /\.(m?js|jsx)$/.test(f)).map(f => join(dir, f));
 const readers = [...files("bin"), ...files("src")].filter(f => !SETS.has(f)).flatMap(f => readFileSync(join(REPO, f), "utf8").split("\n").map((line, k) => ({ f, k: k + 1, code: line.replace(/\/\/.*$|^\s*\*.*$|\/\*.*?\*\//g, "") })).filter(l => /COZYCLAY_FIGURE|[?&]figure=|get\(["']figure["']\)/.test(l.code.replace(HANDS, "")))); // but the launcher's write of launchValue into the page
 assert.deepEqual(readers.map(l => `${l.f}:${l.k}`), [], "every reader of the launch's look goes through figure.js (figureOf, FIGURE, lookBody)");
@@ -59,9 +60,11 @@ console.log("ok no reader of COZYCLAY_FIGURE but figure.js");
 
 // --- 4: the old motion engine ---
 for (const [env, look, body, value] of [[undefined, null, 1, "block"], ["", null, 1, "block"], ["cube", "cube", CUBE, "cube"], ["block", null, 1, "block"]]) {
-	const sidecar = read({ env, engine: "old" }), page = read({ env: "cube", handed: sidecar.value });
+	// the launcher's page is handed the launch's two values as given; a dev server's page has launchValue baked in (the worker's name carries it)
+	const sidecar = read({ env, engine: "old" }), page = read({ env: "cube", handed: env ?? "", handedEngine: "old" }), worker = read({ env: "cube", worker: page.worker });
 	assert.deepEqual([sidecar.value, sidecar.sidecar, sidecar.sidecarBody], [value, look, body], `the old engine, launch ${JSON.stringify(env)}: the sidecar`);
-	assert.deepEqual([page.page, page.body], [look, body], `the old engine, launch ${JSON.stringify(env)}: the page handed ${JSON.stringify(sidecar.value)}`);
+	assert.deepEqual([page.page, page.body], [look, body], `the old engine, launch ${JSON.stringify(env)}: the page handed ${JSON.stringify(env ?? "")} and the engine`);
+	assert.deepEqual([worker.page, worker.body], [look, body], `the old engine, launch ${JSON.stringify(env)}: the page's worker (${page.worker})`);
 }
 assert.equal(read({ engine: "lowvis" }).sidecar, "cube", "any other engine value: the default look");
 console.log("ok the old engine with no look named: the block look, the rig's own body, on both sides");

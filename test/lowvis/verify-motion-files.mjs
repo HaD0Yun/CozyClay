@@ -72,16 +72,16 @@ try {
 
 		// --- 3: the launcher serves the clip and hands the page the look ---
 		const port = await new Promise((resolve, reject) => { const s = createServer(); s.once("error", reject); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => resolve(p)); }); });
-		const { COZYCLAY_FIGURE: _named, ...unnamed } = process.env; // a launch that names no look
+		const { COZYCLAY_FIGURE: _named, COZYCLAY_MOTION_ENGINE: _engine, ...plain } = process.env; // a launch that names no look and no engine
 		const launch = async named => {
-			const child = spawn(process.execPath, ["bin/cozyclay.mjs", "--port", String(port), "--no-open", "--no-star", "--no-update-check"], { cwd: pkg, env: { ...unnamed, ...named, CI: "", DO_NOT_TRACK: "1", XDG_CONFIG_HOME: join(TMP, "xdg-launch"), COZYCLAY_CONFIG_DIR: config, COZYCLAY_LIVE_PORT: String(port + 1) }, stdio: ["ignore", "pipe", "pipe"] });
+			const child = spawn(process.execPath, ["bin/cozyclay.mjs", "--port", String(port), "--no-open", "--no-star", "--no-update-check"], { cwd: pkg, env: { ...plain, ...named, CI: "", DO_NOT_TRACK: "1", XDG_CONFIG_HOME: join(TMP, "xdg-launch"), COZYCLAY_CONFIG_DIR: config, COZYCLAY_LIVE_PORT: String(port + 1) }, stdio: ["ignore", "pipe", "pipe"] });
 			let said = "";
 			child.stdout.on("data", d => { said += d; }); child.stderr.on("data", d => { said += d; });
 			for (let i = 0; i < 100 && !said.includes("is running at"); i++) await new Promise(r => setTimeout(r, 100));
 			assert.ok(said.includes("is running at"), said);
 			return { child, get: path => fetch(`http://127.0.0.1:${port}${path}`) };
 		};
-		for (const [named, handed] of [[{}, ""], [{ COZYCLAY_FIGURE: "block" }, "block"], [{ COZYCLAY_MOTION_ENGINE: "old" }, "block"], [{ COZYCLAY_MOTION_ENGINE: "old", COZYCLAY_FIGURE: "cube" }, "cube"]]) {
+		for (const [named, handed, engine] of [[{}, "", ""], [{ COZYCLAY_FIGURE: "block" }, "block", ""], [{ COZYCLAY_MOTION_ENGINE: "old" }, "", "old"], [{ COZYCLAY_MOTION_ENGINE: "old", COZYCLAY_FIGURE: "cube" }, "cube", "old"]]) {
 			const { child, get } = await launch(named);
 			try {
 				const clip = await get("/lowvis/clips/pi/agent-copy.json");
@@ -90,7 +90,7 @@ try {
 				assert.equal((await get("/lowvis/clips/pi/agent-none.json")).status, 404, "no such run: not found");
 				assert.equal((await get("/lowvis/clips/pi/..%2Fx.json")).status, 404, "a name is never a path");
 				const page = await (await get("/app/")).text();
-				assert.ok(page.includes(`window.__COZYCLAY_FIGURE__ = ${JSON.stringify(handed)};`), `the page is handed ${JSON.stringify(handed)}`);
+				assert.ok(page.includes(`window.__COZYCLAY_FIGURE__ = ${JSON.stringify(handed)}; window.__COZYCLAY_MOTION_ENGINE__ = ${JSON.stringify(engine)};`), `the page is handed the look ${JSON.stringify(handed)} and the engine ${JSON.stringify(engine)} of its launch, as given`);
 			} finally { child.kill("SIGTERM"); await new Promise(r => child.once("exit", r)); }
 		}
 		console.log("ok the launcher: the run's clip at /lowvis/clips/pi/<name>.json; the page is handed the launch's look");
