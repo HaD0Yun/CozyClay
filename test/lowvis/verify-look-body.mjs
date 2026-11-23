@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // A character at scale 1 is the body of the look the Studio draws it in (src/lowvis/studio/figure.js lookBody): for the
-// cube look the owner's 1.50 m body, for the block look the rig's own, as before.
+// cube look the owner's 1.70 m body (standing, arms down), for the block look the rig's own, as before.
 //  1. the manual: at the rig's body it is the manual of before, byte for byte, for every variant and set of switched-off
 //     names; at the cube's it states that body's sizes, each the engine's own body at scale 1 to the rounding
-//  2. the compile tool (figure cube) builds a body of scale s as the rig's times 0.81 s, tells its scale as written and
+//  2. the compile tool (figure cube) builds a body of scale s as the rig's times the look's body x s, tells its scale as written and
 //     its height as built, and keeps the scene as written; runScene states the look's body in the manual
-//  3. the drawn cube look at scale 1 stands 1.50 m in the T-pose
+//  3. the drawn cube look at scale 1 stands 1.70 m with the arms down; standingHeight is each look's drawn height
 //  4. installClip: a clip body of the engine's size is the cast member's scale over the look's body; its take is of the
 //     engine's size; runMotion's request is the one of the block look
 //  5. a stage stored under a look of another body is carried over: each rig character stands as large as before, its
@@ -20,7 +20,9 @@ import { runScene } from "../../src/lowvis/pi/harness.mjs";
 import * as THREE from "three";
 import { INDEX as J, REST, TIPS } from "../../src/lowvis/rig17.js";
 import { cube } from "../../src/lowvis/looks/cube.js";
-import { bodyScale, carriedOver, lookBody, scaleOf, scaleRoom } from "../../src/lowvis/studio/figure.js";
+import { bodyScale, carriedOver, lookBody, scaleOf, scaleRoom, standingHeight } from "../../src/lowvis/studio/figure.js";
+import { LOOKS } from "../../src/lowvis/looks/index.js";
+import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
 import { installClip } from "../../src/lowvis/studio/install.js";
 import { clipTrack, TRACK_RIG } from "../../src/lowvis/studio/take.js";
@@ -76,14 +78,22 @@ for (const [env, b] of [[{ COZYCLAY_FIGURE: "cube" }, B], [{}, 1]]) {
 }
 console.log("ok compile tool and runScene: the cube's scale 1 is built as the rig's times its body, told as written");
 
-// --- 3: the drawn cube look at scale 1 ---
+// --- 3: the drawn looks at scale 1, standing with the arms down (the engine's stand pose) and in the T-pose ---
 {
-	const figure = cube();
-	figure.setPose(new Float32Array(REST.flat()), new Float32Array(REST.flatMap(() => [0, 0, 0, 1])), 0);
-	figure.object3D.updateMatrixWorld(true);
-	const top = new THREE.Box3().setFromObject(figure.object3D).max.y;
-	assert.ok(Number.isFinite(top) && Math.abs(top * B - 1.5) < 0.005, `the cube look stands ${(top * B).toFixed(3)} m tall in the T-pose at scale 1`);
-	console.log(`ok the cube look at scale 1: ${(top * B).toFixed(3)} m in the T-pose`);
+	const top = (look, pos, quat) => { const f = look({}); f.setPose(pos, quat, 0); f.object3D.updateMatrixWorld(true); return new THREE.Box3().setFromObject(f.object3D).max.y; };
+	const c = buildClip({ demo: "stand", a: [] }, { frames: 2, characters: [{ id: "a", at: [0, 0], heading: 0 }], props: [] }).clip.characters[0];
+	const stand = top(cube, c.pos, c.quat) * B, tpose = top(cube, new Float32Array(REST.flat()), new Float32Array(REST.flatMap(() => [0, 0, 0, 1]))) * B;
+	assert.ok(Math.abs(stand - 1.7) < 0.002, `the cube look stands ${stand.toFixed(4)} m tall with the arms down at scale 1`);
+	assert.ok(Math.abs(tpose - 1.705) < 0.002, `and ${tpose.toFixed(4)} m in the T-pose`);
+	// standingHeight (the closeup's stand-in, the agent's standingHeightM) is the drawn look at the body: here (node) the rig's own body
+	for (const [name, look] of Object.entries(LOOKS)) {
+		const drawn = top(look, c.pos, c.quat);
+		assert.ok(Math.abs(standingHeight(undefined, name) - drawn) < 0.001, `${name}: standingHeight ${standingHeight(undefined, name)} against the drawn ${drawn.toFixed(4)} m`);
+	}
+	assert.equal(standingHeight(undefined, "nope"), standingHeight(undefined, "block"), "an unknown look is drawn as the block look");
+	assert.equal(standingHeight({ model: TRACK_RIG, scale: 1.2 }, "block"), Math.round(1.738 * 1.2 * 1000) / 1000, "times the scale");
+	assert.equal(standingHeight({ model: "y-bot-tpose", scale: 1 }), null, "no look draws another model");
+	console.log(`ok the cube look at scale 1: ${stand.toFixed(3)} m standing, ${tpose.toFixed(3)} m in the T-pose; every look's standingHeight is its drawn height`);
 }
 
 // --- 4: installClip and runMotion ---
@@ -134,7 +144,7 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 	assert.deepEqual(room(null), LIMITS, "the rig's own body: the Studio's limits, as before");
 	assert.deepEqual(room("block"), LIMITS);
 	assert.equal(room("cube").min, 0.2);
-	assert.ok(room("cube").max > 3.7 && room("cube").max < 3.71);
+	assert.ok(Math.abs(room("cube").max - 3 / B) < 1e-9, "a row of the rig's own body at 3 fits under the cube look");
 	assert.deepEqual(scaleRoom(LIMITS, "y-bot-tpose", "cube"), LIMITS, "another model: the Studio's limits");
 	for (const s of [0.2, 0.5, 0.81, 2.43, 2.6, 3]) {
 		const over = carriedOver({ model: TRACK_RIG, scale: s }, undefined, "cube"), back = carriedOver({ model: TRACK_RIG, scale: over.scale }, B, null);
@@ -142,7 +152,7 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 		assert.ok(Math.abs(bodyScale(over, "cube") - s) < 1e-12, "and stands as large");
 		assert.ok(inRoom(back.scale, room(null)) && Math.abs(back.scale - s) < 1e-12, "and back under the rig's body");
 	}
-	assert.equal(scaleOf(0.81 * 0.9, B), 0.9); assert.equal(scaleOf(1.23456789, 1), 1.23456789, "the rig's own body: the size itself");
+	assert.equal(scaleOf(B * 0.9, B), 0.9); assert.equal(scaleOf(1.23456789, 1), 1.23456789, "the rig's own body: the size itself");
 	console.log("ok limits: a carried row keeps its size from 0.2 to 3 of the rig's body");
 }
 rmSync(tmp, { recursive: true, force: true });

@@ -6,7 +6,7 @@ import { createCommandBus } from "./command-bus.js";
 import { readElementDocument, elementReadback, elementPatchArgs, elementTarget, elementPatchReceipt } from "./commands/elements.js";
 import { physicsKeyStamp } from "./motion/physics-review.js";
 import { shotAtFrame } from "./cuts.js";
-import { isProxyFigure } from "./scenes.js"; import { characterName } from "./character-name.js";
+import { isProxyFigure } from "./scenes.js"; import { characterName } from "./character-name.js"; import { standingHeight } from "./lowvis/studio/figure.js";
 import { supportHeightForObject } from "./scene-objects.js";
 import { studioAssetList } from "./studio-asset-list.js";
 import { buildStudioContext, physicsFingerprintInput, studioEntityCursor, validateStudioCursor } from "./studio-agent-context.js"; import { marksForAgent } from "./context-chips.js";
@@ -126,7 +126,7 @@ export function createStudioAppBinding(ports) {
 		return [...s.characters.map(c => {
 			const t = s.targets.get(c.id);
 			return { id: c.id, kind: "character", token: tokens.get(c.id).token, name: characterName(c),
-				position: { x: c.x, y: c.y ?? 0, z: c.z }, yawDeg: c.rot ?? 0, scale: c.scale ?? 1, tint: c.tint ?? null, modelId: c.model ?? null,
+				position: { x: c.x, y: c.y ?? 0, z: c.z }, yawDeg: c.rot ?? 0, scale: c.scale ?? 1, ...(standingHeight(c) ? { standingHeightM: standingHeight(c) } : {}), tint: c.tint ?? null, modelId: c.model ?? null,
 				motion: { takeId: t?.motion?.studioTakeId ?? null, frames: t?.motion?.frames ?? 0,
 					ikKeyCount: t?.ikState?.keys.size ?? 0 },
 				capabilities: { rigReady: Boolean(t?.rig), ik: Boolean(t?.rig?.userData?.poseBind), measuredFeet: false },
