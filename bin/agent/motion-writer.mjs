@@ -20,7 +20,7 @@ const listed = new Map(); // "<v1 base> <model id>" -> { at, ok }: a proxy's mod
 async function proxyLists(v1Base, apiKey, id) {
 	const key = `${v1Base} ${id}`, known = listed.get(key);
 	if (known && Date.now() - known.at < LISTED_MS) return known.ok;
-	let ok = false;
+	let ok;
 	try { ok = (await fetchModelList(v1Base, apiKey, "CLIProxyAPI")).some(entry => (typeof entry === "string" ? entry : entry?.id) === id); } catch { ok = false; }
 	listed.set(key, { at: Date.now(), ok });
 	return ok;
