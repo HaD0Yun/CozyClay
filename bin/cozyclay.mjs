@@ -23,7 +23,7 @@ import { ensureMcpRuntime, runMcp } from "./mcp-runtime.mjs";
 import { openBrowser } from "./open-browser.mjs";
 import { maybeAskForStar } from "./star-prompt.mjs";
 import { checkForUpdate, readUpdateStatus, runUpdateCommand, updateChecksOn } from "./update-check.mjs";
-import { createStudioRoutes } from "./studio-routes.mjs";
+import { createStudioRoutes, launchValue } from "./studio-routes.mjs";
 import { handleOAuthRequest } from "./codex-auth.mjs";
 import { createAgentHandler } from "./agent/agent-routes.mjs";
 import { liveHubPort } from "./live-endpoint.mjs";
@@ -319,9 +319,9 @@ server = createServer((req, res) => {
 		// npx-served studio can never attach to the MCP server's live hub.
 		// __COZYCLAY_LIVE_PORT__ tells the prebuilt bundle which hub port this
 		// launch chose (COZYCLAY_LIVE_PORT), since the build baked its own (#862).
-		// __COZYCLAY_FIGURE__: the look this launch names (COZYCLAY_FIGURE, src/lowvis/studio/figure.js), which the agent
+		// __COZYCLAY_FIGURE__: the look this launch names (src/lowvis/studio/figure.js launchValue), which the agent
 		// sidecar in this process reads too, so the look drawn and the body a motion is built for are one value.
-		const html = readFileSync(target, "utf8").replace("</head>", `<script>window.__COZYCLAY_RUNTIME__ = ${JSON.stringify(runtime).replaceAll("<", "\\u003c")}; window.__COZYCLAY_LIVE__ = true; window.__COZYCLAY_LIVE_PORT__ = ${JSON.stringify(liveHubPort())}; window.__COZYCLAY_FIGURE__ = ${JSON.stringify(process.env.COZYCLAY_FIGURE ?? "").replaceAll("<", "\\u003c")};</script>\n</head>`);
+		const html = readFileSync(target, "utf8").replace("</head>", `<script>window.__COZYCLAY_RUNTIME__ = ${JSON.stringify(runtime).replaceAll("<", "\\u003c")}; window.__COZYCLAY_LIVE__ = true; window.__COZYCLAY_LIVE_PORT__ = ${JSON.stringify(liveHubPort())}; window.__COZYCLAY_FIGURE__ = ${JSON.stringify(launchValue()).replaceAll("<", "\\u003c")};</script>\n</head>`);
 		res.writeHead(200, {
 			"content-type": "text/html; charset=utf-8",
 			"content-length": Buffer.byteLength(html),

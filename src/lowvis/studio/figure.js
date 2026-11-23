@@ -1,9 +1,11 @@
 // The look rig characters are drawn in, and the body that look stands for. The one home of the default: DEFAULT_LOOK.
 // COZYCLAY_FIGURE given at launch (COZYCLAY_FIGURE=block npx cozyclay, tools/lowvis/pi/try.mjs --figure) names the look in the page
 // and in the agent sidecar alike, both through launchLook: the sidecar reads its own environment (figureOf), the page the
-// value the server that serves it hands over (bin/cozyclay.mjs writes window.__COZYCLAY_FIGURE__ into the page from the
-// same environment; a dev server bakes it in at its start, vite.config.js). Nothing given: DEFAULT_LOOK; "block": the block look.
-// ?figure=<look> in the page's address only draws that look, over the launched look's body.
+// value the server that serves it hands over (launchValue of the same environment: bin/cozyclay.mjs writes it into the page as
+// window.__COZYCLAY_FIGURE__; a dev server bakes it in at its start, vite.config.js). Nothing given: DEFAULT_LOOK; "block": the
+// block look; nothing given under the old motion engine (COZYCLAY_MOTION_ENGINE=old): the block look too (launchValue).
+// ?figure=<look> in the page's address only draws that look, over the launched look's body; the page says the look it
+// draws in its describe answer (App.jsx), and the sidecar makes no motion for a page of another look than its own (lookClash).
 // No three.js here: the Studio's commands, the scene document and the sidecar import it.
 
 /** The rig the looks are drawn over (take.js TRACK_RIG): only its characters have a look's body. */
@@ -23,8 +25,19 @@ const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man
 const DEFAULT_LOOK = "cube";
 /** The look a launch value names, or null for the block look: nothing (unset or empty) is DEFAULT_LOOK. */
 const launchLook = value => { const name = typeof value === "string" ? value.trim() : ""; return !name ? DEFAULT_LOOK : name === "block" ? null : name; };
-/** The look of a launch environment (its COZYCLAY_FIGURE): what the sidecar draws and builds bodies in. */
-export const figureOf = (env = globalThis.process?.env) => launchLook(env?.COZYCLAY_FIGURE);
+/** The launch value of an environment, as the page is handed it: its COZYCLAY_FIGURE; where that names none and the old
+ *  motion engine is on (COZYCLAY_MOTION_ENGINE=old, bin/agent/motion-engine.mjs), "block": that engine compiles for the
+ *  rig's own body only (src/commands/motion3-scale.js), which is the block look's, so its figures compile at scale 1. */
+export const launchValue = (env = globalThis.process?.env) => { const named = typeof env?.COZYCLAY_FIGURE === "string" ? env.COZYCLAY_FIGURE.trim() : ""; return named || (env?.COZYCLAY_MOTION_ENGINE === "old" ? "block" : ""); };
+/** The look of a launch environment (launchValue): what the sidecar draws and builds bodies in. */
+export const figureOf = (env = globalThis.process?.env) => launchLook(launchValue(env));
+/** Why no motion is made for the Studio page whose describe answer is `read`, or null: the page draws rig characters in
+ *  another look (read.figure, "block" for the block look) than the launch environment `env` names. A page that says no
+ *  look (a build before it did) is not checked. */
+export function lookClash(read, env) {
+	const drawn = read?.figure, own = figureOf(env) ?? "block";
+	return typeof drawn !== "string" || drawn === own ? null : `The Studio page draws rig characters in the look "${drawn}" and this Studio was started for the look "${own}": a motion is built for the body and the drawn parts of one look, so none was made. Open the page again from this Studio without ?figure= in its address, or start the Studio with COZYCLAY_FIGURE=${drawn}.`;
+}
 // the page served by bin/cozyclay.mjs: the value it was started with; a worker that page starts: the same value, in the
 // worker's name (workerName: a worker has no window); a dev server's page and its workers: the value baked in at its start
 const NAMED = "|figure=", own = typeof self === "undefined" || typeof self.name !== "string" ? -1 : self.name.indexOf(NAMED);

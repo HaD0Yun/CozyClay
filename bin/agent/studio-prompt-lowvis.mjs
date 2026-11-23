@@ -10,7 +10,7 @@ const CUTS = [
 	["For a held prop use object.createKit", "never key its wrist."],
 ];
 // [from, through, replacement]: the capsule figure and the cast-style gate give way to one line on people
-const PEOPLE_LINE = "People are block figures: rig characters of model x-bot-tpose. Their body motion comes from the motion tool.";
+const PEOPLE_LINE = "People are rig figures: rig characters of model x-bot-tpose. Their body motion comes from the motion tool.";
 const LINES = [
 	// the old engine's guidance goes; its one general sentence on calls stays
 	["Motion is computed, not generated:", "Report qa.blocking, not qa.total, the goals and output.fixed. ", "Make independent calls in the same turn. "],

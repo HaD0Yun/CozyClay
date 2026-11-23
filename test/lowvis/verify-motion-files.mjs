@@ -10,7 +10,7 @@
 import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -66,6 +66,7 @@ try {
 		const record = await runScene({ name: "agent-copy-run", request: "x", variant: "studio", env: { COZYCLAY_CONFIG_DIR: config } });
 		assert.equal(record.infraError?.at, "setup", "no proxy in this test: the run stops before a model call");
 		assert.ok(existsSync(join(config, "motion-runs/agent-copy-run/run.json")), "the run record is in the run's folder");
+		assert.equal(statSync(join(config, "motion-runs")).mode & 0o777, 0o700, "the runs folder is the user's alone: a run record holds the request, as a session file does");
 		assert.deepEqual(walk(pkg).map(f => relative(pkg, f)).sort(), before, "nothing is created under the package");
 		console.log("ok a read-only package with no .git: the clip, the sheets and the run record go to the config folder, nothing under the package");
 
@@ -80,7 +81,7 @@ try {
 			assert.ok(said.includes("is running at"), said);
 			return { child, get: path => fetch(`http://127.0.0.1:${port}${path}`) };
 		};
-		for (const [named, handed] of [[{}, ""], [{ COZYCLAY_FIGURE: "block" }, "block"]]) {
+		for (const [named, handed] of [[{}, ""], [{ COZYCLAY_FIGURE: "block" }, "block"], [{ COZYCLAY_MOTION_ENGINE: "old" }, "block"], [{ COZYCLAY_MOTION_ENGINE: "old", COZYCLAY_FIGURE: "cube" }, "cube"]]) {
 			const { child, get } = await launch(named);
 			try {
 				const clip = await get("/lowvis/clips/pi/agent-copy.json");

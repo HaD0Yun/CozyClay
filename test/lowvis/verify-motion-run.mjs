@@ -243,10 +243,26 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 {
 	const { base } = harness({ install: async () => ({ characterIds: [], objectIds: [], switched: ["c1"], ok: true }) });
 	const done = await runMotion({ ...base, words: "x" });
-	assert.ok(done.report.endsWith("Missing: the fingers do not move.\n\nChanged to the block figure: c1."), done.report);
+	assert.ok(done.report.endsWith("Missing: the fingers do not move.\n\nChanged to the rig figure (model x-bot-tpose): c1."), done.report);
 	assert.deepEqual(done.switched, ["c1"]);
 	assert.equal(done.missing, "the fingers do not move.", "missing stays the motion writer's");
 	console.log("PASS runMotion: switched report line");
+}
+
+// a page that draws another look than the launch names: no writer run, and the reason is told (figure.js lookClash)
+{
+	const drawing = figure => { const h = harness(); return { ...h, base: { ...h.base, hub: { command: async () => ({ ...DESCRIBE, figure }) } } }; };
+	for (const [env, figure] of [[{ COZYCLAY_FIGURE: "block" }, "cube"], [{}, "block"], [{ COZYCLAY_FIGURE: "cube" }, "box"]]) {
+		const { seen, base } = drawing(figure), own = env.COZYCLAY_FIGURE ?? "cube";
+		await assert.rejects(runMotion({ ...base, env, words: "x", memoryKey: null }), error => error.code === "studio" && error.message === `The Studio page draws rig characters in the look "${figure}" and this Studio was started for the look "${own}": a motion is built for the body and the drawn parts of one look, so none was made. Open the page again from this Studio without ?figure= in its address, or start the Studio with COZYCLAY_FIGURE=${figure}.`);
+		assert.deepEqual([seen.runs.length, seen.installs.length], [0, 0], "the writer is not run and nothing is installed");
+	}
+	for (const [env, figure] of [[{ COZYCLAY_FIGURE: "block" }, "block"], [{}, "cube"], [{ COZYCLAY_FIGURE: "box" }, "box"], [{}, undefined]]) {
+		const { seen, base } = drawing(figure);
+		await runMotion({ ...base, env, words: "x", memoryKey: null });
+		assert.equal(seen.runs.length, 1, `page ${figure}, launch ${JSON.stringify(env)}: one look, the writer runs (a page that says no look is not checked)`);
+	}
+	console.log("PASS runMotion: a page of another look than the launch's gets no motion and the reason");
 }
 
 // a refused install

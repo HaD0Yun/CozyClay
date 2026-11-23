@@ -878,7 +878,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				description:
 					"Unlike place_character, add_character adds a new cast member instead of changing an existing one. " +
 					"The cast is unbounded; each member gets a stable character ID, a numbered display label, a position and a prompt description. " +
-					"A new rig character is the block figure (x-bot-tpose). " +
+					"A new rig character is of model x-bot-tpose, drawn in the figure look the Studio was started with. " +
 					'model "proxy-figure" adds a capsule figure: a rigless stand-in for blocking that holds a posture (stand, sit or lie) ' +
 					"and refuses motion, takes, IK and posing with TARGET_NOT_READY.",
 				inputSchema: {
@@ -886,11 +886,11 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					x: z.number().default(0).describe("floor position x in metres"),
 					z: z.number().default(0).describe("floor position z in metres"),
 					facing: z.number().default(0).describe("yaw in degrees; 0 faces the default camera"),
-					// an older caller's "y-bot-tpose" becomes the block figure, as the editor's character.add maps it
+					// an older caller's "y-bot-tpose" becomes the rig figure (x-bot-tpose), as the editor's character.add maps it
 					model: z
 						.preprocess((value) => (value === "y-bot-tpose" ? NEW_CHARACTER_MODEL : value), z.enum([NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL]))
 						.optional()
-						.describe('the body: "x-bot-tpose" is the block figure (the default), "proxy-figure" a rigless capsule figure for blocking'),
+						.describe('the body: "x-bot-tpose" is the rig figure (the default), "proxy-figure" a rigless capsule figure for blocking'),
 					posture: z
 						.enum(POSTURES)
 						.optional()

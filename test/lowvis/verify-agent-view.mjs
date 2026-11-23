@@ -67,7 +67,7 @@ const refused = (promise, pattern) => assert.rejects(promise, error => error.cod
 	assert.match(JSON.stringify(current.actionIndex), /x-bot-tpose \(the default\) or the model id of a rig imported/);
 	assert.match(JSON.stringify(rows), /proxy-figure/, "the editor's declarations stay whole");
 	const viewed = Object.fromEntries(view.tools([{ name: "run_action", handler: async args => { ran.push(args.action); return { ok: true }; } }, { name: "patch_elements", handler: async () => ({ ok: true }) }]).map(tool => [tool.name, tool]));
-	const BLOCK = /^This version has block figures only: the agent cannot add a capsule figure \(model proxy-figure\) or change a character into one\.$/;
+	const BLOCK = /^This version has rig figures only: the agent cannot add a capsule figure \(model proxy-figure\) or change a character into one\.$/;
 	await refused(viewed.run_action.handler({ action: "character.add", args: { character: { model: "proxy-figure" } } }), BLOCK);
 	await refused(viewed.run_action.handler({ action: "character.update", args: { characterId: "rig-1", patch: { model: "proxy-figure" } } }), BLOCK);
 	await refused(viewed.run_action.handler({ action: "character.set", args: { ops: [{ id: "rig-1", set: { model: "proxy-figure" } }] } }), BLOCK);

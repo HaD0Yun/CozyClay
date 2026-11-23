@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { draftOf, travelOf } from "./motion-draft.mjs";
-import { figureOf, lookBody, scaleOf } from "../../src/lowvis/studio/figure.js";
+import { figureOf, lookBody, lookClash, scaleOf } from "../../src/lowvis/studio/figure.js";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { propsSetOf } from "./motion-props.mjs";
 import { attachedBefore, keptMotion, keptTakes } from "./motion-kept.mjs";
@@ -76,7 +76,7 @@ const WORDS = {
 };
 const NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters and objects, what to keep):";
 // What becomes of what the motion writer adds; DRESSED only when the Studio agent called (it dresses the set after)
-const ADDED = "What your scene adds becomes Studio content: a new character a block figure, a new prop a plain object named by its id, at the place, size and turn you give.";
+const ADDED = "What your scene adds becomes Studio content: a new character a figure, a new prop a plain object named by its id, at the place, size and turn you give.";
 // said while the kinds step is on: what the Studio does with a new prop (it never makes an object of another kind)
 const PLAIN = "A new prop is only ever a plain box or ball, never an object of another kind: when the request needs one the scene does not list with its kind, say so in the Missing line.";
 // said while the body step is on (motion-engine.mjs motionOff): what a character's scale and tint are in the Studio
@@ -155,6 +155,8 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(figureOf(env));
 	const read = await hub.command("describe", tops ? { parts: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
+	// a page that draws another look than this launch names (an address with ?figure=, a page left open from another launch): no writer run
+	if (lookClash(read, env)) throw failure("studio", lookClash(read, env));
 	// the drawn shape of each prop the Studio lists (null: drawn as its box; none for a prop it could not measure), now and
 	// before each motion call: a stand-in given its look while the writer works is told to it then (compile-tool.mjs)
 	// (a stand-in of the draft is the writer's prop it was made for, whatever name the Studio agent gives it with its look)
@@ -274,7 +276,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		const got = clip.characters.map((figure, k) => ({ id: studioId(figure, k), scale: scaleOf(figure.scale ?? 1, look), tint: figure.tint ?? null })).filter(b => b.id);
 		rememberBodies(key, got);
 		if (result.bodies?.length) try { onBodies(result.bodies); } catch { /* a failing view never fails the run */ }
-		const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;
+		const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the rig figure (model x-bot-tpose): ${switched.join(", ")}.` : record.report;
 		return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(key), travelOf(clip)), ...(carried.length ? { carried } : {}), ...(attached.length ? { attached } : {}), ...(motionFit ? { motionFit } : {}), ...(propsSet ? { propsSet } : {}), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}), installed: true, undo: result.undo };
 	}
 }

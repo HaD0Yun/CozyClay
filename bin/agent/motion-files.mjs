@@ -5,11 +5,12 @@
 //   <root>/public/lowvis/clips/pi/<name>.json, all kept, as the try-out and the measuring tools read them (both ignored by git).
 // - An installed package (no .git: an npm cache or a global prefix, maybe read-only): nothing under the package. Each
 //   run has a folder <config>/motion-runs/<name>/ (run.json, the sheets, clip.json), in the user's CozyClay config folder
-//   where the Studio keeps its sessions (session-store.mjs). Nothing reads a run's files after its install
+//   where the Studio keeps its sessions (session-store.mjs), made for the user alone (mode 0700: a run record holds the
+//   request, as a session file does, which that store writes 0600). Nothing reads a run's files after its install
 //   but the user, so only the newest KEEP runs stay: older ones are removed when a run starts.
 // The page fetches a clip by name at /lowvis/clips/pi/<name>.json (src/lowvis/studio/clip-load.js): a dev server serves
 // public/, and bin/cozyclay.mjs answers a name its build lacks with clipFile below.
-import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -26,6 +27,7 @@ export function runFiles(name, { env = process.env, root = ROOT, prune = false }
 	if (existsSync(join(root, ".git"))) return { outDir: join(root, "lowvis-out/pi", name), clipFile: join(root, "public/lowvis/clips/pi", `${name}.json`), kept: "all" };
 	const runs = join(configDir(env), "motion-runs"), outDir = join(runs, name);
 	if (prune) {
+		mkdirSync(runs, { recursive: true, mode: 0o700 }); // a run record holds the user's request: the folder is the user's alone
 		let old = [];
 		try { old = readdirSync(runs).filter(n => n !== name && NAME.test(n)).map(n => ({ n, t: statSync(join(runs, n)).mtimeMs })); } catch { /* no runs yet */ }
 		for (const { n } of old.sort((a, b) => b.t - a.t).slice(KEEP - 1)) rmSync(join(runs, n), { recursive: true, force: true });

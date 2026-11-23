@@ -18,14 +18,14 @@ const input = (properties, required = Object.keys(properties)) => ({ type: 'obje
 const record = { type: 'object', properties: {}, additionalProperties: true };
 // A capsule figure is cast by model id; its posture is the one body choice it
 // has. A patched posture outside POSTURES normalizes to "stand" (createCharacterEntry).
-const newCharacter = { ...record, properties: { model: { type: 'string', description: `${NEW_CHARACTER_MODEL} (the default), ${PROXY_FIGURE_MODEL} or the model id of a rig imported into this scene. A new rig character is the block figure (${NEW_CHARACTER_MODEL}): y-bot-tpose is given ${NEW_CHARACTER_MODEL}.` }, posture: { type: 'string', enum: [...POSTURES] },
+const newCharacter = { ...record, properties: { model: { type: 'string', description: `${NEW_CHARACTER_MODEL} (the default), ${PROXY_FIGURE_MODEL} or the model id of a rig imported into this scene. A new rig character is of model ${NEW_CHARACTER_MODEL}, drawn in the figure look the Studio was started with: y-bot-tpose is given ${NEW_CHARACTER_MODEL}.` }, posture: { type: 'string', enum: [...POSTURES] },
 	x: { type: 'number', description: 'floor position, metres (position { x, z } is read the same)' }, z: { type: 'number' }, rot: { type: 'number', description: 'yaw, degrees (yawDeg too)' } }, required: [] };
 const characterPatch = { ...record, properties: { posture: { type: 'string', description: `One of ${POSTURES.join(', ')}; anything else stands.` } }, required: [] };
 const mutation = (id, label, schema, exposure = 'open') => ({ id, label, description: label, kind: 'mutation', undoDomain: 'cast', input: schema, exposure });
 
 const semantic = [
 	mutation('character.set', 'Set character fields', elementSetSchema('character')),
-	{ ...mutation('character.add', 'Add character', input({ character: newCharacter })), description: `Add character. A new rig character is the block figure (${NEW_CHARACTER_MODEL}).` },
+	{ ...mutation('character.add', 'Add character', input({ character: newCharacter })), description: `Add character. A new rig character is of model ${NEW_CHARACTER_MODEL}, drawn in the figure look the Studio was started with.` },
 	mutation('character.remove', 'Remove character', input({ characterId: id })),
 	mutation('character.update', 'Update character', input({ characterId: id, patch: characterPatch })),
 	studioActionDeclaration('character.move'),
@@ -68,7 +68,7 @@ export function register(registry, ports) {
 			const { position, yawDeg, ...value } = sent;
 			if (position && typeof position === 'object') { if (Number.isFinite(position.x) && value.x === undefined) value.x = position.x; if (Number.isFinite(position.z) && value.z === undefined) value.z = position.z; }
 			if (Number.isFinite(yawDeg) && value.rot === undefined) value.rot = yawDeg;
-			// A new rig character is the block figure (NEW_CHARACTER_MODEL): without a model, or asking for the old Y Bot body.
+			// A new rig character is of NEW_CHARACTER_MODEL (the rig figure): without a model, or asking for the old Y Bot body.
 			// Y Bot rows still load (CHARACTER_KIND_IDS); an imported rig id takes its rig from a cast member that has it.
 			const model = !value.model || value.model === 'y-bot-tpose' ? NEW_CHARACTER_MODEL : value.model;
 			const imported = isImportedModel(model) ? importedRigOf(owner().read().find(row => row.model === model)) : null;

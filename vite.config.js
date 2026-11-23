@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { readFileSync, rmSync } from "node:fs";
 import { poserModelFlag } from "./src/poser/build-plugin.js";
+import { launchValue } from "./src/lowvis/studio/figure.js";
 
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
@@ -14,9 +15,9 @@ const agentUrl = oauthUrl;
 export default defineConfig({
 	define: {
 		"import.meta.env.VITE_COZYCLAY_LIVE_PORT": JSON.stringify(livePort),
-		// the look rig characters are drawn in, read at the dev server's start (src/lowvis/studio/figure.js launchLook: "" is
+		// the look rig characters are drawn in, read at the dev server's start (src/lowvis/studio/figure.js launchValue: "" is
 		// the default look, "block" the block figure); a page served by bin/cozyclay.mjs is handed its launch's value instead
-		"import.meta.env.VITE_COZYCLAY_FIGURE": JSON.stringify(process.env.COZYCLAY_FIGURE ?? ""),
+		"import.meta.env.VITE_COZYCLAY_FIGURE": JSON.stringify(launchValue(process.env)),
 	},
 	// Root-absolute on purpose: the site has its own apex domain, and the studio
 	// is served from "/app/" while its public assets stay at the root. A relative
@@ -43,8 +44,9 @@ export default defineConfig({
 	plugins: [
 		react(),
 		poserModelFlag(),
-		// The clips motion runs of this checkout wrote (public/lowvis/clips/pi, bin/agent/motion-files.mjs) are the
-		// developer's runtime output: they never go into the build, the npm package or the site.
+		// public/lowvis/clips/pi holds the clips motion runs of this checkout wrote (bin/agent/motion-files.mjs), the
+		// developer's runtime output, beside five tracked demo clips that only the dev viewer, a test and the QA hook
+		// showLowvisClip read: none of the folder goes into the build, the npm package or the site.
 		{
 			name: "cozyclay-no-run-clips",
 			apply: "build",

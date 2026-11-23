@@ -2,7 +2,7 @@
 // the motion tool (motion-door.mjs). The old motion actions and the hand-fix actions (HIDDEN_ACTIONS) leave the
 // action index the model reads and the inspect_studio { scope: "actions" } answer, and run_action refuses them. The
 // root-path actions are refused for a rig character; arrange_characters, character.set and patch_elements are refused
-// when they set the pose of a rig character. People are block figures only: the agent cannot add a capsule figure
+// when they set the pose of a rig character. People are rig figures only (drawn in the look of the launch, src/lowvis/studio/figure.js): the agent cannot add a capsule figure
 // (model proxy-figure) or change a character into one, the actions read lose the capsule fields (that model, posture,
 // castStyle) and the context loses scene.castStyle. A capsule figure the user adds in the editor stays. The tools'
 // internal.invoke is not filtered: the motion tool installs through it. Under the old engine nothing changes.
@@ -11,7 +11,7 @@ import { HIDDEN_ACTIONS, motionEngine } from "./motion-engine.mjs";
 const HIDDEN = new Set(HIDDEN_ACTIONS);
 const ROOT_PATH = new Set(["character.addWaypoint", "character.moveWaypoint", "character.removeWaypoint", "character.clearWaypoints"]);
 const CAPSULE = "proxy-figure", CAPSULE_FIELDS = new Set(["posture", "castStyle"]);
-const BLOCK_ONLY = "This version has block figures only: the agent cannot add a capsule figure (model proxy-figure) or change a character into one.";
+const RIG_ONLY = "This version has rig figures only: the agent cannot add a capsule figure (model proxy-figure) or change a character into one.";
 // pi-tools.mjs formats a thrown error as "<code>: <message>"
 const refuse = message => { throw Object.assign(new Error(message), { code: "NOT_AVAILABLE" }); };
 const isRecord = value => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -59,9 +59,9 @@ export function turnAgentView({ env = process.env, value, current, invoke }) {
 			const action = args?.action, input = isRecord(args?.args) ? args.args : {};
 			if (HIDDEN.has(action)) refuse(`${action} is not available to the agent; body motion is the motion tool's work`);
 			if (ROOT_PATH.has(action) && await isRig(input.characterId)) refuse(`${action} is not available for the rig character ${input.characterId}; body motion is the motion tool's work`);
-			if ((action === "character.add" && input.character?.model === CAPSULE) || (action === "character.update" && input.patch?.model === CAPSULE)) refuse(BLOCK_ONLY);
+			if ((action === "character.add" && input.character?.model === CAPSULE) || (action === "character.update" && input.patch?.model === CAPSULE)) refuse(RIG_ONLY);
 			if (action === "character.set") for (const op of Array.isArray(input.ops) ? input.ops : [input]) {
-				if (op?.set?.model === CAPSULE) refuse(BLOCK_ONLY);
+				if (op?.set?.model === CAPSULE) refuse(RIG_ONLY);
 				if (await posesRig(op?.id, op?.set)) refuse(`character.set with pose is not available for the rig character ${op.id}; body motion is the motion tool's work`);
 			}
 		},
@@ -69,7 +69,7 @@ export function turnAgentView({ env = process.env, value, current, invoke }) {
 			for (const op of Array.isArray(args?.ops) ? args.ops : []) if (isRecord(op) && "pose" in op && await isRig(op.characterId)) refuse(`arrange_characters with pose is not available for the rig character ${op.characterId}; body motion is the motion tool's work`);
 		},
 		patch_elements: async args => {
-			for (const op of Array.isArray(args?.ops) ? args.ops : []) if (op?.target?.kind === "character" && op.set?.model === CAPSULE) refuse(BLOCK_ONLY);
+			for (const op of Array.isArray(args?.ops) ? args.ops : []) if (op?.target?.kind === "character" && op.set?.model === CAPSULE) refuse(RIG_ONLY);
 			for (const op of Array.isArray(args?.ops) ? args.ops : []) if (op?.target?.kind === "character" && await posesRig(op.target.id, op.set)) refuse(`a pose patch is not available for the rig character ${op.target.id}; body motion is the motion tool's work`);
 		},
 	};

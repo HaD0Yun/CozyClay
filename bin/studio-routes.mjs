@@ -3,10 +3,12 @@
  * the telemetry toggle the Studio's privacy setting posts to, the update
  * routes behind the Studio's update chip, and the clip of a motion run, which
  * lives outside the package (agent/motion-files.mjs) at the address the page
- * fetches it from (src/lowvis/studio/clip-load.js).
+ * fetches it from (src/lowvis/studio/clip-load.js). launchValue: the look
+ * this launch names, which the launcher writes into the page it serves.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { runFiles } from "./agent/motion-files.mjs";
+export { launchValue } from "../src/lowvis/studio/figure.js";
 import { setTelemetryEnabled } from "./telemetry-state.mjs";
 import { lookupLatest } from "./update-check.mjs";
 import { canSelfUpdate, createInstaller } from "./update-install.mjs";
