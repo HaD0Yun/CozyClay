@@ -95,12 +95,13 @@
 //       frame and flies from the next one under gravity, bounces off the floor and off static props (as a ball of
 //       diameter size[1]; bounce = speed kept), rolls with `friction` (m/s2) and stops. A later key of the prop ends it.
 //       The frame is written by hand; checks.js measures how far the nearest foot is from the prop on that frame.
-//     ride {on:propId, part?} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?   from this frame the prop keeps its
-//       place and turn on that prop, however that one is carried, held or keyed, or on that joint of that body (joints
-//       as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as {on} and
-//       {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at); no at =
-//       the place and turn it has on the carrier on the frame before the ride begins. Until a later key of its own or a
-//       hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
+//     ride {on:propId, part?} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?, over?, ease?   from this frame the
+//       prop keeps its place and turn on that prop, however that one is carried, held or keyed, or on that joint of that
+//       body (joints as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as
+//       {on} and {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at);
+//       no at = the place and turn it has on the carrier on the frame before the ride begins. With at, from that place it
+//       goes to at on the carrier over `over` frames (default 12; 0 = at once; none on frame 0). Until a later key of its
+//       own or a hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
 //     hide | show   from this frame the prop is not drawn / drawn again; nothing else about it changes
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";

@@ -7,9 +7,12 @@
 // one off it is still carried there once, at the start of the frame, and the hand has it from there. The place is taken
 // once per ride: `at` (the prop's centre in the carrier's own frame, its axes along the carrier's turned `deg` about
 // `axis`), else where the prop is on the carrier as both ended the frame before the ride begins (on frame 0: against a
-// prop as it stands after its keys, against a joint as the body ended that frame).
+// prop as it stands after its keys, against a joint as the body ended that frame). A ride with `at` that begins after
+// frame 0 goes there on the carrier from that place over its `over` frames with its `ease` (prop-keys.js eased, as a
+// move key: default 12 and inout; 0 = there at once), so it keeps a continuous place and turn whatever had it before.
 import { INDEX as J, qAxisAngle } from "../rig17.js";
-import { add, len, norm, qConj, qMul, qRotate, qY, rad, sub } from "./math.js";
+import { EASE, add, len, mixV, norm, qConj, qMul, qRotate, qSlerp, qY, rad, sub } from "./math.js";
+import { eased } from "./prop-keys.js";
 import { solveSized } from "./size.js";
 
 /** The key that drives free prop p on frame f (null while a hand holds it, while it rides, and for a key of its own
@@ -52,6 +55,8 @@ function checkRides(p, byId) {
 		if (k.at !== undefined && !vec(k.at)) throw bad(`at wants [x, y, z], got ${JSON.stringify(k.at)}`);
 		if ((k.deg !== undefined || k.axis !== undefined) && !(Number.isFinite(k.deg) && vec(k.axis) && len(k.axis) > 1e-9)) throw bad(`deg wants a number and axis: [x, y, z], got deg ${JSON.stringify(k.deg)}, axis ${JSON.stringify(k.axis)}`);
 		if (k.deg !== undefined && k.at === undefined) throw bad("axis and deg turn the prop on its at; without at it keeps the turn it has when the ride begins: give at, or leave axis and deg out");
+		if (k.over !== undefined && !(Number.isFinite(k.over) && k.over >= 0)) throw bad(`over wants a count of frames, 0 or more, got ${JSON.stringify(k.over)}`);
+		if (k.ease !== undefined && !Object.hasOwn(EASE, k.ease)) throw bad(`ease wants one of ${Object.keys(EASE).join(", ")}, got ${JSON.stringify(k.ease)}`);
 	}
 }
 
@@ -72,14 +77,16 @@ export function moveRiders(props, f, byId = {}, final = false) {
 			p.rel = { k, f, from: { c: p.c.slice(), q: p.q.slice() }, before }; k.entry.began ??= f;
 		}
 		if (!p.rel.firm) { // without at, on a body on frame 0: taken again on each pass of that frame, kept from its last
-			const at = p.rel.before || car;
-			p.rel.c = k.at ?? qRotate(qConj(at.q), sub(p.rel.from.c, at.c));
-			p.rel.q = k.at ? (k.axis ? qAxisAngle(norm(k.axis), rad(k.deg)) : [0, 0, 0, 1]) : qMul(qConj(at.q), p.rel.from.q);
+			const at = p.rel.before || car, was = { c: qRotate(qConj(at.q), sub(p.rel.from.c, at.c)), q: qMul(qConj(at.q), p.rel.from.q) };
+			p.rel.c = k.at ?? was.c;
+			p.rel.q = k.at ? (k.axis ? qAxisAngle(norm(k.axis), rad(k.deg)) : [0, 0, 0, 1]) : was.q;
+			p.rel.was = k.at && p.rel.before ? was : null; // with at after frame 0 it goes there from where it was, over the key's over
 			p.rel.firm = !body || !!k.at || !!p.rel.before || final;
 			k.entry.rel = { c: p.rel.c, q: p.rel.q };
 		}
 		p.rideAt = f;
-		p.c = add(car.c, qRotate(car.q, p.rel.c)); p.q = qMul(car.q, p.rel.q);
+		const u = p.rel.was ? eased(k, f, p.rel.f) : 1, c = u < 1 ? mixV(p.rel.was.c, p.rel.c, u) : p.rel.c, q = u < 1 ? qSlerp(p.rel.was.q, p.rel.q, u) : p.rel.q;
+		p.c = add(car.c, qRotate(car.q, c)); p.q = qMul(car.q, q);
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); // its heading, which a carry keeps against the line of the hands (engine.js)
 	};
@@ -98,12 +105,12 @@ export function carriersOf(p) {
 }
 
 /** The ride keys of the props, checked (checkRides), as { rides } for engine.js's aux, or {} when there is none: per key
- *  its carrier, its next key's frame, whether at was given, the verb of a key of the prop written after it on its own
+ *  its carrier, its next key's frame, whether at was given, its over, the verb of a key of the prop written after it on its own
  *  frame (hidden: that key drives the prop, the ride never does), and, filled in as the clip is built (moveRiders), the
  *  frame it began (null: never) and its place on the carrier ({ c, q } in the carrier's frame), which the rows read (measure.mjs). */
 export function ridesOf(props, byId) {
 	const rides = Object.values(props).flatMap(p => { checkRides(p, byId); return p.keys.filter(k => k.verb === "ride").map(k => (k.entry = {
-		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, next: p.keys.find(n => n.f > k.f)?.f ?? null, began: null, rel: null,
+		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, over: k.over ?? 12, next: p.keys.find(n => n.f > k.f)?.f ?? null, began: null, rel: null,
 		hidden: p.keys.findLast(n => n.f === k.f) === k ? null : p.keys.findLast(n => n.f === k.f).verb,
 	})); });
 	return rides.length ? { rides } : {};

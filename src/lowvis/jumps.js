@@ -17,6 +17,8 @@
 /** The least jump told, in metres (times a body's scale for its Hips joint). The Studio's verify_result description
  *  (src/studio-agent-protocol.js) states it as a number of its own: change both. */
 export const JUMP = 0.05;
+/** Degrees: a ride's turn on its carrier in one frame that is told, beside its move over JUMP (measure.mjs ride rows). */
+export const RIDE_TURN = 20;
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = v => Math.hypot(v[0], v[1], v[2]);

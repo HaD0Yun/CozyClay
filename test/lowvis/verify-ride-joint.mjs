@@ -107,13 +107,15 @@ const PLACES = {
 		const on = worst(r.parsed, "cap", head, place, 0, 55), off = worst(r.parsed, "cap", head, place, 70, 85);
 		assert.ok(on.d < 0.001 && on.t < 0.5, `on the head until the hand takes it at f56 (worst ${(on.d * 1000).toFixed(3)} mm)`);
 		assert.ok(off.d > 0.1, `in the hand it is off the head (${off.d.toFixed(2)} m)`);
-		const kept = r.aux.rides.find(x => x.f === 95), back = put.at ? place : kept.rel, again = worst(r.parsed, "cap", head, back, 112, 159);
+		// with at it goes from where the hand let it go to its place over the ride's over (12 frames)
+		const kept = r.aux.rides.find(x => x.f === 95), back = put.at ? place : kept.rel, again = worst(r.parsed, "cap", head, back, put.at ? 124 : 112, 159), going = worst(r.parsed, "cap", head, back, 112, 123);
 		assert.equal(kept.began, 112, "the ride written while the hand holds it begins at the let-go");
 		assert.ok(again.d < 0.001 && again.t < 0.5, `back on the head from the let-go on, through the walk (worst ${(again.d * 1000).toFixed(3)} mm)`);
+		assert.ok(going.d < 0.002, `from the let-go it is no farther from its place than the hand left it (${(going.d * 1000).toFixed(3)} mm)`);
 		const jump = measure(r.parsed, r.aux).find(x => x.key === "ride:cap:95");
 		// the hand brought it to its place on the head, so it does not jump there (a row only past 5 mm or 2 deg)
 		assert.equal(jump, undefined, `put back where its place is: no jump, no row (${jump?.value.toFixed(1)} mm)`);
-		console.log(`ok take and put back ${put.at ? "with at" : "without at"}: on the head to f55, in the hand, again on it from f112 (worst ${(again.d * 1000).toFixed(3)} mm)${jump ? `; row: ${jump.label}: ${jump.value.toFixed(1)} mm` : ""}`);
+		console.log(`ok take and put back ${put.at ? "with at" : "without at"}: on the head to f55, in the hand, again on it from f${put.at ? "124 (on its way from f112: within " + (going.d * 1000).toFixed(3) + " mm)" : 112} (worst ${(again.d * 1000).toFixed(3)} mm)${jump ? `; row: ${jump.label}: ${jump.value.toFixed(1)} mm` : ""}`);
 	}
 }
 
@@ -132,10 +134,15 @@ const PLACES = {
 	const held = build({ u: [[0, "hold", { prop: "box", hand: "R" }]], box: [[10, "ride", { joint: "Head", of: "u" }]] }, scene);
 	const never = measure(held.parsed, held.aux).find(x => x.key === "ride:box:10");
 	assert.ok(never && never.label === "ride: box never rode on u's Head, the key at f10" && never.value === 50 && never.note === "who held it from that frame to the last frame: u f10-59", `a ride that never began is a row (${never && `${never.label}: ${never.value} ${never.unit} (${never.note})`})`);
-	// a ride with at that begins away from its place: the jump is a row
-	const jumped = build({ u: [[0, "walk", { to: [0, 1] }]], tag: [[20, "ride", { joint: "Spine2", of: "u", at: [0, 0, -0.12] }]] }, scene);
+	fails({ joint: "Head", of: "u", over: -2 }, /over wants a count of frames, 0 or more, got -2/, "a negative over is refused");
+	fails({ joint: "Head", of: "u", ease: "soft" }, /ease wants one of linear, inout/, "an unknown ease is refused");
+	// a ride with at that begins 1.2 m away from its place: over 0 the jump is a row on its first frame; by default it
+	// goes there over 12 frames, and its fastest frame is the row
+	const jumped = build({ u: [[0, "walk", { to: [0, 1] }]], tag: [[20, "ride", { joint: "Spine2", of: "u", at: [0, 0, -0.12], over: 0 }]] }, scene);
 	const jump = measure(jumped.parsed, jumped.aux).find(x => x.key === "ride:tag:20");
-	assert.ok(jump && jump.frame === 20 && jump.value > 300 && jump.short === "ride jump" && jump.spike === 10, `the jump onto the place is a row (${jump && `${jump.label}: ${jump.value.toFixed(0)} mm @f${jump.frame} (${jump.note})`})`);
+	assert.ok(jump && jump.frame === 20 && jump.value > 1000 && jump.short === "ride jump" && jump.spike === 10, `the jump onto the place is a row (${jump && `${jump.label}: ${jump.value.toFixed(0)} mm @f${jump.frame} (${jump.note})`})`);
+	const went = build({ u: [[0, "walk", { to: [0, 1] }]], tag: [[20, "ride", { joint: "Spine2", of: "u", at: [0, 0, -0.12] }]] }, scene), way = measure(went.parsed, went.aux).find(x => x.key === "ride:tag:20");
+	assert.ok(way && way.frame > 20 && way.frame < 32 && way.value < 160 && way.value > 100 && / over 12 frames$/.test(way.note), `over 12 frames the fastest frame is the row (${way && `${way.value.toFixed(0)} mm @f${way.frame} (${way.note})`})`);
 	console.log(`ok errors: unknown joint, unknown or missing character, joint and prop at once, bad at, deg without axis, no moves; rows: "${never.label}" and "${jump.label}: ${jump.value.toFixed(0)} mm"`);
 }
 console.log("PASS verify-ride-joint");

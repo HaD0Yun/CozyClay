@@ -85,9 +85,13 @@ function sled({ step = 0.4, one = false } = {}) {
 	assert.deepEqual(stickAt(12), [], "a hold over 12 frames: the hand goes to the stick first and it does not jump");
 	assert.match(snap[0].note, /^stick; steps into f4, f5, f6: 0\.0, [\d.]+, 0\.0 cm$/);
 	for (const over of [0, 1]) assert.deepEqual(jumps({ a: [[0, "idle"]], p: [[20, "move", { to: [3, 0.15, 0], over }]] }, { frames: 40, characters: body(), props: [crate("p", [1, 0.15, 0])] }).rows, [], `over ${over} asks for the step`);
-	const rideSpec = { a: [[0, "idle"]], cart: [[10, "move", { to: [1, 0.2, 2], over: 50 }]], load: [[30, "ride", { on: "cart", at: [0, 0.35, 0] }]] };
-	const ride = parsed(rideSpec, { frames: 80, characters: body(), props: [{ id: "cart", size: [0.6, 0.4, 1], at: [1, 0.2, 0], moves: true }, crate("load", [2, 0.15, 1])] }), rideRows = measure(ride.clip, ride.aux, { spec: rideSpec });
-	assert.ok(rideRows.some(r => r.key === "ride:load:30" && r.value > 500) && !rideRows.some(r => r.key.startsWith("jump:")), "the jump onto the ride's place is told once, by the ride row");
+	// a ride onto a place 1.06 m away: over 0 the whole way in one frame, by default over 12 frames (inout: at most 1.5 times
+	// a twelfth of the way in a frame); each told by the ride row alone
+	for (const [over, lo, hi] of [[0, 1000, 1200], [undefined, 100, 160]]) {
+		const rideSpec = { a: [[0, "idle"]], cart: [[10, "move", { to: [1, 0.2, 2], over: 50 }]], load: [[30, "ride", { on: "cart", at: [0, 0.35, 0], ...(over === undefined ? {} : { over }) }]] };
+		const ride = parsed(rideSpec, { frames: 80, characters: body(), props: [{ id: "cart", size: [0.6, 0.4, 1], at: [1, 0.2, 0], moves: true }, crate("load", [2, 0.15, 1])] }), rideRows = measure(ride.clip, ride.aux, { spec: rideSpec });
+		assert.ok(rideRows.some(r => r.key === "ride:load:30" && r.value > lo && r.value < hi) && !rideRows.some(r => r.key.startsWith("jump:")), `over ${over}: the way onto the ride's place is told once, by the ride row (${rideRows.find(r => r.key === "ride:load:30")?.value})`);
+	}
 	console.log(`ok rows: a pivot moved at once ${hop[0].value.toFixed(1)} cm at f40, none with about said again or over 0; a 6 cm hop told at scale 1, not at 1.4; a prop snapped into a hand ${snap[0].value.toFixed(1)} cm; over 0 and 1 and a ride's place: no jump row`);
 }
 
