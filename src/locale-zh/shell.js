@@ -108,7 +108,7 @@ export const ZH_SHELL = {
 	"First/last frames, clip, camera and prompt as one zip — hold Shift for every shot": "首/末帧、片段、摄影机和提示词打包为一个 zip — 按住 Shift 导出所有镜头",
 	"Keyframe pack (zip)": "关键帧包 (zip)",
 	"AI video reference (zip)": "AI 视频参考 (zip)",
-	"Your shots as a reference video for AI video models (Seedance etc.): light mosaic and heavy blur, so the model keeps camera, cuts and blocking but not the mannequin look": "将镜头导出为 AI 视频模型（Seedance 等）的参考视频：轻度马赛克加强模糊，模型保留机位、剪辑和走位，但不会照搬人偶外观",
+	"Your shots as a reference video plus a prompt for AI video models (Seedance etc.): light mosaic and heavy blur, so the model keeps camera, cuts and blocking but not the mannequin look": "将镜头导出为 AI 视频模型（Seedance 等）的参考视频和提示词：轻度马赛克加强模糊，模型保留机位、剪辑和走位，但不会照搬人偶外观",
 	"Render the whole timeline to one MP4 — every shot back to back, camera and motion, no editor chrome": "将整条时间线渲染为一个 MP4 — 所有镜头依次衔接，仅含摄影机和动作，无编辑器界面",
 	"Video — whole timeline (mp4)": "视频 — 整条时间线 (mp4)",
 	"Render one shot to its own MP4 — the shot you opened the menu from, or the one under the playhead": "将单个镜头渲染为 MP4 — 从菜单打开的镜头，或播放头下的镜头",

@@ -13,7 +13,7 @@ export const AI_REFERENCE_VIDEO = "reference.mp4";
 // Seedance 2.5 reference video: 2-30 s per clip (model-presets.js).
 export const REFERENCE_MAX_SECONDS = 30;
 
-function readmeText({ seconds, shotCount, width, height }) {
+function readmeText({ seconds, shotCount, width, height, hasPrompt = false }) {
 	const lines = [
 		"CozyClay AI video reference",
 		`${shotCount} shot${shotCount === 1 ? "" : "s"}, ${seconds.toFixed(2)} s, ${width}x${height}.`,
@@ -29,6 +29,18 @@ function readmeText({ seconds, shotCount, width, height }) {
 		"Do not sharpen or replace it with the plain previs export: the model",
 		"copies whatever the reference shows frame by frame.",
 	];
+	if (hasPrompt) {
+		lines.push(
+			"",
+			"- prompt.txt: paste it as the prompt. It names each shot's camera move,",
+			"  the cuts and the cast, read from your scene. @vid1 is this video and",
+			"  @img1, @img2... are your character images in the order listed; swap in",
+			"  your tool's own reference tags (Krea: @vid-1, @img-1). It calls the",
+			"  video a damaged copy on purpose: that keeps the blocks and blur out of",
+			"  the result. Say it once; do not add more mentions of the video.",
+			"- scene-facts.json: the same facts as data (cuts, camera per shot, cast).",
+		);
+	}
 	if (seconds > REFERENCE_MAX_SECONDS) {
 		lines.push("", `Note: the timeline is longer than ${REFERENCE_MAX_SECONDS} s, the Seedance 2.5 reference limit. Trim it before uploading.`);
 	}
@@ -49,7 +61,7 @@ export function aiReferenceEntries({ video, fps, frameCount, shotCount, size, ex
 	return [
 		{ name: AI_REFERENCE_VIDEO, data: video },
 		...extra,
-		{ name: "README.txt", data: readmeText({ seconds, shotCount, width: size.width, height: size.height }) },
+		{ name: "README.txt", data: readmeText({ seconds, shotCount, width: size.width, height: size.height, hasPrompt: extra.some((entry) => entry.name === "prompt.txt") }) },
 	];
 }
 
