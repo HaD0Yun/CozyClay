@@ -25,8 +25,12 @@ const DEFAULT_LOOK = "cube";
 const launchLook = value => { const name = typeof value === "string" ? value.trim() : ""; return !name ? DEFAULT_LOOK : name === "block" ? null : name; };
 /** The look of a launch environment (its COZYCLAY_FIGURE): what the sidecar draws and builds bodies in. */
 export const figureOf = (env = globalThis.process?.env) => launchLook(env?.COZYCLAY_FIGURE);
-// the page served by bin/cozyclay.mjs: the value it was started with; a dev server's page: the value baked in at its start
-const handed = typeof window === "undefined" ? undefined : window.__COZYCLAY_FIGURE__, baked = import.meta.env?.VITE_COZYCLAY_FIGURE;
+// the page served by bin/cozyclay.mjs: the value it was started with; a worker that page starts: the same value, in the
+// worker's name (workerName: a worker has no window); a dev server's page and its workers: the value baked in at its start
+const NAMED = "|figure=", own = typeof self === "undefined" || typeof self.name !== "string" ? -1 : self.name.indexOf(NAMED);
+const handed = typeof window !== "undefined" ? window.__COZYCLAY_FIGURE__ : own >= 0 ? self.name.slice(own + NAMED.length) : undefined, baked = import.meta.env?.VITE_COZYCLAY_FIGURE;
+/** The name for a worker this page starts, carrying the look the page was handed, so the worker reads the page's look. */
+export const workerName = base => (typeof handed === "string" ? `${base}${NAMED}${handed}` : base);
 const LAUNCHED = typeof handed === "string" ? launchLook(handed) : typeof baked === "string" ? launchLook(baked) : figureOf();
 /** The look this page draws rig characters in, or null for the block look. */
 export const FIGURE = (typeof location === "undefined" ? null : new URLSearchParams(location.search).get("figure")) || LAUNCHED;

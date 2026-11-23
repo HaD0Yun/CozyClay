@@ -4,7 +4,8 @@
 // sidecar always read the same look from the same launch value:
 // 1. figureOf (the sidecar: its environment) for each launch value
 // 2. the page's look for the same value as a page served by bin/cozyclay.mjs is handed it (window.__COZYCLAY_FIGURE__),
-//    and as a dev server bakes it in (vite.config.js): FIGURE, lookBody() and bodyScale() equal the sidecar's
+//    and as a dev server bakes it in (vite.config.js): FIGURE, lookBody() and bodyScale() equal the sidecar's; a worker
+//    the page starts (motion3-compile.js, named by workerName) reads the page's value
 // 3. every place that reads COZYCLAY_FIGURE goes through figure.js: no reader of its own anywhere in bin/ or src/
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -14,11 +15,13 @@ import { fileURLToPath } from "node:url";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url)), FIGURE = join(REPO, "src/lowvis/studio/figure.js");
 const { COZYCLAY_FIGURE: _named, ...bare } = process.env;
-/** figure.js imported fresh in a process of its own: the sidecar with COZYCLAY_FIGURE = env, or a page handed `handed`. */
-const read = ({ env, handed } = {}) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
+/** figure.js imported fresh in a process of its own: the sidecar with COZYCLAY_FIGURE = env, a page handed `handed`,
+ *  or a worker of the name `worker`. */
+const read = ({ env, handed, worker } = {}) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
 	${handed === undefined ? "" : `globalThis.window = { __COZYCLAY_FIGURE__: ${JSON.stringify(handed)} };`}
+	${worker === undefined ? "" : `globalThis.self = { name: ${JSON.stringify(worker)} };`}
 	const m = await import(${JSON.stringify(FIGURE)});
-	console.log(JSON.stringify({ sidecar: m.figureOf(), page: m.FIGURE, body: m.lookBody(), sidecarBody: m.lookBody(m.figureOf()), scaled: m.bodyScale({ model: "x-bot-tpose", scale: 1.2 }), standing: m.standingHeight() }));
+	console.log(JSON.stringify({ sidecar: m.figureOf(), page: m.FIGURE, body: m.lookBody(), sidecarBody: m.lookBody(m.figureOf()), scaled: m.bodyScale({ model: "x-bot-tpose", scale: 1.2 }), standing: m.standingHeight(), worker: m.workerName("motion-compile") }));
 `], { encoding: "utf8", env: env === undefined ? bare : { ...bare, COZYCLAY_FIGURE: env } }));
 
 // --- 1 and 2 ---
@@ -31,6 +34,9 @@ for (const [value, look, body] of [[undefined, "cube", CUBE], ["", "cube", CUBE]
 	assert.equal(page.page, look, `launch ${named}: the page's look`);
 	assert.equal(page.body, body, `launch ${named}: the page's body is the sidecar's`);
 	assert.ok(Math.abs(page.scaled - 1.2 * body) < 1e-12, `launch ${named}: a scale 1.2 rig character is 1.2 x the body`);
+	// a worker the page starts is named with the page's value and reads the same look
+	const worker = read({ env: "block", worker: page.worker });
+	assert.deepEqual([worker.page, worker.body], [look, body], `launch ${named}: the page's worker (${page.worker})`);
 	// node with no page around (tests, the sidecar's own default arguments): the environment, as figureOf reads it
 	assert.deepEqual([sidecar.page, sidecar.body], [look, body], `launch ${named}: figure.js's own default in the sidecar`);
 }
