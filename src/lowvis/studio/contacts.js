@@ -2,18 +2,21 @@
 // each of those places is from what the Studio draws (rule 6). Only geometry and ids: no object kinds or names.
 // A body part meets a prop's box on a frame when
 //   - the engine ties it there: a hand that holds the prop (aux.grips, aux.holders), a hand or a foot whose target is on
-//     the prop (aux.reach entries with on), a joint the prop rides (aux.rides);
+//     the prop (aux.reach entries with on), a joint the prop rides (aux.rides: once it is at its place, while no hand
+//     holds it);
 //   - or it lies on or in the box for MIN_SPAN frames in a row: a hand (wrist to finger tip), a foot (its sole), the seat
 //     (the Hips joint less the engine's seat height, with the Hips over the box's footprint).
 // A contact row is one body part on one prop over frames, at one place in the prop's own frame: from the middle of its
-// underside, x along its width, y up, z along its depth (the frame an object.sculpt recipe of it is written in).
+// underside, x along its width, y up, z along its depth (the frame an object.sculpt recipe of it is written in). A row of
+// a joint that carries the prop has that body part as the look draws it (carried.js; look: the look the bodies are drawn
+// in): its size and the box it spans in that frame, and its gap is that drawn part's against the drawn look.
 // A free row (free: true) is no contact: while a body's seat meets a prop, a hand or a foot the engine holds at a target
 // (an aux.reach entry) that is on no prop and no body, near no box (a foot: nor the floor), and keeps its place in that
 // prop's frame for FREE_SPAN frames. It names where the motion holds that limb beside the object the body is on.
 // Node and browser safe: no three.js. The page measures the probes (gaps.js); this module tells them.
-//   contactsOf(clip, aux)               Map(prop id -> [row]) for every prop a body meets
+//   contactsOf(clip, aux, look)         Map(prop id -> [row]) for every prop a body meets
 //   auxOf(scene, spec, clip)            the engine's aux of a compiled clip, built again (null when it is not the same clip)
-//   probesOf(clip, pid, rows)           the points a gap measure reads for one prop's rows, in its frame and the world
+//   probesOf(clip, pid, rows, look)     the points (and drawn parts) a gap measure reads for one prop's rows, in its frame and the world
 //   gapsOf(rows, probes, measured)      the rows' gaps from the drawn look, worst first (gap times frames)
 //   contactLine(label, rows)            one line: where the bodies meet one object
 //   gapLine(label, found)               one line: the contacts a drawn look misses, worst first
@@ -77,15 +80,17 @@ function tiesAt(aux, clip, f) {
 		if (grip?.c != null && (grip.hand === 0 || grip.hand === 1)) tie(grip.c, p.id, PARTS[grip.hand]);
 		else if (holder != null) { tie(holder, p.id, PARTS[0]); tie(holder, p.id, PARTS[1]); }
 	}
-	// a joint carries the prop on the frames its ride does: from the frame it began, while no hand holds the prop
-	for (const r of aux.rides ?? []) if (J[r.joint] !== undefined && r.of != null && r.began != null && f >= r.began && f < (r.next ?? clip.frameCount) && aux.holders?.[r.prop]?.[f] == null) tie(r.of, r.prop, r.joint);
+	// a joint carries the prop on the frames its ride has it in its place: from the frame it got there (the ride's over,
+	// ride.js), while no hand holds the prop
+	for (const r of aux.rides ?? []) if (J[r.joint] !== undefined && r.of != null && r.began != null && f >= r.began + Math.max(0, (r.over ?? 0) - 1) && f < (r.next ?? clip.frameCount) && aux.holders?.[r.prop]?.[f] == null) tie(r.of, r.prop, r.joint);
 	return out;
 }
 
 /**
- * contactsOf(clip, aux) -> Map(prop id -> [{ who, part, from, to, at: [x, y, z], frames: [f], tied, free? }]): the clip's
- * contacts and free rows (see the head of this file), longest first per prop. aux: the engine's (auxOf), or null: only
- * the parts on or in a box count then, and there are no free rows. A prop hidden on a frame (shown 0) has no contact on it.
+ * contactsOf(clip, aux, look) -> Map(prop id -> [{ who, part, from, to, at: [x, y, z], frames: [f], tied, free?, drawn? }]):
+ * the clip's contacts and free rows (see the head of this file), longest first per prop. aux: the engine's (auxOf), or
+ * null: only the parts on or in a box count then, and there are no free rows. A prop hidden on a frame (shown 0) has no
+ * contact on it. drawn: of a joint that carries the prop, its drawn part { size, lo, hi, turn } (carried.js drawnPart).
  */
 export function contactsOf(clip, aux = null, look = null) {
 	const F = clip.frameCount, bodies = new Map(clip.characters.map(c => [c.id, bodyOf(c)])), hits = new Map(); // `${prop}|${who}|${part}|${free}` -> { pid, cid, part, free, frames: Map(f -> tied) }
@@ -187,7 +192,8 @@ const list = v => `[${v.join(", ")}]`;
 const cut = (texts, n) => [...texts.slice(0, n), ...(texts.length > n ? [`${texts.length - n} more`] : [])];
 const FREE_HEAD = "aimed at no object while the seat meets it: ";
 
-/** One line for the agent: where the bodies meet one object, at most ROWS rows, the longest first; then its free rows, at most FREE. */
+/** One line for the agent: where the bodies meet one object, at most ROWS rows, the longest first (a joint that carries
+ *  it: its drawn part's size and span, turned when more than TURNED against the object's axes); then its free rows, at most FREE. */
 export function contactLine(label, rows) {
 	const part = d => `its drawn part ${d.size.join(" x ")} m spans ${list(d.lo)} to ${list(d.hi)}${d.turn > TURNED ? ` (turned ${d.turn}° to these axes)` : ""}`;
 	const text = row => (row.drawn ? `${named(row)} ${span(row)}: ${part(row.drawn)}` : `${named(row)} at ${list(row.at)} ${span(row)}`), free = rows.filter(row => row.free);

@@ -4,7 +4,7 @@
 // models are scripted: the Studio agent's (a faux provider) and the motion writer's (a local server that speaks the
 // proxy's wire format), so no model or proxy runs. Driven with real key and pointer events (CDP Input).
 //   node test/lowvis/qa-install-browser.mjs   (ports: QA_PORT 5196, QA_LIVE_PORT 5396, QA_CDP_PORT 9343; QA_OUT dir;
-//   QA_LOCALE en | ko; COZYCLAY_FIGURE as the Studio is launched; QA_PROBE contacts | contact-frames: that probe instead)
+//   QA_LOCALE en | ko; COZYCLAY_FIGURE as the Studio is launched; QA_PROBE contacts | contact-frames | worn: that probe instead)
 // Every scene and spec here is made up for this check.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -20,6 +20,7 @@ import { createSessionStore } from "../../bin/agent/session-store.mjs";
 import { scenarios } from "./qa-install-scenarios.mjs";
 import { scenarios as contactScenarios } from "./qa-contacts-scenarios.mjs";
 import { scenarios as contactFrameScenarios } from "./qa-contact-frames-scenarios.mjs";
+import { scenarios as wornScenarios } from "./qa-worn-scenarios.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const port = Number(process.env.QA_PORT || 5196), livePort = Number(process.env.QA_LIVE_PORT || 5396), cdpPort = Number(process.env.QA_CDP_PORT || 9343);
@@ -66,7 +67,7 @@ const proxy = createServer(async (req, res) => {
 			const props = [...shown.props.filter(p => !["cup", "crate"].includes(p.id)), { id: "cup", size: [0.08, 0.1, 0.08], at: [who.at[0] + 0.2, 0.85, who.at[1] + 0.25], moves: true }, { id: "crate", size: [0.4, 0.4, 0.4], at: [who.at[0] + 1.2, 0.2, who.at[1] + 0.4 + 0.1 * (plan.variant ?? 0)] }, ...(plan.extra && !shown.props.some(p => p.id === plan.extra) ? [{ id: plan.extra, size: [0.4, 0.45, 0.4], at: [who.at[0] - 1, 0.225, who.at[1] + 0.5] }] : [])];
 			const scene = { frames: 72, characters: [{ id: who.id, at: who.at, heading: who.heading ?? 0, ...(plan.scale ? { scale: plan.scale } : {}) }], props };
 			const hand = plan.hand ?? "R", spec = { [who.id]: [[0, "hold", { prop: "cup", hand }], [20, "pose", { [hand]: [hand === "R" ? 0.1 : -0.1, 0.45, 0.35], over: 18 }], [50, "pose", { [hand === "R" ? "L" : "R"]: [hand === "R" ? -0.1 : 0.1, 0.4 + 0.02 * (plan.variant ?? 0), 0.3], over: 10 }]] };
-			reply(res, { type: "tool", id: `w${writer.runs}-1`, input: { scene, spec } }, "tool_use");
+			reply(res, { type: "tool", id: `w${writer.runs}-1`, input: plan.make ? plan.make(who, shown) : { scene, spec } }, "tool_use"); // make: a probe's own scene and spec
 			return;
 		}
 		if (plan.gate1) await gate(plan.gate1).promise;
@@ -201,7 +202,7 @@ try {
 	report.start = { characters: start.characters.map(c => c.id), objects: start.objects.length };
 
 	// QA_PROBE: one of this folder's probes in place of this check's scenarios; QA_SCENARIOS: another module's scenarios(t)
-	const probes = { contacts: contactScenarios, "contact-frames": contactFrameScenarios };
+	const probes = { contacts: contactScenarios, "contact-frames": contactFrameScenarios, worn: wornScenarios };
 	await (probes[process.env.QA_PROBE] ?? (process.env.QA_SCENARIOS ? (await import(process.env.QA_SCENARIOS)).scenarios : scenarios))({ ID, hub, turn, stop, act, snapshot, last, writer, agent, gate, sleep, click, say, idle, waitFor, evaluate, shot, panelShot, pass, report, wants, assert, send, locale, press });
 	assert.deepEqual(errors, [], "no page error");
 	report.checks = checks;

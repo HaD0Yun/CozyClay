@@ -45,7 +45,8 @@ const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
 /**
  * Keeps the boxes of a motion's scene ({ props: [{ id, size, at, turn?, shape?, moves? }] }) under key; placed:
  * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch; motion: { clip, spec }
- * the clip compiled from that scene (as the writer's tool read it) and spec, whose contacts are kept with the boxes.
+ * the clip compiled from that scene (as the writer's tool read it) and spec, whose contacts are kept with the boxes (a
+ * carrying joint's drawn part in the look COZYCLAY_FIGURE names, as the Studio draws the bodies, or motion.look).
  * -> undo(): keeps again what was kept under key before (a draft of a motion that then failed: motion-draft.mjs).
  */
 export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null) {

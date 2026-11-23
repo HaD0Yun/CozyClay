@@ -8,7 +8,7 @@ import { MeshBVH } from "three-mesh-bvh";
 
 const AXES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(a => new THREE.Vector3(...a));
 const COLUMN = 0.05; // m: the column round a point that a surface under it is looked for in
-const LAYER = 4, CORNERS = 4000; // points per triangle edge of a solid; at most this many corners of the drawn look are read
+const SPACING = 0.01, LAYER = 8, POINTS = 4000; // m between the points read on a triangle, at most this many to an edge, triangles read at most
 const round = v => Math.round(v * 1000) / 1000;
 
 /** The meshes an object's group draws, as tops.js reads them, and a scatter's instanced meshes too. */
@@ -79,26 +79,29 @@ function under(parts, [x, z, y]) {
 	return Number.isFinite(top) ? round(top) : null;
 }
 
-/** Points spread over closed solids [{ v, t }] (corners, LAYER points across each triangle, and toward the middle of each). */
-function spreadOver(list) {
-	const out = [];
-	for (const { v, t } of list) {
-		const mid = [0, 1, 2].map(k => v.reduce((s, p) => s + p[k], 0) / v.length);
-		for (const [a, b, c] of t) for (let i = 0; i <= LAYER; i++) for (let j = 0; i + j <= LAYER; j++) {
-			const w = [i / LAYER, j / LAYER, 1 - (i + j) / LAYER], p = [0, 1, 2].map(k => w[0] * v[a][k] + w[1] * v[b][k] + w[2] * v[c][k]);
-			out.push(p, p.map((x, k) => (x + mid[k]) / 2));
+/** Points spread over triangles (a soup of corners, 9 numbers each): on each, a grid about SPACING apart (at most
+ *  LAYER to an edge), and with mid, as far again toward it; at most POINTS triangles are read, spread over the soup. */
+function spreadOver(soup, mid = null) {
+	const out = [], n = soup.length / 9, step = Math.max(1, Math.ceil(n / POINTS)), c = (t, i) => [soup[t * 9 + i * 3], soup[t * 9 + i * 3 + 1], soup[t * 9 + i * 3 + 2]];
+	for (let t = 0; t < n; t += step) {
+		const [a, b, d] = [0, 1, 2].map(i => c(t, i)), edge = Math.max(...[[a, b], [b, d], [d, a]].map(([x, y]) => Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]))), k = Math.min(LAYER, Math.max(1, Math.ceil(edge / SPACING)));
+		for (let i = 0; i <= k; i++) for (let j = 0; i + j <= k; j++) {
+			const p = [0, 1, 2].map(x => (i / k) * a[x] + (j / k) * b[x] + (1 - (i + j) / k) * d[x]);
+			out.push(p);
+			if (mid) out.push(p.map((x, m) => (x + mid[m]) / 2));
 		}
 	}
 	return out;
 }
 /** The gap between the drawn parts and closed solids [{ v, t }] (a body part, contacts.js): the least distance from the
- *  points of either to the other's surface, or, where one is in the other, minus the deepest such point. */
+ *  surface points of either to the other's surface, or, where one is in the other, minus the deepest such point. */
 function solidGap(parts, list) {
-	const solids = list.map(({ v, t }) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(t.flatMap(tri => tri.flatMap(i => v[i])), 3)); return new MeshBVH(g); });
+	const soups = list.map(({ v, t }) => t.flatMap(tri => tri.flatMap(i => v[i])));
+	const solids = soups.map(soup => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(soup, 3)); return new MeshBVH(g); });
 	let near = Infinity, deep = 0;
 	const take = d => { if (d < 0) deep = Math.max(deep, -d); else near = Math.min(near, d); };
-	for (const p of spreadOver(list)) take(signed(parts, p));
-	for (const bvh of parts) { const a = bvh.geometry.getAttribute("position"), step = Math.max(1, Math.ceil(a.count / CORNERS)); for (let i = 0; i < a.count; i += step) take(signed(solids, [a.getX(i), a.getY(i), a.getZ(i)])); }
+	list.forEach(({ v }, i) => { for (const p of spreadOver(soups[i], [0, 1, 2].map(k => v.reduce((s, x) => s + x[k], 0) / v.length))) take(signed(parts, p)); });
+	for (const bvh of parts) for (const p of spreadOver(bvh.geometry.getAttribute("position").array)) take(signed(solids, p));
 	for (const bvh of solids) bvh.geometry.dispose();
 	return round(deep > 0 ? -deep : near);
 }
