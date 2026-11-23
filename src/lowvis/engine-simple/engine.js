@@ -55,9 +55,9 @@
 //                                      carry takes the prop from any other hands
 //     hold {prop, hand:"R"|"L"|"both", at?, over}   these hands of this character hold the prop until they let go;
 //       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). at = each
-//       hand's place on the prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both); no at = the point of the prop nearest
-//       each hand on the hold's frame, a wrist's pad off its surface. With over 0 (the default) or with each hand within
-//       a wrist's pad of its place they take hold on that frame (with no at, where they are); else they go there over
+//       hand's place on the prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both); no at = where the hand is on the
+//       hold's frame, brought to within 0.03 m of the prop. With over 0 (the default with no at) or with each hand
+//       within 0.03 m of its place they take hold on that frame (with no at, where they are); else they go there over
 //       `over` frames (the hand speed limit below still holds) and take hold when they end.
 //       A holding hand stays where it took hold in the body frame until a later pose moves it. The prop follows its
 //       hands: in one hand fixed in it, as it lay in the hand when that hand came to hold it alone (aim turns it); in

@@ -153,7 +153,7 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 	for (const e of inside ? insideRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who ? `${e.who}'s body` : e.part} inside ${e.prop}`, short: "inside", value: e.value, unit: "mm", frame: e.frame, who: e.who ?? undefined, prop: e.prop, note: `${e.who ? `deepest part: ${e.part}; ` : ""}deeper than ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1 });
 	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that
 	// frame; why (share.js): no place was asked (the prop's nearest point), the hands' top speed, a place past the arm's reach
-	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point of ${prop} nearest the hand, a wrist's pad off its surface`,
+	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point nearest the hand ${Math.round(PAD * s * MM)} mm off the surface of ${prop}`,
 		w?.slow > 0.005 && `late: a wrist moves at most ${Math.round(MAX_STEP * s * MM)} mm a frame in the body frame unless its key says fast, and that held it ${Math.round(w.slow * MM)} mm short of its place on that frame`,
 		w?.beyond > 0.005 && `the place was ${Math.round(w.beyond * MM)} mm beyond the arm's reach from the shoulder`].filter(Boolean).map(t => `; ${t}`).join("");
 	for (const c of clip.characters) [0, 1].forEach(i => {

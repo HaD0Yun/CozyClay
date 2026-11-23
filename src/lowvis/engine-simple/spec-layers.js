@@ -84,7 +84,7 @@ export function buildUpper(id, acts, props, s = 1) {
 	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
-		const k = { f, over: o.over ?? (verb === "hold" ? 0 : 12), ease: o.ease ?? "inout", fast: o.fast };
+		const k = { f, over: o.over ?? (verb === "hold" && o.at === undefined ? 0 : 12), ease: o.ease ?? "inout", fast: o.fast }; // a hold with no at: at once
 		if (verb === "carry") {
 			const half = across(props[o.prop]) / 2 + PAD * s, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
@@ -117,20 +117,21 @@ export function buildUpper(id, acts, props, s = 1) {
 	return { keys, events };
 }
 
-/** A hold: each hand's place on the prop is `at`, else the point of the prop nearest the hand when the hold begins
- *  (take.js settles it then, and whether the hands take hold at once or go there over `over` frames first). From the
+/** A hold: each hand's place on the prop is `at`, else where the hand is when the hold begins or the point of the prop
+ *  nearest it (take.js settles it then, and whether the hands take hold at once or go there over `over` frames first:
+ *  whole frames, by default none with no `at` and 12 with it, as every other blend). From the
  *  take on each hand is held at its place in the body frame (a "keep" key) until a later pose of that hand. One hand
  *  with no `at` holds it alone (engine.js, unless share.js finds other hands on it); any other hold can share it. */
 function holdKeys(id, f, k, o, keys, events) {
-	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"], wait = { over: k.over, hands: [] };
+	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"], wait = { over: Math.max(0, Math.ceil(k.over)) || 0, hands: [] }; // whole frames
 	const point = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
 	for (const i of hands) {
 		at[i] = o.at === undefined ? null : Array.isArray(o.at) && hands.length === 1 ? o.at : o.at?.[name[i]];
 		if (o.at !== undefined && !point(at[i])) throw new Error(`engine-simple: ${id} hold at frame ${f}: at wants [x, y, z] for one hand or {L: [x, y, z], R: [x, y, z]} for the hands named, got ${JSON.stringify(o.at)}`);
 	}
 	for (const i of hands) { // the keep key is held at the place itself (taken at once: no blend key)
-		const place = { on: o.prop, at: at[i] ?? undefined }, list = keys[name[i]], blend = k.over > 0 ? { ...k, to: place } : null;
-		const keep = { f: f + k.over, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true, by: f }; // by: the spec's action that added it
+		const place = { on: o.prop, at: at[i] ?? undefined }, list = keys[name[i]], blend = wait.over > 0 ? { ...k, to: place } : null;
+		const keep = { f: f + wait.over, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true, by: f }; // by: the spec's action that added it
 		list.push(...(blend ? [blend, keep] : [keep]));
 		wait.hands.push({ i, place, list, blend, keep });
 	}

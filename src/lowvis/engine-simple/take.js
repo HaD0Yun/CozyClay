@@ -1,8 +1,9 @@
 // The frame a hand takes hold of a prop (a hold, spec-layers.js holdKeys), and a prop in one hand alone (engine.js).
-//  - On the hold's own frame each named hand gets its place on the prop: `at`, else the point of the prop nearest the
-//    hand where it is then, a wrist's pad off its surface. With over 0 (a hold's default), or when every named hand is
-//    within a wrist's pad of its place, the hands take hold on that frame (a hand with no `at` stays where it is);
-//    else they go to their places over `over` frames and take hold when that ends. Either way the prop is not moved to the hand: a hand still off its place pulls it there.
+//  - On the hold's own frame each named hand gets its place on the prop: `at`, else where the hand is then or, from
+//    farther than a wrist's pad off the prop, the point that far off its surface nearest the hand. With over 0 (the
+//    default with no `at`), or when every named hand is within a wrist's pad of its place, the hands take hold on that
+//    frame (a hand with no `at` stays where it is); else they go to their places over `over` frames and take hold when
+//    that ends. Either way the prop is not moved to the hand: a hand still off its place pulls it there.
 //  - A prop in one hand alone is fixed in that hand as it lies on the first frame the hand has it.
 import { INDEX as J } from "../rig17.js";
 import { add, clamp, len, mul, qConj, qMul, qRotate, sub } from "./math.js";
@@ -21,6 +22,7 @@ const onBox = (p, l, pad) => {
  *  hands take hold. Returns true when they take hold on frame f; else the event moves to the frame its `over` ends.
  *  The hand is where c ended the frame before (frame 0: at rest), the prop where it is at the start of frame f. */
 export function settleHold(e, c, f, p) {
+	if (!p) throw new Error(`engine-simple: ${c.id} hold at frame ${f}: no prop "${e.prop}" in the scene`);
 	const { over, hands } = e.wait, pose = c.world ?? solveSized(c.body[f], {}, c.s), pad = PAD * c.s;
 	let off = 0;
 	for (const h of hands) {
