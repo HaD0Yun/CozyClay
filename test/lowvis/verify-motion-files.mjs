@@ -37,6 +37,8 @@ try {
 		runFiles("agent-new", { root: bare, env: { COZYCLAY_CONFIG_DIR: join(TMP, "own") }, prune: true });
 		assert.deepEqual(readdirSync(runs).sort(), Array.from({ length: 19 }, (_, k) => `agent-${k + 6}`).sort(), "the newest 19 runs stay, the 6 oldest are removed");
 		assert.equal(runFiles("agent-a", { root: here.outDir }).kept, 20);
+		// a checkout's run clips (public/lowvis/clips/pi) never go into a build: vite would copy public/ into dist and the package
+		assert.match(readFileSync(join(REPO, "vite.config.js"), "utf8"), /apply: "build",\s*closeBundle: \(\) => rmSync\(resolve\(import\.meta\.dirname, "dist\/lowvis\/clips\/pi"\)/, "the build leaves the run clips out");
 		console.log("ok layout: a checkout keeps today's places; an installed package writes into the config folder and keeps the newest 20 runs");
 	}
 
