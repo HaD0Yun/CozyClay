@@ -67,6 +67,9 @@ for (const [env, look, body, value] of [[undefined, null, 1, "block"], ["", null
 	assert.deepEqual([worker.page, worker.body], [look, body], `the old engine, launch ${JSON.stringify(env)}: the page's worker (${page.worker})`);
 }
 assert.equal(read({ engine: "lowvis" }).sidecar, "cube", "any other engine value: the default look");
+// figure.js repeats the engine switch's own test (it cannot import bin/agent/motion-engine.mjs into the page): the two agree
+const { motionEngine } = await import(join(REPO, "bin/agent/motion-engine.mjs")), { launchValue } = await import(FIGURE);
+for (const engine of [undefined, "", "old", "OLD", "lowvis", " old"]) assert.equal(launchValue({ COZYCLAY_MOTION_ENGINE: engine }) === "block", motionEngine({ COZYCLAY_MOTION_ENGINE: engine }) === "old", `COZYCLAY_MOTION_ENGINE=${JSON.stringify(engine)}: the block look exactly where the old engine is on`);
 console.log("ok the old engine with no look named: the block look, the rig's own body, on both sides");
 
 // --- 5: a page of another look ---
