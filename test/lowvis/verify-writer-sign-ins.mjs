@@ -173,6 +173,7 @@ function reached(server, run, { key, model, count = 2 }) {
 		{ name: "ChatGPT sign-in", picked: null, id: "gpt-6-astra", key: token, effort: "medium", open: async server => { signedIn(); return createModels({ auth: chatGpt, env: {}, codexBaseUrl: server.base }); } },
 		{ name: "an OpenAI API key", provider: "openai", key: "stored-openai-key", effort: "medium", open: async server => { signedIn({ key: ["openai", "stored-openai-key"] }); const models = await registry(); at(models, "openai", () => `${server.base}/v1`); return models; } },
 		{ name: "a Google Gemini API key", provider: "google", key: "stored-google-key", effort: "medium", open: async server => { signedIn({ key: ["google", "stored-google-key"] }); const models = await registry(); at(models, "google", () => `${server.base}/v1beta`); return models; } },
+		{ name: "a MiniMax API key", provider: "minimax", key: "stored-minimax-key", effort: "medium", open: async server => { signedIn({ key: ["minimax", "stored-minimax-key"] }); const models = await registry(); at(models, "minimax", () => server.base); return models; } },
 		{ name: "an OpenAI-compatible server", picked: "openai-compatible/fake-llama", id: "fake-llama", key: "no-key", effort: "off", served: ["fake-llama"], open: async server => { signedIn({ credential: ["openai-compatible", { type: "api_key", key: "", env: { OPENAI_COMPATIBLE_BASE_URL: server.base } }] }); return registry(); } },
 		{ name: "a CLIProxyAPI sign-in whose proxy lacks the motion model", picked: "cliproxy/gpt-6-astra", id: "gpt-6-astra", key: "stored-proxy-key", effort: "medium", served: ["gpt-6-astra"], open: async server => { signedIn({ credential: ["cliproxy", { type: "api_key", key: "stored-proxy-key", env: { CLIPROXY_BASE_URL: server.base } }] }); return registry(); } },
 	];
@@ -187,12 +188,13 @@ function reached(server, run, { key, model, count = 2 }) {
 		const folder = outDir(), run = await write(route, folder);
 		reached(server, run, { key: family.key, model: id });
 		assert.deepEqual(run.asked, { model: id, effort: family.effort });
+		assert.match(run.served.effortNote, /unchecked here$/, "the record does not claim an effort it did not check");
 		assert.ok(!written(folder).includes(family.key), "the record holds no key");
 		wires.add(route.piModel.api);
 		await server.close();
 		console.log(`PASS ${family.name}: ${route.label} (${route.piModel.api})`);
 	}
-	assert.deepEqual([...wires].sort(), ["google-generative-ai", "openai-codex-responses", "openai-completions", "openai-responses"]);
+	assert.deepEqual([...wires].sort(), ["anthropic-messages", "google-generative-ai", "openai-codex-responses", "openai-completions", "openai-responses"]);
 }
 
 // 4. the answer names the model that wrote: the route's label, and the provider's own name for what it served
@@ -234,7 +236,21 @@ function reached(server, run, { key, model, count = 2 }) {
 	console.log("PASS a refusing provider (401, 429, 404) and a server that is gone: the failure names the writer, and keeps no key or address");
 }
 
-// 6. no sign-in at all, and environment variables that name no address: no route, and no error out of the turn
+// 6. the environment's proxy with a motion model of another wire format: it runs, and the record says what was checked
+{
+	const server = await provider({ served: ["gpt-6-astra"] }), folder = outDir();
+	Object.assign(process.env, { CLIPROXY_BASE_URL: server.base, CLIPROXY_API_KEY: "environment-key" }); // its provider reads the process's environment
+	const run = await runScene({ name: "sign-ins", request: "c1 waves.", variant: "studio", model: "gpt-6-astra", effort: "medium", env: process.env, outDir: folder });
+	delete process.env.CLIPROXY_BASE_URL; delete process.env.CLIPROXY_API_KEY;
+	reached(server, run, { key: "environment-key", model: "gpt-6-astra" });
+	assert.deepEqual(run.served.sent, { model: "gpt-6-astra" });
+	assert.match(run.served.effortNote, /unchecked here$/);
+	assert.ok(!written(folder).includes("environment-key") && !written(folder).includes(server.base), "the record holds no key and no address");
+	await server.close();
+	console.log("PASS the environment's proxy, a model of another wire format: the model id is checked, the effort is the provider layer's");
+}
+
+// 7. no sign-in at all, and environment variables that name no address: no route, and no error out of the turn
 {
 	signedIn();
 	const models = await registry();

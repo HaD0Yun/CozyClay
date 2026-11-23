@@ -5,8 +5,9 @@
 // tool results are sent as their text. The prompt-cache mark sits on the last assistant message, the last block
 // that is the same in the next request, so the conversation before it is read from the cache.
 // The model id and effort are the asked ones or the run fails: nothing here falls back to another model or effort.
-// Through a sign-in of the Studio (writer) the provider layer shapes the request as it does for the Studio agent's turns:
-// the model id is checked in it, the effort is handed to that layer, which places it where its provider takes it.
+// The effort is checked in the request where this file knows its place: an anthropic-messages request on the environment's
+// proxy. Through a sign-in of the Studio (writer), and on another wire format, the provider layer shapes the request as it
+// does for the Studio agent's turns: the model id is checked, the effort is handed to that layer (served.effortNote says which).
 // A model or proxy error ends the run as an infrastructure error; it is not retried inside the run.
 // Safety limits against a runaway loop only (40 motion calls, 30 minutes); a run says when one was hit.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -105,8 +106,9 @@ function markCache(payload) {
  * writer: { models, model, provider, via, secrets } (bin/agent/motion-writer.mjs): the pi model on the Studio's provider
  * registry, its credentials and transport, in place of the CLIProxyAPI the environment names; the record keeps provider
  * and via, and scrubs secrets. The request is then that layer's for its provider: its model id is checked where the
- * request has one, the effort is not looked for in it, a served model of another name is recorded (served.models) and
- * not refused, and the prompt-cache mark is set on the anthropic-messages wire format (other formats cache by themselves).
+ * request has one, the effort is not looked for in it, and a served model of another name is recorded (served.models)
+ * and not refused. On either path the prompt-cache mark is set on the anthropic-messages wire format only (other formats
+ * cache by themselves).
  */
 export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null, writer = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL, ...(writer?.secrets ?? [])].filter(s => typeof s === "string" && s.length > 3);
@@ -129,6 +131,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	}
 	const { models, model, entry } = resolved;
 	record.modelEntry = entry;
+	const strict = !writer && model.api === "anthropic-messages"; // the request's effort is checked (file header)
 
 	const motion = createCompileTool({ name, outDir, variant, off, bodies, figure, kept, shapes }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map(), asked = { ok: 0, failed: 0, error: null }; // asked: the reshape calls
@@ -162,11 +165,12 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 		streamFn: (m, context, options) => { open = { n: modelCalls.length + 1, atMs: round(now()) }; modelCalls.push(open); return models.streamSimple(m, context, options); },
 		transformContext: async messages => keepImages === "latest" ? latestImagesOnly(messages) : messages,
 		onPayload: payload => {
-			// through a sign-in the request is the provider layer's (where the effort sits differs by provider): its model id only
-			const sent = writer ? { model: payload?.model ?? null } : { model: payload?.model, effort: payload?.output_config?.effort ?? null, thinking: payload?.thinking?.type ?? null };
+			// through a sign-in, and on another wire format, the request is the provider layer's (where the effort sits differs
+			// by provider): its model id only, where it has one
+			const sent = strict ? { model: payload?.model, effort: payload?.output_config?.effort ?? null, thinking: payload?.thinking?.type ?? null } : { model: payload?.model ?? null };
 			if (open) open.sent = sent;
-			if (writer ? sent.model !== null && sent.model !== modelId : sent.model !== modelId || sent.effort !== effort) { fail(writer ? `the request would carry model ${sent.model}, not the asked ${modelId}` : `the request would carry model ${sent.model} at effort ${sent.effort}, not the asked ${modelId} at ${effort}`); throw new Error("lowvis harness: the request does not carry the asked model and effort"); }
-			return !writer || model.api === "anthropic-messages" ? markCache(payload) : undefined;
+			if (strict ? sent.model !== modelId || sent.effort !== effort : sent.model !== null && sent.model !== modelId) { fail(strict ? `the request would carry model ${sent.model} at effort ${sent.effort}, not the asked ${modelId} at ${effort}` : `the request would carry model ${sent.model}, not the asked ${modelId}`); throw new Error("lowvis harness: the request does not carry the asked model and effort"); }
+			return model.api === "anthropic-messages" ? markCache(payload) : undefined;
 		},
 		onProviderStreamEvent: event => {
 			if (event?.type !== "message_start" || !open) return;
@@ -212,7 +216,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const calls = shots.map((s, i) => ({ ...s, n: s.n ?? `after ${shots[i - 1]?.n ?? 0}` }));
 	Object.assign(record, {
 		finished: Boolean(finished) && !record.infraError, endedBy: record.infraError ? "infrastructure error" : record.safety.hit ? `safety limit (${record.safety.hit})` : finished ? "the model's report" : `stop reason ${modelCalls.at(-1)?.stopReason ?? "none"}`,
-		served: { models: [...new Set(modelCalls.map(c => c.served).filter(Boolean))], effort: null, effortNote: writer ? "the response does not expose the effort; the provider layer of the sign-in placed the asked one, unchecked here" : "the response does not expose the effort; the request carried the asked one", sent: modelCalls[0]?.sent ?? null },
+		served: { models: [...new Set(modelCalls.map(c => c.served).filter(Boolean))], effort: null, effortNote: strict ? "the response does not expose the effort; the request carried the asked one" : "the response does not expose the effort; the provider layer placed the asked one in the request, unchecked here", sent: modelCalls[0]?.sent ?? null },
 		wallMs, firstCompileMs, modelCalls: modelCalls.length, shots: shots.length, compiles: motion.state.compiles,
 		modelMs: sum("ms"), toolMs: shots.reduce((n, s) => n + s.ms, 0),
 		tokens: { inputFresh: sum("input"), cacheRead: sum("cacheRead"), cacheWrite: sum("cacheWrite"), cacheWrite1h: sum("cacheWrite1h"), output: sum("output") },
