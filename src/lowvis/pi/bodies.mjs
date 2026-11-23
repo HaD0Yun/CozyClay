@@ -8,17 +8,25 @@
 //    body (on the own body, the parts of the limb's own arm or leg left out): inside past LIMIT (the deepest point), or
 //    off past GAP (the nearest point to the nearest part).
 //  - ride: a prop that rides a joint that has a drawn part (aux.rides, while it rides: up to its next key or a hand
-//    taking it off; on frames it is shown), its box (its drawn parts when it has them; a ball as a ball) against the
-//    parts of that joint: sunk past LIMIT or off past GAP.
-//  - through: a body's arms (with their hands) inside its own drawn parts (the arm's own parts left out, and a part and
-//    the part its joint hangs from), and any two bodies' parts inside each other (each hand as its 5 points), past LIMIT;
-//    a hand inside the body its target is on, from that key to the hand's next, is the tied row's, not this one. The
-//    legs inside the own body are not measured: the engine's own steps and postures place them (a kneel puts the shins
-//    together), not a spec's target.
+//    taking it off; on frames it is shown), its box (its drawn parts when it has them; a ball as a ball): sunk into the
+//    parts of that joint past LIMIT (the least distance it would have to move to be clear of the part, as the inside
+//    rows; not a prop the scene marks hollow: things may be inside it, and a part it is worn around is), or off the
+//    body past GAP (its nearest part, when it is that far from the parts of its joint too).
+//  - through: a limb (an upper arm, a forearm, a thigh, a shin, a hand, a foot) counts by its line, from its joint to
+//    the next joint down the limb or to the rig's tip (finger tip, toe tip): how deep that line lies inside a part's
+//    solid at its deepest point. A limb that rests on a part or is pressed into it has its line outside it; past LIMIT
+//    the limb is sunk by more than half its thickness and LIMIT. Measured: a body's arms inside its own parts (the
+//    arm's own parts and the part its joint hangs from left out), every limb of a body inside another body's parts,
+//    and two bodies' other parts (trunk, neck, head) inside each other as solids (separating axes); a hand inside the
+//    body its target is on, from that key to the hand's next and for as long after it as the hand has been inside that
+//    body on every frame (it leaves the place its target gave it), is the tied row's, not this one. The legs inside
+//    the own body are not measured: the engine's own steps and postures place them (a kneel puts the shins together),
+//    not a spec's target.
 // LIMIT and GAP are the inside and the gap rows' own (inside.mjs, gaps.mjs), times the body's scale (for two bodies the
 // smaller). A row is told past them on a tenth of a second's worth of frames or more (prompt.mjs seenFrames): one row per
-// body, limb and body, per riding prop and body, and per body and body, at its worst frame.
-import { INDEX as J, JOINTS, JOINT_COUNT, PARENT, REST, TIPS } from "../rig17.js";
+// body, limb and body, per riding prop and body, and per body and body, at its worst frame; of a body and a body, the
+// pairs of parts that are each past the limit on that many frames, the deepest of them named.
+import { INDEX as J, JOINTS, JOINT_COUNT, OFFSET, PARENT, REST, TIPS } from "../rig17.js";
 import { qMul, qRotate } from "../engine-simple/math.js";
 import { SOLE, TOE } from "../engine-simple/solve.js";
 import { partBoxes } from "../engine-simple/parts.js";
@@ -38,9 +46,10 @@ const SIDE = ["Left", "Right"], LIMB = ["L hand", "R hand", "L foot", "R foot"];
 const HAND = [J.LeftHand, J.RightHand], FOOT = [J.LeftFoot, J.RightFoot];
 const CHAIN = [0, 1].map(i => ["Arm", "ForeArm", "Hand"].map(n => J[SIDE[i] + n])).concat([0, 1].map(i => ["UpLeg", "Leg", "Foot"].map(n => J[SIDE[i] + n]))); // L arm, R arm, L leg, R leg
 const HANDS_MOVE = new Set(["carry", "hold", "place"]);
-/** No drawn part of the rig's body lies further than this from its Hips joint at scale 1 (m; the arms out, 0.9 m). */
-const REACH = 1.1;
 const chainOf = j => CHAIN.findIndex(ch => ch.includes(j));
+const ARMS = CHAIN[0].concat(CHAIN[1]), LIMBS = CHAIN.flat(), TIP = j => TIPS[JOINTS[j]]?.map((v, k) => v - REST[j][k]);
+/** The length of the rig's bones from the Hips joint down to joint j (m at scale 1). */
+const boneLength = j => { let l = 0; for (let k = j; PARENT[k] >= 0; k = PARENT[k]) l += Math.hypot(...OFFSET[k]); return l; };
 
 /** A convex solid in its own frame as the measures read it: corners, triangles, face planes and edge directions. */
 function shapeOf(v, t, e) {
@@ -51,8 +60,14 @@ function shapeOf(v, t, e) {
 	return { v, tris, n, off: n.map(m => Math.max(...v.map(p => dot(p, m)))), d, e, r: Math.max(...v.map(p => Math.hypot(...sub(p, g)))), g };
 }
 const cache = {};
-/** The solids of a look, each as a shape, with its joint. */
-const solidsOf = look => (cache[bodyLook(look)] ??= LOOK_SOLIDS[bodyLook(look)]().map(o => ({ joint: o.joint, ...shapeOf(o.v, o.t, o.e) })));
+/** The solids of a look, each as a shape, with its joint; reach: no drawn part of that look and no tip of the rig lies
+ *  further from the Hips joint, however the body is posed (m at scale 1). */
+function solidsOf(look) {
+	const name = bodyLook(look);
+	if (cache[name]) return cache[name];
+	const solids = LOOK_SOLIDS[name]().map(o => ({ joint: o.joint, ...shapeOf(o.v, o.t, o.e) }));
+	return (cache[name] = { solids, reach: Math.max(...solids.map(o => boneLength(o.joint) + Math.max(...o.v.map(p => Math.hypot(...p)))), ...LIMBS.filter(TIP).map(j => boneLength(j) + Math.hypot(...TIP(j)))) });
+}
 const BOX_T = [[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]];
 const BOX_E = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
 /** A box of half sizes h about c, turned q, as a shape in that frame. */
@@ -91,6 +106,16 @@ function pointSd(W, p, only = false) {
 	for (const T of o.tris) best = Math.min(best, triDist(l, o.v[T.i], o.v[T.j], o.v[T.k]));
 	return best * k;
 }
+/** How deep the line p q lies inside placed shape W at its deepest point (the least distance from that point to a face;
+ *  <= 0: the whole line is outside). The depth along the line is the least of its depths under each face, each linear:
+ *  one peak, found by thirds. */
+function lineDepth(W, p, q) {
+	const o = W.o, a = qRotate(W.iq, sub(p, W.P)), b = qRotate(W.iq, sub(q, W.P)), A = o.n.map((n, i) => o.off[i] * W.s - dot(n, a)), B = o.n.map(n => dot(n, a) - dot(n, b));
+	const g = t => { let m = Infinity; for (let i = 0; i < A.length; i++) m = Math.min(m, A[i] + B[i] * t); return m; };
+	let lo = 0, hi = 1;
+	for (let i = 0; i < 40; i++) { const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; if (g(m1) < g(m2)) lo = m1; else hi = m2; }
+	return g((lo + hi) / 2);
+}
 /** How deep two placed shapes overlap by separating axes (their face normals and the crosses of their edges); <= 0 when
  *  apart. Stops as soon as the overlap is at most stop. */
 function overlap(A, B, stop = 0) {
@@ -113,24 +138,20 @@ function shapeSd(A, B) {
 /** The rows against the drawn bodies (header) of a clip: finished rows for measure.mjs. def: the scene as built (props
  *  with parts); spec: as built (repeats written out, places on parts resolved); look: the look the bodies are drawn in. */
 export function bodyRows(clip, aux, { def, spec, look }) {
-	const F = clip.frameCount, seen = seenFrames(clip.fps), solids = solidsOf(look), chars = clip.characters, cases = new Map();
+	const F = clip.frameCount, seen = seenFrames(clip.fps), { solids, reach } = solidsOf(look), chars = clip.characters, cases = new Map();
 	const at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
 	const rot = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 4; return [c.quat[i], c.quat[i + 1], c.quat[i + 2], c.quat[i + 3]]; };
 	const off = (c, f, j, v) => { const a = at(c, f, j), d = qRotate(rot(c, f, j), v), s = c.scale ?? 1; return [a[0] + d[0] * s, a[1] + d[1] * s, a[2] + d[2] * s]; };
-	const handPts = (c, f, i) => { const w = at(c, f, HAND[i]), t = off(c, f, HAND[i], TIPS[SIDE[i] + "Hand"].map((v, k) => v - REST[HAND[i]][k])); return [0, 1, 2, 3, 4].map(n => w.map((v, k) => v + (t[k] - v) * n / 4)); };
+	/** A limb's line: from its joint to the next joint down the limb, or to the rig's tip where the limb ends. */
+	const lineOf = (c, f, j) => [at(c, f, j), TIP(j) ? off(c, f, j, TIP(j)) : at(c, f, PARENT.indexOf(j))];
+	const handPts = (c, f, i) => { const [w, t] = lineOf(c, f, HAND[i]); return [0, 1, 2, 3, 4].map(n => w.map((v, k) => v + (t[k] - v) * n / 4)); };
 	const footPts = (c, f, i) => [off(c, f, FOOT[i], SOLE), off(c, f, FOOT[i], TOE)];
-	// the pairs of parts measured; on the own body a limb's part with a part neither of its limb nor next to it
-	const allPairs = solids.flatMap((x, m) => solids.map((y, n) => [m, n]));
-	const ownPairs = allPairs.filter(([m, n]) => { const x = solids[m].joint, y = solids[n].joint; return chainOf(x) >= 0 && chainOf(x) < 2 && x !== y && chainOf(y) !== chainOf(x) && PARENT[x] !== y && PARENT[y] !== x; });
 	const posed = (c, f) => solids.map(o => ({ joint: o.joint, W: placed(o, at(c, f, o.joint), rot(c, f, o.joint), c.scale ?? 1) }));
-	const note = (key, base, v, f, past, what) => {
-		const e = cases.get(key) ?? cases.set(key, { ...base, key, value: 0, frame: f, frames: 0, first: f, last: f, what: null, pairs: new Set() }).get(key);
-		if (!past) return;
-		if (!e.frames) e.first = f;
-		if (e.last !== f || !e.frames) e.frames++;
-		e.last = f;
-		if (what.pair) e.pairs.add(what.pair);
-		if (v > e.value) Object.assign(e, { value: v, frame: f, what });
+	// a case's frames past the limit are kept per pair of parts (what.pair; a tied or a ride case has one): its worst and its frames
+	const note = (key, base, v, f, what) => {
+		const e = cases.get(key) ?? cases.set(key, { ...base, key, pairs: new Map() }).get(key), k = what.pair ?? "", p = e.pairs.get(k) ?? e.pairs.set(k, { value: 0, frames: new Set() }).get(k);
+		p.frames.add(f);
+		if (v > p.value) Object.assign(p, { value: v, frame: f, what });
 	};
 	// the tied targets: per character and limb slot, the action frames whose target is a place on a body, and the spans
 	// from such a key to the next key of that limb (a carry, hold or place moves both hands)
@@ -147,9 +168,12 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			}
 		}
 	}
+	const left = new Map(); // per hand and body: the last frame that hand was the tied row's with that body
 	const bodyOf = new Map(chars.map(c => [c.id, c])), tiedTo = (c, f, i) => { const k = aux.reach?.[c.id]?.[f]?.[i]?.key; return k == null ? null : tied.get(c.id)[i].get(k) ?? null; };
 	const tiedSpan = (c, f, i, id) => spans.get(c.id)[i].some(e => e.body === id && f >= e.a && f < (e.b ?? F));
 	const shapes = new Map((def?.props ?? []).map(p => [p.id, p]));
+	/** The nearest (or deepest) of a prop's shapes and a body's parts: { sd: signed distance, part }. */
+	const nearest = (list, parts) => { let best = { sd: Infinity, part: null }; for (const x of list) for (const { joint, W } of parts) { if (!x.ball && Math.hypot(...sub(x.g, W.g)) - x.r - W.r >= best.sd) continue; const d = x.ball ? pointSd(W, x.c) - x.r : shapeSd(x, W); if (d < best.sd) best = { sd: d, part: JOINTS[joint] }; } return best; };
 	const propShapes = (p, f) => {
 		const k = p.pos.length === 3 ? 0 : f, c = Array.from(p.pos.slice(k * 3, k * 3 + 3)), q = Array.from(p.quat.slice(k * 4, k * 4 + 4)), boxes = p.shape === "sphere" ? null : partBoxes(shapes.get(p.id));
 		if (p.shape === "sphere") return [{ ball: true, c, r: p.size[0] / 2 }];
@@ -170,7 +194,7 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 				const d = Math.max(0, pointSd(W, p)); if (d < near.v) near = { v: d, part: JOINTS[joint] };
 			}));
 			const inside = deep.v > LIMIT * s, gone = !inside && near.v > GAP * s;
-			note(`body:${c.id}.${LIMB[i]}>${b.id}`, { who: c.id, body: b.id, limb: LIMB[i], kind: "tied", limits: [LIMIT * s, GAP * s] }, inside ? deep.v : gone ? near.v : 0, f, inside || gone, inside ? { inside: true, part: deep.part } : { part: near.part });
+			if (inside || gone) note(`body:${c.id}.${LIMB[i]}>${b.id}`, { who: c.id, body: b.id, limb: LIMB[i], kind: "tied", limits: [LIMIT * s, GAP * s] }, inside ? deep.v : near.v, f, inside ? { inside: true, part: deep.part } : { part: near.part });
 		}
 		// rides on a joint with a drawn part
 		for (const r of aux.rides ?? []) {
@@ -179,36 +203,40 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			if (!p || !b || p.shown?.[f] === 0 || (r.cut ??= heldFrom(aux, r, F)) <= f) continue;
 			const parts = P.get(b.id).filter(x => x.joint === J[r.joint]);
 			if (!parts.length) continue;
-			const s = b.scale ?? 1;
-			let sd = Infinity, part = null;
-			for (const x of propShapes(p, f)) for (const { joint, W } of parts) { const d = x.ball ? pointSd(W, x.c) - x.r : shapeSd(x, W); if (d < sd) { sd = d; part = JOINTS[joint]; } }
-			const inside = -sd > LIMIT * s, gone = sd > GAP * s;
-			note(`body:${r.prop}.ride>${b.id}`, { prop: r.prop, body: b.id, kind: "ride", joint: r.joint, limits: [LIMIT * s, GAP * s] }, Math.abs(sd), f, inside || gone, { inside, part });
+			const s = b.scale ?? 1, list = propShapes(p, f);
+			let near = nearest(list, parts);
+			const inside = shapes.get(p.id)?.hollow !== true && -near.sd > LIMIT * s;
+			if (near.sd > GAP * s) near = nearest(list, P.get(b.id)); // off its joint's parts: off the body when it is off every part
+			const gone = near.sd > GAP * s;
+			if (inside || gone) note(`body:${r.prop}.ride>${b.id}`, { prop: r.prop, body: b.id, kind: "ride", joint: r.joint, limits: [LIMIT * s, GAP * s] }, Math.abs(near.sd), f, { inside, part: near.part });
 		}
 		// limbs through bodies
 		chars.forEach((a, ia) => chars.forEach((b, ib) => {
 			if (ib < ia) return;
-			const own = a === b, s = Math.min(a.scale ?? 1, b.scale ?? 1), lim = LIMIT * s, A = P.get(a.id), B = P.get(b.id);
-			if (!own && apart(at(a, f, J.Hips), at(b, f, J.Hips), REACH * ((a.scale ?? 1) + (b.scale ?? 1)))) return;
-			const pair = (x, y, d) => { if (d > lim) note(`body:${a.id}.limbs>${b.id}`, { who: a.id, body: b.id, kind: "through", limits: [lim] }, d, f, true, { pair: `${x}|${y}`, x, y }); };
-			for (const [m, n] of own ? ownPairs : allPairs) {
-				const x = A[m], y = B[n];
-				if (!apart(x.W.g, y.W.g, x.W.r + y.W.r)) pair(JOINTS[x.joint], JOINTS[y.joint], overlap(x.W, y.W, lim));
-			}
-			const hands = (c, d, D) => [0, 1].forEach(i => { // c's hands inside d's parts, but in the body a target of that hand is on (from its key to the hand's next)
-				if (tiedSpan(c, f, i, d.id)) return;
-				const pts = handPts(c, f, i);
-				for (const y of D) {
-					if (c === d && CHAIN[i].includes(y.joint)) continue;
-					if (pts.every(p => apart(p, y.W.g, y.W.r))) continue;
-					pair(`${SIDE[i]}Hand`, JOINTS[y.joint], Math.max(...pts.map(p => -pointSd(y.W, p, true))));
+			const own = a === b, s = Math.min(a.scale ?? 1, b.scale ?? 1), lim = LIMIT * s;
+			if (!own && apart(at(a, f, J.Hips), at(b, f, J.Hips), reach * ((a.scale ?? 1) + (b.scale ?? 1)))) return;
+			const name = (c, x) => (own ? x : `${c.id}'s ${x}`);
+			const pair = (c, x, d, y, v) => note(`body:${a.id}.limbs>${b.id}`, { who: a.id, body: b.id, kind: "through", limits: [lim] }, v, f, { pair: `${c.id} ${x}|${y}`, x: name(c, x), y: name(d, y) });
+			const limbs = (c, d) => { // c's limbs, each as its line, inside d's parts
+				for (const j of own ? ARMS : LIMBS) {
+					const i = chainOf(j), hand = HAND.includes(j) && `${c.id} ${i} ${d.id}`, [p, q] = lineOf(c, f, j), deep = [];
+					if (hand && tiedSpan(c, f, i, d.id)) { left.set(hand, f); continue; } // a hand in the body its target is on: the tied row's
+					for (const y of P.get(d.id)) if (!(own && (chainOf(y.joint) === i || PARENT[j] === y.joint)) && segPoint(y.W.g, p, q) <= y.W.r) { const v = lineDepth(y.W, p, q); if (v > lim) deep.push([JOINTS[y.joint], v]); }
+					if (hand && deep.length && left.get(hand) === f - 1) { left.set(hand, f); continue; } // and as it leaves that body from inside it
+					for (const [y, v] of deep) pair(c, JOINTS[j], d, y, v);
 				}
-			});
-			hands(a, b, B);
-			if (!own) hands(b, a, A);
+			};
+			limbs(a, b);
+			if (own) return;
+			limbs(b, a);
+			for (const x of P.get(a.id)) for (const y of P.get(b.id)) if (chainOf(x.joint) < 0 && chainOf(y.joint) < 0 && !apart(x.W.g, y.W.g, x.W.r + y.W.r)) { const v = overlap(x.W, y.W, lim); if (v > lim) pair(a, JOINTS[x.joint], b, JOINTS[y.joint], v); }
 		}));
 	}
-	return [...cases.values()].filter(e => e.frames >= seen).sort((x, y) => y.value - x.value).map(rowOf);
+	// told: the pairs of parts past the limit on enough frames to be seen; a case's row is its deepest such pair
+	return [...cases.values()].flatMap(e => {
+		const pairs = [...e.pairs.values()].filter(p => p.frames.size >= seen), top = pairs.reduce((a, b) => (b.value > (a?.value ?? 0) ? b : a), null), frames = [...new Set(pairs.flatMap(p => [...p.frames]))].sort((x, y) => x - y);
+		return top ? [{ ...e, value: top.value, frame: top.frame, what: top.what, frames: frames.length, first: frames[0], last: frames.at(-1), more: pairs.length - 1 }] : [];
+	}).sort((x, y) => y.value - x.value).map(rowOf);
 }
 /** The first frame a hand holds the prop a ride carries, from the ride's start (the ride ends there; F when none). */
 function heldFrom(aux, r, F) { for (let f = r.began; f < (r.next ?? F); f++) if (aux.holders?.[r.prop]?.[f]) return f; return F; }
@@ -218,10 +246,10 @@ function rowOf(e) {
 	const span = `on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, mm = v => num1(v * 1000), of = e.who === e.body ? "its own drawn body" : `the drawn body of ${e.body}`;
 	const base = { key: e.key, value: e.value * 1000, unit: "mm", frame: e.frame, worse: 1 };
 	if (e.kind === "tied") return { ...base, label: `${e.who}'s ${e.limb} on ${of}`, short: "off body", who: e.who, note: `${e.what.inside ? `inside its part ${e.what.part}` : `off the body, its nearest part ${e.what.part}`}; past ${mm(e.limits[0])} mm inside or ${mm(e.limits[1])} mm off ${span}` };
-	if (e.kind === "ride") return { ...base, label: `${e.prop} riding the drawn body of ${e.body}`, short: "ride body", who: e.body, prop: e.prop, note: `${e.what.inside ? "sunk into" : "off"} its part ${e.what.part}, on whose joint it rides; past ${mm(e.limits[0])} mm in or ${mm(e.limits[1])} mm off ${span}` };
-	const more = e.pairs.size - 1;
-	return { ...base, label: `${e.who}'s body through ${e.who === e.body ? "its own drawn body" : `the drawn body of ${e.body}`}`, short: "through", who: e.who, note: `deepest: ${e.what.x} in ${e.what.y}${more > 0 ? `, and ${more} more pair${more === 1 ? "" : "s"} of parts` : ""}; deeper than ${mm(e.limits[0])} mm ${span}` };
+	if (e.kind === "ride") return { ...base, label: `${e.prop} riding the drawn body of ${e.body}`, short: "ride body", who: e.body, prop: e.prop, note: `${e.what.inside ? `sunk into its part ${e.what.part}, on whose joint it rides` : `off the body, its nearest part ${e.what.part}`}; past ${mm(e.limits[0])} mm in or ${mm(e.limits[1])} mm off ${span}` };
+	const more = e.more;
+	return { ...base, label: e.who === e.body ? `${e.who}'s body through its own drawn body` : `the drawn bodies of ${e.who} and ${e.body} through each other`, short: "through", who: e.who, note: `deepest: ${e.what.x} in ${e.what.y}${more > 0 ? `, and ${more} more pair${more === 1 ? "" : "s"} of parts` : ""}; deeper than ${mm(e.limits[0])} mm ${span}` };
 }
 
 /** What the body lines measure and leave out, said once in a session (compile-tool.mjs): look, the look the bodies are drawn in. */
-export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; its hands are not parts), on every frame. A hand (its wrist to its finger tip) or a foot (its sole and toe tip) whose target is a place on a body, after its blend: inside past the inside limit or off past the gap limit its line states, against that body's nearest part (on the own body the limb's own arm or leg left out). A prop that rides a joint with a drawn part, while it rides: its box (its drawn parts, a ball as a ball) sunk into or off that part. A body's arms with its hands inside its own parts (its own arm and the part its joint hangs from left out; its legs inside it are not measured), and any two bodies' parts inside each other: the deepest pair of parts. Not counted: a hand inside the body its target is on (its own line says it). The engine moves nothing because of it.`;
+export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; hands are not parts), on every frame. A hand (wrist to finger tip) or a foot (sole and toe tip) whose target is a place on a body, after its blend: inside or off that body's nearest part past the limits its line states (on the own body the limb's own arm or leg left out). A prop riding a joint with a drawn part, its box (its drawn parts; a ball as a ball): sunk into that part by the least move that clears it (a box around a part: no less than the part's size; a hollow prop is not told as sunk), or off every part of the body. Through: an upper arm, forearm, thigh, shin, hand or foot is the line of its joints (to the finger or toe tip), told by that line's depth inside a part, so not while it rests on one: a body's arms in its own parts (the arm's own and the part it hangs from left out; its own legs not measured), any limb in another body's parts, two bodies' other parts in each other as solids; each pair of parts by its own frames, the deepest named. Not counted: a hand inside the body its target is on, up to its next key and while it leaves it (its own line says it). The engine moves nothing because of it.`;
