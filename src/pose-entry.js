@@ -8,6 +8,7 @@
 import { useEffect, useRef } from "react";
 import { characterCapabilities } from "./character-kind.js";
 import { ko } from "./locale.js";
+import { FIGURE_LABEL } from "./character-name.js";
 
 const POINT_MS = 1600;
 const POINT_TARGETS = { add: "[data-testid='viewport-add']", characters: ".hierarchy-row[data-kind='character']" };
@@ -20,7 +21,7 @@ export function planPoseEntry(characters, activeChar, refusal) {
 	// The active character is rigged but its rig is still resolving: wait for it rather than refuse.
 	if (rigged.some((entry) => entry.id === activeChar?.id)) return { selectId: activeChar.id };
 	if (rigged.length === 1) return { selectId: rigged[0].id };
-	if (!cast.length) return { reason: ko("Add a character first: Add > Block figure", "먼저 인물을 추가하세요: 추가 > 블록 인형", "请先添加角色：添加 > 积木人"), point: "add" };
+	if (!cast.length) return { reason: ko(`Add a character first: Add > ${FIGURE_LABEL}`, `먼저 인물을 추가하세요: 추가 > ${FIGURE_LABEL}`, `请先添加角色：添加 > ${FIGURE_LABEL}`), point: "add" };
 	// Only capsule figures: none of them can be posed, so point at Add instead of at them.
 	if (!rigged.length) return { reason: refusal, point: "add" };
 	return { reason: ko("Select a character to pose first", "먼저 포즈를 잡을 인물을 선택하세요", "请先选择要摆姿势的角色"), point: "characters" };

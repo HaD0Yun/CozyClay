@@ -155,7 +155,7 @@ const characterTiles = (query) => [...renderToStaticMarkup(createElement(pane.Fo
 const listed = characterTiles("");
 expect("the Characters folder lists two tiles", listed.length === 2, listed.join(", "));
 expect("the Characters folder offers the block figure and the capsule figure", JSON.stringify(listed) === JSON.stringify(["x-bot-tpose", "proxy-figure"]), listed.join(", "));
-expect("the rig tile is labelled Block figure", pane.CHARACTER_ASSETS.find((asset) => asset.id === "x-bot-tpose")?.label === "Block figure");
+expect("the rig tile is labelled with the default look, Cube figure", pane.CHARACTER_ASSETS.find((asset) => asset.id === "x-bot-tpose")?.label === "Cube figure");
 expect("the capsule figure tile is labelled", pane.CHARACTER_ASSETS.find((asset) => asset.id === "proxy-figure")?.label === "Capsule figure");
 expect("the capsule tile draws an SVG silhouette, not an FBX thumbnail",
 	renderToStaticMarkup(createElement(pane.FolderGrid, { folder: "characters", query: "capsule" })).includes('data-preview="proxy-figure"'));

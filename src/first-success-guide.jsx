@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ko } from "./locale.js";
+import { FIGURE_LABEL } from "./character-name.js";
 import { noteGuideDismissed, noteGuideOpened, noteGuideStep } from "./guide-telemetry.js";
 
 const ANIMATION_STEPS = [
@@ -9,9 +10,9 @@ const ANIMATION_STEPS = [
 		en: "Add a character.",
 		ko: "인물을 추가하세요.",
 		zh: "添加一个角色。",
-		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Block figure.",
-		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 블록 인형을 고르세요.",
-		hintZh: "点击右侧工具栏顶部高亮的“添加”按钮，然后选择积木人。",
+		hintEn: `Click the lit Add button at the top of the tool rail on the right, then ${FIGURE_LABEL}.`,
+		hintKo: `오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 ${FIGURE_LABEL}을 고르세요.`,
+		hintZh: `点击右侧工具栏顶部高亮的“添加”按钮，然后选择${FIGURE_LABEL}。`,
 	},
 	{
 		en: "Move it in the Scene view.",

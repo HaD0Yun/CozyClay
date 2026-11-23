@@ -50,5 +50,7 @@ test("the name helper is a leaf module, so Node-side callers such as the MCP han
 	const { readFileSync } = await import("node:fs");
 	const source = readFileSync(new URL("../src/character-name.js", import.meta.url), "utf8");
 	const imports = [...source.matchAll(/^import [^;]* from "([^"]+)";/gm)].map((match) => match[1]);
-	assert.deepEqual(imports, ["./locale.js"], `src/character-name.js imports ${JSON.stringify(imports)}; stage-startup-defaults.js would pull in three`);
+	assert.deepEqual(imports, ["./locale.js", "./lowvis/studio/figure.js"], `src/character-name.js imports ${JSON.stringify(imports)}; stage-startup-defaults.js would pull in three`);
+	const figure = readFileSync(new URL("../src/lowvis/studio/figure.js", import.meta.url), "utf8");
+	assert.equal([...figure.matchAll(/^import /gm)].length, 0, "figure.js (the look the label names) imports nothing");
 });

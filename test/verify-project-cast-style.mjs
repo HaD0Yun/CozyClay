@@ -63,13 +63,13 @@ test("project.new, the agent context and analytics mirror CAST_STYLES", () => {
 	assert.equal(sanitizeProps("scene:created", { scene_source: "new_project", cast_style: "giant" }).cast_style, undefined, "an unknown style is dropped");
 });
 
-test("Add > Character always offers Block figure and Capsule figure; the cast style picks the first", () => {
+test("Add > Character always offers the rig figure (in the default cube look) and Capsule figure; the cast style picks the first", () => {
 	const order = style => addCharacterEntries(style).map(entry => entry.model);
 	assert.deepEqual(order("rig"), ["x-bot-tpose", PROXY_FIGURE_MODEL]);
 	assert.deepEqual(order("hybrid"), ["x-bot-tpose", PROXY_FIGURE_MODEL]);
 	assert.deepEqual(order("capsule"), [PROXY_FIGURE_MODEL, "x-bot-tpose"]);
-	assert.deepEqual(addCharacterEntries("rig").map(entry => entry.add), ["character", "capsule"], "the Block figure entry keeps data-add=character");
-	assert.equal(addCharacterEntries("rig")[0].label(), "Block figure");
+	assert.deepEqual(addCharacterEntries("rig").map(entry => entry.add), ["character", "capsule"], "the rig figure entry keeps data-add=character");
+	assert.equal(addCharacterEntries("rig")[0].label(), "Cube figure", "a launch that names no look draws the cube figure");
 });
 
 test("the last character can be removed: the scene reads an empty cast and the agent context still validates", () => {

@@ -70,10 +70,10 @@ expect(
 );
 expect("picking a tile clears a running take first", appSource.includes("const hadMotion = Boolean(motion);"));
 expect(
-	"an old Y Bot changes to the block figure with one button; an X Bot row has no rig choice",
+	"an old Y Bot changes to the rig figure with one button; an X Bot row has no rig choice",
 	appSource.includes("run('character.update', { characterId: activeChar.id, patch: { model: NEW_CHARACTER_MODEL } })") &&
 	appSource.includes("if (activeChar.model === NEW_CHARACTER_MODEL) return null;") &&
-	appSource.includes('"x-bot-tpose": ko("Block figure", "블록 인형", "积木人")'),
+	appSource.includes('ko("Cube figure", "큐브 인형", "方块人")') && appSource.includes('ko("Block figure", "블록 인형", "积木人")') && appSource.includes('"x-bot-tpose": FIGURE_LABEL'),
 );
 expect("the posture picker keeps the radio-group style", appSource.includes('role="radiogroup"') && stylesSource.includes(".rig-picker"));
 

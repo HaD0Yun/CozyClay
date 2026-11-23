@@ -4532,7 +4532,7 @@ export default function App() {
 								/>
 							)}
 
-							{/* Every X Bot character draws as the block figure; its own meshes hide. Y Bots and imported rigs keep their mesh. */}
+							{/* Every X Bot character draws in the launch's figure look (cube unless named); its own meshes hide. Y Bots and imported rigs keep their mesh. */}
 							{characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} colour={view.colour} scale={view.scale} pickId={view.pickId} />)}
 							<group>
 							{characterViews.map((view) => (
