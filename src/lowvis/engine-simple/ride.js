@@ -93,7 +93,8 @@ export function moveRiders(props, f, byId = {}, final = false) {
 			k.entry.rel = { c: p.rel.c, q: p.rel.q }; k.entry.over = p.rel.was ? p.rel.over : 0; k.entry.cut = p.rel.was && k.over === undefined && gap < 12 ? near : null;
 		}
 		p.rideAt = f;
-		const u = p.rel.was ? eased({ over: p.rel.over, ease: k.ease }, f, p.rel.f - 1) : 1, c = u < 1 ? mixV(p.rel.was.c, p.rel.c, u) : p.rel.c, q = u < 1 ? qSlerp(p.rel.was.q, p.rel.q, u) : p.rel.q;
+		// u: 1 once it is there (an ease that passes its end, as "over", takes it past its place and back, as a key of its own)
+		const u = p.rel.was ? eased({ over: p.rel.over, ease: k.ease }, f, p.rel.f - 1) : 1, c = u === 1 ? p.rel.c : mixV(p.rel.was.c, p.rel.c, u), q = u === 1 ? p.rel.q : qSlerp(p.rel.was.q, p.rel.q, u);
 		p.c = add(car.c, qRotate(car.q, c)); p.q = qMul(car.q, q);
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); // its heading, which a carry keeps against the line of the hands (engine.js)

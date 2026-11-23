@@ -85,6 +85,9 @@ for (const s of [0.5, 1, 3]) {
 	const taken = build({ a: [[30, "pose", { R: { joint: "Head", at: [-0.1, 0.25, 0] }, over: 10 }], [42, "hold", { prop: "x", hand: "R", over: 0 }], [50, "pose", { R: [0.3, 0.9, 0.3], over: 10 }], [65, "release", { prop: "x" }]], x: [[0, "ride", { joint: "Head", of: "a", at: AT }]] }, sc);
 	assert.equal(taken.aux.rides[0].off, 42, "the frame a hand took it off");
 	assert.deepEqual(contactsOf(taken.clip, taken.aux, "cube").get("x").filter(r => r.part === "Head").map(r => `${r.from}-${r.to}`), ["0-41"], "the head carries it until then, not after the let-go");
+	// an ease that passes its end ("over") takes it past its place and back by its last frame, as it does a key of the prop's own
+	const past = build({ x: [[0, "ride", { joint: "Head", of: "a", at: AT }], [40, "ride", { joint: "Head", of: "a", at: [0, 0.25, 0.3], ease: "over" }]] }, sc).clip, zs = Array.from({ length: 12 }, (_, i) => onCarrier(past, car, 40 + i).c[2]);
+	assert.ok(Math.max(...zs) > 0.31 && Math.abs(zs[11] - 0.3) < 1e-4, `ease over: past its place (${Math.max(...zs).toFixed(3)} m) and on it on its last frame`);
 	// frame 0 and no at: as before (no way to go)
 	const still = build({ x: [[0, "ride", { joint: "Head", of: "a", at: AT }], [40, "ride", { joint: "Spine2", of: "a" }]] }, sc);
 	assert.deepEqual(still.aux.rides.map(r => r.over), [0, 0], "frame 0 and a ride without at take no frames");
