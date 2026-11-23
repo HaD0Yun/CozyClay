@@ -103,42 +103,36 @@ export const FOLLOW_DEFAULTS = {
 	railStartMode: "head",
 	/** optional cap on rail-dolly travel (m/s); none, so the rail's schedule sets the speed */
 	maxDollySpeed: Infinity,
-	/** EMA weight for the BEHIND direction; slow on purpose, so a corner
-	 * sweeps the trailing position gradually and the camera cuts the corner
-	 * the way a steadicam op does instead of whipping around the subject.
-	 * On a 90° corner walk it holds the worst pan under ~60°/s (3°/frame @20),
-	 * a brisk but human pan. It is a weight per frame, not per metre, so a
-	 * faster subject's corner is swept in the same time, not left behind. */
+	// EMA weight for the BEHIND direction; slow on purpose, so a corner
+	// sweeps the trailing position gradually and the camera cuts the corner
+	// the way a steadicam op does instead of whipping around the subject.
+	// On a 90° corner walk it holds the worst pan under ~60°/s (3°/frame @20),
+	// a brisk but human pan. It is a weight per frame, not per metre, so a
+	// faster subject's corner is swept in the same time, not left behind.
 	dirBlend: 0.05,
 };
 
-/**
- * How far the operator's aim may sit from the subject, as the tangent of the
- * angle seen from the camera (0.25 is about 14°). The aim spring and its lead
- * are in seconds, so the metres they put between aim and subject grow with the
- * subject's speed; at a walk they are a few degrees of lead room, at a car's
- * speed they would swing the subject out of the picture. This bound is a share
- * of the frame, not a speed: it scales with the camera's distance to the
- * subject and leaves any speed free.
- */
+// How far the operator's aim may sit from the subject, as the tangent of the
+// angle seen from the camera (0.25 is about 14°). The aim spring and its lead
+// are in seconds, so the metres they put between aim and subject grow with the
+// subject's speed; at a walk they are a few degrees of lead room, at a car's
+// speed they would swing the subject out of the picture. This bound is a share
+// of the frame, not a speed: it scales with the camera's distance to the
+// subject and leaves any speed free.
 const AIM_REACH = 0.25;
 
-/**
- * How fast the follow camera may steer toward its trailing position: twice the
- * subject's own (smoothed) speed, and never under twice a walking pace
- * (2.8 m/s) so a camera can still settle while its subject stands. The old
- * fixed 2.8 m/s cap was tuned on a corner walk at 1.4 m/s, where it is this
- * same budget; it bound any faster subject, so a side or front framing slid
- * behind the subject and a front framing flipped round it on a straight.
- */
+// How fast the follow camera may steer toward its trailing position: twice the
+// subject's own (smoothed) speed, and never under twice a walking pace
+// (2.8 m/s) so a camera can still settle while its subject stands. The old
+// fixed 2.8 m/s cap was tuned on a corner walk at 1.4 m/s, where it is this
+// same budget; it bound any faster subject, so a side or front framing slid
+// behind the subject and a front framing flipped round it on a straight.
 const STEER_SCALE = 2, STEER_FLOOR = 2.8;
 
-/**
- * The aim point the camera looks at: the spring's point, pulled toward the
- * subject only where it strays past AIM_REACH of the camera's distance. A
- * smooth knee (x / (1 + x^4)^(1/4)) leaves a walk's lead within a few
- * hundredths of a degree of what it was and never kinks the pan.
- */
+// The aim point the camera looks at: the spring's point, pulled toward the
+// subject only where it strays past AIM_REACH of the camera's distance. A
+// smooth knee (x / (1 + x^4)^(1/4)) leaves a walk's lead within a few
+// hundredths of a degree of what it was and never kinks the pan.
 function framedAim(aim, subject, camera) {
 	const ex = aim.x - subject.x, ez = aim.z - subject.z, e = Math.hypot(ex, ez);
 	const reach = AIM_REACH * Math.max(Math.hypot(camera.x - subject.x, camera.z - subject.z), 1e-3);
