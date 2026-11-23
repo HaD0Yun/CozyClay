@@ -241,6 +241,7 @@ import { clipFrame, loadLowvisClip } from "./lowvis/studio/clip-load.js";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
 import { withTops } from "./lowvis/studio/tops.js";
+import { contactGaps } from "./lowvis/studio/gaps.js";
 import { CraneTurnRings } from "./crane-turn-rings.jsx"; import { railViewAt } from "./camera-rail-head.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
 import {
@@ -2399,6 +2400,7 @@ export default function App() {
 			capture_plan_png: (args = {}) => appContext.live.state.capturePlanPng(requestedCaptureOutput(args) ?? undefined),
 	};
 	liveQueries.describe = withTops(liveQueries.describe, () => mcpCaptureRef.current?.scene); // describe { tops: true }: the flat heights of each solid object (tops.js)
+	liveQueries.contact_gaps = contactGaps(() => mcpCaptureRef.current?.scene); // how far points are from what the stage draws of an object (gaps.js)
 
 	const liveSceneName = scenes.find((entry) => entry.id === activeSceneId)?.name ?? "";
 	const liveMeta = () => ({

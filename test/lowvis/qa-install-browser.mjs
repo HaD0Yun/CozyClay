@@ -4,7 +4,7 @@
 // models are scripted: the Studio agent's (a faux provider) and the motion writer's (a local server that speaks the
 // proxy's wire format), so no model or proxy runs. Driven with real key and pointer events (CDP Input).
 //   node test/lowvis/qa-install-browser.mjs   (ports: QA_PORT 5196, QA_LIVE_PORT 5396, QA_CDP_PORT 9343; QA_OUT dir;
-//   QA_LOCALE en | ko; COZYCLAY_FIGURE as the Studio is launched)
+//   QA_LOCALE en | ko; COZYCLAY_FIGURE as the Studio is launched; QA_PROBE contacts | contact-frames: that probe instead)
 // Every scene and spec here is made up for this check.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -18,6 +18,8 @@ import { createAgentHandler } from "../../bin/agent/agent-routes.mjs";
 import { createFakeModel } from "../fixtures/fake-model.mjs";
 import { createSessionStore } from "../../bin/agent/session-store.mjs";
 import { scenarios } from "./qa-install-scenarios.mjs";
+import { scenarios as contactScenarios } from "./qa-contacts-scenarios.mjs";
+import { scenarios as contactFrameScenarios } from "./qa-contact-frames-scenarios.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const port = Number(process.env.QA_PORT || 5196), livePort = Number(process.env.QA_LIVE_PORT || 5396), cdpPort = Number(process.env.QA_CDP_PORT || 9343);
@@ -198,8 +200,9 @@ try {
 	const start = await snapshot();
 	report.start = { characters: start.characters.map(c => c.id), objects: start.objects.length };
 
-	// QA_SCENARIOS: another module's scenarios(t) in place of this check's (a probe)
-	await (process.env.QA_SCENARIOS ? (await import(process.env.QA_SCENARIOS)).scenarios : scenarios)({ ID, turn, stop, act, snapshot, last, writer, agent, gate, sleep, click, say, idle, waitFor, evaluate, shot, panelShot, pass, report, wants, assert, send, locale, press });
+	// QA_PROBE: one of this folder's probes in place of this check's scenarios; QA_SCENARIOS: another module's scenarios(t)
+	const probes = { contacts: contactScenarios, "contact-frames": contactFrameScenarios };
+	await (probes[process.env.QA_PROBE] ?? (process.env.QA_SCENARIOS ? (await import(process.env.QA_SCENARIOS)).scenarios : scenarios))({ ID, hub, turn, stop, act, snapshot, last, writer, agent, gate, sleep, click, say, idle, waitFor, evaluate, shot, panelShot, pass, report, wants, assert, send, locale, press });
 	assert.deepEqual(errors, [], "no page error");
 	report.checks = checks;
 	await writeFile(`${out}/install-qa-${locale}.json`, JSON.stringify(report, null, "\t"));
