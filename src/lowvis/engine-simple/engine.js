@@ -100,8 +100,8 @@
 //       body (joints as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as
 //       {on} and {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at);
 //       no at = the place and turn it has on the carrier on the frame before the ride begins. With at, from that place it
-//       goes to at on the carrier over `over` frames (default 12; 0 = at once; none on frame 0). Until a later key of its
-//       own or a hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
+//       goes to at on the carrier in `over` frames (default 12 and no later than its next key; 0 or 1 = at once; frame 0:
+//       there). Until a later key of its own or a hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
 //     hide | show   from this frame the prop is not drawn / drawn again; nothing else about it changes
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";

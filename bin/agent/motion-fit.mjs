@@ -53,10 +53,10 @@ export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null
 	const was = [boxes.get(key), floors.get(key), touches.get(key)], next = new Map(), met = new Map();
 	// a clip whose contacts cannot be read (no bodies or poses in it) keeps none: the boxes stand as before
 	if (motion?.clip) try {
-		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip);
-		for (const [prop, rows] of contactsOf(clip, aux)) {
+		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip), look = motion.look ?? process.env.COZYCLAY_FIGURE ?? null;
+		for (const [prop, rows] of contactsOf(clip, aux, look)) {
 			const id = placed[prop], p = clip.props.find(x => x.id === prop);
-			if (id) met.set(id, { name: prop, rows, probes: probesOf(clip, prop, rows), still: p.pos.length <= 3 });
+			if (id) met.set(id, { name: prop, rows, probes: probesOf(clip, prop, rows, look), still: p.pos.length <= 3 });
 		}
 	} catch { met.clear(); }
 	for (const prop of scene?.props ?? []) {
@@ -93,13 +93,14 @@ async function gapLines(key, ids, rows, command) {
 	// each probe in the object's own frame: where it stands now when it stands still, else where the clip has it
 	const framed = list.map(id => {
 		const t = touched.get(id), row = rows.get(id), still = t.still && row && !row.attach, own = probe => (still ? probe.world.map(p => ownOf(row, p)) : probe.local);
-		return { id, t, probes: { ...t.probes, seats: t.probes.seats.map(s => ({ ...s, local: still ? ownOf(row, s.world) : s.local })) }, points: [...t.probes.parts, ...t.probes.inside].map(own) };
+		const solids = (t.probes.solids ?? []).map(s => (still ? s.world.map(pts => pts.map(p => ownOf(row, p))) : s.local).map((v, i) => ({ v, t: s.t[i] })));
+		return { id, t, probes: { ...t.probes, seats: t.probes.seats.map(s => ({ ...s, local: still ? ownOf(row, s.world) : s.local })) }, points: [...t.probes.parts, ...t.probes.inside].map(own), solids };
 	});
-	const answer = await command("contact_gaps", { objects: framed.map(({ id, probes, points }) => ({ id, points, columns: probes.seats.map(s => [s.local[0], s.local[2], s.local[1]]) })) });
+	const answer = await command("contact_gaps", { objects: framed.map(({ id, probes, points, solids }) => ({ id, points, columns: probes.seats.map(s => [s.local[0], s.local[2], s.local[1]]), ...(solids.length ? { solids } : {}) })) });
 	const byId = new Map((answer?.objects ?? []).map(entry => [entry?.id, entry]));
 	for (const { id, t, probes } of framed) {
 		const got = byId.get(id), label = `${t.name} (${id})`, n = probes.parts.length;
-		out.set(id, got?.drawn ? gapLine(label, gapsOf(t.rows, probes, { parts: got.points.slice(0, n), inside: got.points.slice(n), seats: got.columns })) : `${label}: not drawn now, so not measured`);
+		out.set(id, got?.drawn ? gapLine(label, gapsOf(t.rows, probes, { parts: got.points.slice(0, n), inside: got.points.slice(n), seats: got.columns, solids: got.solids })) : `${label}: not drawn now, so not measured`);
 	}
 	return out;
 }

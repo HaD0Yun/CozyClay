@@ -8,8 +8,10 @@
 // once per ride: `at` (the prop's centre in the carrier's own frame, its axes along the carrier's turned `deg` about
 // `axis`), else where the prop is on the carrier as both ended the frame before the ride begins (on frame 0: against a
 // prop as it stands after its keys, against a joint as the body ended that frame). A ride with `at` that begins after
-// frame 0 goes there on the carrier from that place over its `over` frames with its `ease` (prop-keys.js eased, as a
-// move key: default 12 and inout; 0 = there at once), so it keeps a continuous place and turn whatever had it before.
+// frame 0 goes there on the carrier from that place, counted from the frame before, in its `over` frames with its `ease`
+// (prop-keys.js eased; default 12 frames and no later than the prop's next key, inout; 0 or 1 = there on its first
+// frame), so the prop keeps a continuous place and turn whatever had it before, and ride keys written a frame apart
+// put it on each key's place on that key's frame.
 import { INDEX as J, qAxisAngle } from "../rig17.js";
 import { EASE, add, len, mixV, norm, qConj, qMul, qRotate, qSlerp, qY, rad, sub } from "./math.js";
 import { eased } from "./prop-keys.js";
@@ -80,12 +82,15 @@ export function moveRiders(props, f, byId = {}, final = false) {
 			const at = p.rel.before || car, was = { c: qRotate(qConj(at.q), sub(p.rel.from.c, at.c)), q: qMul(qConj(at.q), p.rel.from.q) };
 			p.rel.c = k.at ?? was.c;
 			p.rel.q = k.at ? (k.axis ? qAxisAngle(norm(k.axis), rad(k.deg)) : [0, 0, 0, 1]) : was.q;
-			p.rel.was = k.at && p.rel.before ? was : null; // with at after frame 0 it goes there from where it was, over the key's over
+			// with at after frame 0 it goes there from where it was on the frame before: in over frames, by default 12 and
+			// no later than the prop's next key (keys a frame apart are each there on their frame)
+			p.rel.was = k.at && p.rel.before ? was : null;
+			p.rel.over = k.over ?? Math.min(12, (k.entry.next ?? Infinity) - f);
 			p.rel.firm = !body || !!k.at || !!p.rel.before || final;
-			k.entry.rel = { c: p.rel.c, q: p.rel.q };
+			k.entry.rel = { c: p.rel.c, q: p.rel.q }; k.entry.over = p.rel.was ? p.rel.over : 0;
 		}
 		p.rideAt = f;
-		const u = p.rel.was ? eased(k, f, p.rel.f) : 1, c = u < 1 ? mixV(p.rel.was.c, p.rel.c, u) : p.rel.c, q = u < 1 ? qSlerp(p.rel.was.q, p.rel.q, u) : p.rel.q;
+		const u = p.rel.was ? eased({ over: p.rel.over, ease: k.ease }, f, p.rel.f - 1) : 1, c = u < 1 ? mixV(p.rel.was.c, p.rel.c, u) : p.rel.c, q = u < 1 ? qSlerp(p.rel.was.q, p.rel.q, u) : p.rel.q;
 		p.c = add(car.c, qRotate(car.q, c)); p.q = qMul(car.q, q);
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); // its heading, which a carry keeps against the line of the hands (engine.js)
@@ -105,12 +110,12 @@ export function carriersOf(p) {
 }
 
 /** The ride keys of the props, checked (checkRides), as { rides } for engine.js's aux, or {} when there is none: per key
- *  its carrier, its next key's frame, whether at was given, its over, the verb of a key of the prop written after it on its own
+ *  its carrier, its next key's frame, whether at was given, the frames its way to at took (over: 0 at once, null never began), the verb of a key of the prop written after it on its own
  *  frame (hidden: that key drives the prop, the ride never does), and, filled in as the clip is built (moveRiders), the
  *  frame it began (null: never) and its place on the carrier ({ c, q } in the carrier's frame), which the rows read (measure.mjs). */
 export function ridesOf(props, byId) {
 	const rides = Object.values(props).flatMap(p => { checkRides(p, byId); return p.keys.filter(k => k.verb === "ride").map(k => (k.entry = {
-		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, over: k.over ?? 12, next: p.keys.find(n => n.f > k.f)?.f ?? null, began: null, rel: null,
+		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, over: null, next: p.keys.find(n => n.f > k.f)?.f ?? null, began: null, rel: null,
 		hidden: p.keys.findLast(n => n.f === k.f) === k ? null : p.keys.findLast(n => n.f === k.f).verb,
 	})); });
 	return rides.length ? { rides } : {};
