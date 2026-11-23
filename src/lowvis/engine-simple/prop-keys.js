@@ -16,9 +16,13 @@ export const propKeys = acts => ({
 	shownKeys: acts.filter(a => SHOWN.has(a[1])).map(([f, verb]) => ({ f, verb })).sort((a, b) => a.f - b.f),
 });
 
-/** The place and turn { c, q } key k gives its prop on frame f (k.c0, k.q0: where it starts). over: 0 = there at once. */
+/** How far key k of the prop layer (its over and ease) is through its change on frame f, 0..1, eased; from: the frame
+ *  the change began (the key's own, or the frame a ride began: ride.js). over: 0 = there at once. */
+export const eased = (k, f, from = k.f) => { const over = k.over ?? 12; return EASE[k.ease ?? "inout"](over > 0 ? (f - from) / over : 1); };
+
+/** The place and turn { c, q } key k gives its prop on frame f (k.c0, k.q0: where it starts). */
 function placeOf(k, f) {
-	const over = k.over ?? 12, u = EASE[k.ease ?? "inout"](over > 0 ? (f - k.f) / over : 1), r = k.axis ? qAxisAngle(norm(k.axis), rad(k.deg) * u) : [0, 0, 0, 1];
+	const u = eased(k, f), r = k.axis ? qAxisAngle(norm(k.axis), rad(k.deg) * u) : [0, 0, 0, 1];
 	return { c: k.verb === "tip" ? add(k.pivot, qRotate(r, sub(k.c0, k.pivot))) : k.to ? mixV(k.c0, k.to, u) : k.c0, q: qMul(r, k.q0) };
 }
 

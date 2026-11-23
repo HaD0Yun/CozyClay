@@ -23,7 +23,7 @@ import { bodyRows } from "./bodies.mjs";
 export { bodyText } from "./bodies.mjs";
 import { insideRows } from "./inside.mjs";
 import { gapRows } from "./gaps.mjs";
-import { JUMP, groupJumps } from "../jumps.js";
+import { JUMP, RIDE_TURN, groupJumps } from "../jumps.js";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
 const MM = 1000, DEG = 180 / Math.PI;
@@ -140,17 +140,25 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 	}
 	// a ride (aux.rides, ride.js) that never began: a key of the prop written after it on its frame drives the prop, or
 	// hands held it on every frame from the key to its next key or the end (who, on which frames, as the clip has it);
-	// a ride with at: how far the prop was off that place on the frame before it began (it jumps there) and the turn
+	// a ride with at: the largest step of the prop on its carrier in one frame while it goes from where it was to that
+	// place (the frames the ride's over gave it, up to its next key or a hand taking it off), told over JUMP or RIDE_TURN
+	// with those frames and, when the spacing of the prop's keys cut the default, that key; over 0 or 1: the whole way on
+	// its first frame
 	for (const r of aux.rides ?? []) {
 		const on = r.joint ? `${r.of}'s ${r.joint}` : r.on, tag = { frame: r.began ?? r.f, who: r.of, prop: r.prop }, end = r.next ?? F;
 		const runs = []; for (let f = r.f; f < end; f++) { const h = aux.holders[r.prop]?.[f] ?? "nobody"; if (runs.at(-1)?.h === h) runs.at(-1).b = f; else runs.push({ h, a: f, b: f }); }
 		const why = r.hidden ? `the ${r.hidden} key of ${r.prop} on that frame is written after it and drives ${r.prop}` : `who held it from that frame to ${r.next == null ? "the last frame" : `its next key at f${r.next}`}: ${runs.map(x => `${x.h} f${x.a}-${x.b}`).join(", ")}`;
 		if (r.began == null) rows.push({ key: `ride:${r.prop}:${r.f}`, label: `ride: ${r.prop} never rode on ${on}, the key at f${r.f}`, short: "no ride", value: end - r.f, unit: "frames", ...tag, note: why, worse: 1 });
 		if (!r.at || !r.began || !r.rel) continue;
-		const f = r.began - 1, car = r.joint ? { c: at(clip.characters.find(c => c.id === r.of), f, J[r.joint]), q: rot(clip.characters.find(c => c.id === r.of), f, J[r.joint]) } : propAt(clip.props.find(p => p.id === r.on), f);
-		const was = propAt(clip.props.find(p => p.id === r.prop), f), off = qRotate(car.q, r.rel.c), q = qMul(car.q, r.rel.q), d = dist(was.c, [car.c[0] + off[0], car.c[1] + off[1], car.c[2] + off[2]]);
-		const turned = 2 * Math.acos(Math.min(1, Math.abs(q[0] * was.q[0] + q[1] * was.q[1] + q[2] * was.q[2] + q[3] * was.q[3]))) * DEG;
-		if (d > 0.005 || turned > 2) rows.push({ key: `ride:${r.prop}:${r.f}`, label: `ride: ${r.prop} jumped this far onto its at on ${on} when the ride began`, short: "ride jump", value: d * MM, unit: "mm", ...tag, note: `and turned ${turned.toFixed(0)} deg; the frame before, it was there`, worse: 1, spike: 10 });
+		const carAt = f => (r.joint ? { c: at(clip.characters.find(c => c.id === r.of), f, J[r.joint]), q: rot(clip.characters.find(c => c.id === r.of), f, J[r.joint]) } : propAt(clip.props.find(p => p.id === r.on), f));
+		const onCar = f => { const car = carAt(f), p = propAt(clip.props.find(x => x.id === r.prop), f); return { c: qRotate(qConj(car.q), [p.c[0] - car.c[0], p.c[1] - car.c[1], p.c[2] - car.c[2]]), q: qMul(qConj(car.q), p.q) }; };
+		const w = { d: 0, f: r.began, turn: 0 };
+		for (let f = r.began; f <= Math.min(r.began - 1 + Math.max(1, Math.ceil(r.over ?? 0)), (r.off ?? end) - 1, F - 1); f++) {
+			const a = onCar(f - 1), b = onCar(f), d = dist(a.c, b.c);
+			if (d > w.d) Object.assign(w, { d, f });
+			w.turn = Math.max(w.turn, 2 * Math.acos(Math.min(1, Math.abs(a.q[0] * b.q[0] + a.q[1] * b.q[1] + a.q[2] * b.q[2] + a.q[3] * b.q[3]))) * DEG);
+		}
+		if (w.d > JUMP || w.turn > RIDE_TURN) rows.push({ key: `ride:${r.prop}:${r.f}`, label: `ride: ${r.prop} moved this far in one frame on ${on} going to its at`, short: "ride jump", value: w.d * MM, unit: "mm", ...tag, frame: w.f, note: `turning up to ${w.turn.toFixed(0)} deg a frame; it began ${Math.round(dist(onCar(r.began - 1).c, r.rel.c) * MM)} mm from its at, over ${r.over} frame${r.over === 1 ? "" : "s"}${r.cut == null ? "" : `, the gap to its key at f${r.cut}`}`, worse: 1, spike: 10 });
 	}
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });

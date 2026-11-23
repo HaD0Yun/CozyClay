@@ -7,9 +7,15 @@
 // one off it is still carried there once, at the start of the frame, and the hand has it from there. The place is taken
 // once per ride: `at` (the prop's centre in the carrier's own frame, its axes along the carrier's turned `deg` about
 // `axis`), else where the prop is on the carrier as both ended the frame before the ride begins (on frame 0: against a
-// prop as it stands after its keys, against a joint as the body ended that frame).
+// prop as it stands after its keys, against a joint as the body ended that frame). A ride with `at` that begins after
+// frame 0 goes there on the carrier from that place, counted from the frame before, in its `over` frames with its `ease`
+// (prop-keys.js eased; default 12 frames, or as many as there are to the prop's next key or since its key before when
+// fewer, inout; 0 or 1 = there on its first frame), so the prop keeps a continuous place and turn whatever had it
+// before, and ride keys written a frame apart put it on each key's place on that key's frame: keys written close
+// together are a way the writer times (a hand may move with it), so each takes the frames of that spacing.
 import { INDEX as J, qAxisAngle } from "../rig17.js";
-import { add, len, norm, qConj, qMul, qRotate, qY, rad, sub } from "./math.js";
+import { EASE, add, len, mixV, norm, qConj, qMul, qRotate, qSlerp, qY, rad, sub } from "./math.js";
+import { eased } from "./prop-keys.js";
 import { solveSized } from "./size.js";
 
 /** The key that drives free prop p on frame f (null while a hand holds it, while it rides, and for a key of its own
@@ -21,7 +27,7 @@ import { solveSized } from "./size.js";
  *  (prop-keys.js), so the prop does not stand still for a frame while its carrier moves on. */
 export function propKey(p, f) {
 	const k = p.keys.findLast(k => k.f <= f), riding = k?.verb === "ride", took = p.holder && p.rideAt === f - 1 ? p.rel?.k : null;
-	if (took) took.off ??= f;
+	if (took) took.entry.off = took.off ??= f;
 	const into = !p.holder && !riding && k?.f === f && k.verb !== "launch" && (k.over ?? 12) > 0 && p.rideAt === f - 1 && p.rel.k.off == null ? p.rel.k : null;
 	p.ride = took?.off === f ? took : into ?? (riding && !p.holder && k.off == null ? k : null);
 	const left = !!k?.c0 && p.droveAt !== f - 1; // a key that drove the prop and not on the frame before: a hand had it since, and it stays where that hand let it go
@@ -52,6 +58,8 @@ function checkRides(p, byId) {
 		if (k.at !== undefined && !vec(k.at)) throw bad(`at wants [x, y, z], got ${JSON.stringify(k.at)}`);
 		if ((k.deg !== undefined || k.axis !== undefined) && !(Number.isFinite(k.deg) && vec(k.axis) && len(k.axis) > 1e-9)) throw bad(`deg wants a number and axis: [x, y, z], got deg ${JSON.stringify(k.deg)}, axis ${JSON.stringify(k.axis)}`);
 		if (k.deg !== undefined && k.at === undefined) throw bad("axis and deg turn the prop on its at; without at it keeps the turn it has when the ride begins: give at, or leave axis and deg out");
+		if (k.over !== undefined && !(Number.isFinite(k.over) && k.over >= 0)) throw bad(`over wants a count of frames, 0 or more, got ${JSON.stringify(k.over)}`);
+		if (k.ease !== undefined && !Object.hasOwn(EASE, k.ease)) throw bad(`ease wants one of ${Object.keys(EASE).join(", ")}, got ${JSON.stringify(k.ease)}`);
 	}
 }
 
@@ -72,14 +80,22 @@ export function moveRiders(props, f, byId = {}, final = false) {
 			p.rel = { k, f, from: { c: p.c.slice(), q: p.q.slice() }, before }; k.entry.began ??= f;
 		}
 		if (!p.rel.firm) { // without at, on a body on frame 0: taken again on each pass of that frame, kept from its last
-			const at = p.rel.before || car;
-			p.rel.c = k.at ?? qRotate(qConj(at.q), sub(p.rel.from.c, at.c));
-			p.rel.q = k.at ? (k.axis ? qAxisAngle(norm(k.axis), rad(k.deg)) : [0, 0, 0, 1]) : qMul(qConj(at.q), p.rel.from.q);
+			const at = p.rel.before || car, was = { c: qRotate(qConj(at.q), sub(p.rel.from.c, at.c)), q: qMul(qConj(at.q), p.rel.from.q) };
+			p.rel.c = k.at ?? was.c;
+			p.rel.q = k.at ? (k.axis ? qAxisAngle(norm(k.axis), rad(k.deg)) : [0, 0, 0, 1]) : was.q;
+			// with at after frame 0 it goes there from where it was on the frame before: in over frames, by default 12 or as
+			// many as there are from this frame to the prop's next key or since its key before, if fewer (keys a frame
+			// apart: each on its frame); near: the key whose spacing cut the default
+			const next = k.entry.next ?? Infinity, prev = k.entry.prev ?? -Infinity, near = next - f <= f - prev ? next : prev, gap = Math.abs(near - f);
+			p.rel.was = k.at && p.rel.before ? was : null;
+			p.rel.over = k.over ?? Math.min(12, gap);
 			p.rel.firm = !body || !!k.at || !!p.rel.before || final;
-			k.entry.rel = { c: p.rel.c, q: p.rel.q };
+			k.entry.rel = { c: p.rel.c, q: p.rel.q }; k.entry.over = p.rel.was ? p.rel.over : 0; k.entry.cut = p.rel.was && k.over === undefined && gap < 12 ? near : null;
 		}
 		p.rideAt = f;
-		p.c = add(car.c, qRotate(car.q, p.rel.c)); p.q = qMul(car.q, p.rel.q);
+		// u: 1 once it is there (an ease that passes its end, as "over", takes it past its place and back, as a key of its own)
+		const u = p.rel.was ? eased({ over: p.rel.over, ease: k.ease }, f, p.rel.f - 1) : 1, c = u === 1 ? p.rel.c : mixV(p.rel.was.c, p.rel.c, u), q = u === 1 ? p.rel.q : qSlerp(p.rel.was.q, p.rel.q, u);
+		p.c = add(car.c, qRotate(car.q, c)); p.q = qMul(car.q, q);
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); // its heading, which a carry keeps against the line of the hands (engine.js)
 	};
@@ -98,12 +114,15 @@ export function carriersOf(p) {
 }
 
 /** The ride keys of the props, checked (checkRides), as { rides } for engine.js's aux, or {} when there is none: per key
- *  its carrier, its next key's frame, whether at was given, the verb of a key of the prop written after it on its own
- *  frame (hidden: that key drives the prop, the ride never does), and, filled in as the clip is built (moveRiders), the
- *  frame it began (null: never) and its place on the carrier ({ c, q } in the carrier's frame), which the rows read (measure.mjs). */
+ *  its carrier, the frames of the prop's next key and its key before, whether at was given, the verb of a key of the
+ *  prop written after it on its own frame (hidden: that key drives the prop, the ride never does), and, filled in as
+ *  the clip is built (moveRiders, propKey), the frame it began (null: never), its place on the carrier ({ c, q } in the
+ *  carrier's frame), the frames its way to at took (over: 0 at once), the frame of the key whose spacing cut the default
+ *  12 (cut: null when none did or over was written) and the frame a hand took the prop off it (off: null when none
+ *  did), which the rows read (measure.mjs, studio/contacts.js). */
 export function ridesOf(props, byId) {
 	const rides = Object.values(props).flatMap(p => { checkRides(p, byId); return p.keys.filter(k => k.verb === "ride").map(k => (k.entry = {
-		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, next: p.keys.find(n => n.f > k.f)?.f ?? null, began: null, rel: null,
+		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, over: null, cut: null, next: p.keys.find(n => n.f > k.f)?.f ?? null, prev: p.keys.findLast(n => n.f < k.f)?.f ?? null, began: null, off: null, rel: null,
 		hidden: p.keys.findLast(n => n.f === k.f) === k ? null : p.keys.findLast(n => n.f === k.f).verb,
 	})); });
 	return rides.length ? { rides } : {};

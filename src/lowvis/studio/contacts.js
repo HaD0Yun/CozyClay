@@ -2,23 +2,29 @@
 // each of those places is from what the Studio draws (rule 6). Only geometry and ids: no object kinds or names.
 // A body part meets a prop's box on a frame when
 //   - the engine ties it there: a hand that holds the prop (aux.grips, aux.holders), a hand or a foot whose target is on
-//     the prop (aux.reach entries with on), a joint the prop rides (aux.rides);
+//     the prop (aux.reach entries with on), a joint the prop rides (aux.rides: once it is at its place, until a hand
+//     takes it off or its next key);
 //   - or it lies on or in the box for MIN_SPAN frames in a row: a hand (wrist to finger tip), a foot (its sole), the seat
 //     (the Hips joint less the engine's seat height, with the Hips over the box's footprint).
 // A contact row is one body part on one prop over frames, at one place in the prop's own frame: from the middle of its
-// underside, x along its width, y up, z along its depth (the frame an object.sculpt recipe of it is written in).
+// underside, x along its width, y up, z along its depth (the frame an object.sculpt recipe of it is written in). A row of
+// a joint that carries the prop has that body part as the look draws it (carried.js; look: the look the bodies are drawn
+// in): its size and the box it spans in that frame, and its gap is how far the drawn look is from that drawn part or
+// sunk into it (a look round the part is at it).
 // A free row (free: true) is no contact: while a body's seat meets a prop, a hand or a foot the engine holds at a target
 // (an aux.reach entry) that is on no prop and no body, near no box (a foot: nor the floor), and keeps its place in that
 // prop's frame for FREE_SPAN frames. It names where the motion holds that limb beside the object the body is on.
 // Node and browser safe: no three.js. The page measures the probes (gaps.js); this module tells them.
-//   contactsOf(clip, aux)               Map(prop id -> [row]) for every prop a body meets
+//   contactsOf(clip, aux, look)         Map(prop id -> [row]) for every prop a body meets
+//   frameOf(p, f)                       a clip prop's own frame on a frame
 //   auxOf(scene, spec, clip)            the engine's aux of a compiled clip, built again (null when it is not the same clip)
-//   probesOf(clip, pid, rows)           the points a gap measure reads for one prop's rows, in its frame and the world
+//   probesOf(clip, pid, rows, look)     the points (and drawn parts) a gap measure reads for one prop's rows, in its frame and the world
 //   gapsOf(rows, probes, measured)      the rows' gaps from the drawn look, worst first (gap times frames)
 //   contactLine(label, rows)            one line: where the bodies meet one object
 //   gapLine(label, found)               one line: the contacts a drawn look misses, worst first
 import { buildClip } from "../engine-simple/engine.js";
 import { INDEX as J, REST, TIPS, qConj, qRotate } from "../rig17.js";
+import { drawnPart, partSolids, posed } from "./carried.js";
 
 const NJ = 17;
 const TOUCH = 0.03; // m (times the body's size): a part this near a box, or in it, meets it
@@ -28,6 +34,7 @@ const MOVE = 0.1; // m (times the body's size when larger): a contact whose plac
 const SEAT_UP = 0.13; // m at body size 1: the Hips joint over a seat top (engine-simple/posture.js SEAT_UP)
 const GAP = 0.03; // m: a contact farther than this from the drawn look, or deeper in it, is told
 const ROWS = 6, SAMPLES = 5, GAPS = 3, FREE = 4;
+const TURNED = 5; // degrees: a drawn part turned more than this against the prop's axes says so (its span is then larger than it)
 const PARTS = ["left hand", "right hand", "left foot", "right foot", "seat"];
 // bone segments read for a body inside a drawn part (the hands are their own contacts)
 const SEGMENTS = { legs: [["LeftUpLeg", "LeftLeg"], ["LeftLeg", "LeftFoot"], ["RightUpLeg", "RightLeg"], ["RightLeg", "RightFoot"]], hips: [["Hips", "LeftUpLeg"], ["Hips", "RightUpLeg"], ["Hips", "Spine"], ["Spine", "Spine2"]], arms: [["LeftArm", "LeftForeArm"], ["LeftForeArm", "LeftHand"], ["RightArm", "RightForeArm"], ["RightForeArm", "RightHand"]] };
@@ -35,8 +42,8 @@ const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub = (a, b) => [
 const r2 = v => Math.round(v * 100) / 100, mm = v => Math.round(v * 1000);
 const median = list => { const s = list.slice().sort((a, b) => a - b); return s.length ? s[(s.length - 1) >> 1] : NaN; };
 
-/** The pose of clip prop p at frame f: its base pivot (the middle of its underside) and turn. */
-function frameOf(p, f) {
+/** The pose of clip prop p at frame f: its base pivot (the middle of its underside) and turn, { o, q }. */
+export function frameOf(p, f) {
 	const k = p.pos.length > 3 ? f : 0, q = p.quat.slice(k * 4, k * 4 + 4), h = p.shape === "sphere" ? p.size[0] : p.size[1];
 	return { o: add(p.pos.slice(k * 3, k * 3 + 3), qRotate(q, [0, -h / 2, 0])), q };
 }
@@ -75,16 +82,19 @@ function tiesAt(aux, clip, f) {
 		if (grip?.c != null && (grip.hand === 0 || grip.hand === 1)) tie(grip.c, p.id, PARTS[grip.hand]);
 		else if (holder != null) { tie(holder, p.id, PARTS[0]); tie(holder, p.id, PARTS[1]); }
 	}
-	for (const r of aux.rides ?? []) if (J[r.joint] !== undefined && r.of != null && f >= r.f && f < (r.next ?? clip.frameCount)) tie(r.of, r.prop, r.joint);
+	// a joint carries the prop on the frames its ride has it in its place: from the frame it got there (the ride's over,
+	// ride.js) until a hand takes it off (the ride is over then) or the prop's next key
+	for (const r of aux.rides ?? []) if (J[r.joint] !== undefined && r.of != null && r.began != null && f >= r.began + Math.max(0, (r.over ?? 0) - 1) && f < (r.off ?? r.next ?? clip.frameCount)) tie(r.of, r.prop, r.joint);
 	return out;
 }
 
 /**
- * contactsOf(clip, aux) -> Map(prop id -> [{ who, part, from, to, at: [x, y, z], frames: [f], tied, free? }]): the clip's
- * contacts and free rows (see the head of this file), longest first per prop. aux: the engine's (auxOf), or null: only
- * the parts on or in a box count then, and there are no free rows. A prop hidden on a frame (shown 0) has no contact on it.
+ * contactsOf(clip, aux, look) -> Map(prop id -> [{ who, part, from, to, at: [x, y, z], frames: [f], tied, free?, drawn? }]):
+ * the clip's contacts and free rows (see the head of this file), longest first per prop. aux: the engine's (auxOf), or
+ * null: only the parts on or in a box count then, and there are no free rows. A prop hidden on a frame (shown 0) has no
+ * contact on it. drawn: of a joint that carries the prop, its drawn part { size, lo, hi, turn } (carried.js drawnPart).
  */
-export function contactsOf(clip, aux = null) {
+export function contactsOf(clip, aux = null, look = null) {
 	const F = clip.frameCount, bodies = new Map(clip.characters.map(c => [c.id, bodyOf(c)])), hits = new Map(); // `${prop}|${who}|${part}|${free}` -> { pid, cid, part, free, frames: Map(f -> tied) }
 	const hit = (pid, cid, part, f, tied, free = false) => { const key = `${pid}|${cid}|${part}|${free}`, m = (hits.get(key) ?? hits.set(key, { pid, cid, part, free, frames: new Map() }).get(key)).frames; m.set(f, m.get(f) || tied); };
 	for (let f = 0; f < F; f++) {
@@ -119,6 +129,8 @@ export function contactsOf(clip, aux = null) {
 		for (const run of runs) {
 			if (free ? run.frames.length < FREE_SPAN : !run.tied && run.frames.length < MIN_SPAN) continue;
 			const row = { who: cid, part, from: run.frames[0], to: run.frames.at(-1), at: [0, 1, 2].map(k => r2(median(run.places.map(l => l[k])))), frames: run.frames, tied: run.tied, ...(free ? { free: true } : {}) };
+			const drawn = !PARTS.includes(part) && drawnPart(partSolids(look, part), clip.characters.find(c => c.id === cid), part, run.frames, (f, x) => toLocal(frameOf(p, f), x), f => frameOf(p, f).q); // a joint that carries the prop
+			if (drawn) row.drawn = drawn;
 			(out.get(pid) ?? out.set(pid, []).get(pid)).push(row);
 		}
 	}
@@ -148,17 +160,20 @@ const spread = (list, n) => (list.length <= n ? list : Array.from({ length: n },
 /**
  * The points a gap measure reads for one prop's rows: { parts: [{ row, f, local: [[x, y, z]], world: [[x, y, z]] }],
  * seats: [{ row, f, local, world, up }] (the Hips, up: the seat height), inside: [{ who, group, f, local, world }] (bone
- * points of the bodies on their contact frames) }, at SAMPLES frames per row. local: in the prop's frame on that frame (a
+ * points of the bodies on their contact frames), solids: [{ row, f, local, world, t }] (the drawn part of a joint that
+ * carries the prop: each solid's corners and triangles, carried.js; look: the look the bodies are drawn in) }, at
+ * SAMPLES frames per row. local: in the prop's frame on that frame (a
  * tracked or attached object is drawn there); world: for an object that stands still, read against where it stands.
  */
-export function probesOf(clip, pid, rows) {
-	const p = clip.props.find(x => x.id === pid), parts = [], seats = [], inside = [], bodies = new Map(clip.characters.map(c => [c.id, bodyOf(c)]));
-	if (!p) return { parts, seats, inside };
+export function probesOf(clip, pid, rows, look = null) {
+	const p = clip.props.find(x => x.id === pid), parts = [], seats = [], inside = [], solids = [], bodies = new Map(clip.characters.map(c => [c.id, bodyOf(c)]));
+	if (!p) return { parts, seats, inside, solids };
 	const both = (f, pts) => { const fr = frameOf(p, f); return { local: pts.map(x => toLocal(fr, x)), world: pts }; };
 	rows.forEach((row, k) => {
-		const b = bodies.get(row.who);
+		const b = bodies.get(row.who), drawn = row.drawn ? partSolids(look, row.part) : null;
 		for (const f of spread(row.frames, SAMPLES)) {
 			if (row.part === "seat") { const at = both(f, [b.at(f, J.Hips)]); seats.push({ row: k, f, local: at.local[0], world: at.world[0], up: SEAT_UP * b.s }); } else if (PARTS.includes(row.part)) parts.push({ row: k, f, ...both(f, pointsOf(b, row.part, f)) });
+			else if (drawn) solids.push({ row: k, f, t: drawn.map(o => o.t), ...posed(drawn, clip.characters.find(c => c.id === row.who), row.part, f).reduce((m, pts) => { const at = both(f, pts); m.local.push(at.local); m.world.push(at.world); return m; }, { local: [], world: [] }) });
 		}
 	});
 	for (const who of new Set(rows.map(row => row.who))) {
@@ -169,7 +184,7 @@ export function probesOf(clip, pid, rows) {
 			inside.push({ who, group, f, ...both(f, pts) });
 		}
 	}
-	return { parts, seats, inside };
+	return { parts, seats, inside, solids };
 }
 
 const span = row => (row.from === row.to ? `f${row.from}` : `f${row.from}-${row.to}`);
@@ -179,18 +194,22 @@ const list = v => `[${v.join(", ")}]`;
 const cut = (texts, n) => [...texts.slice(0, n), ...(texts.length > n ? [`${texts.length - n} more`] : [])];
 const FREE_HEAD = "aimed at no object while the seat meets it: ";
 
-/** One line for the agent: where the bodies meet one object, at most ROWS rows, the longest first; then its free rows, at most FREE. */
+/** One line for the agent: where the bodies meet one object, at most ROWS rows, the longest first (a joint that carries
+ *  it: its drawn part's size and span, turned when more than TURNED against the object's axes); then its free rows, at most FREE. */
 export function contactLine(label, rows) {
-	const text = row => `${named(row)} at ${list(row.at)} ${span(row)}`, free = rows.filter(row => row.free);
+	const part = d => `its drawn part ${d.size.join(" x ")} m spans ${list(d.lo)} to ${list(d.hi)}${d.turn > TURNED ? ` (turned ${d.turn}° to these axes)` : ""}`;
+	const text = row => (row.drawn ? `${named(row)} ${span(row)}: ${part(row.drawn)}` : `${named(row)} at ${list(row.at)} ${span(row)}`), free = rows.filter(row => row.free);
 	return `${label}, where bodies meet it: ${cut(rows.filter(row => !row.free).map(text), ROWS).join("; ")}${free.length ? `; ${FREE_HEAD}${cut(free.map(text), FREE).join("; ")}` : ""}`;
 }
 
 /**
  * The gaps of one object's rows from its drawn look: { gaps: [{ text, size, frames }] worst first (the larger gap times
- * its frames; sizes in m), within: the count of contact rows measured within GAP (a joint a prop rides is not measured),
- * free: the same for the free rows farther than GAP from the drawn look }. measured: { parts: [d]
- * per probes parts entry (each its points' signed distances: negative inside), seats: [top | null] per seats entry (the
- * drawn surface's height under the Hips, local), inside: [d] per inside entry } in the order probesOf gave them.
+ * its frames; sizes in m), within: the count of contact rows measured within GAP, free: the same for the free rows
+ * farther than GAP from the drawn look }. measured: { parts: [d] per probes parts entry (each its points' signed
+ * distances: negative inside), seats: [top | null] per seats entry (the drawn surface's height under the Hips, local),
+ * inside: [d] per inside entry, solids: [g] per solids entry (the drawn part against the drawn look: their least
+ * distance, 0 with the look round the part, or minus how deep the look's surface is in the part) } in the order
+ * probesOf gave them.
  * A body group inside a drawn part weighs with the share of the sampled frames it is inside on.
  */
 export function gapsOf(rows, probes, measured) {
@@ -204,6 +223,14 @@ export function gapsOf(rows, probes, measured) {
 			if (tops.length * 2 < ds.length) { out.push({ size: median(ds.map(([s]) => s.local[1] - s.up)), frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: nothing drawn under it` }); return; } // ranked by the seat's height over the base
 			const g = median(tops.map(([s, t]) => s.local[1] - t - s.up));
 			if (Math.abs(g) > GAP) out.push({ size: Math.abs(g), frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${g > 0 ? `floats ${mm(g)} mm over the drawn surface under it` : `sinks ${mm(-g)} mm below the drawn surface`}` });
+			return;
+		}
+		if (row.drawn) { // a joint that carries it: the gap between its drawn part and the drawn look (negative: the look is that deep in the part)
+			const gs = (probes.solids ?? []).map((s, i) => [s, measured.solids?.[i]]).filter(([s, d]) => s.row === k && Number.isFinite(d)).map(([, d]) => d);
+			if (!gs.length) return;
+			count++;
+			const g = median(gs), text = `${named(row)}'s drawn part ${span(row)}: ${g > 0 ? `${mm(g)} mm from the drawn look` : `the drawn look ${mm(-g)} mm inside it`}`;
+			if (Math.abs(g) > GAP) out.push({ size: Math.abs(g), frames: row.frames.length, text });
 			return;
 		}
 		const ds = probes.parts.map((s, i) => [s, measured.parts?.[i]]).filter(([s, d]) => s.row === k && Array.isArray(d) && d.length);

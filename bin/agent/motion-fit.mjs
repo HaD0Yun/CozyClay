@@ -29,7 +29,8 @@
 //   turnFitView({ value, env, hub })          { tools(list) }: under the lowvis engine, a tool result that changed a used
 //                                             object gains motionFit
 import { motionEngine } from "./motion-engine.mjs";
-import { auxOf, contactLine, contactsOf, gapLine, gapsOf, probesOf } from "../../src/lowvis/studio/contacts.js";
+import { attachOf } from "../../src/lowvis/studio/attach.js";
+import { auxOf, contactLine, contactsOf, frameOf, gapLine, gapsOf, probesOf } from "../../src/lowvis/studio/contacts.js";
 
 const PLACE = 0.01, SIZE = 0.02, TURN = 0.5; // metres, metres, degrees: smaller differences are not told
 const TOP = 0.02, COVER = 0.5; // a flat top within 2 cm of the box's top height, over at least half of its footprint
@@ -37,7 +38,7 @@ const FLOOR_CELL = 0.1, FOOT = 0.15; // metres: the floor cells, and a joint low
 const RAD = Math.PI / 180;
 const bodies = new Map(); // conversation -> Map(<Studio character id> -> { id, scale, tint })
 const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves?, contacts? (a body meets it) }), [[x, z]]
-const touches = new Map(); // conversation -> Map(<Studio id> -> { name, rows, probes, still }): where the bodies meet each object; its .sizes: Map(<Studio character id> -> scale) of the installed clip, null for a draft
+const touches = new Map(); // conversation -> Map(<Studio id> -> { name, rows, probes, still, bone }): where the bodies meet each object (bone: attach.js attachOf, the bone that carries it all clip and its place there); its .sizes: Map(<Studio character id> -> scale) of the installed clip, null for a draft
 const r2 = v => Math.round(v * 100) / 100;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
 const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
@@ -45,7 +46,8 @@ const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
 /**
  * Keeps the boxes of a motion's scene ({ props: [{ id, size, at, turn?, shape?, moves? }] }) under key; placed:
  * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch; motion: { clip, spec }
- * the clip compiled from that scene (as the writer's tool read it) and spec, whose contacts are kept with the boxes.
+ * the clip compiled from that scene (as the writer's tool read it) and spec, whose contacts are kept with the boxes (a
+ * carrying joint's drawn part in the look COZYCLAY_FIGURE names, as the Studio launched with it draws the bodies).
  * -> undo(): keeps again what was kept under key before (a draft of a motion that then failed: motion-draft.mjs).
  */
 export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null) {
@@ -53,10 +55,10 @@ export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null
 	const was = [boxes.get(key), floors.get(key), touches.get(key)], next = new Map(), met = new Map();
 	// a clip whose contacts cannot be read (no bodies or poses in it) keeps none: the boxes stand as before
 	if (motion?.clip) try {
-		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip);
-		for (const [prop, rows] of contactsOf(clip, aux)) {
+		const clip = motion.clip, aux = auxOf(scene, motion.spec, clip), look = process.env.COZYCLAY_FIGURE || null;
+		for (const [prop, rows] of contactsOf(clip, aux, look)) {
 			const id = placed[prop], p = clip.props.find(x => x.id === prop);
-			if (id) met.set(id, { name: prop, rows, probes: probesOf(clip, prop, rows), still: p.pos.length <= 3 });
+			if (id) met.set(id, { name: prop, rows, probes: probesOf(clip, prop, rows, look), still: p.pos.length <= 3, bone: attachOf(clip, p, f => { const at = frameOf(p, f); return { pos: at.o, quat: at.q }; }) });
 		}
 	} catch { met.clear(); }
 	for (const prop of scene?.props ?? []) {
@@ -74,32 +76,40 @@ export function rememberBoxes(key, scene, placed = {}, floor = [], motion = null
 /** One line per object a body of the conversation's last motion meets (contacts.js contactLine), [] when none. */
 export const contactLines = key => [...(touches.get(key) ?? [])].map(([id, t]) => contactLine(`${t.name} (${id})`, t.rows));
 
-/** A world point in the own frame of a describe row that stands still (its base pivot, turned by rotX, rot, rotZ in XYZ order). */
+/** The turn of a describe row (rotX, rot, rotZ in XYZ order) as a quaternion; v turned by quaternion q. */
+const turnOf = row => { const h = [finite(row.rotX), finite(row.rot), finite(row.rotZ)].map(v => (v * RAD) / 2), [cx, cy, cz] = h.map(Math.cos), [sx, sy, sz] = h.map(Math.sin); return [sx * cy * cz + cx * sy * sz, cx * sy * cz - sx * cy * sz, cx * cy * sz + sx * sy * cz, cx * cy * cz - sx * sy * sz]; };
+const spin = (q, v) => { const t = [2 * (q[1] * v[2] - q[2] * v[1]), 2 * (q[2] * v[0] - q[0] * v[2]), 2 * (q[0] * v[1] - q[1] * v[0])]; return [v[0] + q[3] * t[0] + (q[1] * t[2] - q[2] * t[1]), v[1] + q[3] * t[1] + (q[2] * t[0] - q[0] * t[2]), v[2] + q[3] * t[2] + (q[0] * t[1] - q[1] * t[0])]; };
+/** A point of the frame a describe row's numbers are in (the world; its bone's frame for an attached object) in the
+ *  row's own frame (its base pivot, turned by rotX, rot, rotZ); fromOwn: a point of that own frame the other way. */
 function ownOf(row, p) {
-	const h = [finite(row.rotX), finite(row.rot), finite(row.rotZ)].map(v => (v * RAD) / 2), [cx, cy, cz] = h.map(Math.cos), [sx, sy, sz] = h.map(Math.sin);
-	const q = [-(sx * cy * cz + cx * sy * sz), -(cx * sy * cz - sx * cy * sz), -(cx * cy * sz + sx * sy * cz), cx * cy * cz - sx * sy * sz]; // the inverse turn
-	const v = [p[0] - finite(row.x), p[1] - finite(row.y), p[2] - finite(row.z)], t = [2 * (q[1] * v[2] - q[2] * v[1]), 2 * (q[2] * v[0] - q[0] * v[2]), 2 * (q[0] * v[1] - q[1] * v[0])];
-	return [v[0] + q[3] * t[0] + (q[1] * t[2] - q[2] * t[1]), v[1] + q[3] * t[1] + (q[2] * t[0] - q[0] * t[2]), v[2] + q[3] * t[2] + (q[0] * t[1] - q[1] * t[0])];
+	const q = turnOf(row);
+	return spin([-q[0], -q[1], -q[2], q[3]], [p[0] - finite(row.x), p[1] - finite(row.y), p[2] - finite(row.z)]);
 }
+const fromOwn = (row, p) => spin(turnOf(row), p).map((v, k) => v + finite(row[["x", "y", "z"][k]]));
 
 /**
  * The gap line of each object of ids a body meets, measured on what the Studio draws now (hub.command("contact_gaps"),
  * src/lowvis/studio/gaps.js): Map(<Studio id> -> line | null (every contact within contacts.js GAP)). rows: Map(id ->
- * describe row): an object that stands still (not tracked, not attached) is read where it stands, as the Studio has it.
+ * describe row): an object that stands still (not tracked, not attached) is read where it stands, as the Studio has it;
+ * one attached to a bone where the Studio has it on that bone (the clip's place there, or one set by hand since).
  */
 async function gapLines(key, ids, rows, command) {
 	const touched = touches.get(key) ?? new Map(), list = ids.filter(id => touched.has(id)), out = new Map();
 	if (!list.length) return out;
-	// each probe in the object's own frame: where it stands now when it stands still, else where the clip has it
+	// each probe in the object's own frame: where it stands now when it stands still; on a bone, from the clip's place on
+	// that bone (t.bone.local) to the place the Studio has it at there (off: the Studio has it on another bone); else
+	// where the clip has it
 	const framed = list.map(id => {
-		const t = touched.get(id), row = rows.get(id), still = t.still && row && !row.attach, own = probe => (still ? probe.world.map(p => ownOf(row, p)) : probe.local);
-		return { id, t, probes: { ...t.probes, seats: t.probes.seats.map(s => ({ ...s, local: still ? ownOf(row, s.world) : s.local })) }, points: [...t.probes.parts, ...t.probes.inside].map(own) };
+		const t = touched.get(id), row = rows.get(id), still = t.still && row && !row.attach, on = row?.attach && t.bone?.bone === (row.attach.bone ?? "root") ? t.bone.local : null;
+		const own = (world, local) => (still ? ownOf(row, world) : on ? ownOf(row, fromOwn(on, local)) : local), each = probe => probe.world.map((w, i) => own(w, probe.local[i]));
+		const solids = (t.probes.solids ?? []).map(s => s.world.map((pts, i) => ({ v: pts.map((w, k) => own(w, s.local[i][k])), t: s.t[i] })));
+		return { id, t, off: Boolean(row?.attach) && !on, probes: { ...t.probes, seats: t.probes.seats.map(s => ({ ...s, local: own(s.world, s.local) })) }, points: [...t.probes.parts, ...t.probes.inside].map(each), solids };
 	});
-	const answer = await command("contact_gaps", { objects: framed.map(({ id, probes, points }) => ({ id, points, columns: probes.seats.map(s => [s.local[0], s.local[2], s.local[1]]) })) });
+	const answer = await command("contact_gaps", { objects: framed.filter(entry => !entry.off).map(({ id, probes, points, solids }) => ({ id, points, columns: probes.seats.map(s => [s.local[0], s.local[2], s.local[1]]), ...(solids.length ? { solids } : {}) })) });
 	const byId = new Map((answer?.objects ?? []).map(entry => [entry?.id, entry]));
-	for (const { id, t, probes } of framed) {
+	for (const { id, t, probes, off } of framed) {
 		const got = byId.get(id), label = `${t.name} (${id})`, n = probes.parts.length;
-		out.set(id, got?.drawn ? gapLine(label, gapsOf(t.rows, probes, { parts: got.points.slice(0, n), inside: got.points.slice(n), seats: got.columns })) : `${label}: not drawn now, so not measured`);
+		out.set(id, off ? `${label}: not on the bone the motion carries it on, so not measured` : got?.drawn ? gapLine(label, gapsOf(t.rows, probes, { parts: got.points.slice(0, n), inside: got.points.slice(n), seats: got.columns, solids: got.solids })) : `${label}: not drawn now, so not measured`);
 	}
 	return out;
 }

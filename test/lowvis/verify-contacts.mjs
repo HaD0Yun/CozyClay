@@ -71,8 +71,10 @@ const still = v => () => v;
 	assert.ok(probes.parts.every(p => p.local.every((l, i) => Math.hypot(...l.map((v, k) => v - first[i][k])) < 1e-6)), "the hand keeps its place in the cup's own frame while both move and turn");
 	assert.ok(probes.parts.some(p => Math.hypot(...p.world[0].map((v, k) => v - probes.parts[0].world[0][k])) > 0.5), "while it moves in the world");
 	// a pack one joint carries, and a box hidden on frames 8-15
-	const pack = contactsOf(clipOf([body("a", still([0, 1.043, 0]))], [prop("pack", [0.3, 0.4, 0.15], still([0, 1.3, -0.15]))]), { rides: [{ prop: "pack", f: 0, joint: "Spine2", of: "a", next: null }] }).get("pack");
+	const pack = contactsOf(clipOf([body("a", still([0, 1.043, 0]))], [prop("pack", [0.3, 0.4, 0.15], still([0, 1.3, -0.15]))]), { rides: [{ prop: "pack", f: 0, joint: "Spine2", of: "a", next: null, began: 0 }] }).get("pack");
 	assert.deepEqual(parts(pack), ["a Spine2 0-23"]);
+	// a ride that waited for a hand to let go (began 10) and was taken off by a hand at 20 (the ride is over): carried on frames 10-19 only
+	assert.deepEqual(parts(contactsOf(clipOf([body("a", still([0, 1.043, 0]))], [prop("pack", [0.3, 0.4, 0.15], still([0, 1.3, -0.15]))]), { rides: [{ prop: "pack", f: 0, joint: "Spine2", of: "a", next: null, began: 10, off: 20 }] }).get("pack").filter(r => r.part === "Spine2")), ["a Spine2 10-19"]);
 	const shown = Array.from({ length: F }, (_, f) => (f >= 8 && f < 16 ? 0 : 1));
 	const hidden = contactsOf(clipOf([body("a", still([0, 1.043, 0]))], [prop("table", [0.6, 0.4, 0.6], still([-0.8, 1.23, 0]), () => 0, shown)])).get("table");
 	assert.deepEqual(parts(hidden), ["a right hand 0-7", "a right hand 16-23"], "no contact on the frames it is not drawn");

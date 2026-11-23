@@ -77,7 +77,18 @@ function boxes(parts, p) {
 	const column = (list, at = [0, 0, 0.58]) => contactGaps(() => drawn([{ id: "s", renderer: "sculpt", recipe: recipe(...list), x: 0, y: 0, z: 0, rot: 0 }]))({ objects: [{ id: "s", columns: [at] }] }).objects[0].columns[0];
 	const seat = part("seat", [0.4, 0.45, 0.4], [0, 0, 0]);
 	assert.deepEqual([column([seat]), column([part("block", [0.4, 0.9, 0.4], [0, 0, 0])]), column([part("floor", [0.4, 0.05, 0.4], [0, 0, 0]), part("lid", [0.4, 0.05, 0.4], [0, 0.85, 0])]), column([seat, part("roof", [0.4, 0.05, 0.4], [0, 1.6, 0])]), column([seat, part("hump", [0.4, 0.8, 0.06], [0, 0, -0.07])]), column([seat], [1, 1, 0.58])], [0.45, 0.9, 0.05, 0.45, 0.45, null]);
-	console.log(`PASS gaps.js: every probe's distance equals the box arithmetic for 4 looks; ${Object.entries(told).map(([k, v]) => `${k}: ${v ?? "within"}`).join(" | ")}`);
+	// the gap of a look from the drawn part of a joint that carries it (a closed solid: a box 0.2 x 0.2 x 0.2 m whose top is
+	// 0.04 m over the object's base): a look sunk into the part reads how deep it is in it, also a thin one that the part
+	// is not in; a look round the part is at it; a look apart reads the distance, also turned
+	const lo = [-0.1, -0.16, -0.1], corners = [0, 1, 2, 3, 4, 5, 6, 7].map(i => [0, 1, 2].map(k => lo[k] + ((i >> k) & 1) * 0.2));
+	const solid = { v: corners, t: [[0, 2, 1], [1, 2, 3], [4, 5, 6], [5, 7, 6], [0, 1, 4], [1, 5, 4], [2, 6, 3], [3, 6, 7], [0, 4, 2], [2, 4, 6], [1, 3, 5], [3, 7, 5]] };
+	const gap = (list, part = solid) => contactGaps(() => drawn([{ id: "h", renderer: "sculpt", recipe: recipe(...list), x: 0, y: 0, z: 0, rot: 0 }]))({ objects: [{ id: "h", solids: [[part], [part]] }] }).objects[0].solids;
+	assert.deepEqual([gap([part("brim", [0.26, 0.05, 0.28], [0, 0, 0])]), gap([part("plate", [0.1, 0.01, 0.1], [0, 0, 0])]), gap([part("shell", [0.5, 0.6, 0.5], [0, -0.3, 0])]), gap([part("lifted", [0.26, 0.05, 0.28], [0, 0.09, 0])]), gap([part("beside", [0.1, 0.1, 0.1], [0.25, -0.1, 0])])],
+		[[-0.04, -0.04], [-0.04, -0.04], [0, 0], [0.05, 0.05], [0.1, 0.1]], "sunk 40 mm (brim, thin plate), round it, 50 mm over it, 100 mm beside it");
+	// the part turned 20 degrees about z: its upper edge rises to 0.1 sin 20 + 0.04 cos 20 = 0.0718 m, 0.018 m under the look
+	const sin = Math.sin(Math.PI / 9), cos = Math.cos(Math.PI / 9), tilted = gap([part("lifted", [0.26, 0.05, 0.28], [0, 0.09, 0])], { ...solid, v: corners.map(([x, y, z]) => [x * cos - y * sin, x * sin + y * cos, z]) })[0];
+	assert.ok(Math.abs(tilted - 0.018) < 0.0015, `turned: ${tilted}`);
+	console.log(`PASS gaps.js: every probe's distance equals the box arithmetic for 4 looks; ${Object.entries(told).map(([k, v]) => `${k}: ${v ?? "within"}`).join(" | ")}; a carrying part: the look sunk in it, round it, apart`);
 }
 
 // --- 2. on the real door ---

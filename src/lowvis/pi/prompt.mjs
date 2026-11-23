@@ -10,7 +10,7 @@ import { bodyParts } from "../engine-simple/body-parts.js";
 import { lookBody } from "../studio/figure.js";
 import { CLIP_FPS } from "../clip.js";
 import { POINT } from "../studio/scene.js";
-import { JUMP } from "../jumps.js";
+import { JUMP, RIDE_TURN } from "../jumps.js";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {
@@ -83,7 +83,7 @@ const GAPS = `\n- to the drawn: a hand, a foot, standing feet or a seat your spe
 const HOLLOW = ` hollow: true marks a prop that things may be inside: it is left out of the inside numbers.`;
 const KINDS = ` A prop the Studio lists with kind is a Studio object that has no box of its own (an effect, a light, a group of objects; kind says which): a ${POINT} m box centred on its place, hollow. A motion moves it as any prop (a hand holds it, ride puts it on a joint or a prop, keys move it) and the Studio object goes with the box's centre on every frame, keeping its kind and its own turn against the box. Every prop you add is a plain box or ball.`;
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
-const JUMPS = `\n- jump between two frames: a body's Hips joint or a moving prop, within a frame of a key (its frame or the frame its over ends), steps far from its steps before and after (a stop of one frame inside a move, a hop): told over ${JUMP * 100} cm (times the body's scale), not for a key of its own with over 0 or 1.`;
+const JUMPS = `\n- jump between two frames: a body's Hips joint or a moving prop, within a frame of a key (its frame or the frame its over ends), steps far from its steps before and after (a stop of one frame inside a move, a hop): told over ${JUMP * 100} cm (times the body's scale), not for a key of its own with over 0 or 1. A ride's way to its at: its own row, over ${JUMP * 100} cm or ${RIDE_TURN} deg a frame on the carrier.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order. The reply says what the edit did.`;
