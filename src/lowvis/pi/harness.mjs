@@ -122,7 +122,6 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 
 	const motion = createCompileTool({ name, outDir, variant, off, bodies, figure, kept, shapes }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map(), asked = { ok: 0, failed: 0, error: null }; // asked: the reshape calls
-
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };
 
