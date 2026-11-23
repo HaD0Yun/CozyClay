@@ -132,7 +132,11 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 	assert.ok(partDistance(boxes[1], wrist) < 0.035, `the holding hand at the handle (${partDistance(boxes[1], wrist).toFixed(3)} m)`);
 	near(inProp(clip, "bag", f, propAt(clip, "tag", f).c), [0, -0.05, 0.12], 1e-6, "the tag rides at its place from the body part's centre");
 	assert.ok(partDistance(boxes[1], inProp(clip, "bag", f, aux.reach.b[f][0].t)) <= 1e-9, "b's hand target on the handle, as the bag moves in a's hand");
-	console.log("ok hold at a part, ride on a part, a hand of another body on a carried prop's part");
+	// the bag rides a's back (a joint) while a walks: b's hand stays on the handle where the walk takes it
+	const rode = { a: [[0, "walk", { to: [0, 1.5] }]], b: spec.b, bag: [[0, "ride", { joint: "Spine2", of: "a", at: [0, 0, -0.25] }]] }, r2 = build(def, rode);
+	const t = inProp(r2.clip, "bag", 36, r2.aux.reach.b[36][0].t), moved = propAt(r2.clip, "bag", 36).c[2] - propAt(r2.clip, "bag", 0).c[2];
+	assert.ok(moved > 1 && partDistance(boxes[1], t) <= 1e-6, `b's target on the handle of a bag that rides a body joint (moved ${moved.toFixed(2)} m)`);
+	console.log("ok hold at a part, ride on a part, a hand of another body on a carried prop's part and on one that rides a joint");
 }
 {
 	// a part that is not there, a prop with none, a part with no prop: refusals that say what there is
