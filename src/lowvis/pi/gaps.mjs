@@ -41,8 +41,8 @@ function bodySpans(acts, id, F) {
 }
 
 /**
- * The gap rows of a clip: [{ key: "gap:<who>.<limb>><prop>", who, prop, limb, value (mm; a seat signed), frame, part,
- * frames, first, last, limit (mm) }]. def: the scene as built (props with parts); spec: as built (repeats written out).
+ * The gap rows of a clip: [{ key: "gap:<who>.<limb>><prop>", who, prop, limb, value (mm; a seat over or in the drawn top
+ * under the hips signed, and its part null), frame, part (the nearest one), frames, first, last, limit (mm) }]. def: the scene as built (props with parts); spec: as built (repeats written out).
  */
 export function gapRows(clip, aux, { def, spec }) {
 	const F = clip.frameCount, rows = new Map(), seen = seenFrames(clip.fps);
@@ -82,7 +82,7 @@ export function gapRows(clip, aux, { def, spec }) {
 				}
 				if (spans.sit.some(([a, b]) => f >= a && f < b)) {
 					const h = local(f, at(c, f, J.Hips)), top = topUnder(boxes, h[0], h[2], h[1] + SUNK * s), n = top == null ? nearestPart(boxes, h) : null;
-					note(`gap:${c.id}.seat>${id}`, { who: c.id, prop: id, limb: "seat" }, top == null ? n.d : h[1] - top - SEAT_UP * s, f, top == null ? `${n.part}, none drawn under the hips` : "the drawn top under the hips", limit);
+					note(`gap:${c.id}.seat>${id}`, { who: c.id, prop: id, limb: "seat" }, top == null ? n.d : h[1] - top - SEAT_UP * s, f, top == null ? n.part : null, limit); // part null: against the drawn top under the hips
 				}
 			}
 		}

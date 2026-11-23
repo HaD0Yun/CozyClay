@@ -258,6 +258,10 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 	const far = tool.call({ spec: { a: [[0, "sit", { on: "cart", part: "deck", over: 0 }], [0, "pose", { L: { on: "cart", part: "far", at: [0, 0, 0.25] }, R: { on: "cart", part: "far", at: [0, 0, -0.25] }, over: 8 }]] } });
 	assert.match(far.text, /\n- hand off its target: [\d.]+ mm @f\d+ a \(L hand[^\n]*beyond the arm's reach/);
 	assert.match(far.text, /\n- a's L hand to the drawn cart: [\d.]+ mm @f\d+ a \(nearest part [^;]+; past 30 mm on \d+ frames, from f\d+ to f\d+\)/);
+	// a seat where nothing is drawn under the hips (past the end of the deck): told against the nearest part, and so said
+	const beside = tool.call({ scene: { ...scene, characters: [{ id: "a", at: [1.25, 0], heading: 90 }] }, spec: { a: [[0, "sit", { on: "cart", over: 0 }]] } });
+	assert.match(beside.text, /\n- a's seat to the drawn cart: [\d.]+ mm @f\d+ a \(nearest part [^,;]+, none drawn under the hips; past 30 mm on \d+ frames/);
+	assert.match(far.text + tool.call({ scene, spec: { a: [[0, "sit", { on: "cart", over: 0 }], [0, "pose", { hip: [0, 0.2, 0], over: 0 }]] } }).text, /\n- a's seat to the drawn cart: [\d.]+ mm @f\d+ a \(floats over the drawn top under the hips; past 30 mm on/);
 	// a hold at a part: the rows read the spec as the engine read it (its places on parts written as the prop's own)
 	tool.setShapes({ bag: { h: 0.3, parts: [{ name: "body", at: [0, 0.1, 0], size: [0.4, 0.2, 0.2] }, { name: "handle", at: [0, 0.27, 0], size: [0.2, 0.02, 0.02] }] } });
 	const held = tool.call({ scene: { ...scene, props: [...scene.props, { id: "bag", size: [0.4, 0.3, 0.2], at: [-0.3, 0.8, 0.4], moves: true }] }, spec: { a: [[0, "hold", { prop: "bag", hand: "R", at: { part: "handle" }, over: 8 }], [10, "pose", { L: { on: "bag", part: "body", at: [0, 0, 0.1] }, over: 6 }]] } });

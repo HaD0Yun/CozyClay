@@ -6,7 +6,7 @@
 //     idle | walk {to:[x,z], heading?, facing?, steps?, burst?, first?:"L"|"R", end?:{L:[left,fwd],R:[..]}, stepFrames?, ease?} | run {to} | push {to} | turn {heading}
 //     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
 //     A prop with parts (its drawn shape): sit {on} sits on the highest part top under the hips (sit {on, part}: on that
-//     part's top), and on any body action `on` it each foot stands on the part top under it (up to 0.5 m up).
+//     part's top), and on any body action `on` it but lie each foot stands on the part top under it (up to 0.5 m up).
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.
