@@ -1,7 +1,9 @@
-// The look new rig characters are drawn in (prototype), and the body that look stands for.
-// COZYCLAY_FIGURE given at launch (tools/lowvis/pi/try.mjs --figure) sets both, in the page (vite.config.js hands it over)
-// and in the agent sidecar (its own environment), so a motion is written for the body the Studio draws.
-// ?figure=<look> in the page's address only draws that look, over the rig's own body. No figure: the block look, as before.
+// The look rig characters are drawn in, and the body that look stands for. The one home of the default: DEFAULT_LOOK.
+// COZYCLAY_FIGURE given at launch (npx cozyclay --figure, tools/lowvis/pi/try.mjs --figure) names the look in the page
+// and in the agent sidecar alike, both through launchLook: the sidecar reads its own environment (figureOf), the page the
+// value the server that serves it hands over (bin/cozyclay.mjs writes window.__COZYCLAY_FIGURE__ into the page from the
+// same environment; a dev server bakes it in at its start, vite.config.js). Nothing given: DEFAULT_LOOK; "block": the block look.
+// ?figure=<look> in the page's address only draws that look, over the launched look's body.
 // No three.js here: the Studio's commands, the scene document and the sidecar import it.
 
 /** The rig the looks are drawn over (take.js TRACK_RIG): only its characters have a look's body. */
@@ -17,7 +19,15 @@ const BODY = { cube: 0.943 };
  *  measures them again). */
 const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man: 1.7679, woman: 1.7635, cube: 1.8024 };
 
-const LAUNCHED = import.meta.env?.VITE_COZYCLAY_FIGURE || null;
+/** The look rig characters are drawn in when the launch names none. */
+const DEFAULT_LOOK = "cube";
+/** The look a launch value names, or null for the block look: nothing (unset or empty) is DEFAULT_LOOK. */
+const launchLook = value => { const name = typeof value === "string" ? value.trim() : ""; return !name ? DEFAULT_LOOK : name === "block" ? null : name; };
+/** The look of a launch environment (its COZYCLAY_FIGURE): what the sidecar draws and builds bodies in. */
+export const figureOf = (env = globalThis.process?.env) => launchLook(env?.COZYCLAY_FIGURE);
+// the page served by bin/cozyclay.mjs: the value it was started with; a dev server's page: the value baked in at its start
+const handed = typeof window === "undefined" ? undefined : window.__COZYCLAY_FIGURE__, baked = import.meta.env?.VITE_COZYCLAY_FIGURE;
+const LAUNCHED = typeof handed === "string" ? launchLook(handed) : typeof baked === "string" ? launchLook(baked) : figureOf();
 /** The look this page draws rig characters in, or null for the block look. */
 export const FIGURE = (typeof location === "undefined" ? null : new URLSearchParams(location.search).get("figure")) || LAUNCHED;
 

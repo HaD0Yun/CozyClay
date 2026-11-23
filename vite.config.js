@@ -14,7 +14,8 @@ const agentUrl = oauthUrl;
 export default defineConfig({
 	define: {
 		"import.meta.env.VITE_COZYCLAY_LIVE_PORT": JSON.stringify(livePort),
-		// the look new rig characters are drawn in (src/lowvis/studio/figure.js); "" draws the block figure
+		// the look rig characters are drawn in, read at the dev server's start (src/lowvis/studio/figure.js launchLook: "" is
+		// the default look, "block" the block figure); a page served by bin/cozyclay.mjs is handed its launch's value instead
 		"import.meta.env.VITE_COZYCLAY_FIGURE": JSON.stringify(process.env.COZYCLAY_FIGURE ?? ""),
 	},
 	// Root-absolute on purpose: the site has its own apex domain, and the studio

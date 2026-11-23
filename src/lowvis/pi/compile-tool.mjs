@@ -17,10 +17,10 @@ import { insideText } from "./inside.mjs";
 import { applyEdit } from "./edit.mjs";
 import { shapeLines, toldOf, withShapes } from "./shapes.mjs";
 import { checkParts, resolveParts, withFigure } from "../engine-simple/parts.js";
-import { lookBody } from "../studio/figure.js";
+import { figureOf, lookBody } from "../studio/figure.js";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
+import { runFiles } from "../../../bin/agent/motion-files.mjs";
 
-const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
@@ -188,7 +188,7 @@ function travelLines(clip, aux, spec) {
  *  shapes: { <prop id>: { h, parts } | null } from a Studio (shapes.mjs; null: drawn as its box), set on those props at each compile and the only parts
  *  a prop then has (a scene's own are not read; with no shapes, null, they are); setShapes(shapes): those of the props the Studio lists now (an id it leaves
  *  out keeps its last). The writer is told a prop's parts where they differ from those the request told it (at the height h). */
-export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {}, figure = process.env.COZYCLAY_FIGURE ?? null, kept = null, shapes = null }) {
+export function createCompileTool({ name, outDir = runFiles(name, { prune: true }).outDir, clipFile = runFiles(name).clipFile, variant = "base", off = [], bodies = {}, figure = figureOf(), kept = null, shapes = null }) {
 	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
 	const seed = isObject(kept?.spec) ? structuredClone({ scene: isObject(kept.scene) ? kept.scene : null, spec: kept.spec }) : null;
 	const body = lookBody(figure), feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, shapes, said: toldOf(shapes), calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT, "body:": bodyText(figure) };

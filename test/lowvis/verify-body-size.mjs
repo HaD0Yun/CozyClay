@@ -7,6 +7,7 @@
 //  3. the size is true in the motion: a scene and a body both scaled give the same motion scaled; in one world a
 //     smaller and a larger body stand on the floor, step, sit and reach the same box each at its own size; what a
 //     body cannot do at its size is told
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";

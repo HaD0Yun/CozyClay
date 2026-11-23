@@ -8,6 +8,7 @@
 //  - runMotion and the motion tool tell which scale and tint each body got; a later change of an animated character's
 //    scale answers with motionFit.bodies (bin/agent/motion-fit.mjs)
 //  - the block figure is drawn at the character's scale and in its tint (studio/skin-pose.js, looks/block.js)
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
@@ -140,7 +141,7 @@ function harness({ clip, describe = DESCRIBE }) {
 	const deps = { studioScene, installClip, readClip: () => clip,
 		runScene: async options => { seen.runs.push(options); return { wallMs: 1000, compiles: 1, report: "Done.\nMissing: none", missing: "none", final: { clip: "clip.json", scene: { characters: [], props: [] }, spec: {} } }; } };
 	const invoke = async (action, args) => { seen.actions.push({ action, args }); return { affectedIds: [] }; };
-	return { seen, base: { hub: { command: async () => describe }, workspaceHandle: "ws", invoke, env: {}, deps } };
+	return { seen, base: { hub: { command: async () => describe }, workspaceHandle: "ws", invoke, env: { COZYCLAY_FIGURE: "block" }, deps } };
 }
 {
 	const { seen, base } = harness({ clip: CLIP }), set = [];
@@ -172,7 +173,7 @@ function harness({ clip, describe = DESCRIBE }) {
 	assert.deepEqual(seen.actions.map(a => a.action), ["character.clearWaypoints", "motion.v4.install", "character.add", "motion.v4.install"], "and the install is the one of before");
 	// the body step off: a character at another scale stands as it is and the request has no word of scale or tint
 	const off = harness({ clip: PLAIN_CLIP });
-	await runMotion({ ...off.base, env: { COZYCLAY_MOTION_OFF: "body" }, words: "he walks", memoryKey: null });
+	await runMotion({ ...off.base, env: { COZYCLAY_FIGURE: "block", COZYCLAY_MOTION_OFF: "body" }, words: "he walks", memoryKey: null });
 	assert.ok(off.seen.runs[0].request.includes("These characters cannot be animated by the engine and stand as they are: c1 (scale 0.8)."));
 	assert.ok(!off.seen.runs[0].request.includes("tint") && !("bodies" in off.seen.runs[0]) && off.seen.runs[0].off.includes("body"));
 	console.log("ok runMotion: nothing said, the result and the install of before; the body step off, a scaled character is not animated");

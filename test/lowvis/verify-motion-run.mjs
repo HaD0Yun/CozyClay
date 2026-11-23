@@ -4,6 +4,7 @@
 // caller: a prop's drawn parts in the scene JSON and to the writer's tool, others as a request line, the last scene and spec per conversation (the
 // writer's tool starts from them only while the Studio scene still plays them), the switched report line, and the
 // three failure codes.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
 import { sceneShapes } from "../../src/lowvis/pi/shapes.mjs";
@@ -28,7 +29,7 @@ function harness({ clip = { frameCount: 48, characters: [{ id: "c1" }], props: [
 		readClip: () => clip,
 		installClip: install ?? (async (c, run, options) => { seen.installs.push(options); return { characterIds: [], objectIds: [], switched: [], ok: true }; }),
 	};
-	return { seen, base: { hub, workspaceHandle: "ws-1", invoke: async () => ({ affectedIds: [] }), env: {}, deps } };
+	return { seen, base: { hub, workspaceHandle: "ws-1", invoke: async () => ({ affectedIds: [] }), env: { COZYCLAY_FIGURE: "block" }, deps } };
 }
 const sceneJson = request => JSON.parse(request.split("\n").find(line => line.startsWith("{\"characters\"")));
 
@@ -204,7 +205,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 			return { wallMs: 10, compiles: 1, report: "Made.\nMissing: nothing.", missing: "nothing.", finished: true, final: { clip: "clip.json", scene, spec: SPEC } };
 		},
 	};
-	await runMotion({ words: "x", memoryKey: "conv-draft", hub: { command: async () => ({ characters: DESCRIBE.characters, objects: rows }) }, workspaceHandle: "ws-1", invoke: async () => ({ affectedIds: [] }), env: {}, deps, drafting: steps => steps(), onDraft: () => { drafted = true; } });
+	await runMotion({ words: "x", memoryKey: "conv-draft", hub: { command: async () => ({ characters: DESCRIBE.characters, objects: rows }) }, workspaceHandle: "ws-1", invoke: async () => ({ affectedIds: [] }), env: { COZYCLAY_FIGURE: "block" }, deps, drafting: steps => steps(), onDraft: () => { drafted = true; } });
 	assert.deepEqual(before, { seat: null }, "the stand-in: drawn as its box");
 	assert.deepEqual(after, { seat: { h: 1.1, parts: look } }, "renamed with its look: still the writer's prop seat");
 	console.log("PASS runMotion: a draft stand-in renamed with its look gives its shape to the writer's prop");
@@ -228,7 +229,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 // switches off: no parts asked, no turn, no parts
 {
 	const { seen, base } = harness();
-	await runMotion({ ...base, env: { COZYCLAY_MOTION_OFF: "turn,tops" }, words: "x", memoryKey: null });
+	await runMotion({ ...base, env: { COZYCLAY_FIGURE: "block", COZYCLAY_MOTION_OFF: "turn,tops" }, words: "x", memoryKey: null });
 	assert.deepEqual(seen.describe[0].args, {});
 	assert.deepEqual(seen.runs[0].off, ["turn", "tops"]);
 	assert.equal("parts" in sceneJson(seen.runs[0].request).props[0], false, "no parts with tops off");

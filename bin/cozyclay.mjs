@@ -27,6 +27,7 @@ import { createStudioRoutes } from "./studio-routes.mjs";
 import { handleOAuthRequest } from "./codex-auth.mjs";
 import { createAgentHandler } from "./agent/agent-routes.mjs";
 import { liveHubPort } from "./live-endpoint.mjs";
+import { runFiles } from "./agent/motion-files.mjs";
 import {
 	markTelemetryFirstLaunch,
 	setTelemetryFirstLaunchSource,
@@ -83,6 +84,9 @@ function parseArgs(argv) {
 		else if (arg.startsWith("--scene=")) opts.scene = arg.slice(8);
 		else if (arg === "--no-star") opts.star = false;
 		else if (arg === "--no-update-check") opts.updateCheck = false;
+		// the look rig characters are drawn in (src/lowvis/studio/figure.js); the page and the agent sidecar both read it
+		else if (arg === "--figure") opts.figure = String(argv[++i] ?? "");
+		else if (arg.startsWith("--figure=")) opts.figure = arg.slice(9);
 		else if (arg === "--via") opts.via = String(argv[++i] ?? "");
 		else if (arg.startsWith("--via=")) opts.via = arg.slice(6);
 		else if (arg === "--help" || arg === "-h") opts.help = true;
@@ -129,6 +133,8 @@ const HELP = `cozyclay - browser-based 3D staging studio
   npx cozyclay --no-star    never ask about starring the repo
   npx cozyclay --no-update-check
                             do not look for a newer release
+  npx cozyclay --figure block
+                            draw characters as the block figure (default: cube)
   npx cozyclay --via site   say where you found CozyClay (site, playground, x,
                             hn, reddit, github, friend or other); recorded once,
                             with the anonymous first launch
@@ -219,6 +225,9 @@ if (opts.help) {
 	console.log(HELP);
 	process.exit(opts.invalid ? 1 : 0);
 }
+// One value for both sides: the agent sidecar runs in this process and reads COZYCLAY_FIGURE, and the page is handed
+// the same value (window.__COZYCLAY_FIGURE__ below), so the look drawn and the body a motion is built for never differ.
+if (opts.figure !== undefined) process.env.COZYCLAY_FIGURE = opts.figure;
 const version = readVersion();
 if (opts.version) {
 	console.log(version);
@@ -301,6 +310,9 @@ server = createServer((req, res) => {
 	if (existsSync(target) && statSync(target).isDirectory()) {
 		target = join(target, "index.html");
 	}
+	// a clip a motion run wrote lives outside the package (agent/motion-files.mjs), under the name the page asks for
+	const runClip = /^\/lowvis\/clips\/pi\/([A-Za-z0-9_-]+)\.json$/.exec(rel);
+	if (runClip && !existsSync(target)) target = runFiles(runClip[1]).clipFile;
 	if (!existsSync(target) || statSync(target).isDirectory()) {
 		res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
 		res.end("not found");
@@ -319,7 +331,7 @@ server = createServer((req, res) => {
 		// npx-served studio can never attach to the MCP server's live hub.
 		// __COZYCLAY_LIVE_PORT__ tells the prebuilt bundle which hub port this
 		// launch chose (COZYCLAY_LIVE_PORT), since the build baked its own (#862).
-		const html = readFileSync(target, "utf8").replace("</head>", `<script>window.__COZYCLAY_RUNTIME__ = ${JSON.stringify(runtime).replaceAll("<", "\\u003c")}; window.__COZYCLAY_LIVE__ = true; window.__COZYCLAY_LIVE_PORT__ = ${JSON.stringify(liveHubPort())};</script>\n</head>`);
+		const html = readFileSync(target, "utf8").replace("</head>", `<script>window.__COZYCLAY_RUNTIME__ = ${JSON.stringify(runtime).replaceAll("<", "\\u003c")}; window.__COZYCLAY_LIVE__ = true; window.__COZYCLAY_LIVE_PORT__ = ${JSON.stringify(liveHubPort())}; window.__COZYCLAY_FIGURE__ = ${JSON.stringify(process.env.COZYCLAY_FIGURE ?? "").replaceAll("<", "\\u003c")};</script>\n</head>`);
 		res.writeHead(200, {
 			"content-type": "text/html; charset=utf-8",
 			"content-length": Buffer.byteLength(html),

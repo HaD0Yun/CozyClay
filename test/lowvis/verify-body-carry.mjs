@@ -18,6 +18,7 @@
 //    to a bone) that the Studio's trackShown reads, through the raw-track codec, the placed take and a timing edit;
 //    the writer's inside rows and contact sheets leave a hidden prop out on the frames it is hidden.
 // Every scene here is made up for this test.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip, validateClip } from "../../src/lowvis/clip.js";

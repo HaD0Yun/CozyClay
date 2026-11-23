@@ -7,6 +7,7 @@
 //  2. on the real door (turnMotionDoor, the draft harness's editor and scripted writer, the engine): the draft names the
 //     contacts, a look edit answers motionFit with the gaps, the install answers contacts and gaps; a motion whose
 //     bodies meet no object answers as before (no contacts, no gaps).
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -94,7 +95,7 @@ function boxes(parts, p) {
 // --- 2. on the real door ---
 const proxy = createServer((req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "claude-opus-5-5" }] })); });
 proxy.listen(0, "127.0.0.1"); await once(proxy, "listening");
-const env = { CLIPROXY_BASE_URL: `http://127.0.0.1:${proxy.address().port}`, CLIPROXY_API_KEY: "test" };
+const env = { COZYCLAY_FIGURE: "block", CLIPROXY_BASE_URL: `http://127.0.0.1:${proxy.address().port}`, CLIPROXY_API_KEY: "test" };
 /** One plain turn on turnMotionDoor over the harness's editor; the hub answers describe and contact_gaps (the drawn stage). */
 function turnOf(studio, writer, key) {
 	const asked = [], hub = { command: async (name, args) => { asked.push(name); return name === "contact_gaps" ? contactGaps(() => drawn(studio.rows()))(args) : studio.describe(args); } };

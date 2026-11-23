@@ -5,6 +5,7 @@
 // difference. A look with the scene and spec unchanged, or the same spec sent again, does not count. A row in its normal
 // range (a hand on a carried prop) never gets a count, and a call with no repeated spike has no count anywhere.
 // The scene and spec are written here: a box carried and placed at a target out of reach, then within reach.
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

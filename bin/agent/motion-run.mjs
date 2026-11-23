@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { draftOf, travelOf } from "./motion-draft.mjs";
-import { lookBody, scaleOf } from "../../src/lowvis/studio/figure.js";
+import { figureOf, lookBody, scaleOf } from "../../src/lowvis/studio/figure.js";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { propsSetOf } from "./motion-props.mjs";
 import { attachedBefore, keptMotion, keptTakes } from "./motion-kept.mjs";
@@ -153,7 +153,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip, placeSetLater = () => false, eulerXYZ = null, sceneShapes = () => ({}) } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
-	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(env.COZYCLAY_FIGURE || null);
+	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(figureOf(env));
 	const read = await hub.command("describe", tops ? { parts: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
 	// the drawn shape of each prop the Studio lists (null: drawn as its box; none for a prop it could not measure), now and
 	// before each motion call: a stand-in given its look while the writer works is told to it then (compile-tool.mjs)

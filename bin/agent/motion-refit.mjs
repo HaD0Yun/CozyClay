@@ -11,7 +11,7 @@ import { motionOff } from "./motion-engine.mjs";
 import { bodiesOf } from "./motion-fit.mjs";
 import { attachedBefore, keptTakes, playingMotions } from "./motion-kept.mjs";
 import { beforeOf } from "./motion-run.mjs";
-import { lookBody } from "../../src/lowvis/studio/figure.js";
+import { figureOf, lookBody } from "../../src/lowvis/studio/figure.js";
 
 const VARIANT = "studio";
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
@@ -43,7 +43,7 @@ export async function refitMotion({ hub, workspaceHandle, invoke, memoryKey = nu
 	const { createCompileTool, installClip, studioScene, readClip } = deps ?? await realDeps();
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds");
 	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds });
-	const takes = keptTakes(read), listed = new Set(Object.values(studio.ids.characters)), figure = env.COZYCLAY_FIGURE || null;
+	const takes = keptTakes(read), listed = new Set(Object.values(studio.ids.characters)), figure = figureOf(env);
 	const out = { ok: true, refit: [], kept: [], skipped: [] }, bare = takes.bare.filter(id => listed.has(id));
 	if (bare.length) out.keptNone = bare;
 	let refused = null;

@@ -10,6 +10,7 @@
 //     engine's size; runMotion's request is the one of the block look
 //  5. a stage stored under a look of another body is carried over: each rig character stands as large as before, its
 //     take and everything else as stored; a stage of the page's own body (the block look: none) is byte for byte
+import "./block-figure.mjs"; // the block figure's numbers (figure.js: the launch names the look)
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +21,7 @@ import { runScene } from "../../src/lowvis/pi/harness.mjs";
 import * as THREE from "three";
 import { INDEX as J, REST, TIPS } from "../../src/lowvis/rig17.js";
 import { cube } from "../../src/lowvis/looks/cube.js";
-import { bodyScale, carriedOver, lookBody, scaleOf, scaleRoom, standingHeight } from "../../src/lowvis/studio/figure.js";
+import { bodyScale, carriedOver, figureOf, lookBody, scaleOf, scaleRoom, standingHeight } from "../../src/lowvis/studio/figure.js";
 import { LOOKS } from "../../src/lowvis/looks/index.js";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
@@ -34,7 +35,7 @@ import { runMotion } from "../../bin/agent/motion-run.mjs";
 const B = lookBody("cube"), tmp = mkdtempSync(join(tmpdir(), "look-body-"));
 const subsets = list => list.reduce((all, x) => [...all, ...all.map(s => [...s, x])], [[]]);
 const SAID = /^Metres, Y up, .*?It stands ([\d.]+) m tall, Hips joint ([\d.]+) m and shoulders ([\d.]+) m over the floor, ([\d.]+) m from shoulder to wrist\.(.*)$/m;
-assert.equal(lookBody(), 1, "no look given at launch: the rig's own body");
+assert.equal(lookBody(), 1, "the block figure named at launch (block-figure.mjs): the rig's own body");
 assert.equal(lookBody("block"), 1);
 assert.ok(B > 0 && B < 1, `the cube look has a body of its own (${B})`);
 assert.equal(bodyScale({ model: TRACK_RIG, scale: 1.2 }, "cube"), 1.2 * B);
@@ -70,10 +71,10 @@ assert.deepEqual(tool.state.last.scene.characters.map(c => c.scale ?? 1), [1, 1.
 	real.forEach((v, k) => assert.ok(Math.abs(said[k] - v) <= 0.03, `size ${k}: the manual's ${said[k]} against the built ${v.toFixed(3)}`));
 	assert.match(r.text, new RegExp(`^bodies \\(as built and drawn\\): w: scale 1\\.2 = ${(TIPS.Head[1] * 1.2 * B).toFixed(2)} m tall$`, "m"), "the bodies line: the scale as written, the height as built");
 }
-for (const [env, b] of [[{ COZYCLAY_FIGURE: "cube" }, B], [{}, 1]]) {
+for (const [env, b] of [[{ COZYCLAY_FIGURE: "cube" }, B], [{}, B], [{ COZYCLAY_FIGURE: "block" }, 1]]) {
 	const record = await runScene({ name: "look-body", request: "x", variant: "studio", env, outDir: join(tmp, "run") });
 	assert.equal(record.infraError?.at, "setup", "no proxy in this test: the run stops before a model call");
-	assert.equal(record.prompt.systemChars, systemPrompt("studio", [], b, env.COZYCLAY_FIGURE ?? null).length, `${JSON.stringify(env)}: the manual of body ${b} and of that look's drawn parts`);
+	assert.equal(record.prompt.systemChars, systemPrompt("studio", [], b, figureOf(env)).length, `${JSON.stringify(env)}: the manual of body ${b} and of that look's drawn parts`);
 	assert.equal(record.body, b === 1 ? undefined : b, "the run record names the look's body when it is not the rig's");
 }
 console.log("ok compile tool and runScene: the cube's scale 1 is built as the rig's times its body, told as written");
@@ -116,7 +117,9 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 		await runMotion({ words: "they wave", memoryKey: null, hub: { command: async () => DESCRIBE }, workspaceHandle: "ws", invoke: async () => ({ affectedIds: [] }), env, deps });
 		return runs[0];
 	};
-	const plain = await go({}), cube = await go({ COZYCLAY_FIGURE: "cube" });
+	const plain = await go({ COZYCLAY_FIGURE: "block" }), cube = await go({ COZYCLAY_FIGURE: "cube" });
+		const unnamed = await go({});
+		assert.deepEqual([unnamed.request, unnamed.bodies], [cube.request, cube.bodies], "nothing named at launch: the cube look");
 	assert.equal(cube.request, plain.request, "the request is the block look's: no start size, no scale 1 written out");
 	assert.deepEqual(cube.bodies, plain.bodies);
 	console.log("ok installClip and runMotion: the cast member's scale is the clip's over the look's body, the take of the engine's size");
@@ -126,7 +129,7 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 {
 	const take = { schema: "cozyclay.take.v3", rig: TRACK_RIG, spec: { schema: "cozyclay.motion-spec.v1", frames: 4, raw: { scale: B } }, placement: { position: [0, 0, 0], yaw: 0 } };
 	const stored = { figureBody: B, characters: [{ id: "a", model: TRACK_RIG, scale: 1, motionTake: take }, { id: "b", model: TRACK_RIG, scale: 0.95 }, { id: "y", model: "y-bot-tpose", scale: 0.9 }, { id: "p", model: "proxy-figure", scale: 1 }] };
-	const open = createSceneStage(stored); // this page (node: no look given at launch) has the rig's own body
+	const open = createSceneStage(stored); // this page (node, the block figure named at launch) has the rig's own body
 	assert.deepEqual(open.characters.map(c => c.scale), [B, 0.95 * B, 0.9, 1], "each rig character as large as before; other models as stored");
 	assert.deepEqual(open.characters[0].motionTake, createSceneStage({ characters: [stored.characters[0]] }).characters[0].motionTake, "its take as stored");
 	assert.equal(open.characters[0].motionTake.spec.raw.scale, B, "of the size it was made for");
