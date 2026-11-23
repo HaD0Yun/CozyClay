@@ -6,11 +6,11 @@ import { INDEX, REST, TIPS } from "../rig17.js";
 import { EASE } from "../engine-simple/math.js";
 import { elementByPath } from "../../studio-elements.js";
 import { BALANCE } from "./balance.mjs";
+import { bodyParts } from "../engine-simple/body-parts.js";
+import { lookBody } from "../studio/figure.js";
 import { CLIP_FPS } from "../clip.js";
 import { POINT } from "../studio/scene.js";
 import { JUMP } from "../jumps.js";
-import { bodyParts } from "../engine-simple/body-parts.js";
-import { lookBody } from "../studio/figure.js";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {

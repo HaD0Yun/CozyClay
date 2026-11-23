@@ -19,10 +19,10 @@ import { qConj, qMul, qRotate } from "../engine-simple/math.js";
 import { MAX_STEP, SOLE, TOE } from "../engine-simple/solve.js";
 import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
-import { insideRows } from "./inside.mjs";
-import { gapRows } from "./gaps.mjs";
 import { bodyRows } from "./bodies.mjs";
 export { bodyText } from "./bodies.mjs";
+import { insideRows } from "./inside.mjs";
+import { gapRows } from "./gaps.mjs";
 import { JUMP, groupJumps } from "../jumps.js";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
