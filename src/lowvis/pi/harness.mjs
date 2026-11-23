@@ -96,7 +96,8 @@ function markCache(payload) {
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
  * shapes: { <prop id>: { h, parts } }, the drawn shapes the Studio has (compile-tool.mjs); reshape(): async, the ones it
- * has now, asked before each motion call (a failure keeps the last ones).
+ * has now, asked before each motion call (a failure keeps the last ones). The record keeps the ids of the shapes each
+ * call compiled with (calls.shots[].shapes) and reshape: { ok, failed, error } (the last failure's message).
  */
 export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = {}, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
@@ -120,7 +121,8 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	record.modelEntry = entry;
 
 	const motion = createCompileTool({ name, outDir, variant, off, bodies, figure, kept, shapes }), t0 = performance.now(), now = () => performance.now() - t0;
-	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map();
+	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map(), asked = { ok: 0, failed: 0, error: null }; // asked: the reshape calls
+
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };
 
@@ -133,11 +135,11 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			return out;
 		},
 		execute: async (toolCallId, params) => {
-			if (reshape) try { motion.setShapes(await reshape()); } catch { /* the Studio did not answer: the last shapes stay */ }
+			if (reshape) try { motion.setShapes(await reshape()); asked.ok++; } catch (error) { asked.failed++; asked.error = scrub(error?.message ?? error); } // the Studio did not answer: the last shapes stay
 			const started = now();
 			let r;
 			try { r = motion.call(params ?? {}); } catch (error) { r = { n: motion.state.calls, status: "rejected", error: `harness error: ${error?.message ?? error}`, text: `harness error (not yours): ${error?.message ?? error}`, images: [], files: [], scene: motion.state.scene, spec: motion.state.spec, shown: null, harnessError: true }; }
-			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, kept: r.kept, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, text: scrub(r.text) };
+			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, kept: r.kept, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, shapes: Object.keys(motion.state.shapes ?? {}), text: scrub(r.text) };
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
 			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}${r.kept && r.status === "ok" ? `, kept-spec${r.edit ? ` edit ${r.edit.replaced} replaced, ${r.edit.added} added, ${r.edit.removed} removed` : ""}` : ""}`);
@@ -207,7 +209,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 		unnecessary: auditCalls(calls),
 		final: motion.state.last ? { scene: motion.state.last.scene, spec: motion.state.last.spec, specChars: JSON.stringify(motion.state.last.spec).length, sceneChars: JSON.stringify(motion.state.last.scene).length, frames: motion.state.last.frames, buildMs: motion.state.last.buildMs, checks: motion.state.last.rows.map(({ key, label, value, unit, frame, who, note }) => ({ key, label, value: Math.round(value * 100) / 100, unit, frame, who, note })), clip: motion.clipFile } : null,
 		design: transcript[0]?.text || null, report: finalText, missing: finalText ? (/^\s*Missing:\s*(.+)$/im.exec(finalText)?.[1]?.trim() ?? null) : null,
-		calls: { model: modelCalls, shots: calls }, transcript,
+		calls: { model: modelCalls, shots: calls }, transcript, ...(reshape ? { reshape: asked } : {}),
 	});
 	return save();
 }
