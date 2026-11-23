@@ -224,8 +224,11 @@ export function turnFitView({ value, env = process.env, hub, delayMs = 300 }) {
 			if (result.look?.status !== "attached") await wait(delayMs);
 			const scene = await hub.command("describe", { tops: true }, handle), rows = new Map((scene?.objects ?? []).map(row => [row?.id, row]));
 			// where a body meets an edited object: how far its drawn look now is from each of those places
+			// (the bodies' places are the motion's: once a body has another size than the motion's, they are not measured)
 			let gaps = new Map();
-			try { gaps = await gapLines(key, ids, rows, (name, args) => hub.command(name, args, handle)); } catch (error) { gaps = new Map(ids.filter(id => touches.get(key)?.has(id)).map(id => [id, `not measured (${error?.message ?? String(error)})`])); }
+			const resized = [...cast].some(([id, body]) => bodyFitOf(body, (scene?.characters ?? []).find(row => row?.id === id)).length), untold = why => new Map(ids.filter(id => touches.get(key)?.has(id)).map(id => [id, `not measured (${why})`]));
+			if (resized) gaps = untold("a body's scale is not the one the motion was written for");
+			else try { gaps = await gapLines(key, ids, rows, (name, args) => hub.command(name, args, handle)); } catch (error) { gaps = untold(error?.message ?? String(error)); }
 			const objects = ids.map(id => ({ id, name: used.get(id).name, differs: fitOf(used.get(id), rows.get(id), floorOf(key)), ...(gaps.get(id) ? { gaps: gaps.get(id) } : {}) })).filter(entry => entry.differs.length || entry.gaps);
 			const sized = people.map(id => ({ id, differs: bodyFitOf(cast.get(id), (scene?.characters ?? []).find(row => row?.id === id)) })).filter(entry => entry.differs.length);
 			if (!sized.length) return ids.length ? { ...result, motionFit: objects.length ? { fits: false, objects, note: NOTE } : { fits: true, ids } } : result;

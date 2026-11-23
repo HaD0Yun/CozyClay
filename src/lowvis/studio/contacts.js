@@ -11,7 +11,7 @@
 //   contactsOf(clip, aux)               Map(prop id -> [row]) for every prop a body meets
 //   auxOf(scene, spec, clip)            the engine's aux of a compiled clip, built again (null when it is not the same clip)
 //   probesOf(clip, pid, rows)           the points a gap measure reads for one prop's rows, in its frame and the world
-//   gapsOf(rows, probes, measured)      the rows' gaps from the drawn look, worst first
+//   gapsOf(rows, probes, measured)      the rows' gaps from the drawn look, worst first (gap times frames)
 //   contactLine(label, rows)            one line: where the bodies meet one object
 //   gapLine(label, found)               one line: the contacts a drawn look misses, worst first
 import { buildClip } from "../engine-simple/engine.js";
@@ -171,8 +171,8 @@ export function contactLine(label, rows) {
 }
 
 /**
- * The gaps of one object's rows from its drawn look: { gaps: [{ text, size }] worst first (sizes in m), measured: the count
- * of rows measured (a joint a prop rides is not) }. measured: { parts: [d]
+ * The gaps of one object's rows from its drawn look: { gaps: [{ text, size, frames }] worst first (the larger gap times
+ * its frames; sizes in m), within: the count of rows measured within GAP (a joint a prop rides is not measured) }. measured: { parts: [d]
  * per probes parts entry (each its points' signed distances: negative inside), seats: [top | null] per seats entry (the
  * drawn surface's height under the Hips, local), inside: [d] per inside entry } in the order probesOf gave them.
  */
@@ -184,23 +184,24 @@ export function gapsOf(rows, probes, measured) {
 			const ds = probes.seats.map((s, i) => [s, measured.seats?.[i]]).filter(([s]) => s.row === k), tops = ds.filter(([, t]) => Number.isFinite(t));
 			if (!ds.length) return;
 			count++;
-			if (tops.length * 2 < ds.length) { out.push({ size: Infinity, text: `${named(row)} at ${list(row.at)} ${span(row)}: nothing drawn under it` }); return; }
+			if (tops.length * 2 < ds.length) { out.push({ size: median(ds.map(([s]) => s.local[1] - s.up)), frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: nothing drawn under it` }); return; } // ranked by the seat's height over the base
 			const g = median(tops.map(([s, t]) => s.local[1] - t - s.up));
-			if (Math.abs(g) > GAP) out.push({ size: Math.abs(g), text: `${named(row)} at ${list(row.at)} ${span(row)}: ${g > 0 ? "floats" : "sinks"} ${mm(Math.abs(g))} mm ${g > 0 ? "over" : "into"} the drawn surface under it` });
+			if (Math.abs(g) > GAP) out.push({ size: Math.abs(g), frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${g > 0 ? "floats" : "sinks"} ${mm(Math.abs(g))} mm ${g > 0 ? "over" : "into"} the drawn surface under it` });
 			return;
 		}
 		const ds = probes.parts.map((s, i) => [s, measured.parts?.[i]]).filter(([s, d]) => s.row === k && Array.isArray(d) && d.length);
 		if (!ds.length) return;
 		count++;
 		const off = median(ds.map(([, d]) => Math.max(0, Math.min(...d)))), deep = median(ds.map(([, d]) => -Math.max(...d)));
-		if (off > GAP) out.push({ size: off, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${mm(off)} mm from the drawn look` });
-		else if (deep > GAP) out.push({ size: deep, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${mm(deep)} mm inside the drawn look` });
+		if (off > GAP) out.push({ size: off, frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${mm(off)} mm from the drawn look` });
+		else if (deep > GAP) out.push({ size: deep, frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${mm(deep)} mm inside the drawn look` });
 	});
 	const deepest = new Map(); // `${who} ${group}` -> { d, f }
-	probes.inside.forEach((s, i) => { const d = -Math.min(0, ...(measured.inside?.[i] ?? [])), key = `${s.who} ${s.group}`; if (d > (deepest.get(key)?.d ?? 0)) deepest.set(key, { d, f: s.f }); });
+	probes.inside.forEach((s, i) => { const d = -Math.min(0, ...(measured.inside?.[i] ?? [])), key = `${s.who} ${s.group}`; if (d > (deepest.get(key)?.d ?? 0)) deepest.set(key, { d, f: s.f, who: s.who }); });
 	const within = count - out.length;
-	for (const [key, { d, f }] of deepest) if (d > GAP) out.push({ size: d, text: `${key} ${mm(d)} mm inside the drawn look at f${f}` });
-	return { gaps: out.sort((a, b) => b.size - a.size), within };
+	const met = who => new Set(rows.filter(row => row.who === who).flatMap(row => row.frames)).size;
+	for (const [key, { d, f, who }] of deepest) if (d > GAP) out.push({ size: d, frames: met(who), text: `${key} ${mm(d)} mm inside the drawn look at f${f}` });
+	return { gaps: out.sort((a, b) => b.size * b.frames - a.size * a.frames), within };
 }
 
 /** One line for the agent: the gaps of one object ({ gaps, within }: gapsOf), at most GAPS, with the count of the rest
