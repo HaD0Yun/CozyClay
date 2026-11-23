@@ -165,6 +165,24 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: the tool starts from the motion a take plays (any conversation, after a failed run, after an undo), from its scene only while the Studio scene is that scene");
 }
 
+// a follow-up on a motion whose writer gave ids the bridge's own rule would rewrite (a hyphen, a space, no ASCII letter):
+// the Studio scene tells them as written, so the motion that plays is found and the tool starts from its scene and spec
+{
+	const scene = { frames: 48, characters: [{ id: "x-bot", at: [0, 0], heading: 0 }, { id: "big guy", at: [2, 0], heading: 0 }], props: [{ id: "hand-cart", size: [1, 0.9, 0.5], at: [1, 0.45, 2] }, { id: "의자", size: [0.5, 0.5, 0.5], at: [3, 0.25, 2] }] }, spec = { "x-bot": [[0, "idle"]], "big guy": [[0, "idle"]] };
+	const source = { name: "agent-20260101-000000-aaaa", scene, spec, attached: [] }, take = as => ({ motionTake: { spec: { lowvis: { ...source, as } } } });
+	const characters = [{ id: "lowvis-x-bot", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }, { id: "lowvis-big_guy", model: "x-bot-tpose", x: 2, z: 0, rot: 0, scale: 1 }];
+	const objects = [{ id: "sculpt", name: "hand-cart", renderer: "sculpt", x: 1, y: 0, z: 2, rot: 0, footprint: { width: 1, depth: 0.5 }, height: 0.9 }, { id: "sculpt-2", name: "의자", renderer: "sculpt", x: 3, y: 0, z: 2, rot: 0, footprint: { width: 0.5, depth: 0.5 }, height: 0.5 }];
+	const { seen, base } = harness({ clip: { frameCount: 48, characters: [{ id: "x-bot" }, { id: "big guy" }], props: [] }, record: { final: { clip: "clip.json", scene, spec: { ...spec, "x-bot": [[0, "stand"]] } } } });
+	base.hub = { command: async () => ({ characters, objects, document: { activeSceneId: "s", scenes: [{ id: "s", stage: { characters: [{ id: "lowvis-x-bot", ...take("x-bot") }, { id: "lowvis-big_guy", ...take("big guy") }] } }] } }) };
+	const done = await runMotion({ ...base, words: "x", memoryKey: "conv-ids" }), run = seen.runs[0], told = sceneJson(run.request);
+	assert.deepEqual([told.characters.map(c => c.id), told.props.map(p => p.id)], [["x-bot", "big guy"], ["hand-cart", "의자"]], "the Studio scene tells the ids as their writer wrote them");
+	assert.deepEqual(run.kept, { scene, spec }, "the motion that plays is found, and the Studio scene is its scene: the tool starts from scene and spec");
+	assert.ok(run.request.includes("Your last scene and spec") && run.request.includes("The motion tool already holds them"));
+	assert.deepEqual(done.kept, { name: source.name, characters: ["lowvis-x-bot", "lowvis-big_guy"] });
+	assert.deepEqual(seen.installs[0].existing.characters, { "x-bot": "lowvis-x-bot", "big guy": "lowvis-big_guy" }, "the install animates the same Studio characters again");
+	console.log("PASS runMotion: a follow-up finds the motion whose ids have a hyphen, a space or no ASCII letter");
+}
+
 // a first turn: the draft's stand-in is given its look, and another name, while the writer works: the shape the tool is
 // given before the next call is under the writer's prop id, not under the object's new name
 {

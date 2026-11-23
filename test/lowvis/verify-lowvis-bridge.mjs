@@ -144,4 +144,40 @@ for (const refuse of ["object.sculpt", "character.add", "character.clearWaypoint
 	assert.ok(!r.names().includes("motion.v4.install"), `${refuse} refused: no take installed`);
 }
 console.log("ok installClip, a refused step stops the install");
+
+// --- the round trip of an id: what the writer wrote -> the install -> the Studio -> the scene the next writer reads ---
+{
+	const { buildClip } = await import("../../src/lowvis/engine-simple/engine.js"), { serializeClip } = await import("../../src/lowvis/clip.js");
+	// ids with a hyphen, an underscore, a space, a digit first, mixed case, no ASCII letter, and pairs the old rule told as one id
+	const bodies = ["x-bot-tpose", "a_b", "big guy", "2nd", "LeftDoor", "철수", "p-q", "p_q"], things = ["hand-cart", "side_table", "big box", "9lives", "MixedCase", "의자", "r-s", "r_s", "r s"];
+	const scene = { frames: 6, characters: bodies.map((id, k) => ({ id, at: [k, 0], heading: 0 })), props: things.map((id, k) => ({ id, size: [0.5, 0.5, 0.5], at: [k, 0.25, 3] })) };
+	const made = JSON.parse(serializeClip(buildClip({ demo: "ids" }, structuredClone(scene)).clip));
+	// a recording Studio: what the install adds, as describe then answers it
+	const rows = { characters: [], objects: [] }, takes = new Map();
+	const run = async (action, args) => {
+		if (action === "character.add") rows.characters.push({ id: args.character.id, model: "x-bot-tpose", x: args.character.x ?? 0, z: args.character.z ?? 0, rot: 0, scale: 1 });
+		if (action === "object.sculpt" || action === "object.add") rows.objects.push({ id: `obj-${rows.objects.length + 1}`, name: args.name, renderer: "sculpt", x: args.placement.x, y: 0, z: args.placement.z, rot: 0, footprint: { width: 0.5, depth: 0.5 }, height: 0.5 });
+		if (action === "motion.v4.install") takes.set(args.characterId, { spec: { lowvis: args.lowvis } });
+		return { affectedIds: [action === "character.add" ? args.character.id : action.startsWith("object.") ? `obj-${rows.objects.length}` : "x"] };
+	};
+	assert.ok((await installClip(made, run, { source: { name: "agent-ids", scene, spec: {} } })).ok);
+	const describe = { ...rows, document: { activeSceneId: "s", scenes: [{ id: "s", stage: { characters: rows.characters.map(row => ({ id: row.id, motionTake: takes.get(row.id) })) } }] } };
+	const back = studioScene(describe, { turn: true, kinds: true });
+	assert.deepEqual(back.scene.characters.map(c => c.id), bodies, "every character is told under the id its writer gave it");
+	assert.deepEqual(back.scene.props.map(p => p.id), things, "and every prop");
+	assert.deepEqual(Object.keys(back.ids.characters), bodies);
+	assert.deepEqual(bodies.map(id => back.ids.characters[id]), rows.characters.map(row => row.id), "each under its own Studio character");
+	assert.equal(new Set(Object.values(back.ids.props).map(entry => entry.id)).size, things.length, "each prop its own Studio object");
+	// without the takes (no motion plays: the objects are whoever's) the bridge's own rule names them, as before
+	const bare = studioScene(rows, { turn: true, kinds: true });
+	assert.deepEqual(bare.scene.characters.map(c => c.id), ["x_bot_tpose", "a_b", "big_guy", "2nd", "LeftDoor", "person", "p_q", "p_q_2"]);
+	assert.deepEqual(bare.scene.props.map(p => p.id), ["hand_cart", "side_table", "big_box", "9lives", "MixedCase", "prop", "r_s", "r_s_2", "r_s_3"]);
+	// ids that need no mapping: the scene is the same with and without the kept ids, byte for byte
+	const plain = { characters: [{ id: "lowvis-rider", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }, { id: "c2", model: "x-bot-tpose", x: 1, z: 0, rot: 0, scale: 1 }], objects: [box("cart", {}), box("cart", { x: 3 }), box("Bench seat", { x: 5 })] };
+	const kept = { name: "agent-p", scene: { frames: 6, characters: [{ id: "rider", at: [0, 0], heading: 0 }, { id: "c2", at: [1, 0], heading: 0 }], props: [{ id: "cart", size: [1, 1, 1], at: [0, 0.5, 0] }, { id: "cart_2", size: [1, 1, 1], at: [3, 0.5, 0] }] }, spec: {} };
+	const withTakes = { ...plain, document: { activeSceneId: "s", scenes: [{ id: "s", stage: { characters: [{ id: "lowvis-rider", motionTake: { spec: { lowvis: { ...kept, as: "rider" } } } }, { id: "c2", motionTake: { spec: { lowvis: { ...kept, as: "c2" } } } }] } }] } };
+	assert.equal(JSON.stringify(studioScene(withTakes, { turn: true, kinds: true }).scene), JSON.stringify(studioScene(plain, { turn: true, kinds: true }).scene), "ids that need no mapping are told as before");
+	assert.deepEqual(studioScene(withTakes, { turn: true, kinds: true }).scene.props.map(p => p.id), ["cart", "cart_2", "Bench_seat"]);
+	console.log(`ok the id round trip: ${bodies.length} characters and ${things.length} props come back under the ids their writer gave; ids that need no mapping as before`);
+}
 console.log("PASS verify-lowvis-bridge");
