@@ -217,7 +217,7 @@ function heldFrom(aux, r, F) { for (let f = r.began; f < (r.next ?? F); f++) if 
 function rowOf(e) {
 	const span = `on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, mm = v => num1(v * 1000), of = e.who === e.body ? "its own drawn body" : `the drawn body of ${e.body}`;
 	const base = { key: e.key, value: e.value * 1000, unit: "mm", frame: e.frame, worse: 1 };
-	if (e.kind === "tied") return { ...base, label: `${e.who}'s ${e.limb} on ${of}`, short: "off body", who: e.who, note: `${e.what.inside ? "inside" : "off"} its part ${e.what.part}; past ${mm(e.limits[0])} mm inside or ${mm(e.limits[1])} mm off ${span}` };
+	if (e.kind === "tied") return { ...base, label: `${e.who}'s ${e.limb} on ${of}`, short: "off body", who: e.who, note: `${e.what.inside ? `inside its part ${e.what.part}` : `off the body, its nearest part ${e.what.part}`}; past ${mm(e.limits[0])} mm inside or ${mm(e.limits[1])} mm off ${span}` };
 	if (e.kind === "ride") return { ...base, label: `${e.prop} riding the drawn body of ${e.body}`, short: "ride body", who: e.body, prop: e.prop, note: `${e.what.inside ? "sunk into" : "off"} its part ${e.what.part}, on whose joint it rides; past ${mm(e.limits[0])} mm in or ${mm(e.limits[1])} mm off ${span}` };
 	const more = e.pairs.size - 1;
 	return { ...base, label: `${e.who}'s body through ${e.who === e.body ? "its own drawn body" : `the drawn body of ${e.body}`}`, short: "through", who: e.who, note: `deepest: ${e.what.x} in ${e.what.y}${more > 0 ? `, and ${more} more pair${more === 1 ? "" : "s"} of parts` : ""}; deeper than ${mm(e.limits[0])} mm ${span}` };
