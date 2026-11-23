@@ -100,8 +100,8 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (before) {
 		// the tool starts from them (harness.mjs kept); from the spec alone where the Studio scene is no longer that scene
 		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look.";
-		// a prop's parts are told once: by the Studio scene above for a prop it lists, here for one it does not (on a bone, hidden)
-		const listed = new Set(studio.props.map(prop => prop.id)), scene = { ...before.scene, props: before.scene.props?.map(({ parts: drawn, ...prop }) => (drawn && !listed.has(prop.id) ? { ...prop, parts: drawn } : prop)) };
+		// a prop's parts are told once: by the Studio scene above for a prop it lists, here for one a bone carries (no prop above)
+		const onBone = new Set((studio.attached ?? []).map(a => a.id)), scene = { ...before.scene, props: before.scene.props?.map(({ parts: drawn, ...prop }) => (drawn && onBone.has(prop.id) ? { ...prop, parts: drawn } : prop)) };
 		parts.push(`Your last scene and spec (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");
@@ -156,7 +156,8 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const read = await hub.command("describe", tops ? { parts: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
 	// the drawn shape of each prop the Studio lists (null: drawn as its box; none for a prop it could not measure), now and
 	// before each motion call: a stand-in given its look while the writer works is told to it then (compile-tool.mjs)
-	const shapesOf = s => Object.fromEntries(s.scene.props.filter(prop => !s.ids.unmeasured?.includes(prop.id)).map(prop => [prop.id, s.ids.shapes?.[prop.id] ?? null]));
+	// (a stand-in of the draft is the writer's prop it was made for, whatever name the Studio agent gives it with its look)
+	const standIns = new Map(), shapesOf = s => Object.fromEntries(s.scene.props.filter(prop => !s.ids.unmeasured?.includes(prop.id)).map(prop => [standIns.get(s.ids.props[prop.id]?.id) ?? prop.id, s.ids.shapes?.[prop.id] ?? null]));
 	const reshape = tops ? async () => shapesOf(studioScene(await hub.command("describe", { parts: true }, workspaceHandle), { turn, tops, body, kinds })) : null;
 	// the objects with no box of their own are no boxes the body meets: no fit line measures them (motion-fit.mjs)
 	const boxed = placed => Object.fromEntries(Object.entries(placed).filter(([prop]) => !studio.ids.props[prop]?.point));
@@ -177,7 +178,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			}
 		}
 	};
-	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, boxed, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn, standInOf });
+	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, boxed, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn: async (prop, step) => { const id = await addStandIn(prop, step); if (id) standIns.set(id, prop.id); return id; }, standInOf });
 	// the motion a take plays now, with the writer's scene and spec kept with it; this conversation's last one first
 	const open = openScene(read), takes = keptTakes(read), playing = memoryKey == null ? null : keptMotion(takes.kept, studio.ids.characters, last.get(`${open} ${memoryKey}`) ?? null);
 	// an attached object whose place on its bone was set by hand (install.js placeSetLater) is told with that place and
@@ -189,11 +190,13 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		return { ...a, place: `at [${[p.x, p.y, p.z].map(v => r(v, 1000)).join(", ")}] m${turned} in that bone's frame (set by hand)` };
 	}) } : studio.scene;
 	const before = beforeOf(playing, studio), request = requestOf({ words, wordsOf, note }, images.length, told, before, body, kinds);
+	// the shape the motion before was compiled with stays for an object a bone carries: the Studio lists it as no prop and measures no parts of it
+	const held = Object.fromEntries(Object.entries(sceneShapes(before?.scene)).filter(([id]) => studio.ids.props[id]?.attach));
 	// what the agent is told it started from: that motion, or the listed characters whose take keeps no spec to start from
 	const listed = new Set(Object.values(studio.ids.characters)), bare = takes.bare.filter(id => listed.has(id));
 	const from = playing ? { kept: { name: playing.name, characters: playing.cast } } : bare.length ? { keptNone: bare } : {};
 	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...sceneShapes(before?.scene), ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...held, ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });

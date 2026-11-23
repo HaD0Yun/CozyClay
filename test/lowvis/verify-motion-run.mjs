@@ -100,19 +100,22 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	// a new conversation starts from the motion that plays, too
 	assert.deepEqual((await ask("conv-new")).kept, { scene: final.scene, spec: final.spec }, "another conversation: the motion that plays");
 	// a follow-up on a motion whose kept scene holds parts (the tool set them when it compiled it): the request tells each
-	// prop's parts once, the Studio's for a prop it lists (the box: drawn as two parts now) and the kept ones for a prop it
-	// does not (the cup: a take moves it and it is not listed); the tool gets both, and null for a prop drawn as its box
+	// prop's parts once, the Studio's for a prop it lists (the box: drawn as two parts now) and the kept ones for a prop a
+	// bone carries (the cup: the Studio lists it as no prop); a kept prop the Studio has no object for (the lamp) has none.
+	// The tool gets the same, and null for a prop drawn as its box
 	{
 		const was = [{ name: "old", at: [0, 0, 0], size: [1, 0.2, 0.5] }], lid = [{ name: "lid", at: [0, 0.04, 0], size: [0.1, 0.02, 0.1] }, { name: "ear", at: [0.06, 0, 0], size: [0.02, 0.05, 0.02] }];
-		const withParts = { ...final, scene: { ...final.scene, props: final.scene.props.map(p => (p.id === "box" ? { ...p, parts: was } : p.id === "cup" ? { ...p, parts: lid } : p)) } };
+		const withParts = { ...final, scene: { ...final.scene, props: [...final.scene.props.map(p => (p.id === "box" ? { ...p, parts: was } : p.id === "cup" ? { ...p, parts: lid } : p)), { id: "lamp", size: [0.2, 0.2, 0.2], at: [5, 0.1, 5], moves: true, parts: lid }] } };
 		kept["scene-a"] = { c1: { name: first.done.name, ...withParts }, "lowvis-guest": { name: first.done.name, ...withParts } };
+		objects = [...DESCRIBE.objects, mat, { id: "obj-cup", name: "cup", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, footprint: { width: 0.1, depth: 0.1 }, height: 0.1, attach: { characterId: "c1", bone: "RightHand" } }];
 		const again = await ask(), last = JSON.parse(/\nscene: (.*)\n/.exec(again.request)[1]), now = sceneJson(again.request);
 		assert.deepEqual(now.props.find(p => p.id === "box").parts.map(b => b.name), ["seat", "back"], "the Studio scene gives the box the parts it draws now");
 		assert.equal("parts" in last.props.find(p => p.id === "box"), false, "the last scene does not tell the box's parts again");
-		assert.deepEqual(last.props.find(p => p.id === "cup").parts, lid, "it tells the parts of the cup, which the Studio scene does not list");
+		assert.deepEqual(last.props.find(p => p.id === "cup").parts, lid, "it tells the parts of the cup, which a bone carries");
+		assert.equal("parts" in last.props.find(p => p.id === "lamp"), false, "and none of the lamp, which the Studio has no object for");
 		assert.deepEqual(again.shapes, { cup: { h: 0.1, parts: [{ ...lid[0], at: [0, 0.09, 0] }, { ...lid[1], at: [0.06, 0.05, 0] }] }, box: { h: 0.9, parts: DESCRIBE.objects[0].parts }, mat: null }, "the tool: the cup's kept shape, the box's from the Studio, the mat drawn as its box");
 		assert.deepEqual(await again.reshape(), { box: { h: 0.9, parts: DESCRIBE.objects[0].parts }, mat: null }, "before a call: what the Studio lists now");
-		// an object of which nothing was measured (not mounted yet) is neither parts nor a box: the tool keeps what it had
+	// an object of which nothing was measured (not mounted yet) is neither parts nor a box: the tool keeps what it had
 		objects = [...DESCRIBE.objects, { ...mat, parts: [] }];
 		assert.deepEqual(Object.keys(await again.reshape()), ["box"], "an unmeasured object is left out");
 		objects = [...DESCRIBE.objects, mat];
@@ -160,6 +163,31 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	run = await ask();
 	assert.ok(!("kept" in run) && !run.request.includes("Your last scene and spec"), "no character of the motion is left: a first request");
 	console.log("PASS runMotion: the tool starts from the motion a take plays (any conversation, after a failed run, after an undo), from its scene only while the Studio scene is that scene");
+}
+
+// a first turn: the draft's stand-in is given its look, and another name, while the writer works: the shape the tool is
+// given before the next call is under the writer's prop id, not under the object's new name
+{
+	const rows = [], scene = { frames: 48, characters: [{ id: "c1", at: [0, 0], heading: 0 }], props: [{ id: "seat", size: [1, 0.9, 0.5], at: [2, 0.45, 0] }] }, clip = { frameCount: 48, characters: [{ id: "c1" }], props: [{ id: "seat", size: [1, 0.9, 0.5], pos: [2, 0.45, 0], quat: [0, 0, 0, 1] }] };
+	const box = { name: "box", at: [0, 0.45, 0], size: [1, 0.9, 0.5] }, look = [{ name: "slat", at: [0, 0.45, 0], size: [1, 0.05, 0.5] }, { name: "back", at: [0, 0.8, 0.2], size: [1, 0.6, 0.05] }];
+	let drafted = false, before = null, after = null;
+	const deps = {
+		studioScene, sceneShapes, readClip: () => clip, standInOf: () => ({ kind: "sculpt", size: [1, 0.9, 0.5] }),
+		addStandIn: async prop => { rows.push({ id: "sculpt-9", name: prop.id, renderer: "sculpt", x: 2, y: 0, z: 0, rot: 0, footprint: { width: 1, depth: 0.5 }, height: 0.9, parts: [box] }); return "sculpt-9"; },
+		installClip: async () => ({ characterIds: [], objectIds: [], switched: [], ok: true }),
+		runScene: async options => {
+			options.onCompiled({ n: 1, scene, clip: "clip.json" });
+			for (let k = 0; !drafted && k < 200; k++) await new Promise(resolve => setTimeout(resolve, 5));
+			before = await options.reshape();
+			rows[0] = { ...rows[0], name: "Bench seat", height: 1.1, parts: look }; // object.sculpt { id, name, recipe }
+			after = await options.reshape();
+			return { wallMs: 10, compiles: 1, report: "Made.\nMissing: nothing.", missing: "nothing.", finished: true, final: { clip: "clip.json", scene, spec: SPEC } };
+		},
+	};
+	await runMotion({ words: "x", memoryKey: "conv-draft", hub: { command: async () => ({ characters: DESCRIBE.characters, objects: rows }) }, workspaceHandle: "ws-1", invoke: async () => ({ affectedIds: [] }), env: {}, deps, drafting: steps => steps(), onDraft: () => { drafted = true; } });
+	assert.deepEqual(before, { seat: null }, "the stand-in: drawn as its box");
+	assert.deepEqual(after, { seat: { h: 1.1, parts: look } }, "renamed with its look: still the writer's prop seat");
+	console.log("PASS runMotion: a draft stand-in renamed with its look gives its shape to the writer's prop");
 }
 
 // the user's words verbatim, then the agent's note, each under its own label; a task's words say they came from the coordinator's message
