@@ -208,13 +208,13 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			if (!own) hands(b, a, A);
 		}));
 	}
-	return [...cases.values()].filter(e => e.frames >= seen).sort((x, y) => y.value - x.value).map(e => rowOf(e, F));
+	return [...cases.values()].filter(e => e.frames >= seen).sort((x, y) => y.value - x.value).map(rowOf);
 }
 /** The first frame a hand holds the prop a ride carries, from the ride's start (the ride ends there; F when none). */
 function heldFrom(aux, r, F) { for (let f = r.began; f < (r.next ?? F); f++) if (aux.holders?.[r.prop]?.[f]) return f; return F; }
 
 /** A case as the row measure.mjs tells. */
-function rowOf(e, F) {
+function rowOf(e) {
 	const span = `on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, mm = v => num1(v * 1000), of = e.who === e.body ? "its own drawn body" : `the drawn body of ${e.body}`;
 	const base = { key: e.key, value: e.value * 1000, unit: "mm", frame: e.frame, worse: 1 };
 	if (e.kind === "tied") return { ...base, label: `${e.who}'s ${e.limb} on ${of}`, short: "off body", who: e.who, note: `${e.what.inside ? "inside" : "off"} its part ${e.what.part}; past ${mm(e.limits[0])} mm inside or ${mm(e.limits[1])} mm off ${span}` };
