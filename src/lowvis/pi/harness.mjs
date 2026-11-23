@@ -103,9 +103,9 @@ function markCache(payload) {
  * send only an edit, a scene or a look. A compile whose spec came from it by edits alone logs "kept-spec".
  * onCompiled({ n, scene, spec, clip }): after each compile that went through (after its log line), with the scene and spec
  * it compiled (as the run's final holds them) and the file its clip was just written to (the next compile writes it again).
- * writer: { models, model, provider, via, secrets } (bin/agent/motion-writer.mjs): the pi model on the Studio's provider
- * registry, its credentials and transport, in place of the CLIProxyAPI the environment names; the record keeps provider
- * and via, and scrubs secrets. The request is then that layer's for its provider: its model id is checked where the
+ * writer: { models, model, provider, via, secrets, refused? } (bin/agent/motion-writer.mjs): the pi model on the Studio's
+ * provider registry, its credentials and transport, in place of the CLIProxyAPI the environment names; the record keeps
+ * provider, via and refused ({ provider, model }: the sign-in that refused the motion model, so this model writes), and scrubs secrets. The request is then that layer's for its provider: its model id is checked where the
  * request has one, the effort is not looked for in it, and a served model of another name is recorded (served.models)
  * and not refused. On either path the prompt-cache mark is set on the anthropic-messages wire format only (other formats
  * cache by themselves).
@@ -116,7 +116,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
 	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
 	const figure = env.COZYCLAY_FIGURE || null, SYSTEM_PROMPT = systemPrompt(variant, off, lookBody(figure), figure), PARAMETERS = motionParameters(variant, off);
-	const record = { name, request, images: images.length, variant, off, ...(lookBody(figure) === 1 ? {} : { body: lookBody(figure) }), asked: { model: modelId, effort }, ...(writer ? { writer: { provider: writer.provider, via: writer.via } } : {}), startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
+	const record = { name, request, images: images.length, variant, off, ...(lookBody(figure) === 1 ? {} : { body: lookBody(figure) }), asked: { model: modelId, effort }, ...(writer ? { writer: { provider: writer.provider, via: writer.via, ...(writer.refused ? { refused: writer.refused } : {}) } } : {}), startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
 

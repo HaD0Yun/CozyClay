@@ -198,11 +198,21 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const from = playing ? { kept: { name: playing.name, characters: playing.cast } } : bare.length ? { keptNone: bare } : {};
 	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
 	// the writer's route (motion-writer.mjs): its model and effort, and on a sign-in the Studio's provider registry
-	const asked = writer ? { model: writer.model, effort: writer.effort, ...(writer.piModel ? { writer: { models: writer.models, model: writer.piModel, provider: writer.provider, via: writer.via, secrets: writer.secrets } } : {}) } : motionWriter(env);
-	const record = await runScene({ name, request, ...asked, variant: MOTION_VARIANT, off, images, shapes: tops ? { ...held, ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
+	// a conversation whose sign-in refused the motion model before writes on the route after it (motion-writer.mjs instead)
+	writer = (await writer?.instead?.()) ?? writer;
+	const asked = () => (writer ? { model: writer.model, effort: writer.effort, ...(writer.piModel ? { writer: { models: writer.models, model: writer.piModel, provider: writer.provider, via: writer.via, secrets: writer.secrets, ...(writer.refused ? { refused: writer.refused } : {}) } } : {}) } : motionWriter(env));
+	const write = () => runScene({ name, request, ...asked(), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...held, ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
+	let record = await write();
+	// a sign-in that refuses the motion model for the account at the first call (agent-runner.mjs modelRefused; never a
+	// rate limit, an expired sign-in, a server error or the network): once, the route after it writes, and the answer and
+	// the record say who refused what. The refused run stays on file (the harness's infra-error record of this name).
+	if (writer?.refuse && !record.final && record.infraError?.at === "model call 1") {
+		const { modelRefused } = await import("./agent-runner.mjs"), next = modelRefused(record.infraError) ? await writer.refuse() : null;
+		if (next) { writer = next; record = await write(); }
+	}
 	// the answer names the writer: the route's label, and the name the provider gave what it served when that is another one
 	const servedAs = writer ? (record.served?.models ?? []).filter(id => !String(id).startsWith(writer.model)) : [];
 	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles, ...(writer ? { writer: servedAs.length ? `${writer.label}; the provider names what it served ${servedAs.join(", ")}` : writer.label } : {}), ...from }, none = { characterIds: [], objectIds: [], switched: [] };

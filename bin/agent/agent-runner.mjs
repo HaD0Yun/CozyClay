@@ -79,6 +79,20 @@ export function classifyError(error) {
 	return { code, status };
 }
 
+// No code of that vocabulary says "this account may not use this model": a 404 reads there as upstream, a 403 as
+// unauthorized beside an expired sign-in's 401. modelRefused is that one class, for a caller that has another model to go
+// on with (motion-run.mjs): the provider answered for the model, not for the credential, the rate, itself or the network.
+// A 404; or, with a 403, another 4xx or no status, an error type or words that say the model is not there, not
+// supported or not allowed for the account; or a 403 that does not speak of the credential.
+const CREDENTIAL_WORDS = /authenticat|api.?key|token|expired|sign.?in|log.?in/i;
+const MODEL_REFUSED_WORDS = /model_not_found|not_found_error|permission_error|permission_denied|model\b[\s\S]{0,120}?\b(?:not exist|not found|not supported|not available|not allowed|no access|not have access)/i;
+/** Whether a failed request's error ({ message, status? }) says the account may not use the model the request named. */
+export function modelRefused(error) {
+	const message = typeof error?.message === "string" ? error.message : "", { code, status } = classifyError(error);
+	if (code === "rate_limit" || code === "overloaded" || code === "network" || status === 401 || status >= 500) return false;
+	return status === 404 || MODEL_REFUSED_WORDS.test(message) || (status === 403 && !CREDENTIAL_WORDS.test(message));
+}
+
 function dataUrlImage(dataUrl) {
 	const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || "");
 	return match ? { type: "image", data: match[2], mimeType: match[1] } : null;

@@ -86,7 +86,10 @@ variant `studio`) writes and checks the motion, and the clip is installed. The w
 (`bin/agent/motion-writer.mjs`): claude-opus-5-5 at effort medium through `CLIPROXY_BASE_URL` / `CLIPROXY_API_KEY` when
 they are set and that proxy lists it; else through a sign-in of the model picker that offers it, on the provider
 registry the agent's own turns use; else the model the turn runs on. With none of them the session has no motion tool,
-and the agent tells the user to sign in. The answer's `writer` names the model. The tool answers the motion writer's report, which ends with a Missing line; the agent repeats it. Pictures
+and the agent tells the user to sign in. A sign-in that lists the motion model and then refuses it for the account
+(not found, not permitted, not on the plan; never a rate limit, a refused credential or a server error) is asked once
+per conversation: the model the turn runs on writes that motion and the later ones. The answer's `writer` names the
+model that wrote, and the sign-in that refused which model when one did. The tool answers the motion writer's report, which ends with a Missing line; the agent repeats it. Pictures
 the user attached go along when the agent sets `images: true`. The scene and spec of the conversation's last motion
 go with the next request. The agent's prompt under this engine has no guidance for the old motion engine
 (`bin/agent/studio-prompt-lowvis.mjs`), and the old motion and hand-fix actions are out of its view

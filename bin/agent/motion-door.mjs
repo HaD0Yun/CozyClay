@@ -252,7 +252,7 @@ export async function turnMotionDoor({ value, env = process.env, models = null, 
 	else if (!value.task && !value.hidden) pictures.delete(key);
 	if (!value.task && !value.hidden) cutWith(jobs, turns, key, value);
 	if (value.main || motionEngine(env) !== "lowvis") return null;
-	const writer = await writerRoute({ env, models, picked: value.model });
+	const writer = await writerRoute({ env, models, picked: value.model, conversation: key });
 	if (!writer) return null;
 	const invoke = (action, args) => tools.internal.invoke("run_action", { action, args });
 	return createMotionDoor({
