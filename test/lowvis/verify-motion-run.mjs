@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // runMotion (bin/agent/motion-run.mjs) with the motion writer, the clip file and the install replaced by fakes; the
 // Studio scene bridge (src/lowvis/studio/scene.js) is the real one. What the motion writer reads and what reaches the
-// caller: heights and others as request lines (not in the scene JSON), the last scene and spec per conversation (the
+// caller: a prop's drawn parts in the scene JSON and to the writer's tool, others as a request line, the last scene and spec per conversation (the
 // writer's tool starts from them only while the Studio scene still plays them), the switched report line, and the
 // three failure codes.
 import assert from "node:assert/strict";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
+import { sceneShapes } from "../../src/lowvis/pi/shapes.mjs";
 import { runMotion } from "../../bin/agent/motion-run.mjs";
 import { bodiesOf, bodyFitOf } from "../../bin/agent/motion-fit.mjs";
 import { lookBody } from "../../src/lowvis/studio/figure.js";
@@ -13,7 +14,8 @@ import { lookBody } from "../../src/lowvis/studio/figure.js";
 const DESCRIBE = {
 	characters: [{ id: "c1", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }, { id: "cap", model: "proxy-figure", x: 1, z: 0, rot: 0, scale: 1 }],
 	objects: [{ id: "obj-box", name: "box", renderer: "cube", x: 1, y: 0, z: 2, rot: 30, footprint: { width: 1, depth: 0.5 }, height: 0.9,
-		tops: [{ y: 0.45, x0: -0.5, z0: -0.25, x1: 0.5, z1: 0.15 }, { y: 0.9, x0: -0.5, z0: 0.15, x1: 0.5, z1: 0.25 }] }],
+		tops: [{ y: 0.45, x0: -0.5, z0: -0.25, x1: 0.5, z1: 0.15 }, { y: 0.9, x0: -0.5, z0: 0.15, x1: 0.5, z1: 0.25 }],
+		parts: [{ name: "seat", at: [0, 0.225, -0.05], size: [1, 0.45, 0.4] }, { name: "back", at: [0, 0.45, 0.2], size: [1, 0.9, 0.1] }] }],
 };
 const SCENE = { characters: [{ id: "c1", at: [0, 0] }], props: [] }, SPEC = { c1: [{ verb: "stand" }] };
 
@@ -21,7 +23,7 @@ function harness({ clip = { frameCount: 48, characters: [{ id: "c1" }], props: [
 	const seen = { describe: [], runs: [], installs: [] };
 	const hub = { command: async (name, args, handle) => { seen.describe.push({ name, args, handle }); return DESCRIBE; } };
 	const deps = {
-		studioScene,
+		studioScene, sceneShapes,
 		runScene: async options => { seen.runs.push(options); options.log("  motion 1: ok frames 48"); return { wallMs: 3200, compiles: 1, report: "He walks over.\nMissing: the fingers do not move.", missing: "the fingers do not move.", final: { clip: "clip.json", scene: SCENE, spec: SPEC }, ...record }; },
 		readClip: () => clip,
 		installClip: install ?? (async (c, run, options) => { seen.installs.push(options); return { characterIds: [], objectIds: [], switched: [], ok: true }; }),
@@ -30,7 +32,7 @@ function harness({ clip = { frameCount: 48, characters: [{ id: "c1" }], props: [
 }
 const sceneJson = request => JSON.parse(request.split("\n").find(line => line.startsWith("{\"characters\"")));
 
-// happy path, heights and others, memory
+// happy path, parts and others, memory
 {
 	const { seen, base } = harness();
 	const compiles = [];
@@ -41,18 +43,22 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	assert.deepEqual(done.characterIds, ["c1"]);
 	assert.deepEqual(done.objectIds, ["obj-box"]);
 	assert.deepEqual(compiles.map(c => [c.n, c.ok]), [[1, true]]);
-	assert.deepEqual(seen.describe[0], { name: "describe", args: { tops: true }, handle: "ws-1" }, "describe is asked for tops");
+	assert.deepEqual(seen.describe[0], { name: "describe", args: { parts: true }, handle: "ws-1" }, "describe is asked for the drawn parts");
 	const run = seen.runs[0];
 	assert.deepEqual([run.model, run.effort, run.variant], ["claude-opus-5-5", "medium", "studio"]);
 	assert.deepEqual(run.off, []);
 	assert.ok(run.request.startsWith("USER'S WORDS (the user's message of this turn, exactly as typed):\nhe walks to the box and sits on it\n\n"), "words alone (the direct key): no note");
 	assert.doesNotMatch(run.request, /STUDIO AGENT'S NOTE/);
-	assert.match(run.request, /\nbox offers these flat heights \(world\): \[\{"y":0\.45,/);
+	assert.doesNotMatch(run.request, /flat heights/, "no heights lines: the parts are in the scene");
 	assert.match(run.request, /These characters cannot be animated by the engine and stand as they are: cap \(capsule figure\)\./);
 	const scene = sceneJson(run.request);
 	assert.deepEqual(Object.keys(scene), ["characters", "props"], "the scene JSON has no others");
 	assert.equal(scene.props[0].turn, 30, "the box stands turned");
-	assert.equal("heights" in scene.props[0], false, "the scene JSON has no heights");
+	assert.deepEqual(scene.props[0].parts, [{ name: "seat", at: [0, -0.225, -0.05], size: [1, 0.45, 0.4] }, { name: "back", at: [0, 0, 0.2], size: [1, 0.9, 0.1] }], "the scene JSON gives the box its drawn parts, from its centre");
+	const shapes = { box: { h: 0.9, parts: DESCRIBE.objects[0].parts } };
+	assert.deepEqual(run.shapes, shapes, "the writer's tool gets the shapes from the box's base (null for a prop the Studio draws as its box)");
+	assert.deepEqual(await run.reshape(), shapes, "and asks the Studio for them again before a call");
+	assert.deepEqual(seen.describe.at(-1).args, { parts: true });
 	assert.equal(seen.installs[0].turn, true);
 	assert.deepEqual(seen.installs[0].existing.characters, { c1: "c1" });
 	assert.doesNotMatch(run.request, /Your last scene and spec/);
@@ -70,7 +76,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 {
 	const final = { clip: "clip.json", scene: { frames: 48, characters: [{ id: "c1", at: [0, 0], heading: 0 }, { id: "guest", at: [1, 1], heading: 0, scale: 0.8 }], props: [{ id: "box", size: [1, 0.9, 0.5], at: [1, 0.45, 2], turn: 30 }, { id: "cup", size: [0.1, 0.1, 0.1], at: [1, 0.95, 2], moves: true }, { id: "mat", size: [1, 0.05, 1], at: [3, 0.025, 3] }] }, spec: { c1: [[0, "idle"]], guest: [[0, "idle"]] } };
 	const clip = { frameCount: 48, characters: [{ id: "c1" }, { id: "guest", scale: 0.8 }], props: [{ id: "box" }, { id: "cup" }, { id: "mat" }] };
-	const guest = { id: "lowvis-guest", model: "x-bot-tpose", x: 1, z: 1, rot: 0, scale: 0.8 }, mat = { id: "obj-mat", name: "mat", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 1 }, height: 0.05 };
+	const guest = { id: "lowvis-guest", model: "x-bot-tpose", x: 1, z: 1, rot: 0, scale: 0.8 }, mat = { id: "obj-mat", name: "mat", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 1 }, height: 0.05, parts: [{ name: "part", at: [0, 0.025, 0], size: [1, 0.05, 1] }] };
 	// the Studio: per scene, the source each character's take keeps (motion.v4.install lowvis), as the describe document has it
 	// (null: a take that keeps none)
 	const kept = { "scene-a": {}, "scene-b": {} };
@@ -93,6 +99,27 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	assert.deepEqual(run.done.kept, { name: first.done.name, characters: ["c1", "lowvis-guest"] }, "the agent is told which motion it started from");
 	// a new conversation starts from the motion that plays, too
 	assert.deepEqual((await ask("conv-new")).kept, { scene: final.scene, spec: final.spec }, "another conversation: the motion that plays");
+	// a follow-up on a motion whose kept scene holds parts (the tool set them when it compiled it): the request tells each
+	// prop's parts once, the Studio's for a prop it lists (the box: drawn as two parts now) and the kept ones for a prop a
+	// bone carries (the cup: the Studio lists it as no prop); a kept prop the Studio has no object for (the lamp) has none.
+	// The tool gets the same, and null for a prop drawn as its box
+	{
+		const was = [{ name: "old", at: [0, 0, 0], size: [1, 0.2, 0.5] }], lid = [{ name: "lid", at: [0, 0.04, 0], size: [0.1, 0.02, 0.1] }, { name: "ear", at: [0.06, 0, 0], size: [0.02, 0.05, 0.02] }];
+		const withParts = { ...final, scene: { ...final.scene, props: [...final.scene.props.map(p => (p.id === "box" ? { ...p, parts: was } : p.id === "cup" ? { ...p, parts: lid } : p)), { id: "lamp", size: [0.2, 0.2, 0.2], at: [5, 0.1, 5], moves: true, parts: lid }] } };
+		kept["scene-a"] = { c1: { name: first.done.name, ...withParts }, "lowvis-guest": { name: first.done.name, ...withParts } };
+		objects = [...DESCRIBE.objects, mat, { id: "obj-cup", name: "cup", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, footprint: { width: 0.1, depth: 0.1 }, height: 0.1, attach: { characterId: "c1", bone: "RightHand" } }];
+		const again = await ask(), last = JSON.parse(/\nscene: (.*)\n/.exec(again.request)[1]), now = sceneJson(again.request);
+		assert.deepEqual(now.props.find(p => p.id === "box").parts.map(b => b.name), ["seat", "back"], "the Studio scene gives the box the parts it draws now");
+		assert.equal("parts" in last.props.find(p => p.id === "box"), false, "the last scene does not tell the box's parts again");
+		assert.deepEqual(last.props.find(p => p.id === "cup").parts, lid, "it tells the parts of the cup, which a bone carries");
+		assert.equal("parts" in last.props.find(p => p.id === "lamp"), false, "and none of the lamp, which the Studio has no object for");
+		assert.deepEqual(again.shapes, { cup: { h: 0.1, parts: [{ ...lid[0], at: [0, 0.09, 0] }, { ...lid[1], at: [0.06, 0.05, 0] }] }, box: { h: 0.9, parts: DESCRIBE.objects[0].parts }, mat: null }, "the tool: the cup's kept shape, the box's from the Studio, the mat drawn as its box");
+		assert.deepEqual(await again.reshape(), { box: { h: 0.9, parts: DESCRIBE.objects[0].parts }, mat: null }, "before a call: what the Studio lists now");
+	// an object of which nothing was measured (not mounted yet) is neither parts nor a box: the tool keeps what it had
+		objects = [...DESCRIBE.objects, { ...mat, parts: [] }];
+		assert.deepEqual(Object.keys(await again.reshape()), ["box"], "an unmeasured object is left out");
+		objects = [...DESCRIBE.objects, mat];
+	}
 	// a run that failed (the Studio refused its install) leaves the motion that plays as the next request's start
 	const playing = kept["scene-a"].c1;
 	// (a writer that ends with the motion that plays installs nothing, so this one ends with another spec)
@@ -138,6 +165,49 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: the tool starts from the motion a take plays (any conversation, after a failed run, after an undo), from its scene only while the Studio scene is that scene");
 }
 
+// a follow-up on a motion whose writer gave ids the bridge's own rule would rewrite (a hyphen, a space, no ASCII letter):
+// the Studio scene tells them as written, so the motion that plays is found and the tool starts from its scene and spec
+{
+	const scene = { frames: 48, characters: [{ id: "x-bot", at: [0, 0], heading: 0 }, { id: "big guy", at: [2, 0], heading: 0 }], props: [{ id: "hand-cart", size: [1, 0.9, 0.5], at: [1, 0.45, 2] }, { id: "의자", size: [0.5, 0.5, 0.5], at: [3, 0.25, 2] }] }, spec = { "x-bot": [[0, "idle"]], "big guy": [[0, "idle"]] };
+	const source = { name: "agent-20260101-000000-aaaa", scene, spec, attached: [] }, take = as => ({ motionTake: { spec: { lowvis: { ...source, as } } } });
+	const characters = [{ id: "lowvis-x-bot", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }, { id: "lowvis-big_guy", model: "x-bot-tpose", x: 2, z: 0, rot: 0, scale: 1 }];
+	const objects = [{ id: "sculpt", name: "hand-cart", renderer: "sculpt", x: 1, y: 0, z: 2, rot: 0, footprint: { width: 1, depth: 0.5 }, height: 0.9 }, { id: "sculpt-2", name: "의자", renderer: "sculpt", x: 3, y: 0, z: 2, rot: 0, footprint: { width: 0.5, depth: 0.5 }, height: 0.5 }];
+	const { seen, base } = harness({ clip: { frameCount: 48, characters: [{ id: "x-bot" }, { id: "big guy" }], props: [] }, record: { final: { clip: "clip.json", scene, spec: { ...spec, "x-bot": [[0, "stand"]] } } } });
+	base.hub = { command: async () => ({ characters, objects, document: { activeSceneId: "s", scenes: [{ id: "s", stage: { characters: [{ id: "lowvis-x-bot", ...take("x-bot") }, { id: "lowvis-big_guy", ...take("big guy") }] } }] } }) };
+	const done = await runMotion({ ...base, words: "x", memoryKey: "conv-ids" }), run = seen.runs[0], told = sceneJson(run.request);
+	assert.deepEqual([told.characters.map(c => c.id), told.props.map(p => p.id)], [["x-bot", "big guy"], ["hand-cart", "의자"]], "the Studio scene tells the ids as their writer wrote them");
+	assert.deepEqual(run.kept, { scene, spec }, "the motion that plays is found, and the Studio scene is its scene: the tool starts from scene and spec");
+	assert.ok(run.request.includes("Your last scene and spec") && run.request.includes("The motion tool already holds them"));
+	assert.deepEqual(done.kept, { name: source.name, characters: ["lowvis-x-bot", "lowvis-big_guy"] });
+	assert.deepEqual(seen.installs[0].existing.characters, { "x-bot": "lowvis-x-bot", "big guy": "lowvis-big_guy" }, "the install animates the same Studio characters again");
+	console.log("PASS runMotion: a follow-up finds the motion whose ids have a hyphen, a space or no ASCII letter");
+}
+
+// a first turn: the draft's stand-in is given its look, and another name, while the writer works: the shape the tool is
+// given before the next call is under the writer's prop id, not under the object's new name
+{
+	const rows = [], scene = { frames: 48, characters: [{ id: "c1", at: [0, 0], heading: 0 }], props: [{ id: "seat", size: [1, 0.9, 0.5], at: [2, 0.45, 0] }] }, clip = { frameCount: 48, characters: [{ id: "c1" }], props: [{ id: "seat", size: [1, 0.9, 0.5], pos: [2, 0.45, 0], quat: [0, 0, 0, 1] }] };
+	const box = { name: "box", at: [0, 0.45, 0], size: [1, 0.9, 0.5] }, look = [{ name: "slat", at: [0, 0.45, 0], size: [1, 0.05, 0.5] }, { name: "back", at: [0, 0.8, 0.2], size: [1, 0.6, 0.05] }];
+	let drafted = false, before = null, after = null;
+	const deps = {
+		studioScene, sceneShapes, readClip: () => clip, standInOf: () => ({ kind: "sculpt", size: [1, 0.9, 0.5] }),
+		addStandIn: async prop => { rows.push({ id: "sculpt-9", name: prop.id, renderer: "sculpt", x: 2, y: 0, z: 0, rot: 0, footprint: { width: 1, depth: 0.5 }, height: 0.9, parts: [box] }); return "sculpt-9"; },
+		installClip: async () => ({ characterIds: [], objectIds: [], switched: [], ok: true }),
+		runScene: async options => {
+			options.onCompiled({ n: 1, scene, clip: "clip.json" });
+			for (let k = 0; !drafted && k < 200; k++) await new Promise(resolve => setTimeout(resolve, 5));
+			before = await options.reshape();
+			rows[0] = { ...rows[0], name: "Bench seat", height: 1.1, parts: look }; // object.sculpt { id, name, recipe }
+			after = await options.reshape();
+			return { wallMs: 10, compiles: 1, report: "Made.\nMissing: nothing.", missing: "nothing.", finished: true, final: { clip: "clip.json", scene, spec: SPEC } };
+		},
+	};
+	await runMotion({ words: "x", memoryKey: "conv-draft", hub: { command: async () => ({ characters: DESCRIBE.characters, objects: rows }) }, workspaceHandle: "ws-1", invoke: async () => ({ affectedIds: [] }), env: {}, deps, drafting: steps => steps(), onDraft: () => { drafted = true; } });
+	assert.deepEqual(before, { seat: null }, "the stand-in: drawn as its box");
+	assert.deepEqual(after, { seat: { h: 1.1, parts: look } }, "renamed with its look: still the writer's prop seat");
+	console.log("PASS runMotion: a draft stand-in renamed with its look gives its shape to the writer's prop");
+}
+
 // the user's words verbatim, then the agent's note, each under its own label; a task's words say they came from the coordinator's message
 {
 	const { seen, base } = harness();
@@ -153,13 +223,14 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: the user's words verbatim and the agent's note, each labelled");
 }
 
-// switches off: no tops asked, no turn, no heights
+// switches off: no parts asked, no turn, no parts
 {
 	const { seen, base } = harness();
 	await runMotion({ ...base, env: { COZYCLAY_MOTION_OFF: "turn,tops" }, words: "x", memoryKey: null });
 	assert.deepEqual(seen.describe[0].args, {});
 	assert.deepEqual(seen.runs[0].off, ["turn", "tops"]);
-	assert.doesNotMatch(seen.runs[0].request, /flat heights/);
+	assert.equal("parts" in sceneJson(seen.runs[0].request).props[0], false, "no parts with tops off");
+	assert.deepEqual([seen.runs[0].shapes, seen.runs[0].reshape], [{}, null], "and none for the tool");
 	assert.equal("turn" in sceneJson(seen.runs[0].request).props[0], false);
 	assert.equal(seen.installs[0].turn, false);
 	console.log("PASS runMotion: COZYCLAY_MOTION_OFF turn,tops");

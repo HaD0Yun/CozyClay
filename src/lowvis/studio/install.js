@@ -255,8 +255,9 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		}
 		const raw = clipTrack(clip, index);
 		raw.objects = Object.fromEntries(Object.entries(tracks).filter(([id]) => owners[id] === index)); // this character's take draws the props it handles
-		// the take keeps what this install puts on its bones, the clip's own place (attachedBefore of motion-kept.mjs reads it)
-		const kept = source ? { ...source, attached: mine.map(({ id, bone, local }) => ({ id, bone, at: [local.x, local.y, local.z], quat: quatXYZ(local) })) } : source;
+		// the take keeps what this install puts on its bones, the clip's own place (attachedBefore of motion-kept.mjs reads it),
+		// and the id the writer gave this character (as: scene.js tells the character back under it)
+		const kept = source ? { ...source, as: String(figure.id ?? index), attached: mine.map(({ id, bone, local }) => ({ id, bone, at: [local.x, local.y, local.z], quat: quatXYZ(local) })) } : source;
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80), ...(kept ? { lowvis: kept } : {}) })) return stop();
 	}
 	const moving = Object.keys(tracks).filter(id => tracks[id].pos);

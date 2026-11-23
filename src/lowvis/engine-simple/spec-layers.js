@@ -1,10 +1,13 @@
 // The spec read into layers (moved unchanged from engine.js): the body layer's frames, the upper layer's keys and prop
 // events, and the repeats written out. engine.js builds the clip from them.
 import { clamp, rad } from "./math.js";
-import { hold, home, locomote, shuffle } from "./gait.js";
+import { hold, home, locomote, shuffle, standB } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across, offBox } from "./prop-frame.js";
 import { carriedFrames, carryState } from "./carry.js";
+import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
+
+export { partBoxes, resolveParts } from "./parts.js";
 
 export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 
@@ -18,6 +21,7 @@ export function buildBody(c, acts, F, ctx) {
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
 	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
+	const stands = []; // per frame of an action on a prop with drawn parts: that prop, and whether the body sits (parts.js standOnParts)
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length;
 		if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
@@ -39,8 +43,10 @@ export function buildBody(c, acts, F, ctx) {
 			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
 		}
 		out.push(...r.frames); st = r.st;
+		if (prop?.parts && a.verb !== "lie") for (let f = first; f < out.length; f++) stands[f] = { prop, seated: a.verb === "sit" || !!st.seat };
 		if (ctx.carrier) for (let f = first; f < out.length; f++) Object.assign(out[f], { on: frame, rest });
 	}
+	if (stands.length) standOnParts(out, stands);
 	// soften pelvis height and lean so action boundaries have no kinks (the solver still guarantees leg reach)
 	const blur = (get, set) => {
 		for (let pass = 0; pass < 3; pass++) {
@@ -62,13 +68,27 @@ const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);
 const flat = (p, x, z) => { const d = offBox(p, [x, p.c[1], z]); return Math.hypot(d[0], d[2]); }; // floor-plane distance to a prop's footprint
 
+const ownToWorld = (p, v) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn); return [p.c[0] + v[0] * cs + v[2] * sn, p.c[1] + v[1], p.c[2] - v[0] * sn + v[2] * cs]; };
+/** The seat top (world y) of a sit on prop p with drawn parts: over the point the hips end on (st moved back by `back`),
+ *  the top of part `seat` there (at its centre when the hips end off it), else the highest drawn top under the hips (the
+ *  box top when nothing is drawn under them). */
+function drawnSeat(p, seat, st, back) {
+	const B = standB(st), x = B.p[0] - Math.sin(st.yaw) * back - p.c[0], z = B.p[2] - Math.cos(st.yaw) * back - p.c[2];
+	const cs = Math.cos(p.turn), sn = Math.sin(p.turn), lx = x * cs - z * sn, lz = x * sn + z * cs;
+	const y = seat ? topAt(seat, lx, lz) ?? topAt(seat, seat.c[0], seat.c[2]) ?? seat.c[1] + seat.h[1] : topUnder(p.parts, lx, lz);
+	return p.c[1] + (y ?? p.size[1] / 2);
+}
+
 /** One posture change of n frames from state st. A sit on a prop tells ctx.note how far its hips end from the seat's
  *  top and how many feet stand inside the prop's footprint. */
 function posture(c, a, st, n, prop, ctx) {
 	if (a.verb === "sit") {
 		if (!prop && !Number.isFinite(a.o.height)) throw new Error(`engine-simple: ${c.id} sit at frame ${a.f}: wants {on: propId} or {height}`);
-		const top = Number.isFinite(a.o.height) ? a.o.height : prop.c[1] + prop.size[1] / 2, d = prop ? Math.hypot(prop.c[0] - st.p[0], prop.c[2] - st.p[1]) : 0.33;
-		const r = sit(st, n, { y: top, back: Math.min(0.35, d) }), h = r.frames.at(-1)?.p;
+		// a part to sit on (its centre is where the hips go back toward); with drawn parts the seat is the drawn top under the hips
+		const seat = prop && a.o.part != null ? partOf(prop.parts, a.o.part, prop.id, `${c.id} sit at frame ${a.f}`) : null, toward = seat ? ownToWorld(prop, seat.c) : prop?.c;
+		const d = prop ? Math.hypot(toward[0] - st.p[0], toward[2] - st.p[1]) : 0.33, back = Math.min(0.35, d);
+		const top = Number.isFinite(a.o.height) ? a.o.height : prop.parts ? drawnSeat(prop, seat, st, back) : prop.c[1] + prop.size[1] / 2;
+		const r = sit(st, n, { y: top, back }), h = r.frames.at(-1)?.p;
 		if (prop && h) ctx.note?.({ f: a.f, verb: "sit", prop: prop.id, off: flat(prop, h[0], h[2]), feetIn: st.feet.filter(ft => flat(prop, ft.g[0], ft.g[1]) === 0).length });
 		return r;
 	}
@@ -100,7 +120,7 @@ export function buildUpper(id, acts, props, s = 1) {
 			if (R !== undefined) keys.R.push({ ...k, to: R, shake: o.shake });
 			for (const side of ["footL", "footR"]) if (o[side] !== undefined) {
 				const t = o[side];
-				keys[side].push({ ...k, to: t === "plant" ? t : t.joint ? { place: { joint: t.joint, at: t.at, of: t.of }, pitch: rad(t.pitch ?? 0) } : { at: Array.isArray(t) ? t : t.at, world: t.world, pitch: rad(t.pitch ?? 0) } });
+				keys[side].push({ ...k, to: t === "plant" ? t : t.joint ? { place: { joint: t.joint, at: t.at, of: t.of }, pitch: rad(t.pitch ?? 0) } : t.on != null ? { place: { on: t.on, at: t.at }, pitch: rad(t.pitch ?? 0) } : { at: Array.isArray(t) ? t : t.at, world: t.world, pitch: rad(t.pitch ?? 0) } });
 			}
 			for (const side of ["elbowL", "elbowR"]) if (o[side] !== undefined) keys[side].push({ ...k, to: o[side] });
 			if (o.lean !== undefined) keys.lean.push({ ...k, to: rad(o.lean) });

@@ -51,8 +51,10 @@ because the 17 joints are X Bot bones). `skin.jsx` draws the block figure over e
 a new character is an X Bot, so the block figure is the one look of rig characters.
 
 The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, tops })`): the Studio's objects as boxes,
-each the object's own box turned about Y as the object stands (`turn`), with the flat heights it offers (`tops`, from
-`tops.js` over the editor's describe answer); the X Bot characters, and the Y Bot characters, which the install
+each the object's own box turned about Y as the object stands (`turn`), with the parts it draws where its shape is not
+its box (`tops`: `tops.js` objectParts over the editor's describe answer, `parts.js`; the motion tool asks for them
+again before every compile, sets them on the writer's scene as the only parts a prop has, and tells the ones the Studio
+draws later, `pi/shapes.mjs`; the compiled scene kept with a take carries them); the X Bot characters, and the Y Bot characters, which the install
 changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."), each with
 the scale and tint the Studio holds for it (`body`). Capsule figures and imported rigs cannot be animated and stand as
 they are; the request says so. An existing character loses its root path before its new take goes in.
@@ -103,7 +105,7 @@ Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent 
 - `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
   straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`).
 - `COZYCLAY_MOTION_OFF=pace,turn,tops,body,balance,inside`: engine steps of the lowvis engine switched off by name
-  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, flat heights, a body's scale
+  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, a prop's drawn parts, a body's scale
   and tint (off: a character at another scale than 1 is not animated, as before), the row of a body at rest whose
   centre of mass lies outside its supports, the rows of a body or a moving prop inside another prop.
 

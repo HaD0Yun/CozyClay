@@ -38,6 +38,7 @@
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, REST, TIPS } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildBodySized } from "../engine-simple/size.js";
+import { partBoxes } from "../engine-simple/parts.js";
 
 // metres at scale 1 (frames: a count). heel: a human heel reaches behind the ankle joint; the block look draws it 60 mm behind, the cube look further
 export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
@@ -78,7 +79,7 @@ const spans = list => list.reduce((out, f) => { if (out.at(-1)?.[1] === f - 1) o
  *  BALANCE.outside x scale outside its supports. spec: the spec as built; scene: the scene the clip was built from.
  *  -> [row] (measure.mjs row shape). */
 export function balanceRows(clip, aux, spec, scene) {
-	const layerProps = Object.fromEntries(scene.props.map(p => [p.id, { id: p.id, size: p.size, c: p.at.slice(), turn: (p.turn ?? 0) * Math.PI / 180 }])); // as engine.js gives them to the body layer
+	const layerProps = Object.fromEntries(scene.props.map(p => [p.id, { id: p.id, size: p.size, parts: partBoxes(p), c: p.at.slice(), turn: (p.turn ?? 0) * Math.PI / 180 }])); // as engine.js gives them to the body layer
 	const F = clip.frameCount, rows = [], statics = clip.props.filter(p => p.pos.length === 3), movers = clip.props.filter(p => p.pos.length > 3), moving = new Set(movers.map(p => p.id)), chars = new Set(clip.characters.map(c => c.id));
 	// a prop's box at frame f (a prop that does not move has one frame)
 	const local = (p, pt, f = 0) => { const i = p.pos.length === 3 ? 0 : f; return qRotate(qConj(p.quat.slice(i * 4, i * 4 + 4)), [0, 1, 2].map(k => pt[k] - p.pos[i * 3 + k])); };
