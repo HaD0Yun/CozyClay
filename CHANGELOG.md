@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Export
+
+- Export → AI video reference (zip) renders the shots (first shot start to last shot end) as a
+  reference video for Seedance-style models: in every 4 frames one light
+  mosaic frame and three heavy-blur frames, restarting at each shot. The
+  model keeps the camera, cuts and blocking but not the mannequin look.
+
 ## 3.2.3 - 2026-11-20
 
 Install without a terminal on Windows and macOS, a dark Studio with a guided first visit, Auto Pose, camera roll and per-part motion keys, plus cast and stability fixes.
