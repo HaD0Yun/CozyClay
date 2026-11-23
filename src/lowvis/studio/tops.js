@@ -97,17 +97,28 @@ export function objectParts(root, max = MAX_PARTS) {
 	return parts.length ? mergeParts(parts, max) : [];
 }
 
+/** Resolves once the page has drawn two more frames, or after 250 ms where it draws none (a hidden tab; at once outside a page). */
+const drawn = () => new Promise(done => {
+	const frame = globalThis.requestAnimationFrame;
+	if (typeof frame !== "function") { done(); return; }
+	const late = setTimeout(done, 250);
+	frame(() => frame(() => { clearTimeout(late); done(); }));
+});
+
 /**
  * The editor's describe query with the tops and parts flags: withTops(describe, sceneOf)(args) is describe() and, when
  * args.tops is true, each visible solid object row gains `tops` (objectTops of its group in the scene sceneOf() returns;
- * [] when the group is not mounted), and when args.parts is true `parts` (objectParts of it).
+ * [] when the group is not mounted), and when args.parts is true `parts` (objectParts of it). Asked for parts it answers
+ * a promise, after the page has drawn (drawn): an object changed just before (a stand-in given its look) is measured as
+ * the stage draws it now, not as it drew it before the change.
  */
 export function withTops(describe, sceneOf) {
-	return (args = {}) => {
+	const measured = args => {
 		const answer = describe(args), tops = args?.tops === true, parts = args?.parts === true;
 		if (!(tops || parts) || !Array.isArray(answer?.objects)) return answer;
 		const scene = sceneOf(), groups = new Map();
 		scene?.traverse(node => { const id = node.userData?.sceneObjectId; if (typeof id === "string" && !node.userData.ghost && !groups.has(id)) groups.set(id, node); });
 		return { ...answer, objects: answer.objects.map(row => row && !row.hidden && SOLID.has(row.renderer) ? { ...row, ...(tops ? { tops: objectTops(groups.get(row.id)) } : {}), ...(parts ? { parts: objectParts(groups.get(row.id)) } : {}) } : row) };
 	};
+	return (args = {}) => (args?.parts === true ? drawn().then(() => measured(args)) : measured(args));
 }

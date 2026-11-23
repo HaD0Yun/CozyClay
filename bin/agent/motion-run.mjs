@@ -154,9 +154,9 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(env.COZYCLAY_FIGURE || null);
 	const read = await hub.command("describe", tops ? { parts: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
-	// the drawn shape of each prop the Studio lists (null: drawn as its box), now and before each motion call: a stand-in
-	// given its look while the writer works is told to it then (compile-tool.mjs)
-	const shapesOf = s => Object.fromEntries(s.scene.props.map(prop => [prop.id, s.ids.shapes?.[prop.id] ?? null]));
+	// the drawn shape of each prop the Studio lists (null: drawn as its box; none for a prop it could not measure), now and
+	// before each motion call: a stand-in given its look while the writer works is told to it then (compile-tool.mjs)
+	const shapesOf = s => Object.fromEntries(s.scene.props.filter(prop => !s.ids.unmeasured?.includes(prop.id)).map(prop => [prop.id, s.ids.shapes?.[prop.id] ?? null]));
 	const reshape = tops ? async () => shapesOf(studioScene(await hub.command("describe", { parts: true }, workspaceHandle), { turn, tops, body, kinds })) : null;
 	// the objects with no box of their own are no boxes the body meets: no fit line measures them (motion-fit.mjs)
 	const boxed = placed => Object.fromEntries(Object.entries(placed).filter(([prop]) => !studio.ids.props[prop]?.point));

@@ -77,7 +77,8 @@ const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${ro
  * gets parts: [{ name, at, size, turn? }] (parts.js propParts), its drawn shape in the prop's own frame from
  * its box centre, and ids.shapes: { <prop id>: { h: the box's height, parts: the same parts from its base } }
  * (bin/agent/motion-run.mjs gives them to the motion tool, which sets them on a prop of that id at the height the
- * writer gives it: the install stands the object on the base of that box).
+ * writer gives it: the install stands the object on the base of that box); ids.unmeasured: the props of which describe
+ * measured nothing (their shape is not known: neither parts nor "its box").
  * body: a character at any scale is offered, with its scale (left out at 1) and its tint (left out when it has none), the
  * character's own fields; ids.bodies: { <Studio id>: { scale, tint } } as the Studio holds them. Without it a
  * character at another scale than 1 is one of the others, as before.
@@ -159,6 +160,7 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		// measured in the object's own frame, which is the prop's (a tilted one a take moves: the take gives it its turn on every frame)
 		const drawn = tops ? propParts(row.parts, { size: props.at(-1).size, own: own || sphere, yaw: finite(row.rot) }) : null;
 		if (drawn) { props.at(-1).parts = drawn.centre; (ids.shapes ??= {})[id] = { h: props.at(-1).size[1], parts: drawn.base }; }
+		else if (tops && !row.parts?.length) (ids.unmeasured ??= []).push(id); // nothing of it was measured (not mounted, or it draws no mesh): its shape is not known
 	}
 	return { scene: { characters, props, others, ...(attached.length ? { attached } : {}), ...(Object.keys(studioIds).length ? { studioIds } : {}), ...(leaning.length ? { tilted: leaning } : {}) }, ids };
 }

@@ -10,7 +10,7 @@ import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { partBoxes, partDistance, resolveParts } from "../../src/lowvis/engine-simple/parts.js";
 import { SEAT_UP } from "../../src/lowvis/engine-simple/posture.js";
 import { MAX_PARTS, mergeParts, propParts } from "../../src/lowvis/studio/parts.js";
-import { objectParts } from "../../src/lowvis/studio/tops.js";
+import { objectParts, withTops } from "../../src/lowvis/studio/tops.js";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
 import { sceneShapes } from "../../src/lowvis/pi/shapes.mjs";
 import { systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
@@ -94,6 +94,22 @@ const cart = extra => ({ id: "cart", size: BOX, at: [0, 0.5, 0], parts: PARTS, .
 	mesh("", 0); mesh("part_2", 0.2); mesh("", 0.4); mesh("wing", 0.6, ""); mesh("x".repeat(60), 0.8);
 	assert.deepEqual(objectParts(named).map(b => b.name), ["part", "part_2", "part_3", "wing", "x".repeat(40)]);
 	console.log(`ok objectParts: ${JSON.stringify(parts)}`);
+	// describe { parts: true } answers after the page has drawn two more frames (an object changed just before is measured
+	// as drawn now); { tops: true } and a plain describe answer at once, as before
+	const scene = new THREE.Scene(), row = { id: "o1", renderer: "sculpt" };
+	group.userData.sceneObjectId = "o1"; scene.add(group);
+	const describe = withTops(() => ({ objects: [row] }), () => scene), frames = [], had = globalThis.requestAnimationFrame;
+	assert.deepEqual(describe({}), { objects: [row] });
+	assert.ok(Array.isArray(describe({ tops: true }).objects[0].tops), "tops: at once");
+	globalThis.requestAnimationFrame = run => { frames.push(run); return frames.length; };
+	const asked = describe({ parts: true });
+	assert.ok(asked instanceof Promise && frames.length === 1, "parts: a promise that waits for a frame");
+	group.remove(tilted); // the stage changes before it has drawn: the answer is of the stage as drawn after
+	frames.shift()(); assert.equal(frames.length, 1, "and for a second frame"); frames.shift()();
+	assert.deepEqual((await asked).objects[0].parts.map(b => b.name), ["seat", "bar"], "measured after the frames");
+	globalThis.requestAnimationFrame = had;
+	assert.equal((await describe({ parts: true })).objects[0].parts.length, 2, "outside a page: no frame to wait for");
+	console.log("ok describe { parts }: measured after two frames of the page; tops and the plain answer at once");
 }
 
 // --- the words ---

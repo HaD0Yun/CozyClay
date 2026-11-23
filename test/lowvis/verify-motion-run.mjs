@@ -76,7 +76,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 {
 	const final = { clip: "clip.json", scene: { frames: 48, characters: [{ id: "c1", at: [0, 0], heading: 0 }, { id: "guest", at: [1, 1], heading: 0, scale: 0.8 }], props: [{ id: "box", size: [1, 0.9, 0.5], at: [1, 0.45, 2], turn: 30 }, { id: "cup", size: [0.1, 0.1, 0.1], at: [1, 0.95, 2], moves: true }, { id: "mat", size: [1, 0.05, 1], at: [3, 0.025, 3] }] }, spec: { c1: [[0, "idle"]], guest: [[0, "idle"]] } };
 	const clip = { frameCount: 48, characters: [{ id: "c1" }, { id: "guest", scale: 0.8 }], props: [{ id: "box" }, { id: "cup" }, { id: "mat" }] };
-	const guest = { id: "lowvis-guest", model: "x-bot-tpose", x: 1, z: 1, rot: 0, scale: 0.8 }, mat = { id: "obj-mat", name: "mat", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 1 }, height: 0.05 };
+	const guest = { id: "lowvis-guest", model: "x-bot-tpose", x: 1, z: 1, rot: 0, scale: 0.8 }, mat = { id: "obj-mat", name: "mat", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 1 }, height: 0.05, parts: [{ name: "part", at: [0, 0.025, 0], size: [1, 0.05, 1] }] };
 	// the Studio: per scene, the source each character's take keeps (motion.v4.install lowvis), as the describe document has it
 	// (null: a take that keeps none)
 	const kept = { "scene-a": {}, "scene-b": {} };
@@ -112,6 +112,10 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 		assert.deepEqual(last.props.find(p => p.id === "cup").parts, lid, "it tells the parts of the cup, which the Studio scene does not list");
 		assert.deepEqual(again.shapes, { cup: { h: 0.1, parts: [{ ...lid[0], at: [0, 0.09, 0] }, { ...lid[1], at: [0.06, 0.05, 0] }] }, box: { h: 0.9, parts: DESCRIBE.objects[0].parts }, mat: null }, "the tool: the cup's kept shape, the box's from the Studio, the mat drawn as its box");
 		assert.deepEqual(await again.reshape(), { box: { h: 0.9, parts: DESCRIBE.objects[0].parts }, mat: null }, "before a call: what the Studio lists now");
+		// an object of which nothing was measured (not mounted yet) is neither parts nor a box: the tool keeps what it had
+		objects = [...DESCRIBE.objects, { ...mat, parts: [] }];
+		assert.deepEqual(Object.keys(await again.reshape()), ["box"], "an unmeasured object is left out");
+		objects = [...DESCRIBE.objects, mat];
 	}
 	// a run that failed (the Studio refused its install) leaves the motion that plays as the next request's start
 	const playing = kept["scene-a"].c1;
