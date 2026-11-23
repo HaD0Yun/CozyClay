@@ -4,7 +4,7 @@
 //  - hand: a hand whose target is on the prop ({on}, after its blend: aux.reach), or that holds or carries it
 //    (aux.holders, aux.grips); the hand is its wrist to its finger tip (5 points), the nearest of them counts.
 //  - foot: a foot whose target is on the prop (aux.reach); the foot is its sole and its toe tip.
-//  - feet: the frames of a body action on the prop other than a sit or a lie (it stands or walks on it); the lower foot.
+//  - feet: the frames of a body action on the prop other than a sit or a lie (it stands or walks on it); the foot nearer a part.
 //  - seat: the frames of a sit on the prop after its change of posture (its over), up to the next body action: the Hips
 //    joint less the engine's seat height (posture.js SEAT_UP, times the body's size) against the highest drawn top under
 //    it, up to SUNK over it (+ it floats, - it sinks), or the nearest part when nothing is drawn under it.

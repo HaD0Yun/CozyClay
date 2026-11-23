@@ -16,7 +16,7 @@ import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
 import { insideText } from "./inside.mjs";
 import { applyEdit } from "./edit.mjs";
 import { shapeLines, toldOf, withShapes } from "./shapes.mjs";
-import { checkParts } from "../engine-simple/parts.js";
+import { checkParts, resolveParts } from "../engine-simple/parts.js";
 import { lookBody } from "../studio/figure.js";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
@@ -218,7 +218,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, world, name)]);
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
-		const asBuilt = expandRepeats(state.spec, F).spec, rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def: world, spec: asBuilt, look: figure }, spec: asBuilt }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, world) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
+		const asBuilt = resolveParts(expandRepeats(state.spec, F).spec, world), rows = [...measure(parsed, aux, { stretch: valid.stretch, inside: { def: world, spec: asBuilt, look: figure }, spec: asBuilt }), ...(feature.balance ? balanceRows(parsed, aux, asBuilt, world) : [])]; // balance: a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });

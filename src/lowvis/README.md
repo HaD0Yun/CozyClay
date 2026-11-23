@@ -52,8 +52,9 @@ a new character is an X Bot, so the block figure is the one look of rig characte
 
 The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, tops })`): the Studio's objects as boxes,
 each the object's own box turned about Y as the object stands (`turn`), with the parts it draws where its shape is not
-its box (`tops`: `tops.js` objectParts over the editor's describe answer, `parts.js`; the motion tool keeps them set on
-the writer's scene and tells the ones the Studio draws later, `pi/shapes.mjs`); the X Bot characters, and the Y Bot characters, which the install
+its box (`tops`: `tops.js` objectParts over the editor's describe answer, `parts.js`; the motion tool asks for them
+again before every compile, sets them on the writer's scene as the only parts a prop has, and tells the ones the Studio
+draws later, `pi/shapes.mjs`; the compiled scene kept with a take carries them); the X Bot characters, and the Y Bot characters, which the install
 changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."), each with
 the scale and tint the Studio holds for it (`body`). Capsule figures and imported rigs cannot be animated and stand as
 they are; the request says so. An existing character loses its root path before its new take goes in.
