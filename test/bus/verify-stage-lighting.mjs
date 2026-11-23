@@ -47,6 +47,13 @@ for (const lighting of [{ ...STUDIO, sky: '#18223f' }, { ...STUDIO, hdr: 'builti
 }
 assert.deepEqual(hazeRange(0), { near: 55, far: 95 }, 'no haze keeps the export horizon');
 assert.deepEqual(hazeRange(1), { near: 2, far: 14 });
+// Haze pulls the range in evenly, and a look with a sky of its own shows on screen the range its export uses.
+assert.deepEqual([hazeRange(0.5).near, hazeRange(0.5).far], [28.5, 54.5]);
+{
+  const far = stageLook({ lighting: { ...STUDIO, sky: '#18223f' }, keyLight: STUDIO_KEY }), hazed = stageLook({ lighting: { ...STUDIO, sky: '#18223f', fog: 0.5 }, keyLight: STUDIO_KEY });
+  assert.deepEqual([far.fog.near, far.fog.far, far.captureFog], [55, 95, null], 'an authored sky without haze fades into the export horizon on screen too');
+  assert.deepEqual([hazed.fog.near, hazed.fog.far, hazed.captureFog], [28.5, 54.5, { near: 28.5, far: 54.5 }], 'haze gives the screen and the export one range');
+}
 console.log('PASS studio look equals the tuned rig under both themes and the grid view');
 
 // Recipes: complete, and each preset writes what its name promises.

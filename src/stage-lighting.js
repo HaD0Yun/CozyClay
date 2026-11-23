@@ -73,7 +73,7 @@ export const LIGHTING_RECIPES = Object.freeze({
 		{ x: -6, y: 6.5, z: 0.5, intensity: 0.6, color: "#9db6e6" }),
 	interior: recipe({ sky: "#2b2621", ambient: 0.7, hemiSky: "#ffe2bf", hemiGround: "#3d3128", fill: 0.55, fog: 0.35, shadowSoftness: 0.55, envLight: 1, ao: 0.9 },
 		{ x: 2, y: 4.5, z: 2.5, intensity: 1.35, color: "#ffd29c" }),
-	stage: recipe({ sky: "#000000", ambient: 0, hemiSky: "#000000", hemiGround: "#000000", fill: 0, fog: 0.7, shadowSoftness: 0.2, ao: 0.6 },
+	stage: recipe({ sky: "#000000", ambient: 0, hemiSky: "#000000", hemiGround: "#000000", fill: 0, fog: 0.91, shadowSoftness: 0.2, ao: 0.6 },
 		{ x: 1.5, y: 9, z: 3, intensity: 2.6, color: "#fff0d8" }),
 });
 
@@ -100,13 +100,15 @@ export function applyLightingRecipe(stage, preset, keep = []) {
 	return { lighting: normalizeLighting(lighting), keyLight: createKeyLight(keyLight) };
 }
 
-// Linear fog, in metres from the camera. With fog 0 the viewport keeps its
-// tuned 18..54 m horizon fade and exports their 55..95 m one (stage-capture.jsx);
-// haze pulls both in together, reaching 2..14 m at fog 1 (a black-void pool of
-// light under the stage recipe). The squared falloff makes small values a
-// distant haze rather than a jump.
+// Linear fog, in metres from the camera. With fog 0 a look with a sky of its
+// own fades into the 55..95 m horizon, on screen and in exports alike
+// (stage-capture.jsx); the UI theme's studio stage keeps its tuned 18..54 m
+// fade on screen. Haze pulls the range in evenly, reaching 2..14 m at fog 1
+// (the stage recipe's black-void pool of light sits at 0.91). The range fell
+// off squared until 2026-11-23, when far things read too hazy: 0.3 began at
+// 28 m and now begins at 39 m.
 export function hazeRange(fog) {
-	const far = (1 - fog) ** 2;
+	const far = 1 - fog;
 	return { near: 2 + 53 * far, far: 14 + 81 * far };
 }
 
@@ -125,7 +127,7 @@ export function stageLook({ lighting, keyLight, theme = "dark", grid = false }) 
 	const themed = l.sky === null, lightTheme = themed && theme === "light";
 	const neutral = grid && themed && !lightTheme;
 	const sky = themed ? stageBackground(theme) : l.sky;
-	const haze = hazeRange(l.fog), base = neutral ? GRID_FOG : { near: 18, far: 54 };
+	const haze = hazeRange(l.fog), base = neutral ? GRID_FOG : themed ? { near: 18, far: 54 } : hazeRange(0);
 	const dim = key.intensity / 1.12, lift = Math.min(1, 0.35 + 0.65 * dim);
 	// The environment map takes over the hemisphere's share as envLight rises (stage-environment.js).
 	const skyLight = 0.9 * lift * l.ambient, hemiShare = Math.max(0, 1 - l.envLight);

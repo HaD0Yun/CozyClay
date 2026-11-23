@@ -75,7 +75,7 @@ expect(
 	"the viewport fog is untouched",
 	// Clay stage keeps its tuned values; grid view swaps to the void fog whose
 	// far plane also sits below CAPTURE_FOG_NEAR, so the capture trick holds.
-	look.includes("base = neutral ? GRID_FOG : { near: 18, far: 54 }") && look.includes("near: Math.min(base.near, haze.near), far: Math.min(base.far, haze.far)"),
+	look.includes("base = neutral ? GRID_FOG : themed ? { near: 18, far: 54 } : hazeRange(0)") && look.includes("near: Math.min(base.near, haze.near), far: Math.min(base.far, haze.far)"),
 );
 const captureFog = app.indexOf("fog.near = look?.fog?.near ?? CAPTURE_FOG_NEAR;");
 const restoreFog = app.indexOf("fog.near = fogNear;");
