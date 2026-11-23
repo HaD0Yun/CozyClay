@@ -123,7 +123,7 @@ export function balanceRows(clip, aux, spec, scene) {
 			if (entry(f, slot)) return false;
 			if (n[f] && n[f].key <= f && role(slot, n[f])) return true;
 			const g = last[slot][f], took = g >= 0 && role(slot, entry(g, slot)) && acts.findLast(a => a[0] === g + 1 && (a[1] === "pose" ? POSE_SLOT[slot].some(k => a[2]?.[k] !== undefined) : slot < 2 && HANDS.has(a[1])));
-			return !!took && f <= g + (took[2]?.over ?? 12);
+			return !!took && f <= g + (took[2]?.over ?? (took[1] === "hold" ? 0 : 12));
 		});
 		const coms = Array.from({ length: F }, (_, f) => com(f)), N = BALANCE.frames;
 		const still = f => [f - 1, f + 1].every(g => g < 0 || g >= F || [J.LeftFoot, J.RightFoot].every(j => Math.hypot(...at(f, j).map((v, k) => v - at(g, j)[k])) <= BALANCE.still * s));

@@ -58,10 +58,12 @@ const BEFORE = {
 	"demo push": { n: 18144, sum: 16378.90072069702, abs: 16937.86911301625 },
 	// chop again when a prop key starts where the key before has the prop on its frame (the falling trunk turns its full
 	// 64 + 26 degrees; was sum 8220.211771645767, abs 8964.167562102726)
-	"demo chop": { n: 17787, sum: 8219.719542958957, abs: 8963.675333415917 },
+	// chop and bowl again when a hand takes a prop as it lies instead of moving it into the hand (autorl 013; were sum
+	// 8219.719542958957, 24534.552170557406, abs 8963.675333415917, 35987.46752835132)
+	"demo chop": { n: 17787, sum: 8232.0546934057, abs: 8978.06813223084 },
 	// bowl again for the same reason (each pin's slide starts from its full 90-degree tip; was sum 24536.379817133275,
 	// abs 35988.71533513136)
-	"demo bowl": { n: 22179, sum: 24534.552170557406, abs: 35987.46752835132 },
+	"demo bowl": { n: 22179, sum: 24528.879504649638, abs: 35990.91364999904 },
 	"sit on it": { n: 4899, sum: 1932.92509540655, abs: 2080.8489820194295 },
 	"carry it": { n: 5184, sum: 1299.1545993132574, abs: 2678.462190854703 },
 	"push it": { n: 5184, sum: 644.6375135840353, abs: 1815.2169889187685 },

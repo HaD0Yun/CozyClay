@@ -30,9 +30,9 @@ const CASES = {
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const BEFORE = {
-	rideCarry: "89e7e80c3862fc90c6b06d1d47c0e7267da7a80f623d13f32b664a3235c62b17", // pinned again with autorl 010 (its walks: the sway by the walking share); was de27b72fcc147fb4...
+	rideCarry: "c629e4eadda831e746abd58a44485b33177c7f8901c30f675d08e8edeb967e8f", // pinned again with autorl 010 (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies, autorl 013)
 	holdShare: "a301a50f6fdf636419fbc2940aed8f28029f0e0a6fa50063d850a1f312efbae6",
-	rollKey: "18b0abf907fcdfc7f0841505f841b12b9d3bb7d01c8403f81a1be98152791813",
+	rollKey: "93aa49be4c7ea4182039e8e1dbd6bfd56b176973b607bec154da3f993bbdc1c4", // was 18b0abf9... (before a hand took a prop as it lies, autorl 013)
 };
 // the knee note said again when a knee's side came from knee.js (notes.js, stored in every clip) goes back to its text of then
 const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";

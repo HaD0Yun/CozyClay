@@ -84,13 +84,12 @@ export function buildUpper(id, acts, props, s = 1) {
 	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
-		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout", fast: o.fast };
+		const k = { f, over: o.over ?? (verb === "hold" ? 0 : 12), ease: o.ease ?? "inout", fast: o.fast };
 		if (verb === "carry") {
 			const half = across(props[o.prop]) / 2 + PAD * s, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
-		} else if (verb === "hold" && (o.hand === "both" || o.at !== undefined)) holdShared(id, f, k, o, keys, events);
-		else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1, grip: o.grip });
+		} else if (verb === "hold") holdKeys(id, f, k, o, keys, events);
 		else if (verb === "release") events.push({ f, prop: o.prop, holder: null, roll: o.roll, lets: o.hand === "L" ? 0 : o.hand === "R" ? 1 : undefined });
 		else if (verb === "place") {
 			keys.L.push({ ...k, pair: true, to: { at: o.at, prop: o.prop } }); keys.R.push({ ...k, pair: true, to: { at: o.at, prop: o.prop } });
@@ -118,23 +117,24 @@ export function buildUpper(id, acts, props, s = 1) {
 	return { keys, events };
 }
 
-/** A hold that can share the prop (share.js): with `at` the hands go to their places on the prop over `over` frames
- *  and take hold when they arrive; without it they take hold where they are. From then on each hand is held where it
- *  is in the body frame (a "keep" key, at its place when it has one) until a later pose of that hand. */
-function holdShared(id, f, k, o, keys, events) {
-	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"];
+/** A hold: each hand's place on the prop is `at`, else the point of the prop nearest the hand when the hold begins
+ *  (take.js settles it then, and whether the hands take hold at once or go there over `over` frames first). From the
+ *  take on each hand is held at its place in the body frame (a "keep" key) until a later pose of that hand. One hand
+ *  with no `at` holds it alone (engine.js, unless share.js finds other hands on it); any other hold can share it. */
+function holdKeys(id, f, k, o, keys, events) {
+	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"], wait = { over: k.over, hands: [] };
 	const point = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
 	for (const i of hands) {
 		at[i] = o.at === undefined ? null : Array.isArray(o.at) && hands.length === 1 ? o.at : o.at?.[name[i]];
 		if (o.at !== undefined && !point(at[i])) throw new Error(`engine-simple: ${id} hold at frame ${f}: at wants [x, y, z] for one hand or {L: [x, y, z], R: [x, y, z]} for the hands named, got ${JSON.stringify(o.at)}`);
 	}
-	const take = o.at === undefined ? f : f + k.over;
-	for (const i of hands) { // the keep key is held at the place itself (over: 0 = there at once, with no blend key)
-		const place = at[i] ? { on: o.prop, at: at[i] } : undefined;
-		if (place && k.over > 0) keys[name[i]].push({ ...k, to: place });
-		keys[name[i]].push({ f: take, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true, by: f }); // by: the spec's action that added it
+	for (const i of hands) { // the keep key is held at the place itself (taken at once: no blend key)
+		const place = { on: o.prop, at: at[i] ?? undefined }, list = keys[name[i]], blend = k.over > 0 ? { ...k, to: place } : null;
+		const keep = { f: f + k.over, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true, by: f }; // by: the spec's action that added it
+		list.push(...(blend ? [blend, keep] : [keep]));
+		wait.hands.push({ i, place, list, blend, keep });
 	}
-	events.push({ f: take, prop: o.prop, holder: id, hands, at, share: true, key: f });
+	events.push({ f, prop: o.prop, holder: id, key: f, wait, ...(o.at === undefined && hands.length === 1 ? { hand: hands[0] } : { hands, at, share: true }) });
 }
 
 /** The spec with its repeat actions written out. [f, "repeat", { len, times }] in the list of an id copies the other

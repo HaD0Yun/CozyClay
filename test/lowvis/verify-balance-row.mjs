@@ -84,7 +84,7 @@ function expected(clip, aux, spec, def) {
 				const g = R.findIndex((r, k) => k > f && r?.[i]), p = R.findLastIndex((r, k) => k < f && r?.[i]);
 				if (g > 0 && R[g][i].key <= f && bears(i, R[g][i])) return false; // in the blend toward it: its action began by f, its entries start after f
 				const off = p >= 0 && bears(i, R[p][i]) && acts.findLast(a => a[0] === p + 1 && (a[1] === "pose" ? LIMBS[i].some(n => a[2]?.[n] !== undefined) : i < 2 && ["carry", "hold", "place"].includes(a[1])));
-				if (off && f <= p + (off[2]?.over ?? 12)) return false; // in the blend away from it: within the over frames of the action that ended its entries
+				if (off && f <= p + (off[2]?.over ?? (off[1] === "hold" ? 0 : 12))) return false; // in the blend away from it: within the over frames of the action that ended its entries
 			}
 			return !tiltAt(f);
 		};

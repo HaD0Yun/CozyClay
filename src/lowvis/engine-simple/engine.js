@@ -54,10 +54,11 @@
 //                                      slide:true = the prop only slides on the floor with the hands (a push);
 //                                      carry takes the prop from any other hands
 //     hold {prop, hand:"R"|"L"|"both", at?, over}   these hands of this character hold the prop until they let go;
-//       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). One hand alone
-//       with no `at`: the prop is fixed in it, its long z axis along the thumb side. at = each hand's place on the
-//       prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
-//       hand speed limit below still holds) and take hold when they end; no at = the point of the prop nearest each hand.
+//       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). at = each
+//       hand's place on the prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both); no at = the point of the prop nearest
+//       each hand on the hold's frame, a wrist's pad off its surface. With over 0 (the default) or with each hand within
+//       a wrist's pad of its place they take hold on that frame (with no at, where they are); else they go there over
+//       `over` frames (the hand speed limit below still holds) and take hold when they end.
 //       A holding hand stays where it took hold in the body frame until a later pose moves it. The prop follows its
 //       hands: in one hand fixed in it, as it lay in the hand when that hand came to hold it alone (aim turns it); in
 //       more, the place and turn that best put each hand's place on that hand; about an axis its places hardly fix (all
@@ -112,6 +113,7 @@ import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
 import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shareEvent, startFrame } from "./share.js";
 import { reachEntry } from "./reach.js";
+import { inHand, settleHold } from "./take.js";
 import { flowAdd, handsMoved, startHand, startScalar } from "./flow.js";
 
 export { NOTES, expandRepeats };
@@ -172,9 +174,9 @@ function buildOnce(written, def, carrier) {
 		p.vel = left > 0 ? [p.vel[0] * left / (left + p.fly.friction), 0, p.vel[2] * left / (left + p.fly.friction)] : null; // rolling: it slows down and stops
 	};
 	const handLine = pose => { const l = pose.pos[HAND[0]], r = pose.pos[HAND[1]]; return { mid: mixV(l, r, 0.5), yaw: Math.atan2(l[0] - r[0], l[2] - r[2]) }; };
-	const follow = (p, pose) => {
-		if (p.hand != null) { p.q = pose.quat[HAND[p.hand]]; p.c = add(pose.pos[HAND[p.hand]], qRotate(p.q, p.grip)); return; }
-		const h = handLine(pose);
+	const follow = (p, c, f) => {
+		if (p.hand != null) return inHand(p, c, f); // take.js
+		const h = handLine(c.poseNow);
 		if (p.slide) { p.c = [h.mid[0] - p.off[0], p.c[1], h.mid[2] - p.off[2]]; return; }
 		p.yaw = h.yaw + p.yawOff; p.q = qY(p.yaw); p.c = sub(h.mid, qRotate(p.q, p.off));
 	};
@@ -301,13 +303,11 @@ function buildOnce(written, def, carrier) {
 	for (let f = 0; f < F; f++) {
 		for (const [c, e] of chars.flatMap(c => c.events.filter(e => e.f === f).map(e => [c, e])).sort((a, b) => (a[1].holder != null) - (b[1].holder != null))) { // lets-go first
 			const p = props[e.prop];
+			if (e.wait && !settleHold(e, c, f, p)) continue; // a hold: its hands take hold now or when they reach the prop (take.js)
 			if (e.at && e.holder == null) placed(aux.placed, p, c, e, f); // also where other hands still hold it
 			if (shareEvent(p, c, e, f, byId)) continue;
 			p.holder = e.holder; p.hand = e.hand ?? null; p.slide = !!e.slide; if (e.holder) p.takenAt = f;
-			if (e.hand != null) { // a stick lies along the thumb side, anything else sits in front of the palm
-				const s = e.hand ? -1 : 1, stick = p.size[2] > 2 * Math.max(p.size[0], p.size[1]);
-				p.grip = e.grip ?? (stick ? [s * 0.04 * c.s, 0, p.size[2] / 2 - 0.15 * c.s] : [s * (0.02 * c.s + p.size[0] / 2), 0, 0]); c.gripHand = e.hand;
-			}
+			if (e.hand != null) { p.gq = null; c.gripHand = e.hand; } // the hand takes it as it lies (take.js)
 			if (e.roll) { p.vel = sub(p.h1, p.h2); p.fly = null; aux.releases.push({ prop: e.prop, f }); }
 			else if (e.holder) {
 				const h = handLine(byId[e.holder].world ?? solveSized(c.body[f], {}, c.s));
@@ -342,7 +342,7 @@ function buildOnce(written, def, carrier) {
 			c.bodyNow = U.feet.some(Boolean) ? { ...c.body[f], feet: c.body[f].feet.map((ft, i) => U.feet[i] ?? ft) } : c.body[f];
 			c.solved = solveSized(c.bodyNow, U, c.s); c.solvedF = f;
 			c.poseNow = tilted(c.tilt, c.solved);
-			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
+			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c, f);
 			if (pass === 1) aux.reach[c.id].push(ownReach(c, f, U, [
 				...U.hands.map((h, i) => h.to && h.done ? reachEntry(c, i, h.key, h.offset ? add(h.to, h.offset) : h.to, { slow: c.solved.slow[i] }) : null),
 				...U.feet.map((ft, i) => ft?.to && ft.done ? reachEntry(c, 2 + i, ft.key, ft.to, { floor: c.solved.lift[i] > 0.001 && c.solved.lift[i] }) : null),

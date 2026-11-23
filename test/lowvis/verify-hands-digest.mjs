@@ -34,8 +34,8 @@ const BEFORE = {
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
 	duo: "14533d7f3f331bdca598f72e971af64c2743a796e85ed4078c89e8f4a3c6f3d8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
 	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
-	chop: "721996eb0e8fcb0201b40b0e66e28b3f9ee2c9060b6e3ca0d5fc546a28d40d43", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop)
-	bowl: "cff6598344f91a5e23442cd2c3cf1f2f53acd409a528d61d3302ce1c2ffa1fe8", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop)
+	chop: "824581ded51cd1c1bb233b878186b62aa9f6bfb6d76b55da7d781f899acbd5e8", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
+	bowl: "1f18e651aee64862d299a7b1d3b27bd8a1f3f21179b9a10f1d4c793900a0959e", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};
