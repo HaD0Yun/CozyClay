@@ -17,9 +17,9 @@
 //    solid at its deepest point. A limb that rests on a part or is pressed into it has its line outside it; past LIMIT
 //    the limb is sunk by more than half its thickness and LIMIT. Measured: a body's arms inside its own parts (the
 //    arm's own parts and the part its joint hangs from left out), every limb of a body inside another body's parts,
-//    and two bodies' other parts (trunk, neck, head) inside each other as solids (separating axes); a hand inside the
-//    body its target is on, from that key to the hand's next and for as long after it as the hand has been inside that
-//    body on every frame (it leaves the place its target gave it), is the tied row's, not this one. The legs inside
+//    and two bodies' other parts (trunk, neck, head) inside each other as solids (separating axes); a hand or a foot
+//    inside the body its target is on, from that key to the limb's next and for as long after it as it has been inside
+//    that body on every frame (it leaves the place its target gave it), is the tied row's, not this one. The legs inside
 //    the own body are not measured: the engine's own steps and postures place them (a kneel puts the shins together),
 //    not a spec's target.
 // LIMIT and GAP are the inside and the gap rows' own (inside.mjs, gaps.mjs), times the body's scale (for two bodies the
@@ -168,7 +168,7 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			}
 		}
 	}
-	const left = new Map(); // per hand and body: the last frame that hand was the tied row's with that body
+	const left = new Map(); // per hand or foot and body: the last frame it was the tied row's with that body
 	const bodyOf = new Map(chars.map(c => [c.id, c])), tiedTo = (c, f, i) => { const k = aux.reach?.[c.id]?.[f]?.[i]?.key; return k == null ? null : tied.get(c.id)[i].get(k) ?? null; };
 	const tiedSpan = (c, f, i, id) => spans.get(c.id)[i].some(e => e.body === id && f >= e.a && f < (e.b ?? F));
 	const shapes = new Map((def?.props ?? []).map(p => [p.id, p]));
@@ -219,8 +219,8 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 			const pair = (c, x, d, y, v) => note(`body:${a.id}.limbs>${b.id}`, { who: a.id, body: b.id, kind: "through", limits: [lim] }, v, f, { pair: `${c.id} ${x}|${y}`, x: name(c, x), y: name(d, y) });
 			const limbs = (c, d) => { // c's limbs, each as its line, inside d's parts
 				for (const j of own ? ARMS : LIMBS) {
-					const i = chainOf(j), hand = HAND.includes(j) && `${c.id} ${i} ${d.id}`, [p, q] = lineOf(c, f, j), deep = [];
-					if (hand && tiedSpan(c, f, i, d.id)) { left.set(hand, f); continue; } // a hand in the body its target is on: the tied row's
+					const i = chainOf(j), hand = CHAIN[i][2] === j && `${c.id} ${i} ${d.id}`, [p, q] = lineOf(c, f, j), deep = []; // hand: a hand or a foot
+					if (hand && tiedSpan(c, f, i, d.id)) { left.set(hand, f); continue; } // in the body its target is on: the tied row's
 					for (const y of P.get(d.id)) if (!(own && (chainOf(y.joint) === i || PARENT[j] === y.joint)) && segPoint(y.W.g, p, q) <= y.W.r) { const v = lineDepth(y.W, p, q); if (v > lim) deep.push([JOINTS[y.joint], v]); }
 					if (hand && deep.length && left.get(hand) === f - 1) { left.set(hand, f); continue; } // and as it leaves that body from inside it
 					for (const [y, v] of deep) pair(c, JOINTS[j], d, y, v);
@@ -252,4 +252,4 @@ function rowOf(e) {
 }
 
 /** What the body lines measure and leave out, said once in a session (compile-tool.mjs): look, the look the bodies are drawn in. */
-export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; hands are not parts), on every frame. A hand (wrist to finger tip) or a foot (sole and toe tip) whose target is a place on a body, after its blend: inside or off that body's nearest part past the limits its line states (on the own body the limb's own arm or leg left out). A prop riding a joint with a drawn part, its box (its drawn parts; a ball as a ball): sunk into that part by the least move that clears it (a box around a part: no less than the part's size; a hollow prop is not told as sunk), or off every part of the body. Through: an upper arm, forearm, thigh, shin, hand or foot is the line of its joints (to the finger or toe tip), told by that line's depth inside a part, so not while it rests on one: a body's arms in its own parts (the arm's own and the part it hangs from left out; its own legs not measured), any limb in another body's parts, two bodies' other parts in each other as solids; each pair of parts by its own frames, the deepest named. Not counted: a hand inside the body its target is on, up to its next key and while it leaves it (its own line says it). The engine moves nothing because of it.`;
+export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; hands are not parts), on every frame. A hand (wrist to finger tip) or a foot (sole and toe tip) whose target is a place on a body, after its blend: inside or off that body's nearest part past the limits its line states (on the own body the limb's own arm or leg left out). A prop riding a joint with a drawn part, its box (its drawn parts; a ball as a ball): sunk into that part by the least move that clears it (a box around a part: no less than the part's size; a hollow prop is not told as sunk), or off every part of the body. Through: an upper arm, forearm, thigh, shin, hand or foot is the line of its joints (to the finger or toe tip), told by that line's depth inside a part, so not while it rests on one: a body's arms in its own parts (the arm's own and the part it hangs from left out; its own legs not measured), any limb in another body's parts, two bodies' other parts in each other as solids; each pair of parts by its own frames, the deepest named. Not counted: a hand or foot inside the body its target is on, up to its next key and while it leaves it (its own line says it). The engine moves nothing because of it.`;
