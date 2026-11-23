@@ -69,6 +69,7 @@ export const ZH_APP = {
 	"Reload": "刷新",
 	"Click or ▸ to expand · drag to move": "点击或 ▸ 展开 · 拖动移动",
 	"Click or ▾ to fold · drag to move": "点击或 ▾ 折叠 · 拖动移动",
+	"Click or ▾ to fold · drag to move · in the view: middle- or right-drag pans, wheel zooms, Home shows everything": "点击或 ▾ 折叠 · 拖动移动 · 视图内：中键或右键拖动平移，滚轮缩放，Home 显示全部",
 	"Expand inset view": "展开小窗视图",
 	"Collapse inset view": "折叠小窗视图",
 	"Shot view": "镜头视图",
