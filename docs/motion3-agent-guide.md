@@ -1,5 +1,15 @@
 # Motion in CozyClay 3: how the agent authors it
 
+> **This is the old motion engine's guide.** Since 3.3.0 the Studio's Agent panel makes body motion
+> with the `motion` tool: a second model, the motion writer, writes the motion and a deterministic
+> engine builds it (see [`INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). This guide
+> still holds for `motion.compile` through MCP (`studio_run`) and `cclay live`, and for the Agent
+> panel when the Studio is started with `COZYCLAY_MOTION_ENGINE=old`. The compiler works on the rig's
+> own body: in a Studio drawn with the cube figure (the default) a character at scale 1 is refused
+> with the scale to set; start the Studio with `COZYCLAY_FIGURE=block` (or with
+> `COZYCLAY_MOTION_ENGINE=old`, which draws the block figure) to compile at scale 1. New characters
+> are X Bot rigs; the Y Bot is no longer offered.
+
 The agent writes a **motion spec**. The deterministic compiler bakes every frame on the real rig (X Bot or Y Bot), fixes small mechanical errors itself, and QA measures the result. Every QA issue group says what caused it and what to change. The agent edits the spec and compiles again until QA reports nothing. A 730-frame scene compiles in about 150 ms and QA takes about 80 ms, so iterate freely, normally inside one `script` call.
 
 `motion.compile` thins redundant free-span keys by default. The receipt reports `output.thinned {removed, kept, before, after}`. Use `thin: false` to keep every authored key when the spec is generated per frame.

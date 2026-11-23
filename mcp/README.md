@@ -72,7 +72,7 @@ generated frame matches the blocking instead of drifting off into a generic shot
 | `capture_frame` | a compressed live render with camera-plane, visibility and occlusion assertions |
 | `set_camera` | move the lens / change focal length directly |
 | `frame_shot` | frame by intent — size, view, level, side |
-| `add_character` / `place_character` / `remove_character` | the cast: a new rig character is the block figure (`x-bot-tpose`; an older `y-bot-tpose` is added as one); `add_character { model: "proxy-figure", posture: "stand" \| "sit" \| "lie" }` adds a rigless capsule figure |
+| `add_character` / `place_character` / `remove_character` | the cast: a new rig character is the rig figure (`x-bot-tpose`; an older `y-bot-tpose` is added as one), drawn in the Studio as the cube figure, or as the block figure when the Studio is started with `COZYCLAY_FIGURE=block`; `add_character { model: "proxy-figure", posture: "stand" \| "sit" \| "lie" }` adds a rigless capsule figure |
 | `focus_character` | choose who the camera frames |
 | `place_object` / `update_object` / `remove_object` | the set — `place_object` also accepts `name` and `parent`, so multi-part assets like "Building A" land as one named assembly |
 | `import_mesh` | load a local GLB, OBJ or FBX from a filesystem path as a mesh prop (live editor required); optional floor position, yaw, standing height, clay |
@@ -128,6 +128,13 @@ frame on the rig, answers the QA groups, and installs the take; `motion.sample` 
 `motion.qa` read it back. The spec format and the loop are in
 [`../docs/motion3-agent-guide.md`](../docs/motion3-agent-guide.md).
 
+This is the old motion engine, which MCP and `cclay live` keep. The Studio's own Agent panel makes
+body motion with its `motion` tool instead (a second model writes the motion, a deterministic
+engine builds it; see [`../INSTALL_FOR_AGENTS.md`](../INSTALL_FOR_AGENTS.md#4-make-motion)). The
+compiler works on the rig's own body: in a Studio drawn with the cube figure (the default),
+`motion.compile` refuses a character at scale 1 and names the scale to set (1.060445). Start the
+Studio with `COZYCLAY_FIGURE=block` to compile at scale 1.
+
 ## Capsule figures
 
 The tool list is fixed when the server starts, so it is the same 27 tools in every project. A
@@ -147,7 +154,7 @@ posture (`stand`, `sit` or `lie`), but it has no skeleton, so motion and takes a
 `TARGET_NOT_READY` and the reason, for example `<name> is a proxy-figure body, which motion
 compile cannot drive; use an X Bot or Y Bot character.` for `motion.compile`. The editor refuses its own IK, pose, physics,
 collision and line-edit commands on a capsule figure with the same code when they arrive
-through `studio_run`. Use the block figure for anything that moves a body.
+through `studio_run`. Use a rig character for anything that moves a body.
 
 ## Round-trips with the studio
 

@@ -23,6 +23,8 @@
 
 The Studio, MCP server and `cclay live` use the same command contract. `script` can call several tools in one QuickJS transaction for computed layouts. Every authored edit returns a receipt and can be undone.
 
+Body motion: in the Studio's Agent panel the `motion` tool hands the request to a second model, the motion writer, and a deterministic engine builds the take; it needs a model sign-in in the Agent panel. Through MCP and `cclay live`, motion is the old engine's `motion.compile` with its QA report (guide: https://github.com/HaD0Yun/CozyClay/blob/main/docs/motion3-agent-guide.md).
+
 For source-checkout CI, start the same Studio in owned headless Chrome with `node tools/headless-studio.mjs --project shot.cclayproject --port 5920 --live-port 5924`; then point `COZYCLAY_LIVE_PORT=5924 cclay live ...` at it. The launcher owns the Vite and Chrome children and cleans them up on exit.
 
 ## Source
