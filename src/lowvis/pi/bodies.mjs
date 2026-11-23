@@ -10,9 +10,11 @@
 //  - ride: a prop that rides a joint that has a drawn part (aux.rides, while it rides: up to its next key or a hand
 //    taking it off; on frames it is shown), its box (its drawn parts when it has them; a ball as a ball) against the
 //    parts of that joint: sunk past LIMIT or off past GAP.
-//  - through: a body's limbs (arms and legs, with their hands) inside its own drawn parts (a part and the parts of its
-//    own limb chain left out, and a part and the part its joint hangs from), and any two bodies' parts inside each other
-//    (each hand as its 5 points), past LIMIT; a hand inside the body its target is on is the tied row's, not this one.
+//  - through: a body's arms (with their hands) inside its own drawn parts (the arm's own parts left out, and a part and
+//    the part its joint hangs from), and any two bodies' parts inside each other (each hand as its 5 points), past LIMIT;
+//    a hand inside the body its target is on, from that key to the hand's next, is the tied row's, not this one. The
+//    legs inside the own body are not measured: the engine's own steps and postures place them (a kneel puts the shins
+//    together), not a spec's target.
 // LIMIT and GAP are the inside and the gap rows' own (inside.mjs, gaps.mjs), times the body's scale (for two bodies the
 // smaller). A row is told past them on a tenth of a second's worth of frames or more (prompt.mjs seenFrames): one row per
 // body, limb and body, per riding prop and body, and per body and body, at its worst frame.
@@ -119,7 +121,7 @@ export function bodyRows(clip, aux, { def, spec, look }) {
 	const footPts = (c, f, i) => [off(c, f, FOOT[i], SOLE), off(c, f, FOOT[i], TOE)];
 	// the pairs of parts measured; on the own body a limb's part with a part neither of its limb nor next to it
 	const allPairs = solids.flatMap((x, m) => solids.map((y, n) => [m, n]));
-	const ownPairs = allPairs.filter(([m, n]) => { const x = solids[m].joint, y = solids[n].joint; return chainOf(x) >= 0 && x !== y && chainOf(y) !== chainOf(x) && PARENT[x] !== y && PARENT[y] !== x; });
+	const ownPairs = allPairs.filter(([m, n]) => { const x = solids[m].joint, y = solids[n].joint; return chainOf(x) >= 0 && chainOf(x) < 2 && x !== y && chainOf(y) !== chainOf(x) && PARENT[x] !== y && PARENT[y] !== x; });
 	const posed = (c, f) => solids.map(o => ({ joint: o.joint, W: placed(o, at(c, f, o.joint), rot(c, f, o.joint), c.scale ?? 1) }));
 	const note = (key, base, v, f, past, what) => {
 		const e = cases.get(key) ?? cases.set(key, { ...base, key, value: 0, frame: f, frames: 0, first: f, last: f, what: null, pairs: new Set() }).get(key);
@@ -222,4 +224,4 @@ function rowOf(e, F) {
 }
 
 /** What the body lines measure and leave out, said once in a session (compile-tool.mjs): look, the look the bodies are drawn in. */
-export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; its hands are not parts), on every frame. A hand (its wrist to its finger tip) or a foot (its sole and toe tip) whose target is a place on a body, after its blend: inside past the inside limit or off past the gap limit its line states, against that body's nearest part (on the own body the limb's own arm or leg left out). A prop that rides a joint with a drawn part, while it rides: its box (its drawn parts, a ball as a ball) sunk into or off that part. A body's arms and legs with its hands inside its own parts (a part, its own limb and the part its joint hangs from left out), and any two bodies' parts inside each other: the deepest pair of parts. Not counted: a hand inside the body its target is on (its own line says it). The engine moves nothing because of it.`;
+export const bodyText = look => `body lines (said once): measured against each body as the ${bodyLook(look)} look draws it (each part the convex solid around it, at the body's scale; its hands are not parts), on every frame. A hand (its wrist to its finger tip) or a foot (its sole and toe tip) whose target is a place on a body, after its blend: inside past the inside limit or off past the gap limit its line states, against that body's nearest part (on the own body the limb's own arm or leg left out). A prop that rides a joint with a drawn part, while it rides: its box (its drawn parts, a ball as a ball) sunk into or off that part. A body's arms with its hands inside its own parts (its own arm and the part its joint hangs from left out; its legs inside it are not measured), and any two bodies' parts inside each other: the deepest pair of parts. Not counted: a hand inside the body its target is on (its own line says it). The engine moves nothing because of it.`;

@@ -105,7 +105,9 @@ Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent 
 - `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
   straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`).
 - `COZYCLAY_MOTION_OFF=pace,turn,tops,body,balance,inside`: engine steps of the lowvis engine switched off by name
-  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, a prop's drawn parts, a body's scale
+  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, a prop's drawn parts and a body's (the
+  parts of the launch look, `engine-simple/body-parts.js`, the word `{on: characterId, part}` and the rows against them,
+  `pi/bodies.mjs`), a body's scale
   and tint (off: a character at another scale than 1 is not animated, as before), the row of a body at rest whose
   centre of mass lies outside its supports, the rows of a body or a moving prop inside another prop.
 
