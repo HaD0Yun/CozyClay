@@ -10,11 +10,12 @@
 // Browser-safe and node-safe.
 import { TRACK_RIG } from "./take.js";
 import { qRotate } from "../rig17.js";
+import { propParts } from "./parts.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
 /** Rig models whose skeleton the clip can drive at scale 1; any but TRACK_RIG is changed to TRACK_RIG by the install. */
 const SWITCHABLE = new Set(["y-bot-tpose"]);
-const MAX_PROPS = 40, RAD = Math.PI / 180, BAND = 0.03; // BAND: a top this far under the box's top is lower than it
+const MAX_PROPS = 40, RAD = Math.PI / 180;
 const FLAT = 0.03; // an object under this tall and wider than it lies on the floor as a floor does
 /** The side of the box a point object is drawn as in the motion writer's sheets, in metres: a marker the size of a
  *  fingertip, small enough to sit at a mouth, a wrist or the tip of a held prop. */
@@ -56,13 +57,6 @@ function quatOf(row) {
 	return [sx * cy * cz + cx * sy * sz, cx * sy * cz - sx * cy * sz, cx * cy * sz + sx * sy * cz, cx * cy * cz - sx * sy * sz].map(v => Math.round(v * 1e6) / 1e6);
 }
 
-/** A flat rectangle of tops.js (the object's own frame) in the world, as a prop's heights entry. */
-function heightOf(t, row, own) {
-	const a = finite(row.rot) * RAD, cs = Math.cos(a), sn = Math.sin(a), cx = (t.x0 + t.x1) / 2, cz = (t.z0 + t.z1) / 2, w = t.x1 - t.x0, d = t.z1 - t.z0;
-	return { y: round(finite(row.y) + t.y), at: [round(finite(row.x) + cx * cs + cz * sn), round(finite(row.z) - cx * sn + cz * cs)],
-		size: own ? [round(w), round(d)] : [round(w * Math.abs(cs) + d * Math.abs(sn)), round(w * Math.abs(sn) + d * Math.abs(cs))] };
-}
-
 /** Why a visible character row cannot be animated by a clip, or null when it can. */
 function whyNot(row) {
 	if (row.model === "proxy-figure") return "capsule figure";
@@ -73,15 +67,17 @@ function whyNot(row) {
 const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${round(finite(row.scale, 1))}` : null);
 
 /**
- * studioScene(describe, { turn, tops, body, kinds }) -> { scene: { characters: [{ id, at, heading, scale?, tint? }], props: [{ id, size, at, turn?, shape?, heights?, kind?, hollow? }], others: [{ id, why }] }, ids }
+ * studioScene(describe, { turn, tops, body, kinds }) -> { scene: { characters: [{ id, at, heading, scale?, tint? }], props: [{ id, size, at, turn?, shape?, parts?, kind?, hollow? }], others: [{ id, why }] }, ids }
  * describe: the editor's describe answer ({ characters, objects }). ids: { characters: { <lowvis id>: <Studio id> },
  * props: { <lowvis id>: { id: <Studio id>, x, y, z, rot } }, switch: [<Studio id>] } with each object's base pivot
  * and turn about Y as the Studio holds them. switch: the listed characters whose model the install changes to the
  * clip's rig before it animates them. others: visible characters the clip cannot animate (Studio id and why).
  * turn: a prop is the object's own box [w, h, d] with turn = the object's turn about Y (degrees; left out at 0).
- * tops: describe was asked with { tops: true } (tops.js): a prop whose object offers more than one flat height, or one
- * lower than its top, gets heights: [{ y, at: [x, z], size: [w, d] }], each a flat rectangle in the world: y over the
- * floor, at its centre; size along the prop's own sides when the prop has its turn, else the square box around it.
+ * tops: describe was asked with { parts: true } (tops.js objectParts): a prop of an upright object whose drawn shape is
+ * not its box gets parts: [{ name, at, size, turn? }] (parts.js propParts), its drawn shape in the prop's own frame from
+ * its box centre, and ids.shapes: { <prop id>: { h: the box's height, parts: the same parts from its base } }
+ * (bin/agent/motion-run.mjs gives them to the motion tool, which sets them on a prop of that id at the height the
+ * writer gives it: the install stands the object on the base of that box).
  * body: a character at any scale is offered, with its scale (left out at 1) and its tint (left out when it has none), the
  * character's own fields; ids.bodies: { <Studio id>: { scale, tint } } as the Studio holds them. Without it a
  * character at another scale than 1 is one of the others, as before.
@@ -160,8 +156,8 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		const sphere = row.renderer === "sphere", own = turn && !sphere, yaw = round(finite(row.rot));
 		props.push({ id, size: sphere ? [side(w), side(w), side(w)] : own ? [side(w), side(h), side(d)] : [side(w * cs + d * sn), side(h), side(w * sn + d * cs)],
 			at: centre.map(round), ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
-		const flat = tops && !tilted && Array.isArray(row.tops) ? row.tops : []; // measured as it stands: not the upright box's
-		if (flat.length > 1 || (flat.length === 1 && flat[0].y < h - BAND)) props.at(-1).heights = flat.map(t => heightOf(t, row, own));
+		const drawn = tops && !tilted ? propParts(row.parts, { size: props.at(-1).size, own: own || sphere, yaw: finite(row.rot) }) : null; // measured in the object's own frame: not the upright box's
+		if (drawn) { props.at(-1).parts = drawn.centre; (ids.shapes ??= {})[id] = { h: props.at(-1).size[1], parts: drawn.base }; }
 	}
 	return { scene: { characters, props, others, ...(attached.length ? { attached } : {}), ...(Object.keys(studioIds).length ? { studioIds } : {}), ...(leaning.length ? { tilted: leaning } : {}) }, ids };
 }

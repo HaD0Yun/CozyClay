@@ -95,8 +95,10 @@ function markCache(payload) {
  * send only an edit, a scene or a look. A compile whose spec came from it by edits alone logs "kept-spec".
  * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
  * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
+ * shapes: { <prop id>: { h, parts } }, the drawn shapes the Studio has (compile-tool.mjs); reshape(): async, the ones it
+ * has now, asked before each motion call (a failure keeps the last ones).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = {}, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
@@ -117,7 +119,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const { models, model, entry } = resolved;
 	record.modelEntry = entry;
 
-	const motion = createCompileTool({ name, outDir, variant, off, bodies, figure, kept }), t0 = performance.now(), now = () => performance.now() - t0;
+	const motion = createCompileTool({ name, outDir, variant, off, bodies, figure, kept, shapes }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map();
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };
@@ -131,6 +133,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			return out;
 		},
 		execute: async (toolCallId, params) => {
+			if (reshape) try { motion.setShapes(await reshape()); } catch { /* the Studio did not answer: the last shapes stay */ }
 			const started = now();
 			let r;
 			try { r = motion.call(params ?? {}); } catch (error) { r = { n: motion.state.calls, status: "rejected", error: `harness error: ${error?.message ?? error}`, text: `harness error (not yours): ${error?.message ?? error}`, images: [], files: [], scene: motion.state.scene, spec: motion.state.spec, shown: null, harnessError: true }; }

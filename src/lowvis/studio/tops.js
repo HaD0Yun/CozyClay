@@ -1,9 +1,12 @@
 // The flat heights an object offers, sampled from what the stage draws: rays straight down over its footprint, the
-// first hit of each grouped by height. No object kinds or names: only the geometry. Browser only (three.js).
+// first hit of each grouped by height; and the parts it draws, one box per drawn mesh. No object kinds: only the geometry
+// and the names the meshes carry. Browser only (three.js).
 //   objectTops(root, options) -> [{ y, x0, z0, x1, z1 }]   in the object's own frame: metres, y over its base
+//   objectParts(root, max) -> [{ name, at, size, turn? }]  in the same frame (parts.js mergeParts)
 //   withTops(describe, sceneOf) -> describe(args): the describe query answering `tops` on each solid object row when
-//                                  asked with { tops: true }
+//                                  asked with { tops: true }, and `parts` when asked with { parts: true }
 import * as THREE from "three";
+import { MAX_PARTS, mergeParts } from "./parts.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
 const round = v => Math.round(v * 1000) / 1000;
@@ -64,16 +67,43 @@ export function objectTops(root, { grid = 9, band = 0.03, minArea = 0.02, max = 
 }
 
 /**
- * The editor's describe query with the tops flag: withTops(describe, sceneOf)(args) is describe() and, when
+ * objectParts(root, max) -> the parts an object draws, each the box of one drawn mesh's geometry where the mesh puts it
+ * (its centre, its sides along the mesh's own axes times its scale, the mesh's turn), in the object's own frame (place and
+ * turn of the group, none of its scale), named by the mesh's sculpt part, else its name, else "part", merged down to max
+ * (parts.js mergeParts); [] when the group draws nothing.
+ */
+export function objectParts(root, max = MAX_PARTS) {
+	if (!root) return [];
+	root.updateWorldMatrix(true, true);
+	const place = new THREE.Vector3(), turn = new THREE.Quaternion(), scale = new THREE.Vector3();
+	root.matrixWorld.decompose(place, turn, scale);
+	const toOwn = new THREE.Matrix4().compose(place, turn, new THREE.Vector3(1, 1, 1)).invert(), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+	const used = new Map(), parts = [];
+	for (const mesh of meshesOf(root)) {
+		if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+		const box = mesh.geometry.boundingBox;
+		if (box.isEmpty()) continue;
+		m.multiplyMatrices(toOwn, mesh.matrixWorld).decompose(place, q, scale);
+		const at = box.getCenter(new THREE.Vector3()).applyMatrix4(m), size = box.getSize(new THREE.Vector3()).multiply(scale);
+		e.setFromQuaternion(q, "XYZ");
+		const base = String(mesh.userData?.sculptPart ?? (mesh.name || "part")), n = (used.get(base) ?? 0) + 1, turned = [e.x, e.y, e.z].map(v => v * 180 / Math.PI);
+		used.set(base, n);
+		parts.push({ name: n > 1 ? `${base}_${n}` : base, at: at.toArray(), size: size.toArray().map(Math.abs), ...(turned.some(v => Math.abs(v) > 0.05) ? { turn: turned } : {}) });
+	}
+	return parts.length ? mergeParts(parts, max) : [];
+}
+
+/**
+ * The editor's describe query with the tops and parts flags: withTops(describe, sceneOf)(args) is describe() and, when
  * args.tops is true, each visible solid object row gains `tops` (objectTops of its group in the scene sceneOf() returns;
- * [] when the group is not mounted).
+ * [] when the group is not mounted), and when args.parts is true `parts` (objectParts of it).
  */
 export function withTops(describe, sceneOf) {
 	return (args = {}) => {
-		const answer = describe(args);
-		if (args?.tops !== true || !Array.isArray(answer?.objects)) return answer;
+		const answer = describe(args), tops = args?.tops === true, parts = args?.parts === true;
+		if (!(tops || parts) || !Array.isArray(answer?.objects)) return answer;
 		const scene = sceneOf(), groups = new Map();
 		scene?.traverse(node => { const id = node.userData?.sceneObjectId; if (typeof id === "string" && !node.userData.ghost && !groups.has(id)) groups.set(id, node); });
-		return { ...answer, objects: answer.objects.map(row => row && !row.hidden && SOLID.has(row.renderer) ? { ...row, tops: objectTops(groups.get(row.id)) } : row) };
+		return { ...answer, objects: answer.objects.map(row => row && !row.hidden && SOLID.has(row.renderer) ? { ...row, ...(tops ? { tops: objectTops(groups.get(row.id)) } : {}), ...(parts ? { parts: objectParts(groups.get(row.id)) } : {}) } : row) };
 	};
 }

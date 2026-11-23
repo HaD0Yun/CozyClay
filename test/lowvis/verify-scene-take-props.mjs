@@ -10,7 +10,7 @@
 // - What is offered without a take keeps its id and its slot of the counts when a take moves it: of two boxes of one
 //   name the second, once a take moves it, is still the second id, and a motion sent again moves that same box; the take
 //   read is the stage's (the one the Studio plays), not a cast row's saved one; a tilted object is named as tilted and
-//   gets no heights.
+//   gets no parts.
 // Every scene here is made up for this test.
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
@@ -51,12 +51,12 @@ const staged = ids => ({ characters: [{ id: "a", model: "x-bot-tpose", x: 0, z: 
 	assert.equal(on.scene.props.filter(p => p.kind).length, 41, "40 lamps and the puff");
 	assert.deepEqual(on.scene.tilted, ["can"], "the can is named as standing tilted");
 	assert.equal(off.scene.tilted, undefined);
-	// its flat tops are measured as it stands tilted: no heights of the upright box are made of them
-	const topped = staged(["cylinder-3", "cube-2"]);
-	topped.objects = topped.objects.map(o => (["cylinder-3", "cube-2"].includes(o.id) ? { ...o, tops: [{ y: 0.05, x0: -0.03, z0: -0.03, x1: 0.03, z1: 0.03 }] } : o));
+	// its drawn parts are measured in its own frame, tilted: no parts of the upright box are made of them
+	const topped = staged(["cylinder-3", "cube-2"]), drawn = [{ name: "a", at: [0, 0.02, 0], size: [0.05, 0.04, 0.05] }, { name: "b", at: [0, 0.05, 0], size: [0.02, 0.02, 0.02] }];
+	topped.objects = topped.objects.map(o => (["cylinder-3", "cube-2"].includes(o.id) ? { ...o, parts: drawn } : o));
 	const withTops = Object.fromEntries(studioScene(topped, { turn: true, kinds: true, tops: true }).scene.props.map(p => [p.id, p]));
-	assert.equal(withTops.can.heights, undefined, "no heights for the tilted can");
-	assert.equal(withTops.Crate_2.heights.length, 1, "an upright crate a take moves keeps its heights");
+	assert.equal(withTops.can.parts, undefined, "no parts for the tilted can");
+	assert.equal(withTops.Crate_2.parts.length, 2, "an upright crate a take moves keeps its parts");
 	// a take that moves offered objects (crates 3 and 39) changes nothing of what is offered but the Studio ids line
 	const inCount = studioScene(staged(["cube-3", "cube-39"]), { turn: true, kinds: true });
 	assert.deepEqual([inCount.scene.props, inCount.ids], [off.scene.props, off.ids], "the same props under the same ids: a moved crate keeps its slot of the 40");

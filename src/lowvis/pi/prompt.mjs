@@ -52,6 +52,8 @@ const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.mi
 /** The figure at scale 1 when the Studio's look has another body than the rig's (src/lowvis/studio/figure.js lookBody):
  *  its sizes, and that the engine's own lengths are given for the rig's body and multiplied by b too. */
 const SIZES = b => `It stands ${m(head * b)} m tall, Hips joint ${m(hips * b)} m and shoulders ${m(shoulder * b)} m over the floor, ${m(arm * b)} m from shoulder to wrist. That is the engine's reference figure (${m(head)} m tall) times ${b}: every length the SPEC text and the tool's lines give as the engine's own is the reference figure's, and the engine multiplies it by ${b}, as it does every length of the body.`;
+// tops: the Studio tells a prop's drawn shape (src/lowvis/studio/scene.js parts), which the tool keeps set (shapes.mjs)
+const PARTS = ` parts: the shape the Studio draws for a prop when it is not its box, as boxes { name, at: centre from the prop's centre, size, turn?: [x, y, z] degrees } in the prop's own frame; the tool sets them from the Studio on every call, and tells you when they change.`;
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop; with on as well: at that height instead of the prop's top.`;
 // The inside and the at rest rows: what the writer needs before its first spec. What a row measures in full and what it
 // leaves out is said by the tool once, in the answer where such a line first appears (inside.mjs insideText, balance.mjs BALANCE_TEXT).
@@ -63,6 +65,7 @@ const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m b
  *  the whole clip, not of frames in a row: a pair that comes back again and again is on screen that long in all. */
 export const seenFrames = (fps = CLIP_FPS) => Math.ceil(0.1 * fps - 1e-9);
 const INSIDE = `\n- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${seenFrames()} frames or more, or on the clip's first or last frame. The first answer with such a line says what it measures and leaves out.`;
+const GAPS = `\n- to the drawn: a hand, a foot, standing feet or a seat your spec puts on a prop with parts, told when it ends more than 30 mm (times the body's scale) from the nearest part on ${seenFrames()} frames or more, with that part; a seat floats over or sinks into the part top under the hips.`;
 const HOLLOW = ` hollow: true marks a prop that things may be inside: it is left out of the inside numbers.`;
 const KINDS = ` A prop the Studio lists with kind is a Studio object that has no box of its own (an effect, a light, a group of objects; kind says which): a ${POINT} m box centred on its place, hollow. A motion moves it as any prop (a hand holds it, ride puts it on a joint or a prop, keys move it) and the Studio object goes with the box's centre on every frame, keeping its kind and its own turn against the box. Every prop you add is a plain box or ball.`;
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
@@ -104,8 +107,8 @@ Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90
 In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X and a blue one along +Z; the face has a dark visor; the figure's right arm and leg are darker than its left. The three-quarter camera of the sheet and of the final video looks down from the +X, +Z side, so a figure that faces +Z or +X shows its face.
 
 SCENE (you define it)
-{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""} }] }
-A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}${f.kinds ? KINDS : ""}
+{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape?${f.inside ? ", hollow?" : ""}${f.tops ? ", parts?" : ""} }] }
+A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.inside ? HOLLOW : ""}${f.turn ? TURN : ""}${f.body ? BODY : ""}${f.kinds ? KINDS : ""}${f.tops ? PARTS : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
 ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}
@@ -115,7 +118,7 @@ THE TOOL
 motion({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${f.edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" | { joint, of: "<characterId>" }, props: "outline" } adds a sheet of other frames, another view, a close framing on one character, prop or joint (joints as for a hand target), or every prop drawn as its edges alone (a body inside or behind it shows), in the same call or alone. Only the images of your latest call stay visible to you; the text of every call stays.
 
 THE NUMBERS
-${NUMBERS[f.text]}${JUMPS}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.pace ? PACE : ""}${f.balance ? BAL : ""}
+${NUMBERS[f.text]}${JUMPS}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.tops ? GAPS : ""}${f.pace ? PACE : ""}${f.balance ? BAL : ""}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.

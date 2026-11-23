@@ -5,7 +5,7 @@ import { add, len, mix, mixV, qConj, qMul, qRotate, qSlerp, qX, qY, smooth, sub,
 import { STAND_Y, footPose, hang, standB } from "./gait.js";
 
 const THIGH = s => [s * 0.1, 0.05, 0.27]; // hand on the thigh, pelvis frame
-const SEAT_UP = 0.13;                     // Hips joint height over the seat top
+export const SEAT_UP = 0.13;              // Hips joint height over the seat top
 
 function sitB(st, seat, g, gy, bend, h, dy = 0) {
 	const B = standB(st), sn = Math.sin(st.yaw), cs = Math.cos(st.yaw);

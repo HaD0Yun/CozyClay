@@ -5,6 +5,8 @@
 //   Body layer (feet and pelvis):
 //     idle | walk {to:[x,z], heading?, facing?, steps?, burst?, first?:"L"|"R", end?:{L:[left,fwd],R:[..]}, stepFrames?, ease?} | run {to} | push {to} | turn {heading}
 //     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
+//     A prop with parts (its drawn shape): sit {on} sits on the highest part top under the hips (sit {on, part}: on that
+//     part's top), and on any body action `on` it each foot stands on the part top under it (up to 0.5 m up).
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.
@@ -45,6 +47,8 @@
 //                      ForeArm (elbow) Hand (wrist) UpLeg (hip) Leg (knee) Foot (ankle)
 //                    | {on:propId, at?:[x,y,z]}   a place on a prop that follows it; at = offset from its centre in
 //                      its own frame (the axes of its size)
+//                    | {on:propId, part, at?}   the same on one of the prop's parts: at from that part's centre, along
+//                      the prop's axes; the place is kept on the part
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
 //         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
 //         shoulder as one piece, keeping its bend (a wrist blending to or from its own target: by the part of the
@@ -56,7 +60,7 @@
 //     hold {prop, hand:"R"|"L"|"both", at?, over}   these hands of this character hold the prop until they let go;
 //       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). One hand alone
 //       with no `at`: the prop is fixed in it, its long z axis along the thumb side. at = each hand's place on the
-//       prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
+//       prop, [x,y,z] as in {on} or {part, at?} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
 //       hand speed limit below still holds) and take hold when they end; no at = the point of the prop nearest each hand.
 //       A holding hand stays where it took hold in the body frame until a later pose moves it. The prop follows its
 //       hands: in one hand fixed in it, as it lay in the hand when that hand came to hold it alone (aim turns it); in
@@ -75,7 +79,7 @@
 //     pose {footL|footR: target, over, ease}   takes one foot off the floor: it leaves the body layer and goes to the
 //       target along an arc about its hip; "plant" gives it back to the body layer (blend it into a step or a stance).
 //       foot target: [x,y,z] | {at:[x,y,z], pitch:deg} | {world:[x,y,z], pitch:deg} | {joint, at?, of?, pitch:deg}
-//       (a place on a body as for a hand) | "plant". The point is the ankle
+//       (a place on a body as for a hand) | {on, part?, at?, pitch:deg} (a place on a prop as for a hand) | "plant". The point is the ankle
 //       joint; `at` is in the body frame from the floor point under the Hips joint (y = height over the floor);
 //       pitch > 0 points the toes down. The other foot keeps the body; nothing moves a body to keep its balance (where
 //       the tool has a balance row, that row says what it measures of a body at rest).
@@ -90,7 +94,7 @@
 //       frame and flies from the next one under gravity, bounces off the floor and off static props (as a ball of
 //       diameter size[1]; bounce = speed kept), rolls with `friction` (m/s2) and stops. A later key of the prop ends it.
 //       The frame is written by hand; checks.js measures how far the nearest foot is from the prop on that frame.
-//     ride {on:propId} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?   from this frame the prop keeps its
+//     ride {on:propId, part?} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?   from this frame the prop keeps its
 //       place and turn on that prop, however that one is carried, held or keyed, or on that joint of that body (joints
 //       as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as {on} and
 //       {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at); no at =
@@ -106,7 +110,7 @@ import { keyPose, propKeys, shownAt } from "./prop-keys.js";
 import { carriedBuild } from "./carry.js";
 import { arcSized, buildBodySized, solveSized } from "./size.js";
 import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
-import { bodyCarriers, buildUpper, expandRepeats } from "./spec-layers.js";
+import { bodyCarriers, buildUpper, expandRepeats, partBoxes, resolveParts } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
@@ -125,10 +129,10 @@ const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
  *  body on a prop that moves is built again with that body carried (carry.js; aux.carried where the two do not settle). */
 export function buildClip(written, def = DEMOS[written.demo]) { return carriedBuild(written, def, buildOnce, bodyCarriers(written, def)); }
 function buildOnce(written, def, carrier) {
-	const repeat = expandRepeats(written, def.frames), spec = repeat.spec;
+	const repeat = expandRepeats(written, def.frames), spec = resolveParts(repeat.spec, def); // a place on a drawn part as the prop's own (parts.js)
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
 	const props = Object.fromEntries(def.props.map(p => [p.id, {
-		id: p.id, size: p.size, c: p.at.slice(), turn: rad(p.turn ?? 0), yaw: rad(p.turn ?? 0), q: p.turn ? qY(rad(p.turn)) : [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
+		id: p.id, size: p.size, parts: partBoxes(p), c: p.at.slice(), turn: rad(p.turn ?? 0), yaw: rad(p.turn ?? 0), q: p.turn ? qY(rad(p.turn)) : [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
 		...propKeys(spec[p.id] ?? []), // keys, shownKeys (prop-keys.js)
 	}]));
 	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };

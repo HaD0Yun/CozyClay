@@ -24,8 +24,8 @@ const describe = {
 		box("tilted", { rotX: 20 }),
 		box("rug", { height: 0.01 }),
 		box("bench", { x: -2, z: 0.5, rot: 90, footprint: { width: 1.2, depth: 0.5 }, height: 0.9,
-			tops: [{ y: 0.45, x0: -0.6, z0: -0.14, x1: 0.6, z1: 0.25 }, { y: 0.9, x0: -0.6, z0: -0.25, x1: 0.6, z1: -0.14 }] }),
-		box("crate", { x: 0, z: -2, footprint: { width: 0.5, depth: 0.5 }, height: 0.5, tops: [{ y: 0.5, x0: -0.25, z0: -0.25, x1: 0.25, z1: 0.25 }] }),
+			parts: [{ name: "seat", at: [0, 0.225, 0.055], size: [1.2, 0.45, 0.39] }, { name: "back", at: [0, 0.45, -0.195], size: [1.2, 0.9, 0.11] }] }),
+		box("crate", { x: 0, z: -2, footprint: { width: 0.5, depth: 0.5 }, height: 0.5, parts: [{ name: "box", at: [0, 0.25, 0], size: [0.5, 0.5, 0.5] }] }),
 	],
 };
 const near = (a, b, what) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 1e-3, `${what}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`));
@@ -44,7 +44,7 @@ const near = (a, b, what) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 
 	near(table.size, [1.2 * c + 0.6 * s, 0.75, 1.2 * s + 0.6 * c], "the footprint box of the table");
 	assert.equal(table.turn, undefined, "no turn without the flag");
 	near(table.at, [2, 0.375, 1], "the table's centre");
-	assert.equal(scene.props[1].heights, undefined, "no heights without the tops flag");
+	assert.equal(scene.props[1].parts, undefined, "no parts without the tops flag");
 	assert.deepEqual(ids.props.table, { id: "table", x: 2, y: 0, z: 1, rot: 30 });
 	console.log("ok studioScene: rows left out, X Bot and Y Bot offered, Y Bot to switch, others with reasons, footprint boxes");
 }
@@ -57,19 +57,24 @@ const near = (a, b, what) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 
 	console.log("ok studioScene { turn }: own size and turn 30");
 }
 {
-	const { scene } = studioScene(describe, { turn: true, tops: true });
+	const { scene, ids } = studioScene(describe, { turn: true, tops: true });
 	const bench = scene.props.find(p => p.id === "bench");
-	assert.equal(bench.heights?.length, 2, "a prop with two tops gets heights");
-	// rot 90: the object's own +Z points along world +X
-	assert.equal(bench.heights[0].y, 0.45);
-	near(bench.heights[0].at, [-2 + 0.055, 0.5], "the lower top in the world");
-	near(bench.heights[0].size, [1.2, 0.39], "its size along the prop's own sides");
-	assert.equal(bench.heights[1].y, 0.9);
-	near(bench.heights[1].at, [-2 - 0.195, 0.5], "the higher top in the world");
-	assert.equal(scene.props.find(p => p.id === "crate").heights, undefined, "one top at the box's own height adds nothing");
+	assert.equal(bench.parts?.length, 2, "a prop drawn as two parts gets them");
+	// in the prop's own frame from its box centre (0.45 over its base), sides along the part's own axes
+	assert.deepEqual(bench.parts.map(b => b.name), ["seat", "back"]);
+	near(bench.parts[0].at, [0, -0.225, 0.055], "the seat from the box centre");
+	near(bench.parts[0].size, [1.2, 0.45, 0.39], "its sides");
+	near(bench.parts[1].at, [0, 0, -0.195], "the back from the box centre");
+	assert.deepEqual(ids.shapes.bench, { h: 0.9, parts: [{ name: "seat", at: [0, 0.225, 0.055], size: [1.2, 0.45, 0.39] }, { name: "back", at: [0, 0.45, -0.195], size: [1.2, 0.9, 0.11] }] }, "ids.shapes: the parts from the base, with the box's height");
+	assert.equal(scene.props.find(p => p.id === "crate").parts, undefined, "one part that is the box adds nothing");
+	assert.equal(ids.shapes.crate, undefined);
+	// rot 90: the object's own +Z points along world +X; without turn the parts are turned with it into the square box
 	const square = studioScene(describe, { tops: true }).scene.props.find(p => p.id === "bench");
-	near(square.heights[0].size, [0.39, 1.2], "without turn the size is the square box around the top");
-	console.log("ok studioScene { tops }: heights in world coordinates");
+	near(square.parts[0].at, [0.055, -0.225, 0], "without turn the seat turned a quarter");
+	near(square.parts[0].size, [0.39, 0.45, 1.2], "and its sides along the world's axes");
+	const leaning = studioScene({ objects: [box("bench", { rot: 30, parts: describe.objects[5].parts })] }, { tops: true }).scene.props[0];
+	assert.equal(leaning.parts, undefined, "without turn an object at 30 degrees gives no parts");
+	console.log("ok studioScene { tops }: parts in the prop's own frame");
 }
 
 // --- installClip ---

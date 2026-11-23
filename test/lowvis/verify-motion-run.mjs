@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // runMotion (bin/agent/motion-run.mjs) with the motion writer, the clip file and the install replaced by fakes; the
 // Studio scene bridge (src/lowvis/studio/scene.js) is the real one. What the motion writer reads and what reaches the
-// caller: heights and others as request lines (not in the scene JSON), the last scene and spec per conversation (the
+// caller: a prop's drawn parts in the scene JSON and to the writer's tool, others as a request line, the last scene and spec per conversation (the
 // writer's tool starts from them only while the Studio scene still plays them), the switched report line, and the
 // three failure codes.
 import assert from "node:assert/strict";
@@ -13,7 +13,8 @@ import { lookBody } from "../../src/lowvis/studio/figure.js";
 const DESCRIBE = {
 	characters: [{ id: "c1", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }, { id: "cap", model: "proxy-figure", x: 1, z: 0, rot: 0, scale: 1 }],
 	objects: [{ id: "obj-box", name: "box", renderer: "cube", x: 1, y: 0, z: 2, rot: 30, footprint: { width: 1, depth: 0.5 }, height: 0.9,
-		tops: [{ y: 0.45, x0: -0.5, z0: -0.25, x1: 0.5, z1: 0.15 }, { y: 0.9, x0: -0.5, z0: 0.15, x1: 0.5, z1: 0.25 }] }],
+		tops: [{ y: 0.45, x0: -0.5, z0: -0.25, x1: 0.5, z1: 0.15 }, { y: 0.9, x0: -0.5, z0: 0.15, x1: 0.5, z1: 0.25 }],
+		parts: [{ name: "seat", at: [0, 0.225, -0.05], size: [1, 0.45, 0.4] }, { name: "back", at: [0, 0.45, 0.2], size: [1, 0.9, 0.1] }] }],
 };
 const SCENE = { characters: [{ id: "c1", at: [0, 0] }], props: [] }, SPEC = { c1: [{ verb: "stand" }] };
 
@@ -30,7 +31,7 @@ function harness({ clip = { frameCount: 48, characters: [{ id: "c1" }], props: [
 }
 const sceneJson = request => JSON.parse(request.split("\n").find(line => line.startsWith("{\"characters\"")));
 
-// happy path, heights and others, memory
+// happy path, parts and others, memory
 {
 	const { seen, base } = harness();
 	const compiles = [];
@@ -41,18 +42,22 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	assert.deepEqual(done.characterIds, ["c1"]);
 	assert.deepEqual(done.objectIds, ["obj-box"]);
 	assert.deepEqual(compiles.map(c => [c.n, c.ok]), [[1, true]]);
-	assert.deepEqual(seen.describe[0], { name: "describe", args: { tops: true }, handle: "ws-1" }, "describe is asked for tops");
+	assert.deepEqual(seen.describe[0], { name: "describe", args: { parts: true }, handle: "ws-1" }, "describe is asked for the drawn parts");
 	const run = seen.runs[0];
 	assert.deepEqual([run.model, run.effort, run.variant], ["claude-opus-5-5", "medium", "studio"]);
 	assert.deepEqual(run.off, []);
 	assert.ok(run.request.startsWith("USER'S WORDS (the user's message of this turn, exactly as typed):\nhe walks to the box and sits on it\n\n"), "words alone (the direct key): no note");
 	assert.doesNotMatch(run.request, /STUDIO AGENT'S NOTE/);
-	assert.match(run.request, /\nbox offers these flat heights \(world\): \[\{"y":0\.45,/);
+	assert.doesNotMatch(run.request, /flat heights/, "no heights lines: the parts are in the scene");
 	assert.match(run.request, /These characters cannot be animated by the engine and stand as they are: cap \(capsule figure\)\./);
 	const scene = sceneJson(run.request);
 	assert.deepEqual(Object.keys(scene), ["characters", "props"], "the scene JSON has no others");
 	assert.equal(scene.props[0].turn, 30, "the box stands turned");
-	assert.equal("heights" in scene.props[0], false, "the scene JSON has no heights");
+	assert.deepEqual(scene.props[0].parts, [{ name: "seat", at: [0, -0.225, -0.05], size: [1, 0.45, 0.4] }, { name: "back", at: [0, 0, 0.2], size: [1, 0.9, 0.1] }], "the scene JSON gives the box its drawn parts, from its centre");
+	const shapes = { box: { h: 0.9, parts: DESCRIBE.objects[0].parts } };
+	assert.deepEqual(run.shapes, shapes, "the writer's tool gets the shapes from the box's base");
+	assert.deepEqual(await run.reshape(), shapes, "and asks the Studio for them again before a call");
+	assert.deepEqual(seen.describe.at(-1).args, { parts: true });
 	assert.equal(seen.installs[0].turn, true);
 	assert.deepEqual(seen.installs[0].existing.characters, { c1: "c1" });
 	assert.doesNotMatch(run.request, /Your last scene and spec/);
@@ -153,13 +158,14 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: the user's words verbatim and the agent's note, each labelled");
 }
 
-// switches off: no tops asked, no turn, no heights
+// switches off: no parts asked, no turn, no parts
 {
 	const { seen, base } = harness();
 	await runMotion({ ...base, env: { COZYCLAY_MOTION_OFF: "turn,tops" }, words: "x", memoryKey: null });
 	assert.deepEqual(seen.describe[0].args, {});
 	assert.deepEqual(seen.runs[0].off, ["turn", "tops"]);
-	assert.doesNotMatch(seen.runs[0].request, /flat heights/);
+	assert.equal("parts" in sceneJson(seen.runs[0].request).props[0], false, "no parts with tops off");
+	assert.deepEqual([seen.runs[0].shapes, seen.runs[0].reshape], [{}, null], "and none for the tool");
 	assert.equal("turn" in sceneJson(seen.runs[0].request).props[0], false);
 	assert.equal(seen.installs[0].turn, false);
 	console.log("PASS runMotion: COZYCLAY_MOTION_OFF turn,tops");

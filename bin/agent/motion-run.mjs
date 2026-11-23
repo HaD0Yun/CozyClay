@@ -90,10 +90,8 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (note) parts.push(`${NOTE}\n${note}`);
 	if (pictures) parts.push(`The user attached ${pictures} picture${pictures === 1 ? "" : "s"}.`);
 	if (studio.characters.length || studio.props.length) {
-		// the scene JSON holds what a scene line holds; the flat heights go as lines of their own
-		const scene = { characters: studio.characters, props: studio.props.map(({ heights, ...prop }) => prop) };
-		const heights = studio.props.filter(prop => prop.heights?.length).map(prop => `${prop.id} offers these flat heights (world): ${JSON.stringify(prop.heights)}`);
-		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.`, JSON.stringify(scene), ...heights].join("\n"));
+		// the scene JSON holds what a scene line holds, a prop's drawn parts too (scene.js)
+		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.`, JSON.stringify({ characters: studio.characters, props: studio.props })].join("\n"));
 	}
 	if (studio.attached?.length) parts.push(`These objects ride a bone of a character (attached in the Studio, so they go with that bone and are not props above), each with the size of its box or, when it has no box of its own, its kind: ${studio.attached.map(a => `${a.id} (${a.kind ?? `size ${JSON.stringify(a.size)}`}) on ${a.on}'s ${a.bone}${a.place ? ` ${a.place}` : ""}`).join(", ")}. A prop of your scene with such an id is that object: one bone carrying it the whole clip keeps it attached, anything else takes it off the body.${studio.attached.some(a => a.place) ? " One set by hand keeps that place and turn while your clip keeps it on that bone: your clip's place for it is not drawn." : ""}`);
 	if (studio.studioIds) parts.push(`The objects a take already moves or a bone carries, as your ids and the Studio's: ${Object.entries(studio.studioIds).map(([id, studioId]) => `${id} = ${studioId}${studio.tilted?.includes(id) ? " (tilted in the Studio, upright here about the same centre)" : ""}`).join(", ")}.`);
@@ -153,7 +151,9 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body"), kinds = !off.includes("kinds"), look = lookBody(env.COZYCLAY_FIGURE || null);
-	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
+	const read = await hub.command("describe", tops ? { parts: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body, kinds }), start = byId(read?.objects);
+	// the drawn shapes as the Studio has them before each motion call: a stand-in given its look while the writer works is told to it then (compile-tool.mjs)
+	const reshape = tops ? async () => studioScene(await hub.command("describe", { parts: true }, workspaceHandle), { turn, tops, body, kinds }).ids.shapes ?? {} : null;
 	// the objects with no box of their own are no boxes the body meets: no fit line measures them (motion-fit.mjs)
 	const boxed = placed => Object.fromEntries(Object.entries(placed).filter(([prop]) => !studio.ids.props[prop]?.point));
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
@@ -189,7 +189,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const listed = new Set(Object.values(studio.ids.characters)), bare = takes.bare.filter(id => listed.has(id));
 	const from = playing ? { kept: { name: playing.name, characters: playing.cast } } : bare.length ? { keptNone: bare } : {};
 	// the writer's tool starts from the motion before (the request shows it), so a change is sent as an edit of it
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, shapes: studio.ids.shapes ?? {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	}, onCompiled: draft.onCompiled });
