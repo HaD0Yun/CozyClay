@@ -2,11 +2,88 @@
 
 ## Unreleased
 
+## 3.3.0 - 2026-11-24
+
+Body motion from a motion writer model and a deterministic engine, a cube figure, lights as aimed objects, a rail camera you turn by hand, the toon look by default, and an AI video reference export. Storyboard projects are removed.
+
+Motion
+
+- The Studio agent makes body motion with one tool, `motion`: a second model,
+  the motion writer, writes a scene and a motion spec, a deterministic engine
+  makes every frame and measures foot slide, contacts, balance and bodies
+  inside props, and the writer reads those measures and contact sheets before
+  the take is installed. (#1342)
+- The motion writer runs on the Studio's own sign-ins: `claude-opus-5-5` at
+  effort medium when a sign-in in the model picker offers it, otherwise the
+  model the conversation runs on. A sign-in that lists that model and then
+  refuses it for the account is asked once per conversation; the
+  conversation's model writes that motion and the later ones. The tool's
+  answer names the writer. (#1342)
+- A motion can move any object of the scene, and the object keeps its kind:
+  a moved object rides a track of the take of the character that handles it,
+  and an object one bone carries for the whole motion is attached to that
+  bone. A follow-up request starts from the scene and spec of the motion
+  before it. (#1342)
+- A motion keeps each character's scale and tint. (#1342)
+- The old motion engine (`motion.compile`, QA, motion tasks) comes back with
+  `COZYCLAY_MOTION_ENGINE=old`. MCP and `cclay live` keep `motion.compile`,
+  which now compiles for the body a character stands as (its scale times the
+  figure look's body), so a new character at scale 1 compiles as it is. (#1342)
+- In an installed package a motion run's record, contact sheets and clip go to
+  the user's CozyClay config folder (`motion-runs/`, the newest 20 runs kept),
+  never into the package folder. (#1342)
+
 Studio
 
-- Storyboard projects are removed. A saved storyboard file opens as a new,
-  unsaved animation project; saving it never writes to the original file. The
-  Storyboard (PNG) shot-grid export of animation projects stays.
+- Rig characters are drawn as the cube figure in place of the X Bot mesh: a
+  cube head with two bar eyes, a torso of three boxes and thin limbs, 1.70 m
+  tall at scale 1. `COZYCLAY_FIGURE=block` at launch draws the block figure
+  instead. An X Bot character from an older scene keeps its world size: its
+  scale reads about 1.06 where it was 1. (#1342)
+- The toon look (flat two-tone shading with black lines) is on by default in
+  the viewport and in every capture and export. Turn it off under Show in the
+  viewport toolbar; the choice is kept per browser. (#1342)
+- Untinted rig characters after the first get their own muted clay colours.
+  (#1342)
+- The fly speed pill: click to type a speed; arrows and the wheel over the
+  pill step it. (#1342)
+
+Agent
+
+- The Agent panel queues messages typed during a running turn; Send now hands
+  one to the running turn at its next step. The last message can be edited
+  and sent again in its place. (#1342)
+- A new turn's first request also marks the point before the previous prompt
+  for the provider's prompt cache, and the conversation budget counts the
+  tokens the provider reports. (#1342)
+- The agent can set the timeline length and edit an attached object in its
+  carrier's frame. (#1342)
+
+Lights
+
+- A directional light joins point and spot lights, and a light's aim can
+  follow a character or an object every frame. Up to 16 lights are drawn and
+  4 cast shadows (was 2). (#1342)
+- `verify_result` lighting tells per subject which lights reach it, from which
+  side, its cast shadow and its lit-to-shade ratio. (#1342)
+- A new project's key light opens at brightness 0.9 (was 4), and fog pulls
+  the haze range in evenly (it fell off squared), so at fog 0.3 haze begins at
+  39 m, not 28 m. (#1342)
+
+Camera
+
+- Turn a rail camera by hand, switch its follow off, and pick which
+  characters a shot follows. Aim recording turns 7 degrees per 100 px (was
+  18.3) through a 0.2 s smoothing filter; both are settings. (#1342)
+- E on a selected rail mark gives pan and tilt rings that turn the camera at
+  that place of the rail. (#1342)
+- A rail camera rides the speed the shot asks: the default 4 m/s dolly cap is
+  gone, so it no longer holds a camera behind a fast subject. An older
+  scene's stored default of 4 reads as no cap. (#1342)
+- The Top-View pans (middle-drag, right-drag, or Alt-drag for a touchpad) and
+  zooms about the pointer (wheel), also while a stroke is held. Home returns
+  to the framing it opened with, and a scene larger than the view opens
+  framed whole. (#1342)
 
 Export
 
@@ -14,9 +91,59 @@ Export
   reference video for Seedance-style models: in every 4 frames one light
   mosaic frame and three heavy-blur frames, restarting at each shot. The
   model keeps the camera, cuts and blocking but not the mannequin look.
+  (#1340)
 - The AI video reference zip also carries `prompt.txt`: the cast as
   reference images, each shot's camera move read from its camera keys or
-  rail, the cuts, and the place you type in the export dialog. `scene-facts.json` holds the same facts as data.
+  rail, the cuts, and the place you type in the export dialog.
+  `scene-facts.json` holds the same facts as data. (#1341)
+
+Fixes
+
+- Planes within one depth step of each other, such as a plane on the floor,
+  get a depth offset against flicker. (#1342)
+
+Changes for existing projects
+
+- Storyboard projects are removed. A saved storyboard file opens as a new,
+  unsaved animation project; saving it never writes to the original file. The
+  Storyboard (PNG) shot-grid export of animation projects stays. (#1342)
+- Still shots, the saved pose library and the X Bot / Y Bot choice are
+  removed. A new character is the X Bot rig; a Y Bot from an older project
+  keeps its mesh, and the Rig panel offers one button to change it. Hand
+  posing stays. (#1342)
+- Under the new motion engine the Studio agent works with rig characters
+  only: it does not add capsule figures, and project cast styles apply only
+  with `COZYCLAY_MOTION_ENGINE=old`. It no longer calls the old motion, pose
+  and IK actions itself; the editor, MCP and `cclay live` keep them. Capsule
+  figures you add stay. (#1342)
+- Scenes saved by 3.3.0 store shot documents at version 8. CozyClay 3.2.3
+  opens them without their shots. (#1342)
+
+Known limits
+
+- A motion takes minutes: the motion writer writes, compiles and reads its
+  result several times before the take is installed.
+- A hand can end a few centimetres off the drawn part it reaches for or
+  holds.
+- A prop a motion adds that is under 5 cm tall comes in as a plain flat box.
+- The motion tool animates rig characters only. Capsule figures and imported
+  rigs stand as they are.
+- The motion writer's tokens do not show in the Agent panel's usage and cost.
+- The motion writer was run for real with `claude-opus-5-5` through a
+  CLIProxyAPI sign-in. The other sign-ins, and the fallback to the
+  conversation's model, were checked against stand-in servers only.
+- Under the toon look a shadow's edge is hard whatever the stage's shadow
+  softness.
+- The AI video reference prompt names a camera move by where the camera
+  travels: a hand turn of a rail camera is not described, and a shot has no
+  action sentence.
+- In Pose mode a rig character laid down with Body contact on rests about
+  4 cm into the floor: the contact is measured on the rig's own mesh, which
+  the cube and block figures hide. Lift the hips by hand.
+- Through MCP and `cclay live` the heights a motion spec keys by hand are
+  metres for the body the character stands as. A spec written for the X Bot's
+  own body (hips at 1.03 m) does not fit a new character under the cube
+  figure (0.97 m); skills and named poses fit the body themselves.
 
 ## 3.2.3 - 2026-11-20
 
