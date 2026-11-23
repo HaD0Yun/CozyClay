@@ -2,25 +2,23 @@ import { useCallback, useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { WORLD } from "./world-scale.js";
 
-/**
- * Where the Top-View looks and how far it reaches: a centre on the floor and
- * a zoom, on the bindings of the Studio's other views. The left button stays
- * the content's (pucks, strokes); the view lives on the other buttons, as in
- * the editor camera (controls.jsx) and the matte painter (matte-editor.js):
- *
- *   middle-drag or right-drag    pan; also while a stroke is held, and the
- *                                floor point under the pointer stays put, so
- *                                the stroke carries on across the pan
- *   Alt + left-drag              pan (the editor's Alt-drag is the view's too):
- *                                the drag a touchpad without those buttons has
- *   wheel                        zoom about the pointer
- *   horizontal two-finger swipe  pan sideways, like the timeline's swipe
- *   Home over the Top-View       back to the framing it opened with
- *
- * The layout keeps the zoom the wheel set. A framing the view chose itself
- * (an opening, Home) is shown in the tag and not kept, so a long scene's
- * framing is not the zoom the next small scene opens with.
- */
+// Where the Top-View looks and how far it reaches: a centre on the floor and
+// a zoom, on the bindings of the Studio's other views. The left button stays
+// the content's (pucks, strokes); the view lives on the other buttons, as in
+// the editor camera (controls.jsx) and the matte painter (matte-editor.js):
+//
+//   middle-drag or right-drag    pan; also while a stroke is held, and the
+//                                floor point under the pointer stays put, so
+//                                the stroke carries on across the pan
+//   Alt + left-drag              pan (the editor's Alt-drag is the view's too):
+//                                the drag a touchpad without those buttons has
+//   wheel                        zoom about the pointer
+//   horizontal two-finger swipe  pan sideways, like the timeline's swipe
+//   Home over the Top-View       back to the framing it opened with
+//
+// The layout keeps the zoom the wheel set. A framing the view chose itself
+// (an opening, Home) is shown in the tag and not kept, so a long scene's
+// framing is not the zoom the next small scene opens with.
 
 /** Half the plan's height at zoom 1, in metres. */
 export const PLAN_EXTENT = 12.4;
