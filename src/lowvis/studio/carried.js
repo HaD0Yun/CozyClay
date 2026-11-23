@@ -1,7 +1,8 @@
 // The drawn body part on a joint that carries an object (a ride of the engine), in that object's own frame: the solids
 // of the look the Studio draws the bodies in (src/lowvis/looks/solids.js: each part of the look as drawn, taken off the
 // look's own shape), at the body's scale about that joint as the clip turns it. Any joint, any look, any object: only
-// geometry. A joint the look's solids leave out (the hands, whose drawn shape changes as they hold) has none.
+// geometry. A joint the look's solids leave out (the hands, whose drawn shape changes as they hold) has none, and so has
+// every joint of a look that states no solids.
 // Node and browser safe: no three.js (contacts.js tells it, gaps.js measures against it).
 //   partSolids(look, joint)                 the solids of a joint by its name: [{ v, t }], v in metres from the joint at rest
 //   posed(solids, c, joint, f)              their corners in the world on frame f of clip character c: [[[x, y, z]]]
@@ -14,10 +15,11 @@ const NJ = 17, cache = {};
 const r2 = v => Math.round(v * 100) / 100;
 const median = list => { const s = list.slice().sort((a, b) => a - b); return s[(s.length - 1) >> 1]; };
 
-/** The solids of joint `joint` (a rig joint name) in look `look`, or in the block look when that one states none. */
+/** The solids of joint `joint` (a rig joint name) in look `look` (none named: the block look, which the Studio then
+ *  draws); [] for a look that states no solids: its parts are not known here, and another look's are not told for it. */
 export function partSolids(look, joint) {
-	const name = LOOK_SOLIDS[look] ? look : "block";
-	return (cache[name] ??= LOOK_SOLIDS[name]()).filter(s => s.joint === J[joint]).map(({ v, t }) => ({ v, t }));
+	const name = look || "block";
+	return LOOK_SOLIDS[name] ? (cache[name] ??= LOOK_SOLIDS[name]()).filter(s => s.joint === J[joint]).map(({ v, t }) => ({ v, t })) : [];
 }
 
 /** The corners of each solid in the world on frame f, at clip character c's scale about its joint. */

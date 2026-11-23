@@ -8,7 +8,7 @@ import { MeshBVH } from "three-mesh-bvh";
 
 const AXES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(a => new THREE.Vector3(...a));
 const COLUMN = 0.05; // m: the column round a point that a surface under it is looked for in
-const SPACING = 0.01, LAYER = 8, POINTS = 4000; // m between the points read on a triangle, at most this many to an edge, triangles read at most
+const SPACING = 0.01, POINTS = 12000; // m between the points read on a surface; wider on one that would give more points than this
 const round = v => Math.round(v * 1000) / 1000;
 
 /** The meshes an object's group draws, as tops.js reads them, and a scatter's instanced meshes too. */
@@ -79,31 +79,34 @@ function under(parts, [x, z, y]) {
 	return Number.isFinite(top) ? round(top) : null;
 }
 
-/** Points spread over triangles (a soup of corners, 9 numbers each): on each, a grid about SPACING apart (at most
- *  LAYER to an edge), and with mid, as far again toward it; at most POINTS triangles are read, spread over the soup. */
-function spreadOver(soup, mid = null) {
-	const out = [], n = soup.length / 9, step = Math.max(1, Math.ceil(n / POINTS)), c = (t, i) => [soup[t * 9 + i * 3], soup[t * 9 + i * 3 + 1], soup[t * 9 + i * 3 + 2]];
+/** Points spread over triangles (a soup of corners, 9 numbers each): on each a grid SPACING apart, wider (and of
+ *  fewer triangles, spread over the soup) where that would be more than POINTS in all. */
+function spreadOver(soup) {
+	const out = [], n = soup.length / 9, step = Math.max(1, Math.ceil((n * 3) / POINTS)), tris = [];
 	for (let t = 0; t < n; t += step) {
-		const [a, b, d] = [0, 1, 2].map(i => c(t, i)), edge = Math.max(...[[a, b], [b, d], [d, a]].map(([x, y]) => Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]))), k = Math.min(LAYER, Math.max(1, Math.ceil(edge / SPACING)));
-		for (let i = 0; i <= k; i++) for (let j = 0; i + j <= k; j++) {
-			const p = [0, 1, 2].map(x => (i / k) * a[x] + (j / k) * b[x] + (1 - (i + j) / k) * d[x]);
-			out.push(p);
-			if (mid) out.push(p.map((x, m) => (x + mid[m]) / 2));
-		}
+		const c = [0, 1, 2].map(i => [soup[t * 9 + i * 3], soup[t * 9 + i * 3 + 1], soup[t * 9 + i * 3 + 2]]);
+		tris.push({ c, edge: Math.max(...[[0, 1], [1, 2], [2, 0]].map(([i, j]) => Math.hypot(c[i][0] - c[j][0], c[i][1] - c[j][1], c[i][2] - c[j][2]))) });
+	}
+	const rows = (edge, apart) => Math.max(1, Math.ceil(edge / apart)), count = apart => tris.reduce((sum, { edge }) => sum + ((rows(edge, apart) + 1) * (rows(edge, apart) + 2)) / 2, 0);
+	let apart = SPACING;
+	while (count(apart) > POINTS && apart < 1e3) apart *= 1.25;
+	for (const { c: [a, b, d], edge } of tris) {
+		const k = rows(edge, apart);
+		for (let i = 0; i <= k; i++) for (let j = 0; i + j <= k; j++) out.push([0, 1, 2].map(x => (i / k) * a[x] + (j / k) * b[x] + (1 - (i + j) / k) * d[x]));
 	}
 	return out;
 }
-/** The gap between the drawn parts and closed solids [{ v, t }] (a body part, contacts.js): the least distance from the
- *  surface points of either to the other's surface, or, where one is in the other, minus the deepest such point. */
+/** The gap between the drawn parts and closed solids [{ v, t }] (a body part, contacts.js), from the surface points
+ *  of both: minus how deep the drawn surface is in a solid, at its deepest point; else 0 where a solid's surface is in
+ *  a drawn part (the look is round the body part); else the least distance of either's points to the other's surface. */
 function solidGap(parts, list) {
 	const soups = list.map(({ v, t }) => t.flatMap(tri => tri.flatMap(i => v[i])));
 	const solids = soups.map(soup => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(soup, 3)); return new MeshBVH(g); });
-	let near = Infinity, deep = 0;
-	const take = d => { if (d < 0) deep = Math.max(deep, -d); else near = Math.min(near, d); };
-	list.forEach(({ v }, i) => { for (const p of spreadOver(soups[i], [0, 1, 2].map(k => v.reduce((s, x) => s + x[k], 0) / v.length))) take(signed(parts, p)); });
-	for (const bvh of parts) for (const p of spreadOver(bvh.geometry.getAttribute("position").array)) take(signed(solids, p));
+	let near = Infinity, sunk = 0, about = false;
+	for (const p of spreadOver(parts.flatMap(bvh => Array.from(bvh.geometry.getAttribute("position").array)))) { const d = signed(solids, p); if (d < 0) sunk = Math.max(sunk, -d); else near = Math.min(near, d); }
+	for (const p of spreadOver(soups.flat())) { const d = signed(parts, p); if (d < 0) about = true; else near = Math.min(near, d); }
 	for (const bvh of solids) bvh.geometry.dispose();
-	return round(deep > 0 ? -deep : near);
+	return round(sunk > 0 ? -sunk : about ? 0 : near);
 }
 
 /**
@@ -119,9 +122,10 @@ export function contactGaps(sceneOf) {
 		const groups = new Map();
 		sceneOf()?.traverse(node => { const id = node.userData?.sceneObjectId; if (typeof id === "string" && !node.userData.ghost && !groups.has(id)) groups.set(id, node); });
 		const objects = (Array.isArray(args.objects) ? args.objects : []).map(entry => {
-			const root = groups.get(entry?.id), parts = root ? partsOf(root) : [];
+			const root = groups.get(entry?.id), parts = root ? partsOf(root) : [], known = new Map();
 			if (!parts.length) return { id: entry?.id, drawn: false };
-			const out = { id: entry.id, drawn: true, points: (entry.points ?? []).map(list => list.map(p => round(signed(parts, p)))), columns: (entry.columns ?? []).map(c => under(parts, c)), ...(entry.solids ? { solids: entry.solids.map(list => solidGap(parts, list)) } : {}) };
+			const same = (key, measure) => (known.has(key) ? known : known.set(key, measure())).get(key); // a part that keeps its place on the object is measured once
+			const out = { id: entry.id, drawn: true, points: (entry.points ?? []).map(list => list.map(p => round(signed(parts, p)))), columns: (entry.columns ?? []).map(c => under(parts, c)), ...(entry.solids ? { solids: entry.solids.map(list => same(JSON.stringify(list.map(solid => solid.v.map(p => p.map(round)))), () => solidGap(parts, list))) } : {}) };
 			for (const bvh of parts) bvh.geometry.dispose();
 			return out;
 		});

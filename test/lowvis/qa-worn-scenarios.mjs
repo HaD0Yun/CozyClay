@@ -2,18 +2,26 @@
 // scripted agent and writer. A hat rides the Head all clip (attached at the install); a badge rides the chest, then goes
 // to the Head (a tracked object). With the draft the agent is told which drawn body part carries each, its size and the
 // box it spans in the object's frame; a look edit and the install answer the gap between that drawn part and the drawn
-// look. Every number is computed again here from the meshes the page draws (the figure's own part on that joint and the
-// object's meshes), with box distances of this file's own, not the gap query's.
+// look: how far apart, or how deep the look is in the part (a look round the part is at it), also after the hat's place
+// on its bone is set by hand. Every number is computed again here from the meshes the page draws (the figure's own
+// part on that joint and the object's meshes), with box distances of this file's own, not the gap query's.
 //   COZYCLAY_FIGURE=cube QA_PROBE=worn [QA_WORN_SCALE=0.5|3] node test/lowvis/qa-install-browser.mjs
 // QA_WORN_SCALE: the character's scale (default 1); the objects and places grow with it, the hat sinks 42 mm at any scale.
-const S = Number(process.env.QA_WORN_SCALE || 1), TOP = 0.202 * S; // the drawn head's top over the Head joint at the cube's body
-const HAT = [0.24, 0.08, 0.26].map(v => v * S), BADGE = [0.06, 0.06, 0.02].map(v => v * S), JOINT = { Head: 4, Spine2: 2 };
-const brim = lift => ({ version: 1, parts: [{ id: "brim", shape: "box", size: [0.26 * S, 0.05 * S, 0.28 * S], position: [0, 0.025 * S + lift, 0], roundness: 0 }] });
+import { LOOK_SOLIDS } from "../../src/lowvis/looks/solids.js";
+import { lookBody } from "../../src/lowvis/studio/figure.js";
+
+const S = Number(process.env.QA_WORN_SCALE || 1), FIGURE = process.env.COZYCLAY_FIGURE || "block", JOINT = { Head: 4, Spine2: 2 };
+// the drawn head's top over the Head joint: off the look's own solids, at the look's body
+const TOP = S * lookBody(FIGURE) * Math.max(...LOOK_SOLIDS[FIGURE]().filter(o => o.joint === JOINT.Head).flatMap(o => o.v.map(p => p[1])));
+const HAT = [0.24, 0.08, 0.26].map(v => v * S), BADGE = [0.06, 0.06, 0.02].map(v => v * S);
+const slab = (size, base) => ({ version: 1, parts: [{ id: "slab", shape: "box", size, position: [0, base + size[1] / 2, 0], roundness: 0 }] });
+const brim = lift => slab([0.26 * S, 0.05 * S, 0.28 * S], lift);
 
 /** The page's own reading at the frame it shows: the largest drawn mesh on joint `joint` of the character's look and the
  *  object's drawn meshes, each as a box (its geometry's bounds, as drawn) in the object's own frame (its base pivot and
  *  turn, no scale): the body part's size and the box its corners span, and the gap of the two boxes (surface points of
- *  each against the other's box: the least distance, or minus the deepest point of either in the other). */
+ *  each against the other's box: minus how deep the look's are in the part; else 0 when the part's are in the look;
+ *  else the least distance). */
 const reading = (cid, oid, joint) => `(() => {
 	const rig = window.__cozyclay.rigs[${JSON.stringify(cid)}] ?? Object.values(window.__cozyclay.rigs).find(r => r?.parent); let root = rig; while (root.parent) root = root.parent;
 	const looks = []; root.traverse(n => { if (n.userData?.characterPick !== undefined && n.children.length === 17) looks.push(n); });
@@ -33,12 +41,11 @@ const reading = (cid, oid, joint) => `(() => {
 	const L = drawn.map(boxOf);
 	const sd = (p, B) => { const d = [p[0] - B.c[0], p[1] - B.c[1], p[2] - B.c[2]], q = B.u.map((u, k) => Math.abs(u[0] * d[0] + u[1] * d[1] + u[2] * d[2]) - B.h[k]); return Math.hypot(...q.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...q)); };
 	const surface = B => { const out = [], N = 24; for (let k = 0; k < 3; k++) for (const s of [-1, 1]) for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) { const a = (k + 1) % 3, b = (k + 2) % 3, w = [0, 0, 0]; w[k] = s; w[a] = 2 * i / N - 1; w[b] = 2 * j / N - 1; out.push([0, 1, 2].map(x => B.c[x] + B.u[0][x] * w[0] * B.h[0] + B.u[1][x] * w[1] * B.h[1] + B.u[2][x] * w[2] * B.h[2])); } return out; };
-	let near = Infinity, deep = 0;
-	const take = v => { if (v < 0) deep = Math.max(deep, -v); else near = Math.min(near, v); };
-	for (const p of surface(P)) take(Math.min(...L.map(B => sd(p, B))));
-	for (const B of L) for (const p of surface(B)) take(sd(p, P));
+	let near = Infinity, sunk = 0, about = false;
+	for (const p of surface(P)) { const v = Math.min(...L.map(B => sd(p, B))); if (v < 0) about = true; else near = Math.min(near, v); }
+	for (const B of L) for (const p of surface(B)) { const v = sd(p, P); if (v < 0) sunk = Math.max(sunk, -v); else near = Math.min(near, v); }
 	const corners = []; for (const i of [-1, 1]) for (const j of [-1, 1]) for (const k of [-1, 1]) corners.push([0, 1, 2].map(x => P.c[x] + P.u[0][x] * i * P.h[0] + P.u[1][x] * j * P.h[1] + P.u[2][x] * k * P.h[2]));
-	return { size: P.h.map(v => 2 * v), lo: [0, 1, 2].map(k => Math.min(...corners.map(p => p[k]))), hi: [0, 1, 2].map(k => Math.max(...corners.map(p => p[k]))), gap: deep > 0 ? -deep : near, meshes: { part: part.length, look: drawn.length } };
+	return { size: P.h.map(v => 2 * v), lo: [0, 1, 2].map(k => Math.min(...corners.map(p => p[k]))), hi: [0, 1, 2].map(k => Math.max(...corners.map(p => p[k]))), gap: sunk > 0 ? -sunk : about ? 0 : near, meshes: { part: part.length, look: drawn.length } };
 })()`;
 
 const num = text => text.match(/-?\d+(\.\d+)?/g).map(Number);
@@ -48,14 +55,14 @@ function partOf(line, who, joint) {
 	const m = /its drawn part ([\d.]+) x ([\d.]+) x ([\d.]+) m spans \[([^\]]+)\] to \[([^\]]+)\]/.exec(row ?? "");
 	return m ? { row, size: [m[1], m[2], m[3]].map(Number), lo: num(m[4]), hi: num(m[5]) } : null;
 }
-/** The gap a gap line tells for one carried part, in mm (+ off, - inside), or null when not told (within 0.03 m). */
+/** The gap a gap line tells for one carried part, in mm (+ off the part, - the look inside it), or null when not told (within 0.03 m). */
 function gapOf(line, who, joint) {
-	const m = new RegExp(`${who} ${joint}'s drawn part f[\\d-]+: (\\d+) mm (from|inside) the drawn look`).exec(line ?? "");
-	return m ? (m[2] === "from" ? 1 : -1) * Number(m[1]) : null;
+	const m = new RegExp(`${who} ${joint}'s drawn part f[\\d-]+: (?:(\\d+) mm from the drawn look|the drawn look (\\d+) mm inside it)`).exec(line ?? "");
+	return m ? (m[1] ? Number(m[1]) : -Number(m[2])) : null;
 }
 
 export async function scenarios(t) {
-	const { turn, writer, agent, gate, pass, report, assert, waitFor, sleep, evaluate } = t;
+	const { turn, writer, agent, gate, pass, report, assert, waitFor, sleep, evaluate, hub } = t;
 	let who = null;
 	writer.plan = {
 		end: "report", variant: 0, gate1: "worn-w1",
@@ -70,7 +77,7 @@ export async function scenarios(t) {
 		},
 	};
 	const from = agent.results.length;
-	const running = turn("put the hat on", [["motion"], ["result"], ["gate", "worn-a1"], ["result"], ["gate", "worn-a2"]], { wait: false });
+	const running = turn("put the hat on", [["motion"], ["result"], ["gate", "worn-a1"], ["result"], ...[0, 1, 2, 3, 4, 5].map(k => ["gate", `worn-b${k}`])], { wait: false });
 	const draft = await waitFor(() => agent.results.slice(from).find(r => r.name === "motion_result" && r.value?.draft === true)?.value, "the draft", 120_000);
 	const hatLine = (draft.contacts ?? []).find(l => l.startsWith("hat (")), badgeLine = (draft.contacts ?? []).find(l => l.startsWith("badge ("));
 	assert.ok(hatLine && badgeLine, `the draft names both: ${JSON.stringify(draft.contacts)}`);
@@ -100,17 +107,28 @@ export async function scenarios(t) {
 	// the badge: told when the page reads it more than 0.03 m off or in (at scale 0.5 it is 18 mm off: within, not told)
 	assert.ok(Math.abs(page.badge.gap) > 0.033 ? installBadge != null && Math.abs(installBadge - page.badge.gap * 1000) <= 3 : Math.abs(page.badge.gap) < 0.027 && installBadge == null, `badge gap: install ${installBadge}, page ${page.badge.gap * 1000}`);
 	pass(`install: ${done.gaps.join(" | ")}; page: hat ${(page.hat.gap * 1000).toFixed(1)} mm, badge ${(page.badge.gap * 1000).toFixed(1)} mm`);
-	// a second look edit, after the install: the brim lifted 50 mm clears the drawn head (8 mm off: within 0.03 m, not told)
-	agent.program.unshift(["call", "run_action", { action: "object.sculpt", args: { id: hat, recipe: brim(0.05) } }]);
-	const edits = agent.results.filter(r => r.name === "run_action").length;
-	gate("worn-a2").open();
-	const lifted = await waitFor(() => agent.results.filter(r => r.name === "run_action")[edits]?.value, "the second look edit", 60_000);
+	// after the install: looks, and the hat's place on its bone set by hand, each told as the page reads it (within
+	// 0.03 m: not told). At scale 0.5 the hat's stand-in is a cube (a box under 0.05 m tall), whose recipes the Studio
+	// draws otherwise than asked: told and page still agree.
+	const onBone = ((await hub.command("describe", {}))?.objects ?? []).find(o => o?.id === hat), after = [];
+	for (const [what, action, args] of [
+		["the brim lifted 50 mm clears the drawn head", "object.sculpt", { id: hat, recipe: brim(0.05) }],
+		["a thin plate inside the drawn head: the look in the part", "object.sculpt", { id: hat, recipe: slab([0.1 * S, 0.01, 0.1 * S], 0) }],
+		["a box round the drawn head: the part in the look, so at it", "object.sculpt", { id: hat, recipe: slab([0.5 * S, 0.6 * S, 0.5 * S], -0.3 * S) }],
+		["the brim on the base again", "object.sculpt", { id: hat, recipe: brim(0) }],
+		["the hat moved 40 mm down its bone by hand", "object.update", { id: hat, patch: { y: onBone.y - 0.04 } }],
+		["and 100 mm up it", "object.update", { id: hat, patch: { y: onBone.y + 0.1 } }],
+	]) {
+		const edits = agent.results.filter(r => r.name === "run_action").length;
+		agent.program.unshift(["call", "run_action", { action, args }]);
+		gate(`worn-b${after.length}`).open();
+		const fit = (await waitFor(() => agent.results.filter(r => r.name === "run_action")[edits]?.value, what, 60_000)).motionFit;
+		await sleep(500);
+		const read = await evaluate(reading(who, hat, "Head")), told = gapOf(fit?.objects?.find(o => o.id === hat)?.gaps, who, "Head");
+		assert.ok(Math.abs(read.gap) > 0.033 ? told != null && Math.abs(told - read.gap * 1000) <= 3 : Math.abs(read.gap) > 0.027 || told == null, `${what}: told ${told}, page ${read.gap}; ${JSON.stringify(fit)}`);
+		after.push({ what, told, page: read.gap });
+	}
 	await running;
-	await sleep(500);
-	const again = await evaluate(reading(who, hat, "Head")), liftedGap = gapOf(lifted.motionFit?.objects?.find(o => o.id === hat)?.gaps, who, "Head");
-	// told as the page reads it: within 0.03 m not told, else within 3 mm (scale 0.5: the Studio draws this second recipe of
-	// a cube stand-in otherwise than asked, and both read it 40 mm in)
-	assert.ok(Math.abs(again.gap) > 0.033 ? liftedGap != null && Math.abs(liftedGap - again.gap * 1000) <= 3 : Math.abs(again.gap) < 0.027 && liftedGap == null, `the lifted brim: ${JSON.stringify(lifted.motionFit)}; page ${again.gap}`);
-	pass(`after the install, lifted: ${JSON.stringify(lifted.motionFit)}; page ${(again.gap * 1000).toFixed(1)} mm`);
-	report.worn = { scale: S, draft: draft.contacts, edit: edit.motionFit, install: { contacts: done.contacts, gaps: done.gaps, attached: done.attached }, lifted: lifted.motionFit, page: { ...page, lifted: again }, told };
+	pass(`after the install (told | page, mm): ${after.map(x => `${x.what}: ${x.told ?? "not told"} | ${(x.page * 1000).toFixed(1)}`).join("; ")}`);
+	report.worn = { scale: S, draft: draft.contacts, edit: edit.motionFit, install: { contacts: done.contacts, gaps: done.gaps, attached: done.attached }, after, page, told };
 }

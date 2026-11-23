@@ -11,7 +11,8 @@
 // frame 0 goes there on the carrier from that place, counted from the frame before, in its `over` frames with its `ease`
 // (prop-keys.js eased; default 12 frames, or as many as there are to the prop's next key or since its key before when
 // fewer, inout; 0 or 1 = there on its first frame), so the prop keeps a continuous place and turn whatever had it
-// before, and ride keys written a frame apart put it on each key's place on that key's frame.
+// before, and ride keys written a frame apart put it on each key's place on that key's frame: keys written close
+// together are a way the writer times (a hand may move with it), so each takes the frames of that spacing.
 import { INDEX as J, qAxisAngle } from "../rig17.js";
 import { EASE, add, len, mixV, norm, qConj, qMul, qRotate, qSlerp, qY, rad, sub } from "./math.js";
 import { eased } from "./prop-keys.js";
@@ -26,7 +27,7 @@ import { solveSized } from "./size.js";
  *  (prop-keys.js), so the prop does not stand still for a frame while its carrier moves on. */
 export function propKey(p, f) {
 	const k = p.keys.findLast(k => k.f <= f), riding = k?.verb === "ride", took = p.holder && p.rideAt === f - 1 ? p.rel?.k : null;
-	if (took) took.off ??= f;
+	if (took) took.entry.off = took.off ??= f;
 	const into = !p.holder && !riding && k?.f === f && k.verb !== "launch" && (k.over ?? 12) > 0 && p.rideAt === f - 1 && p.rel.k.off == null ? p.rel.k : null;
 	p.ride = took?.off === f ? took : into ?? (riding && !p.holder && k.off == null ? k : null);
 	const left = !!k?.c0 && p.droveAt !== f - 1; // a key that drove the prop and not on the frame before: a hand had it since, and it stays where that hand let it go
@@ -83,11 +84,13 @@ export function moveRiders(props, f, byId = {}, final = false) {
 			p.rel.c = k.at ?? was.c;
 			p.rel.q = k.at ? (k.axis ? qAxisAngle(norm(k.axis), rad(k.deg)) : [0, 0, 0, 1]) : was.q;
 			// with at after frame 0 it goes there from where it was on the frame before: in over frames, by default 12 or as
-			// many as there are to the prop's next key or since its key before, if fewer (keys a frame apart: each on its frame)
+			// many as there are from this frame to the prop's next key or since its key before, if fewer (keys a frame
+			// apart: each on its frame); near: the key whose spacing cut the default
+			const next = k.entry.next ?? Infinity, prev = k.entry.prev ?? -Infinity, near = next - f <= f - prev ? next : prev, gap = Math.abs(near - f);
 			p.rel.was = k.at && p.rel.before ? was : null;
-			p.rel.over = k.over ?? Math.min(12, (k.entry.next ?? Infinity) - f, k.f - (k.entry.prev ?? -Infinity));
+			p.rel.over = k.over ?? Math.min(12, gap);
 			p.rel.firm = !body || !!k.at || !!p.rel.before || final;
-			k.entry.rel = { c: p.rel.c, q: p.rel.q }; k.entry.over = p.rel.was ? p.rel.over : 0;
+			k.entry.rel = { c: p.rel.c, q: p.rel.q }; k.entry.over = p.rel.was ? p.rel.over : 0; k.entry.cut = p.rel.was && k.over === undefined && gap < 12 ? near : null;
 		}
 		p.rideAt = f;
 		const u = p.rel.was ? eased({ over: p.rel.over, ease: k.ease }, f, p.rel.f - 1) : 1, c = u < 1 ? mixV(p.rel.was.c, p.rel.c, u) : p.rel.c, q = u < 1 ? qSlerp(p.rel.was.q, p.rel.q, u) : p.rel.q;
@@ -110,12 +113,15 @@ export function carriersOf(p) {
 }
 
 /** The ride keys of the props, checked (checkRides), as { rides } for engine.js's aux, or {} when there is none: per key
- *  its carrier, its next key's frame, whether at was given, the frames its way to at took (over: 0 at once, null never began), the verb of a key of the prop written after it on its own
- *  frame (hidden: that key drives the prop, the ride never does), and, filled in as the clip is built (moveRiders), the
- *  frame it began (null: never) and its place on the carrier ({ c, q } in the carrier's frame), which the rows read (measure.mjs). */
+ *  its carrier, the frames of the prop's next key and its key before, whether at was given, the verb of a key of the
+ *  prop written after it on its own frame (hidden: that key drives the prop, the ride never does), and, filled in as
+ *  the clip is built (moveRiders, propKey), the frame it began (null: never), its place on the carrier ({ c, q } in the
+ *  carrier's frame), the frames its way to at took (over: 0 at once), the frame of the key whose spacing cut the default
+ *  12 (cut: null when none did or over was written) and the frame a hand took the prop off it (off: null when none
+ *  did), which the rows read (measure.mjs, studio/contacts.js). */
 export function ridesOf(props, byId) {
 	const rides = Object.values(props).flatMap(p => { checkRides(p, byId); return p.keys.filter(k => k.verb === "ride").map(k => (k.entry = {
-		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, over: null, next: p.keys.find(n => n.f > k.f)?.f ?? null, prev: p.keys.findLast(n => n.f < k.f)?.f ?? null, began: null, rel: null,
+		prop: p.id, f: k.f, ...(k.joint === undefined ? { on: k.on } : { joint: k.joint, of: k.of }), at: !!k.at, over: null, cut: null, next: p.keys.find(n => n.f > k.f)?.f ?? null, prev: p.keys.findLast(n => n.f < k.f)?.f ?? null, began: null, off: null, rel: null,
 		hidden: p.keys.findLast(n => n.f === k.f) === k ? null : p.keys.findLast(n => n.f === k.f).verb,
 	})); });
 	return rides.length ? { rides } : {};

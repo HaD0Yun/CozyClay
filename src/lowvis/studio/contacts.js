@@ -2,19 +2,21 @@
 // each of those places is from what the Studio draws (rule 6). Only geometry and ids: no object kinds or names.
 // A body part meets a prop's box on a frame when
 //   - the engine ties it there: a hand that holds the prop (aux.grips, aux.holders), a hand or a foot whose target is on
-//     the prop (aux.reach entries with on), a joint the prop rides (aux.rides: once it is at its place, while no hand
-//     holds it);
+//     the prop (aux.reach entries with on), a joint the prop rides (aux.rides: once it is at its place, until a hand
+//     takes it off or its next key);
 //   - or it lies on or in the box for MIN_SPAN frames in a row: a hand (wrist to finger tip), a foot (its sole), the seat
 //     (the Hips joint less the engine's seat height, with the Hips over the box's footprint).
 // A contact row is one body part on one prop over frames, at one place in the prop's own frame: from the middle of its
 // underside, x along its width, y up, z along its depth (the frame an object.sculpt recipe of it is written in). A row of
 // a joint that carries the prop has that body part as the look draws it (carried.js; look: the look the bodies are drawn
-// in): its size and the box it spans in that frame, and its gap is that drawn part's against the drawn look.
+// in): its size and the box it spans in that frame, and its gap is how far the drawn look is from that drawn part or
+// sunk into it (a look round the part is at it).
 // A free row (free: true) is no contact: while a body's seat meets a prop, a hand or a foot the engine holds at a target
 // (an aux.reach entry) that is on no prop and no body, near no box (a foot: nor the floor), and keeps its place in that
 // prop's frame for FREE_SPAN frames. It names where the motion holds that limb beside the object the body is on.
 // Node and browser safe: no three.js. The page measures the probes (gaps.js); this module tells them.
 //   contactsOf(clip, aux, look)         Map(prop id -> [row]) for every prop a body meets
+//   frameOf(p, f)                       a clip prop's own frame on a frame
 //   auxOf(scene, spec, clip)            the engine's aux of a compiled clip, built again (null when it is not the same clip)
 //   probesOf(clip, pid, rows, look)     the points (and drawn parts) a gap measure reads for one prop's rows, in its frame and the world
 //   gapsOf(rows, probes, measured)      the rows' gaps from the drawn look, worst first (gap times frames)
@@ -40,8 +42,8 @@ const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub = (a, b) => [
 const r2 = v => Math.round(v * 100) / 100, mm = v => Math.round(v * 1000);
 const median = list => { const s = list.slice().sort((a, b) => a - b); return s.length ? s[(s.length - 1) >> 1] : NaN; };
 
-/** The pose of clip prop p at frame f: its base pivot (the middle of its underside) and turn. */
-function frameOf(p, f) {
+/** The pose of clip prop p at frame f: its base pivot (the middle of its underside) and turn, { o, q }. */
+export function frameOf(p, f) {
 	const k = p.pos.length > 3 ? f : 0, q = p.quat.slice(k * 4, k * 4 + 4), h = p.shape === "sphere" ? p.size[0] : p.size[1];
 	return { o: add(p.pos.slice(k * 3, k * 3 + 3), qRotate(q, [0, -h / 2, 0])), q };
 }
@@ -81,8 +83,8 @@ function tiesAt(aux, clip, f) {
 		else if (holder != null) { tie(holder, p.id, PARTS[0]); tie(holder, p.id, PARTS[1]); }
 	}
 	// a joint carries the prop on the frames its ride has it in its place: from the frame it got there (the ride's over,
-	// ride.js), while no hand holds the prop
-	for (const r of aux.rides ?? []) if (J[r.joint] !== undefined && r.of != null && r.began != null && f >= r.began + Math.max(0, (r.over ?? 0) - 1) && f < (r.next ?? clip.frameCount) && aux.holders?.[r.prop]?.[f] == null) tie(r.of, r.prop, r.joint);
+	// ride.js) until a hand takes it off (the ride is over then) or the prop's next key
+	for (const r of aux.rides ?? []) if (J[r.joint] !== undefined && r.of != null && r.began != null && f >= r.began + Math.max(0, (r.over ?? 0) - 1) && f < (r.off ?? r.next ?? clip.frameCount)) tie(r.of, r.prop, r.joint);
 	return out;
 }
 
@@ -206,7 +208,8 @@ export function contactLine(label, rows) {
  * farther than GAP from the drawn look }. measured: { parts: [d] per probes parts entry (each its points' signed
  * distances: negative inside), seats: [top | null] per seats entry (the drawn surface's height under the Hips, local),
  * inside: [d] per inside entry, solids: [g] per solids entry (the drawn part against the drawn look: their least
- * distance, or minus how deep the deepest point of either is in the other) } in the order probesOf gave them.
+ * distance, 0 with the look round the part, or minus how deep the look's surface is in the part) } in the order
+ * probesOf gave them.
  * A body group inside a drawn part weighs with the share of the sampled frames it is inside on.
  */
 export function gapsOf(rows, probes, measured) {
@@ -222,11 +225,11 @@ export function gapsOf(rows, probes, measured) {
 			if (Math.abs(g) > GAP) out.push({ size: Math.abs(g), frames: row.frames.length, text: `${named(row)} at ${list(row.at)} ${span(row)}: ${g > 0 ? `floats ${mm(g)} mm over the drawn surface under it` : `sinks ${mm(-g)} mm below the drawn surface`}` });
 			return;
 		}
-		if (row.drawn) { // a joint that carries it: the gap between its drawn part and the drawn look (negative: the deepest either is in the other)
+		if (row.drawn) { // a joint that carries it: the gap between its drawn part and the drawn look (negative: the look is that deep in the part)
 			const gs = (probes.solids ?? []).map((s, i) => [s, measured.solids?.[i]]).filter(([s, d]) => s.row === k && Number.isFinite(d)).map(([, d]) => d);
 			if (!gs.length) return;
 			count++;
-			const g = median(gs), text = `${named(row)}'s drawn part ${span(row)}: ${mm(Math.abs(g))} mm ${g > 0 ? "from" : "inside"} the drawn look`;
+			const g = median(gs), text = `${named(row)}'s drawn part ${span(row)}: ${g > 0 ? `${mm(g)} mm from the drawn look` : `the drawn look ${mm(-g)} mm inside it`}`;
 			if (Math.abs(g) > GAP) out.push({ size: Math.abs(g), frames: row.frames.length, text });
 			return;
 		}
