@@ -26,7 +26,8 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // plus the edit argument of motion: single actions are changed without sending the whole spec again. "reach" is patch
 // plus the rows that say how far a hand, a foot or an elbow is from the target its action gave it. "noassist" is patch with the
 // engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target. "studio" is tilt
-// plus the reach rows and five engine steps, each of which can be switched off by name (OFF): pace, turn, tops, body, balance, and the
+// plus the reach rows and five engine steps, each of which can be switched off by name (OFF): pace, turn, tops (a prop's drawn
+// parts and the rows of the gaps to them, gaps.mjs), body, balance, and the
 // inside rows (inside, also in base: a body or a moving prop inside another prop, compile-tool.mjs and inside.mjs), and it is told the
 // parts of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs). body: a
 // character of the scene may have a scale and a tint (engine-simple/size.js, clip.js). balance: the row of a body at rest whose
