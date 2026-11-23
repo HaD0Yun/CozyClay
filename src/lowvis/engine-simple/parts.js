@@ -105,14 +105,17 @@ export function resolveParts(spec, def) {
 			const [f, verb, o] = Array.isArray(a) ? a : [];
 			if (!o || typeof o !== "object") return a;
 			const where = `${id} ${verb} at frame ${f}`, next = { ...o };
+			// a hold's place and a seat are on a prop's part: a body's parts take a hand, an elbow, a foot or a ride
+			const aProp = (on, what) => { if (Object.hasOwn(bodies, on)) throw new Error(`engine-simple: ${where}: ${what} wants a part of a prop; ${on} is a character, whose drawn parts take a hand, an elbow, a foot or a ride`); };
 			if (verb === "pose") for (const k of ["hands", "L", "R", "elbowL", "elbowR", "footL", "footR"]) { if (hasPart(o[k])) next[k] = placeOf(o[k], props, where, bodies, id); }
 			if (verb === "hold" && o.at !== undefined) {
-				const one = v => (hasPart(v) ? placeOf({ on: o.prop, ...v }, props, where).at : v);
+				const one = v => { if (!hasPart(v)) return v; aProp(v.on ?? o.prop, "a hold's at"); return placeOf({ on: o.prop, ...v }, props, where).at; };
 				next.at = hasPart(o.at) ? one(o.at) : !Array.isArray(o.at) && o.at && typeof o.at === "object" ? Object.fromEntries(Object.entries(o.at).map(([k, v]) => [k, one(v)])) : o.at;
 			}
 			if (verb === "ride" && hasPart(o)) return [f, verb, placeOf(o, props, where, bodies, id)];
 			if (verb === "sit" && o.part !== undefined) {
 				if (typeof o.on !== "string") throw new Error(`engine-simple: ${where}: a sit on a part wants on: propId as well, got ${JSON.stringify(o)}`);
+				aProp(o.on, "a sit on a part");
 				partOf(props[o.on] ?? null, o.part, o.on, where);
 			}
 			return [f, verb, next];

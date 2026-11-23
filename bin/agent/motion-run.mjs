@@ -100,8 +100,9 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
 	if (before) {
 		// the tool starts from them (harness.mjs kept); from the spec alone where the Studio scene is no longer that scene
 		const held = before.differs.length ? `The motion tool already holds the spec, as if you had sent it: a call may send edit in place of spec. It does not hold the scene: the Studio scene above differs from it (${before.differs.join("; ")}).` : "The motion tool already holds them, as if you had sent them: a call may send only edit, scene or look.";
-		// a prop's parts are told once: by the Studio scene above for a prop it lists, here for one a bone carries (no prop above)
-		const onBone = new Set((studio.attached ?? []).map(a => a.id)), scene = { ...before.scene, props: before.scene.props?.map(({ parts: drawn, ...prop }) => (drawn && onBone.has(prop.id) ? { ...prop, parts: drawn } : prop)) };
+		// a prop's parts are told once: by the Studio scene above for a prop it lists, here for one a bone carries (no prop above);
+		// the look the tool keeps with a scene whose spec names a body's part (parts.js withFigure) is the tool's, not a word of the scene
+		const onBone = new Set((studio.attached ?? []).map(a => a.id)), scene = { ...before.scene, figure: undefined, props: before.scene.props?.map(({ parts: drawn, ...prop }) => (drawn && onBone.has(prop.id) ? { ...prop, parts: drawn } : prop)) };
 		parts.push(`Your last scene and spec (the Studio plays them now). ${held} When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
 	return parts.join("\n\n");

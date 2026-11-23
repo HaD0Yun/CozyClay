@@ -68,6 +68,8 @@ console.log("ok parts: one box per drawn joint, around its solids, named for the
 	near(resolveParts(spec, { ...def, figure: undefined }).a[0][2].L.at, bodyParts("block").find(p => p.name === "Head").c.map((v, k) => v * 0.5 + [0, 0.1, 0][k]), 1e-12, "no figure: the block look's parts");
 	assert.throws(() => resolveParts({ a: [[3, "pose", { L: { on: "a", part: "LeftHand" } }]] }, def), /a pose at frame 3: a has no drawn part "LeftHand"; its parts \(named for their joints\): Hips, Spine/);
 	assert.throws(() => resolveParts({ a: [[3, "pose", { L: { on: "a", part: "Head", at: [1, 2] } }]] }, def), /at wants \[x, y, z\]/);
+	assert.throws(() => resolveParts({ a: [[3, "sit", { on: "b", part: "Hips" }]] }, def), /a sit at frame 3: a sit on a part wants a part of a prop; b is a character, whose drawn parts take a hand, an elbow, a foot or a ride/);
+	assert.throws(() => resolveParts({ a: [[3, "hold", { prop: "hat", hand: "R", at: { on: "b", part: "Head" } }]] }, def), /a hold at frame 3: a hold's at wants a part of a prop; b is a character/);
 	assert.equal(resolveParts({ a: [[0, "pose", { L: { joint: "Head", at: [0, 0.1, 0] } }]] }, def).a[0][2].L.joint, "Head", "the joint form as it was");
 	// the scene carries the figure only for a spec that names a part
 	assert.equal(withFigure({ frames: 2 }, { a: [[0, "idle"]] }, "cube").figure, undefined);
