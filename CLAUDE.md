@@ -1,7 +1,7 @@
 # CozyClay 작업 규칙
 
 - trunk는 `main`. 모든 작업은 `main`에서 브랜치를 따서 `main`으로 PR을 연다.
-- 3.0 방향: 모션 생성 백엔드(ARDY/Kimodo)는 없다. 에이전트가 브라우저 안의 결정적 모션 컴파일러(`src/motion3/`)와 QA로 모션을 계산한다. 설계 기록은 `docs/v3-plan.md`, 에이전트용 안내는 `docs/motion3-agent-guide.md`에 있다.
+- 3.3 방향: 모션 생성 백엔드(ARDY/Kimodo)는 없다. Studio 에이전트의 기본 몸 모션 경로는 `motion` 도구다. 두 번째 모델(모션 작성자)이 장면과 모션 스펙을 쓰고, 결정적 엔진(`src/lowvis/`)이 클립을 만든다. 안내는 `src/lowvis/README.md`에 있다. 예전 결정적 모션 컴파일러(`src/motion3/`)와 QA는 MCP, `cclay live`, `COZYCLAY_MOTION_ENGINE=old`에서 쓴다. 그 설계 기록은 `docs/v3-plan.md`, 에이전트용 안내는 `docs/motion3-agent-guide.md`에 있다.
 - 구현은 컨트롤 세션이 직접 한다(Codex 워커와 워크트리 규칙은 아래 2.x 절에만 해당한다).
 - 아래 "CI 린트 래칫"과 "PR 기준"(테스트 통과, 250줄 래칫, knip)은 그대로 적용한다.
 

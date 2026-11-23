@@ -105,10 +105,32 @@ one).
 
 ## 4. Make motion
 
-Motion is compiled in the browser, not generated. You write a motion spec (key poses, hand
-anchors, props, walks), compile it with `motion.compile`, and read the QA report (collisions, foot
-slide, reach, contacts). Spec format and loop: [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md).
-Motion works on rigged characters. Capsule figures refuse it with `TARGET_NOT_READY`.
+**In the Agent panel** body motion is one tool, `motion`. The Studio agent hands it the user's
+words. A second model, the motion writer, writes a scene and a motion spec; a deterministic engine
+makes every frame and measures the result; the writer reads those measures and contact sheets, and
+the take is installed on the rig characters. A motion can move props too. Capsule figures and
+imported rigs are not animated: they stand as they are, and the motion writer is told so.
+
+The writer needs a model sign-in in the Agent panel (section 5). It runs `claude-opus-5-5` at
+effort medium when a sign-in offers that model, and otherwise the model the conversation runs on.
+The tool's answer names the writer in its `writer` field.
+
+**Through MCP and `cclay live`** motion is the old engine's: you write a motion spec (key poses,
+hand anchors, props, walks), compile it with `motion.compile`, and read the QA report (collisions,
+foot slide, reach, contacts). Spec format and loop: [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md).
+Capsule figures refuse it with `TARGET_NOT_READY`. That engine compiles for the rig's own body: in
+a Studio drawn with the cube figure (the default) it refuses a character at scale 1 and names the
+scale to set (1.060445). Start the Studio with `COZYCLAY_FIGURE=block` to compile at scale 1.
+
+Switches, set in the environment of the process that starts the Studio:
+
+| Variable | Effect |
+| --- | --- |
+| `COZYCLAY_FIGURE=block` | Rig characters are drawn as the block figure instead of the cube figure. |
+| `COZYCLAY_MOTION_ENGINE=old` | The Agent panel uses the old engine (`motion.compile`, its prompt and motion tasks). Rig characters are then drawn as the block figure unless `COZYCLAY_FIGURE` names a look. |
+| `COZYCLAY_MOTION_MODEL`, `COZYCLAY_MOTION_EFFORT` | The motion writer's model and effort (default `claude-opus-5-5`, `medium`). |
+| `COZYCLAY_MOTION_DIRECT=on` | The model picker also lists "Opus 5.5 (lowvis motion)", which sends the request straight to the motion writer. |
+| `COZYCLAY_MOTION_OFF` | Engine steps switched off by name, comma separated: `pace`, `turn`, `tops`, `body`, `balance`, `inside`. |
 
 ## 5. Agent panel models (optional)
 

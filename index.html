@@ -414,7 +414,7 @@
               <div>
                 <span class="label">Step 1</span>
                 <h3>Stage</h3>
-                <p>Build the set from primitives. Add rigged characters, or capsule stand-ins.</p>
+                <p>Build the set from primitives and lights. Add rigged characters, drawn as cube figures, or capsule stand-ins.</p>
               </div>
               <figure>
                 <video src="/media/step-stage.mp4" poster="/media/step-stage-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A whole street built from cubes and cylinders in CozyClay."></video>
@@ -425,7 +425,7 @@
               <div>
                 <span class="label">Step 2</span>
                 <h3>Move</h3>
-                <p>Describe the action. The compiler bakes every frame; QA checks collisions, foot slide and reach.</p>
+                <p>Describe the action. A second model writes the motion, a deterministic engine makes every frame, and the writer reads its measures of foot slide, contacts and balance before the take goes in. A motion can move props too.</p>
               </div>
               <figure>
                 <video src="/media/step-move.mp4" poster="/media/step-move-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A request to the agent, then the clay character walks to a ball and pushes it with both hands."></video>
@@ -436,7 +436,7 @@
               <div>
                 <span class="label">Step 3</span>
                 <h3>Shoot</h3>
-                <p>Shots on a timeline, dolly rails and cranes, a look through the lens.</p>
+                <p>Shots on a timeline, dolly rails and cranes, a look through the lens. Turn a rail camera by hand and pick who it follows.</p>
               </div>
               <figure>
                 <video src="/media/step-shoot.mp4" poster="/media/step-shoot-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="The shot camera riding a four-point rail while the crane rises, with its live preview."></video>
@@ -451,6 +451,7 @@
               </div>
               <ul class="exports" aria-label="Export formats">
                 <li><b>Keyframe pack</b><span>First and last frame, greybox clip, camera, prompt</span></li>
+                <li><b>AI video reference</b><span>A mosaic-and-blur reference video and a prompt, in one zip</span></li>
                 <li><b>Video</b><span>The shot as an mp4</span></li>
                 <li><b>Passes</b><span>Depth and normal</span></li>
                 <li><b>Contact sheet</b><span>The shots side by side</span></li>
@@ -470,7 +471,7 @@
             <div class="way">
               <div>
                 <h3>Agent panel</h3>
-                <p>Chat beside the viewport and watch each change land. Sign in with ChatGPT or use your own key. Every change the agent makes is one undo step.</p>
+                <p>Chat beside the viewport and watch each change land. Sign in with ChatGPT or use your own key; body motion runs on the same sign-in. Every change the agent makes is one undo step.</p>
               </div>
               <p class="shortcut">Open the studio, then press <kbd>Cmd/Ctrl</kbd> + <kbd>B</kbd></p>
             </div>

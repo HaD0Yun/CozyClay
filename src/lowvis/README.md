@@ -1,7 +1,8 @@
 # lowvis prototype: contract
 
-A 17-joint box-like figure replaces the X Bot / Y Bot as the default previs body. This prototype answers one
-question: **how does the figure move?** The user judges side-by-side videos. No Studio integration, no PR, no CI.
+A 17-joint figure over the X Bot's bones is the previs body. The lowvis engine answers one question: **how does
+the figure move?** People judge it by eye. Since 3.3.0 it is the Studio agent's default motion engine (the motion door,
+below); rig characters are drawn in the cube look unless the launch names another (`COZYCLAY_FIGURE`).
 
 ## Fixed files (do not edit; report a needed change instead)
 
@@ -47,15 +48,16 @@ export const LOOKS = { box, capsule, stick, man, woman, block };  // each: ({ ti
 
 A lowvis clip becomes ordinary Studio scene content (`install.js`): each prop a Studio object (a prop that moves
 rides a track of a take), each character an X Bot cast member whose take is the clip's motion (`take.js`: exact,
-because the 17 joints are X Bot bones). `skin.jsx` draws the block figure over every X Bot character from its bones;
-a new character is an X Bot, so the block figure is the one look of rig characters.
+because the 17 joints are X Bot bones). `skin.jsx` draws the launch look (`studio/figure.js`: the cube figure unless
+`COZYCLAY_FIGURE` names another; `block` for the block figure) over every X Bot character from its bones; a new
+character is an X Bot, so that look is the one look of rig characters.
 
 The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, tops })`): the Studio's objects as boxes,
 each the object's own box turned about Y as the object stands (`turn`), with the parts it draws where its shape is not
 its box (`tops`: `tops.js` objectParts over the editor's describe answer, `parts.js`; the motion tool asks for them
 again before every compile, sets them on the writer's scene as the only parts a prop has, and tells the ones the Studio
 draws later, `pi/shapes.mjs`; the compiled scene kept with a take carries them); the X Bot characters, and the Y Bot characters, which the install
-changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."), each with
+changes to the rig figure before it animates them (the report ends "Changed to the rig figure (model x-bot-tpose): <ids>."), each with
 the scale and tint the Studio holds for it (`body`). Capsule figures and imported rigs cannot be animated and stand as
 they are; the request says so. An existing character loses its root path before its new take goes in.
 
@@ -71,7 +73,7 @@ tint), and the install sets what differs (`character.add`, `character.update`). 
 - The Studio take of a sized body (`studio/take.js`, `motion-v4/track/codec.js` `scale`) holds the unit skeleton's
   motion; `motion.v4.install` installs it on a character at that scale and refuses another, the rig plays it at the
   character's scale, and the readers of a take (`motion3/physics-frames.js`, `studio-export-framing.js`) multiply by it.
-  `skin.jsx` draws the block figure at the character's scale and, when it has a tint, in that colour.
+  `skin.jsx` draws the launch look at the character's scale and, when it has a tint, in that colour.
 - The motion tool's result names each animated character's scale and tint (`bodies`) when one is not the default, and
   the scale and tint the install set (`bodiesSet`, also the first word of a progress line of the tool, only when it set
   one). An edit that changes the scale of an animated
@@ -88,7 +90,7 @@ the user attached go along when the agent sets `images: true`. The scene and spe
 go with the next request. The agent's prompt under this engine has no guidance for the old motion engine
 (`bin/agent/studio-prompt-lowvis.mjs`), and the old motion and hand-fix actions are out of its view
 (`bin/agent/agent-view.mjs`, `HIDDEN_ACTIONS` in `bin/agent/motion-engine.mjs`); the editor and MCP keep them.
-Under this engine the agent works with the human form only. Its prompt says people are block figures (model
+Under this engine the agent works with the human form only. Its prompt says people are rig figures (model
 x-bot-tpose) moved by the motion tool, with no cast-style gate and nothing on capsule figures; the actions it reads have
 no capsule model, posture or cast style, its context has no `scene.castStyle`, and `run_action` / `patch_elements`
 refuse its adding a capsule figure (model proxy-figure) or changing a character into one. A capsule figure the user
@@ -101,7 +103,12 @@ task's summary carries the Missing line of its last motion call (`missing`), and
 Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent sidecar):
 
 - `COZYCLAY_MOTION_ENGINE=old`: the old motion engine comes back: the old prompt, every action in view, the v4
-  entries in the model picker and its motion tasks. Unset or anything else: the lowvis engine.
+  entries in the model picker and its motion tasks, and rig characters in the block look unless `COZYCLAY_FIGURE`
+  names one (`studio/figure.js` `launchValue`). Unset or anything else: the lowvis engine.
+- `COZYCLAY_FIGURE=<look>`: the look rig characters are drawn in and the body the engine builds for, in the page and in
+  the agent sidecar alike (`studio/figure.js`). Unset: the cube figure; `block`: the block figure.
+- `COZYCLAY_MOTION_MODEL=<id>`, `COZYCLAY_MOTION_EFFORT=<level>`: the motion writer's model and effort (default
+  claude-opus-5-5 at medium).
 - `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
   straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`).
 - `COZYCLAY_MOTION_OFF=pace,turn,tops,body,balance,inside`: engine steps of the lowvis engine switched off by name

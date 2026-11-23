@@ -55,7 +55,7 @@ CozyClay에서는 이런 결정을 3D에서 먼저, 싼 값에 내립니다. 그
 
 ```mermaid
 flowchart LR
-  S["Stage<br/>set + cast"] --> M["Motion<br/>compiled + QA"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
+  S["Stage<br/>set + cast"] --> M["Motion<br/>written + built"] --> C["Camera<br/>shots + cuts"] --> E["Export<br/>frame · clip · prompt"] --> V["AI video model"]
 ```
 
 ## 빠른 시작
@@ -81,11 +81,11 @@ npx cozyclay
 
 | | |
 | --- | --- |
-| **Stage** | 프리미티브로 세트를 짭니다. 리깅된 캐릭터를 넣거나, 팔다리를 움직일 필요가 없으면 캡슐 대역을 씁니다. 3D 에디터처럼 시점을 날려 다닙니다. |
-| **Move** | 동작을 말로 설명합니다. 에이전트가 모션 스펙을 쓰고, 브라우저 안의 결정적 컴파일러가 모든 프레임을 굽습니다. 충돌, 발 미끄러짐, 닿는 거리, 손 접촉은 화면에 나오기 전에 QA가 검사합니다. |
-| **Shoot** | 타임라인에 샷을 올리고, 달리 레일을 그리고, 렌즈로 들여다봅니다. 각 샷은 목표 영상 모델의 한계를 알고 있습니다. |
-| **Export** | 키프레임 팩(첫·마지막 프레임, 그레이박스 클립, 카메라, 프롬프트), mp4, 깊이·노말 패스, 컨택트 시트, OTIO 컷 리스트. |
-| **Storyboard** | 스틸을 선호하시나요? Storyboard 프로젝트는 캡션이 달린 패널 줄, 애니매틱, 컨택트 시트로 이루어집니다. |
+| **Stage** | 프리미티브로 세트를 짜고 점 조명, 스폿 조명, 방향 조명을 놓습니다. 큐브 인형으로 그려지는 리그 캐릭터를 넣거나, 팔다리를 움직일 필요가 없으면 캡슐 대역을 씁니다. 3D 에디터처럼 시점을 날려 다닙니다. |
+| **Move** | Agent 패널에서 동작을 말로 설명합니다. 두 번째 모델인 모션 작성자가 모션 스펙을 쓰고, 결정적 엔진이 모든 프레임을 만들면서 발 미끄러짐, 접촉, 균형, 소품 안으로 들어간 몸을 잽니다. 작성자는 테이크가 들어가기 전에 그 수치와 결과의 컨택트 시트를 읽습니다. 모션은 소품도 움직일 수 있습니다. Agent 패널에서 모델에 로그인해야 합니다. |
+| **Shoot** | 타임라인에 샷을 올리고, Top-View에서 달리 레일을 그리고, 렌즈로 들여다봅니다. 레일 카메라를 손으로 돌리고 따라갈 인물을 고릅니다. 각 샷은 목표 영상 모델의 한계를 알고 있습니다. |
+| **Export** | 키프레임 팩(첫·마지막 프레임, 그레이박스 클립, 카메라, 프롬프트), AI 영상 레퍼런스 zip(모자이크와 블러를 입힌 레퍼런스 영상과 프롬프트), mp4, 깊이·노말 패스, 컨택트 시트, OTIO 컷 리스트. |
+| **Look** | 툰 룩(검은 선과 2단 명암의 평평한 그림)이 뷰포트와 모든 캡처·내보내기에 기본으로 켜져 있습니다. 뷰포트 툴바의 **표시**에서 끕니다. |
 | **Undo anything** | 에이전트가 한 변경을 포함해 모든 편집이 실행 취소 한 단계입니다. |
 
 ## AI로 연출하기
@@ -118,7 +118,7 @@ npm test
 | 문서 | 내용 |
 | --- | --- |
 | [`INSTALL_FOR_AGENTS.md`](INSTALL_FOR_AGENTS.md) | AI 에이전트를 위해 쓴 설치·실행·연결 안내 |
-| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | 모션 스펙, 컴파일, QA |
+| [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md) | 이전 모션 엔진(MCP, `cclay live`, `COZYCLAY_MOTION_ENGINE=old`)의 모션 스펙, 컴파일, QA |
 | [`docs/agent-cli.md`](docs/agent-cli.md) | `cclay live`, 모델 제공자, 세션 |
 | [`mcp/README.md`](mcp/README.md) | MCP 도구와 라이브 프로토콜 |
 | [`docs/studio-ui-ia.md`](docs/studio-ui-ia.md) | 모든 컨트롤과 그 위치 |
