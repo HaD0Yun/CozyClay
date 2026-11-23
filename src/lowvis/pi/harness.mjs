@@ -100,20 +100,24 @@ function markCache(payload) {
  * send only an edit, a scene or a look. A compile whose spec came from it by edits alone logs "kept-spec".
  * onCompiled({ n, scene, spec, clip }): after each compile that went through (after its log line), with the scene and spec
  * it compiled (as the run's final holds them) and the file its clip was just written to (the next compile writes it again).
+ * writer: { models, model, provider, via, secrets } (bin/agent/motion-writer.mjs): the pi model on the Studio's provider
+ * registry, its credentials and transport, in place of the CLIProxyAPI the environment names; the record keeps provider
+ * and via, and scrubs secrets. The prompt-cache mark and the effort check hold for an anthropic-messages model.
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null }) {
-	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, kept = null, shapes = null, reshape = null, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null, inbox = null, writer = null }) {
+	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL, ...(writer?.secrets ?? [])].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
 	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
 	const figure = env.COZYCLAY_FIGURE || null, SYSTEM_PROMPT = systemPrompt(variant, off, lookBody(figure), figure), PARAMETERS = motionParameters(variant, off);
-	const record = { name, request, images: images.length, variant, off, ...(lookBody(figure) === 1 ? {} : { body: lookBody(figure) }), asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
+	const record = { name, request, images: images.length, variant, off, ...(lookBody(figure) === 1 ? {} : { body: lookBody(figure) }), asked: { model: modelId, effort }, ...(writer ? { writer: { provider: writer.provider, via: writer.via } } : {}), startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
 
 	let resolved;
 	try {
-		resolved = await resolveModel(modelId, env);
+		if (writer && writer.model?.id !== modelId) throw new Error(`the writer's model is ${writer.model?.id}, not the asked ${modelId}`);
+		resolved = writer ? { models: writer.models, model: writer.model, entry: `the ${writer.provider} sign-in` } : await resolveModel(modelId, env);
 		if (clampThinkingLevel(resolved.model, effort) !== effort) throw new Error(`the model ${modelId} does not take the effort ${effort}`);
 	} catch (error) {
 		record.infraError = { at: "setup", message: scrub(error?.message ?? error) };
@@ -154,10 +158,12 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 		streamFn: (m, context, options) => { open = { n: modelCalls.length + 1, atMs: round(now()) }; modelCalls.push(open); return models.streamSimple(m, context, options); },
 		transformContext: async messages => keepImages === "latest" ? latestImagesOnly(messages) : messages,
 		onPayload: payload => {
+			// another wire format (a session model of another family) is checked for its model only and gets no cache mark
+			const anthropic = model.api === "anthropic-messages";
 			const sent = { model: payload?.model, effort: payload?.output_config?.effort ?? null, thinking: payload?.thinking?.type ?? null };
 			if (open) open.sent = sent;
-			if (sent.model !== modelId || sent.effort !== effort) { fail(`the request would carry model ${sent.model} at effort ${sent.effort}, not the asked ${modelId} at ${effort}`); throw new Error("lowvis harness: the request does not carry the asked model and effort"); }
-			return markCache(payload);
+			if (anthropic ? sent.model !== modelId || sent.effort !== effort : sent.model != null && sent.model !== modelId) { fail(`the request would carry model ${sent.model} at effort ${sent.effort}, not the asked ${modelId} at ${effort}`); throw new Error("lowvis harness: the request does not carry the asked model and effort"); }
+			return anthropic ? markCache(payload) : undefined;
 		},
 		onProviderStreamEvent: event => {
 			if (event?.type !== "message_start" || !open) return;

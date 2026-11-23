@@ -1,18 +1,18 @@
 // The motion tool of the Studio agent: the user's message of the turn, as typed, and the agent's note go to the motion
 // environment (motion-run.mjs runMotion) and a report comes back. The route builds one door per turn
 // (agent-routes.mjs) and adds it to the agent's tools while the lowvis engine is the motion engine and the motion
-// writer's model is reachable (motionAvailable). In a plain turn the motion is written while the agent goes on, and its
+// writer has a model to run on (motion-writer.mjs writerRoute: the environment's proxy, a sign-in of the Studio, or the
+// turn's own model). In a plain turn the motion is written while the agent goes on, and its
 // result reaches the agent before the turn can end (createMotionDoor background). A motion of a plain turn outlives a
 // stopped or failed turn (motion-job.mjs): the next turn of the conversation collects it and installs it then.
-import { cliproxyBase, fetchModelList } from "./cliproxy-provider.mjs";
 import { motionEngine } from "./motion-engine.mjs";
-import { motionWriter } from "./motion-engine.mjs";
+import { writerRoute } from "./motion-writer.mjs";
 import { runMotion } from "./motion-run.mjs";
 import { refitMotion } from "./motion-refit.mjs";
 import { createJob, cutWith, installIn, jobNote } from "./motion-job.mjs";
 import { installFit } from "./motion-fit.mjs";
 
-const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs, never an object of another kind), installs the motion and moves the objects it handles. An effect, a light or another object with no box of its own that is in the scene can be moved too: carried names those it moves, as they are. An object one bone carries the whole motion is attached to that bone (attached: id, characterId, bone) instead of following a track; one that other objects are grouped under keeps its track, which they go with. An attached object whose place on its bone you or the user set later keeps it (kept: true) while the motion carries it on that bone. used names the objects the motion uses as boxes and the floor the bodies cross; contacts where its bodies meet each object (body part, place in metres in the object's own frame from the middle of its underside, frames; or, of a joint that carries it, its drawn part's size and the box it spans in that frame) and, while a body's seat meets it, the hands and feet the motion aims at no object; gaps each of those more than 0.03 m off or inside the drawn look (a carrying part: the look in it). A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. The writer starts from the scene and spec kept with the take a character plays (kept names that motion; keptNone the characters whose take keeps none, so the motion is written new). Its report ends with a Missing line. A motion is installed only when the writer's report answers for it: installed true, with undo, the receipt ids of the install's edits (in this message undo_edit of each in that order takes that install back); otherwise installed false, with notInstalled saying why. images: true sends the user's pictures.";
+const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs, never an object of another kind), installs the motion and moves the objects it handles. An effect, a light or another object with no box of its own that is in the scene can be moved too: carried names those it moves, as they are. An object one bone carries the whole motion is attached to that bone (attached: id, characterId, bone) instead of following a track; one that other objects are grouped under keeps its track, which they go with. An attached object whose place on its bone you or the user set later keeps it (kept: true) while the motion carries it on that bone. used names the objects the motion uses as boxes and the floor the bodies cross; contacts where its bodies meet each object (body part, place in metres in the object's own frame from the middle of its underside, frames; or, of a joint that carries it, its drawn part's size and the box it spans in that frame) and, while a body's seat meets it, the hands and feet the motion aims at no object; gaps each of those more than 0.03 m off or inside the drawn look (a carrying part: the look in it). A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. The writer starts from the scene and spec kept with the take a character plays (kept names that motion; keptNone the characters whose take keeps none, so the motion is written new). Its report ends with a Missing line; writer names the model that wrote it. A motion is installed only when the writer's report answers for it: installed true, with undo, the receipt ids of the install's edits (in this message undo_edit of each in that order takes that install back); otherwise installed false, with notInstalled saying why. images: true sends the user's pictures.";
 // A call without request (motion-refit.mjs); said last, after what a call with a request answers in this turn (STARTED)
 const REFIT = " Called without request, it writes nothing and uses no model: each motion that plays is compiled again from its kept scene and spec for the scale and tint its characters have now (after you or the user changed one) and installed; refit names each with the engine's rows new or worse than at the old size, both compiled now (empty: none), kept the motions no size change touched, skipped those it did not take over, each with why (a scene that changed otherwise needs the writer), keptNone the takes that keep no spec, undo the receipt ids of its edits, as above.";
 // A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
@@ -27,8 +27,6 @@ const PARAMETERS = {
 	required: [], additionalProperties: false,
 };
 const RESULT_PARAMETERS = { type: "object", properties: { install: { type: "boolean" }, stop: { type: "boolean" } }, required: [], additionalProperties: false };
-const AVAILABLE_MS = 60_000;
-let known = null; // { at, ok } of the last availability check
 
 /** The pictures of a turn's attachments ([{ dataUrl }]) as the motion writer takes them: [{ data, mimeType }], at most 4. */
 export function picturesOf(attachments) {
@@ -38,22 +36,8 @@ export function picturesOf(attachments) {
 	}).slice(0, 4);
 }
 
-/**
- * Whether the motion writer can run: the environment names CLIProxyAPI (CLIPROXY_BASE_URL and CLIPROXY_API_KEY, which
- * the motion writer reads) and the proxy lists its model. The answer is kept for a minute.
- */
-export async function motionAvailable(env = process.env) {
-	if (known && Date.now() - known.at < AVAILABLE_MS) return known.ok;
-	let ok = false;
-	try {
-		if (env?.CLIPROXY_BASE_URL && env?.CLIPROXY_API_KEY) ok = (await fetchModelList(`${cliproxyBase({ env })}/v1`, env.CLIPROXY_API_KEY, "CLIProxyAPI")).some(entry => (typeof entry === "string" ? entry : entry?.id) === motionWriter(env).model);
-	} catch { ok = false; }
-	known = { at: Date.now(), ok };
-	return ok;
-}
-
 const coded = (code, message) => Object.assign(new Error(message), { code });
-const answerOf = done => ({ ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null, ...(done.carried ? { carried: done.carried } : {}), ...(done.attached ? { attached: done.attached } : {}), ...(done.propsSet ? { propsSet: done.propsSet } : {}), ...(done.motionFit ? { motionFit: done.motionFit } : {}), ...(done.contacts ? { contacts: done.contacts } : {}), ...(done.gaps ? { gaps: done.gaps } : {}), ...(done.bodies ? { bodies: done.bodies } : {}), ...(done.bodiesSet ? { bodiesSet: done.bodiesSet } : {}), ...(done.kept ? { kept: done.kept } : {}), ...(done.keptNone ? { keptNone: done.keptNone } : {}),
+const answerOf = done => ({ ok: true, ...(done.writer ? { writer: done.writer } : {}), report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null, ...(done.carried ? { carried: done.carried } : {}), ...(done.attached ? { attached: done.attached } : {}), ...(done.propsSet ? { propsSet: done.propsSet } : {}), ...(done.motionFit ? { motionFit: done.motionFit } : {}), ...(done.contacts ? { contacts: done.contacts } : {}), ...(done.gaps ? { gaps: done.gaps } : {}), ...(done.bodies ? { bodies: done.bodies } : {}), ...(done.bodiesSet ? { bodiesSet: done.bodiesSet } : {}), ...(done.kept ? { kept: done.kept } : {}), ...(done.keptNone ? { keptNone: done.keptNone } : {}),
 	...(done.installed === undefined ? {} : { installed: done.installed }), ...(done.undo ? { undo: done.undo } : {}), ...(done.notInstalled ? { notInstalled: done.notInstalled } : {}) });
 // The ids a tool call changed: its own, and those of each call of a script (script-tool.mjs calls).
 const touched = result => [...(Array.isArray(result?.affectedIds) ? result.affectedIds : []), ...(Array.isArray(result?.calls) ? result.calls.flatMap(call => (Array.isArray(call?.affectedIds) ? call.affectedIds : [])) : [])];
@@ -252,7 +236,8 @@ const turns = new Map(); // a plain conversation -> the id of its last user turn
 
 /**
  * The motion tool of one Studio turn, or null: the coordinator of task mode (value.main) gets none, nor does any turn
- * while the old motion engine is on or the motion writer cannot run. A user turn with pictures keeps them for the
+ * while the old motion engine is on or the motion writer has no model to run on (motion-writer.mjs writerRoute over
+ * models, the Studio's provider registry, or an async function answering it). A user turn with pictures keeps them for the
  * motion tool of its conversation (a task's run reads its main session's); a later user turn without pictures drops
  * them, so old pictures never go with a later request. The main agent's hidden report turn changes nothing.
  * A plain turn's door runs the motion in the background, and its motion outlives the turn (jobs), unless the user's
@@ -261,12 +246,14 @@ const turns = new Map(); // a plain conversation -> the id of its last user turn
  * tools: the turn's Studio tools (their internal.invoke runs the install); transaction: the turn's
  * studioTransaction (mark, rollback); admission: the turn's (its host names the scene the tools act on). deps: runMotion's (tests).
  */
-export async function turnMotionDoor({ value, env = process.env, hub, tools, transaction, admission = null, signal, deps = null }) {
+export async function turnMotionDoor({ value, env = process.env, models = null, hub, tools, transaction, admission = null, signal, deps = null }) {
 	const key = value.task?.parentId ?? value.sessionId;
 	if (value.attachments?.length) pictures.set(key, picturesOf(value.attachments));
 	else if (!value.task && !value.hidden) pictures.delete(key);
 	if (!value.task && !value.hidden) cutWith(jobs, turns, key, value);
-	if (value.main || motionEngine(env) !== "lowvis" || !await motionAvailable(env)) return null;
+	if (value.main || motionEngine(env) !== "lowvis") return null;
+	const writer = await writerRoute({ env, models, picked: value.model });
+	if (!writer) return null;
 	const invoke = (action, args) => tools.internal.invoke("run_action", { action, args });
 	return createMotionDoor({
 		// the user's message as typed goes with the agent's request; a task's is the message its coordinator had (studio-task-routes.mjs)
@@ -276,7 +263,7 @@ export async function turnMotionDoor({ value, env = process.env, hub, tools, tra
 			// an install (now, or later on request) answers where its bodies meet the objects and how far the drawn looks are from there
 			const fitted = async done => (done?.installed ? { ...done, ...await installFit(key, studio) } : done?.install ? { ...done, install: () => done.install().then(fitted) } : done);
 			return runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub: studio, invoke: (action, args) => seat().invoke(action, args),
-				signal: value.task && callSignal && signal ? AbortSignal.any([callSignal, signal]) : value.task ? callSignal ?? signal : callSignal, env, onCompile, onBodies, onScene, changed, exclusive, drafting, onDraft, deps }).then(fitted);
+				signal: value.task && callSignal && signal ? AbortSignal.any([callSignal, signal]) : value.task ? callSignal ?? signal : callSignal, env, onCompile, onBodies, onScene, changed, exclusive, drafting, onDraft, writer, deps }).then(fitted);
 		},
 		refit: () => refitMotion({ hub, workspaceHandle: value.context.host.workspaceHandle, memoryKey: key, invoke, env, ...(deps?.refit ? { deps: deps.refit } : {}) }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
