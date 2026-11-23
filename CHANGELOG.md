@@ -8,6 +8,10 @@ Export
   reference video for Seedance-style models: in every 4 frames one light
   mosaic frame and three heavy-blur frames, restarting at each shot. The
   model keeps the camera, cuts and blocking but not the mannequin look.
+- The AI video reference zip also carries `prompt.txt`: the cast as
+  reference images, each shot's camera move read from its camera keys or
+  rail, the cuts, each shot's caption as its action, and the place you type
+  in the export dialog. `scene-facts.json` holds the same facts as data.
 
 ## 3.2.3 - 2026-11-20
 

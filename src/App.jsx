@@ -218,7 +218,7 @@ import {
 } from "./shot-guides.js";
 import { shotCaptureMeta } from "./shot-meta.js";
 import { buildShotPrompt } from "./shot-prompt.js";
-import { buildKeyframePack, keyframePackEntries, keyframePackName, slugifyTitle } from "./keyframe-pack.js"; import { runAiReferenceExport } from "./ai-reference-export.js";
+import { buildKeyframePack, keyframePackEntries, keyframePackName, slugifyTitle } from "./keyframe-pack.js"; import { openAiReferenceDialog } from "./ai-reference-export.js"; import AiReferenceDialog from "./ai-reference-dialog.jsx";
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
 import { DEPTH_RANGE_M, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
@@ -2039,7 +2039,7 @@ export default function App() {
 		hasEnvSheet,
 	};
 
-	const { firstSuccessGuideOpen, setFirstSuccessGuideOpen, useCaseAskOpen, setUseCaseAskOpen } = useFirstSuccessPrompt();
+	const { firstSuccessGuideOpen, setFirstSuccessGuideOpen, useCaseAskOpen, setUseCaseAskOpen } = useFirstSuccessPrompt(); const [aiReferenceAsk, setAiReferenceAsk] = useState(null);
 
 	// Dismissal mirrors the inspector-actions menu: only listen while open,
 	// ignore presses inside the wrap (the trigger's own click keeps toggling),
@@ -4437,7 +4437,7 @@ export default function App() {
 		setProjectStartupOpen, setProjectBrowserOpen, runStudioAction,
 		projectManifest, projectSaveState, recState, exportMenuTriggerRef, exportMenuOpen,
 		exportShotIdRef, setExportMenuOpen, exportPhaseLabel,
-		resultOpen, shots, exportKeyframePacks, exportAiReference: () => runAiReferenceExport({ shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport }),
+		resultOpen, shots, exportKeyframePacks, exportAiReference: () => openAiReferenceDialog({ shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport, setAiReferenceAsk, characters, shotFramingAtFrame, cameraSubjectsAt, filmback }),
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
 		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,
@@ -5216,7 +5216,7 @@ export default function App() {
 					setUseCaseAskOpen(false);
 				}}
 			/>
-			{saveBlockedReasons && <SaveBlockedDialog reasons={saveBlockedReasons} onClose={() => setSaveBlockedReasons(null)} />}
+			{saveBlockedReasons && <SaveBlockedDialog reasons={saveBlockedReasons} onClose={() => setSaveBlockedReasons(null)} />}{aiReferenceAsk && <AiReferenceDialog open {...aiReferenceAsk} />}
 			<Toast message={toast} onDone={() => showToast((current) => current === toast ? "" : current)} />
 			{pwaUpdate && (
 				<div className="scene-delete-toast" role="status">
