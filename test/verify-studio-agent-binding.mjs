@@ -425,9 +425,11 @@ const implementations={
  },
  async 'character-kind'(){
   const proxy=createCharacterEntry({id:'actor-cap',model:'proxy-figure',x:2,z:2,posture:'lie'});
-  const g=fixture({characters:[createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}),proxy]});
+  const g=fixture({characters:[createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}),proxy,createCharacterEntry({id:'actor-x',model:'x-bot-tpose',x:-2,z:2,scale:1.2})]});
   try{
    const c=g.binding.context();
+   // how tall a body stands, as drawn (figure.js standingHeight: here the block look at the rig's own body), only where a look draws it
+   assert.deepEqual(['actor-a','actor-cap','actor-x'].map(id=>c.entities.find(e=>e.id===id).standingHeightM),[undefined,undefined,2.086]);
    assert.equal(c.scene.previsMode,undefined,'the editor no longer reports a previs mode');
    assert.equal(c.capabilities.storyboard,undefined);
    const rigged=c.entities.find(e=>e.id==='actor-a'),proxy=c.entities.find(e=>e.id==='actor-cap');

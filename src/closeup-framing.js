@@ -4,13 +4,13 @@
 import { StudioProtocolError } from "./studio-agent-protocol.js";
 import { descendantsOf } from "./scene-objects.js";
 import { add, sub, scale, dot, cross, norm, quatFromMat } from "./motion3/compiler/math.js";
+import { standingHeight } from "./lowvis/studio/figure.js";
 
 const CLOSEUP_MAX_TARGETS = 4;
 // Three panes side by side, about 1280 x 480 in all: ~820 image tokens.
 export const CLOSEUP_PANE = { width: 420, height: 480 };
 const FOV = 30, MARGIN = 1.1, PAD = 0.02, MIN_HALF = 0.08, UP = [0, 1, 0];
-// The stand-in is 1.8 m; GAP keeps its arm clear of the object's corner.
-export const FIGURE_HEIGHT = 1.8;
+// The stand-in is as tall as a character at scale 1 (figure.js standingHeight); GAP keeps its arm clear of the object's corner.
 const FIGURE_HALF = 0.28, GAP = 0.12;
 const rad = d => (d * Math.PI) / 180;
 const fail = message => { throw new StudioProtocolError("INVALID_ARGUMENT", message); };
@@ -31,7 +31,7 @@ export function closeupTargets(args, { objects, characters = [] }, receipt = nul
 }
 
 /**
- * Where the 1.8 m stand-in stands in a view, clear of the box: off its front-left corner (-x, +z) for the
+ * Where the stand-in stands in a view, clear of the box: off its front-left corner (-x, +z) for the
  * three-quarter, which no box hides; level with its middle in depth for front and side, so it reads at the box's scale.
  */
 export function figureSpot(box, view = "three-quarter") {
@@ -63,11 +63,11 @@ const look = (yaw, elevation) => [Math.sin(rad(yaw)) * Math.cos(rad(elevation)),
  * The closeup's three cameras over a world box { min: [x,y,z], max }: three-quarter (front-right, 20 degrees up),
  * front (or side from +x when the box is deeper than wide: the longer silhouette), top (front down the image). Answers [{ name, eye, target, quaternion, fovDeg, near, far }].
  */
-export function closeupCameras(box, { aspect = CLOSEUP_PANE.width / CLOSEUP_PANE.height } = {}) {
+export function closeupCameras(box, { aspect = CLOSEUP_PANE.width / CLOSEUP_PANE.height, figureHeight = standingHeight() } = {}) {
 	// Of the figure, the frame holds the side toward the box (all of it once the box is a metre or more across) and up
 	// to the box's height: a small thing stands by an arm and a shin, not lost beside a whole person.
 	const size = Math.max(...box.max.map((v, i) => v - box.min[i])), strip = Math.min(2 * FIGURE_HALF, Math.max(0.2, size / 2));
-	const top = Math.min(FIGURE_HEIGHT, Math.max(box.max[1], 0.25));
+	const top = Math.min(figureHeight, Math.max(box.max[1], 0.25));
 	const seen = view => {
 		const [x, , z] = figureSpot(box, view), toward = view === "side" ? [0, -1] : [1, view === "front" ? 0 : -1];
 		const span = (c, k) => (toward[k] ? [c + toward[k] * (FIGURE_HALF - strip), c + toward[k] * FIGURE_HALF].sort((a, b) => a - b) : [c - FIGURE_HALF, c + FIGURE_HALF]);

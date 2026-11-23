@@ -11,7 +11,8 @@
 // sheet): the head is 0.85 of the drawing's in all three directions, on the same neck; the upper arm starts at the rig's
 // shoulder joint instead of at the chest's corner, with a narrower chest (0.28 m) to make room for it; the gaps at the
 // elbow and the wrist are 15 mm instead of 25. The joints did not move: the drawn arm is 34 mm longer from its shoulder
-// end to its wrist end, and the hand hangs no lower.
+// end to its wrist end, and the hand hangs no lower. Again on the owner's word (2026-11-23, the smallest of a sheet of
+// four head sizes): the head is 0.85 of that in all three directions (0.7225 of the drawing's), on the same neck.
 //
 // Plain stock parts, as the block look: a matte white, a navy sole, black eyes and a navy line on every edge. How
 // they are shaded is the stage's business (the Studio's toon finish, src/stage-finish.js, shades stock materials).
@@ -35,7 +36,7 @@ const ORIGIN = [0, 0, 0], UP = [0, 1, 0], OUT = [1, 0, 0];
  *   elbowGap, wristGap: metres from the elbow / wrist joint to each part it joins; gap: the same at every other joint
  */
 export const CUBE_SHAPE = Object.freeze({
-	head: [0.2465, 0.2635, 0.238], headBottom: 1.585,
+	head: [0.2095, 0.224, 0.2023], headBottom: 1.585,
 	chest: [0.28, 0.21, 0.2],
 	armTopX: 0.152, armLift: 0.04,
 	upperArm: [[0.07, 0.07], [0.062, 0.064]], foreArm: [[0.058, 0.06], [0.085, 0.082]],
@@ -63,7 +64,7 @@ const block = (centre, size) => new THREE.BoxGeometry(...size).translate(...cent
 function layout(S) {
 	const parts = [], add = (joint, geometry, dark = false, hand = null) => parts.push({ joint, geometry, dark, hand });
 	const GAP = S.gap;
-	// Head, neck and torso, top down. Drawing (px): head 210 x 240 front face (now 0.85 of it), neck 70 x 50,
+	// Head, neck and torso, top down. Drawing (px): head 210 x 240 front face (now 0.7225 of it), neck 70 x 50,
 	// chest 240 x 150 (now narrower), belly 185 x 80, pelvis 160 x 70, a gap of about 15 between them.
 	const HEAD = S.head, HEAD_Y = S.headBottom + HEAD[1] / 2;
 	add("Head", block([0, HEAD_Y, 0], HEAD));

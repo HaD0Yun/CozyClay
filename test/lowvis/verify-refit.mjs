@@ -18,6 +18,7 @@ import { lookBody } from "../../src/lowvis/studio/figure.js";
 import { decodeRawTrack } from "../../src/motion-v4/track/codec.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { refitMotion } from "../../bin/agent/motion-refit.mjs";
+import { keptTakes } from "../../bin/agent/motion-kept.mjs";
 import { bodiesOf, bodyFitOf, rememberBodies } from "../../bin/agent/motion-fit.mjs";
 
 const ENV = { COZYCLAY_FIGURE: "cube" }, B = lookBody("cube");
@@ -104,5 +105,33 @@ const refit = studio => refitMotion({ hub: studio.hub, workspaceHandle: "ws", in
 	}
 	console.log(table.join("\n"));
 	console.log(`ok sweep: ${runs} refits of ${CASES.length} scenes at ${SIZES.join(", ")}; ${missed} told a new or worse row`);
+}
+// --- 4: a motion made under an earlier body of the look (0.81): its take is of that size and the stored character was
+// carried over to the scale that stands as large (scenes.js), so the refit finds no size change, and the follow-up and the
+// refit start from the size the take plays; a resize after that is refit from that size ---
+{
+	const OLD = 0.81, carried = OLD / B, source = { ...written(CASES[1], 9), as: "a" };
+	const studioAt = scale => {
+		const s = studioOf(source, scale), command = s.hub.command;
+		return { ...s, hub: { command: async () => { const read = await command(); read.document.scenes[0].stage = { figureBody: B, characters: [{ id: "a", motionTake: { spec: { lowvis: source, raw: { scale: OLD } } } }] }; return read; } } };
+	};
+	assert.ok(Math.abs(keptTakes(await studioAt(carried).hub.command()).kept.a.scene.characters[0].scale - carried) < 1e-6, "the kept scene has the size its take plays");
+	const same = await refit(studioAt(carried));
+	assert.deepEqual([same.refit.length, same.kept], [0, [{ name: source.name, characters: ["a"] }]], `no size change: ${JSON.stringify(same)}`);
+	const grown = await refit(studioAt(1));
+	assert.equal(grown.refit.length, 1, JSON.stringify(grown));
+	assert.deepEqual(grown.refit[0].sizes, [{ id: "a", was: Math.round(carried * 1e6) / 1e6, now: 1 }], "a resize is told from the size the take played");
+	console.log(`ok an earlier body's motion: kept at ${carried.toFixed(6)}; resized to 1 it is refit from that size (rows ${JSON.stringify(grown.refit[0].rows)})`);
+
+	// two bodies of one such motion, their takes stored before the writer's id was kept with a take (no `as`), Studio ids
+	// lowvis-<id>: untouched they fit; with one resized only that one is told (the other's carried scale is no change)
+	const pair = written({ name: "two bodies", scene: { frames: 48, characters: [{ id: "a", at: [0, 0], heading: 0 }, { id: "b", at: [2, 0], heading: 0, scale: 1.2 }], props: [] }, spec: { a: [[5, "pose", { R: [-0.15, 0.35, 0.3], over: 10 }]], b: [[5, "pose", { L: [0.15, 0.35, 0.3], over: 10 }]] } }, 8);
+	const sizes = { a: OLD, b: 1.2 * OLD }, rows = Object.keys(sizes).map(id => ({ id: `lowvis-${id}`, motionTake: { spec: { lowvis: pair, raw: { scale: sizes[id] } } } }));
+	const both = a => ({ hub: { command: async () => ({ document: { activeSceneId: "s", scenes: [{ id: "s", stage: { figureBody: B, characters: rows } }] }, objects: [], characters: [{ id: "lowvis-a", model: TRACK_RIG, x: 0, z: 0, rot: 0, scale: a }, { id: "lowvis-b", model: TRACK_RIG, x: 2, z: 0, rot: 0, scale: sizes.b / B }] }) }, invoke: async (action, args) => ({ affectedIds: [args?.characterId ?? "x"] }) });
+	const still = await refit(both(carried));
+	assert.deepEqual([still.refit.length, still.kept], [0, [{ name: pair.name, characters: ["lowvis-a", "lowvis-b"] }]], `two bodies, no size change: ${JSON.stringify(still)}`);
+	const one = await refit(both(1));
+	assert.deepEqual(one.refit[0].sizes, [{ id: "lowvis-a", was: Math.round(carried * 1e6) / 1e6, now: 1 }], "only the resized body is told");
+	console.log("ok two bodies of an earlier body's motion whose takes name no writer id: no size change untouched; one resized, one told");
 }
 console.log("PASS verify-refit");

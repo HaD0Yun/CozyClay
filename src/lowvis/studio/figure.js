@@ -8,10 +8,14 @@
 const LOOK_RIG = "x-bot-tpose";
 
 /** The body of each look, as a share of the rig's own body (rig17.js, 1.82 m to the top of its head): a character of
- *  that look at scale 1 is that body, and its scale is times that body. cube: the owner's body (2026-11-20), 1.50 m in
- *  the T-pose (1.49 m standing with the arms down); the look's drawn head stands over the rig's head, so the rig's own
- *  body would draw it 1.85 m tall. Any other look: the rig's own body (block: 1.75 m). */
-const BODY = { cube: 0.81 };
+ *  that look at scale 1 is that body, and its scale is times that body. cube: the owner's body (2026-11-23), 1.70 m
+ *  standing with the arms down (STANDS.cube x 0.943). Any other look: the rig's own body. */
+const BODY = { cube: 0.943 };
+
+/** How tall each look stands at the rig's own body with the arms down, in metres: the top of the drawn look over the
+ *  floor in the engine's stand pose, to a tenth of a millimetre (three.js bounds; test/lowvis/verify-look-body.mjs
+ *  measures them again). */
+const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man: 1.7679, woman: 1.7635, cube: 1.8024 };
 
 const LAUNCHED = import.meta.env?.VITE_COZYCLAY_FIGURE || null;
 /** The look this page draws rig characters in, or null for the block look. */
@@ -24,6 +28,13 @@ export const lookBody = (look = LAUNCHED) => BODY[look] ?? 1;
  *  (only a character of the rig the looks are drawn over has one). */
 export const bodyScale = (character, look = LAUNCHED) => (Number.isFinite(character?.scale) ? character.scale : 1) * (character?.model === LOOK_RIG ? lookBody(look) : 1);
 
+/** How tall `character` stands with the arms down, in metres (to the millimetre), drawn in the look `drawn` (this page's;
+ *  skin.jsx draws an unknown look as the block look); by default a character of the rig at scale 1. null for a
+ *  character of another model (no look draws it). */
+export function standingHeight(character = { model: LOOK_RIG }, drawn = FIGURE) {
+	return character?.model === LOOK_RIG ? Math.round((STANDS[drawn] ?? STANDS.block) * bodyScale(character) * 1000) / 1000 : null;
+}
+
 /** The scales a stored row may hold: the Studio's limits of a character's scale ({ min, max }), and for a character of
  *  the rig the looks are drawn over as far up as the largest body any look's limit allows, so a row carried over from a
  *  look of a larger body (carriedOver) keeps its size up to that limit. Under the rig's own body: the limits themselves. */
@@ -33,7 +44,7 @@ export function scaleRoom({ min, max }, model, look = LAUNCHED) {
 }
 
 /** A size the engine built (a share of the rig's own body) as a character's scale of the look's body `body`: the size
- *  itself for the rig's own body, else to six decimals (0.81 x 0.9 / 0.81 is 0.9). */
+ *  itself for the rig's own body, else to six decimals (0.943 x 0.9 / 0.943 is 0.9). */
 export const scaleOf = (size, body = 1) => (body === 1 ? size : Math.round(size / body * 1e6) / 1e6);
 
 /** The character scale a take was made for, or null: a raw take (source.spec.raw, motion-v4/track/codec.js) is of one

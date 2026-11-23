@@ -8,12 +8,26 @@ const plain = value => value !== null && typeof value === "object" && !Array.isA
  *  characters (describe answer `read`: its document holds each character's saved take, src/document-mirrors.js): kept,
  *  those whose take keeps the writer's scene and spec; bare, those that play a take that keeps none. */
 export function keptTakes(read) {
-	const document = read?.document, open = document?.scenes?.find(scene => scene?.id === document?.activeSceneId), kept = {}, bare = [];
+	const document = read?.document, open = document?.scenes?.find(scene => scene?.id === document?.activeSceneId), kept = {}, bare = [], made = {};
+	// A kept scene's scales are of the look's body the motion was written under; a take's own size (spec.raw.scale, a
+	// share of the rig's body) is what it plays. So each character the kept scene names is given the scale of the size
+	// its take was made for over the body the open stage's scales are of (figureBody; 1 when left out): a motion written
+	// before the look's body changed starts its follow-up and its refit from the size it plays, not from a larger one.
+	const body = Number.isFinite(open?.stage?.figureBody) && open.stage.figureBody > 0 ? open.stage.figureBody : 1;
 	for (const row of open?.stage?.characters ?? []) {
 		if (typeof row?.id !== "string" || !plain(row.motionTake)) continue;
-		const entry = row.motionTake.spec?.lowvis;
-		if (plain(entry) && typeof entry.name === "string" && plain(entry.scene) && Array.isArray(entry.scene.characters) && plain(entry.spec)) kept[row.id] = entry;
-		else bare.push(row.id);
+		const entry = row.motionTake.spec?.lowvis, size = row.motionTake.spec?.raw ? row.motionTake.spec.raw.scale ?? 1 : null;
+		if (!(plain(entry) && typeof entry.name === "string" && plain(entry.scene) && Array.isArray(entry.scene.characters) && plain(entry.spec))) { bare.push(row.id); continue; }
+		kept[row.id] = entry;
+		// which of the kept scene's characters this take is: the id its writer gave it (as), or for a take stored before
+		// that id was kept, the id the Studio's scene tells this character under (src/lowvis/studio/scene.js)
+		const told = row.id.replace(/^lowvis-/, "").trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+		const as = entry.as ?? (entry.scene.characters.length === 1 ? entry.scene.characters[0] : entry.scene.characters.find(c => String(c?.id) === told))?.id;
+		if (Number.isFinite(size) && as !== undefined) (made[entry.name] ??= {})[String(as)] = Math.round(size / body * 1e6) / 1e6;
+	}
+	for (const [id, entry] of Object.entries(kept)) {
+		const sizes = made[entry.name] ?? {}, differs = c => sizes[String(c.id)] !== undefined && Math.abs(sizes[String(c.id)] - (c.scale ?? 1)) > 1e-6;
+		if (entry.scene.characters.some(differs)) kept[id] = { ...entry, scene: { ...entry.scene, characters: entry.scene.characters.map(c => (differs(c) ? { ...c, scale: sizes[String(c.id)] } : c)) } };
 	}
 	return { kept, bare };
 }

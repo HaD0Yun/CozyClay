@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Browser check in the Studio of the cube look (COZYCLAY_FIGURE=cube): a character at scale 1 is the 1.50 m body; a
-// scene stored before that change (a cube figure at scale 0.81 with a lowvis take of that size, a cup on its hand, a
-// tracked box) opens looking and playing as before; the writer's scene and spec go with the take (reload, undo,
+// Browser check in the Studio of the cube look (COZYCLAY_FIGURE=cube): a character at scale 1 is the 1.70 m body; a
+// scene stored by an earlier build (a cube figure of world size 0.81 with a lowvis take of that size, a cup on its hand, a
+// tracked box) opens at the same world size and playing as before (the same picture while the look's head is the same); the writer's scene and spec go with the take (reload, undo,
 // duplicate, the describe answer the sidecar reads); a scale change is refit without a model (bin/agent/motion-refit.mjs).
 // Two stages, one per build of the page at the same address:
 //   QA_STAGE=before on the build before the change: installs the stored scene's motion as that build did, and writes
@@ -88,6 +88,9 @@ const differ = (a, b) => evaluate(`(async () => {
 	return { differ: n, of: p.length / 4 };
 })()`);
 const mm = (a, b) => Math.hypot(...a.map((v, k) => v - b[k])) * 1000;
+/** The page's look body (figure.js lookBody: 1 in a build before it) and the cube look's head (cube.js CUBE_SHAPE.head). */
+const pageBody = () => evaluate(`import("/src/lowvis/studio/figure.js").then(m => m.lookBody?.() ?? 1)`);
+const head = () => evaluate(`import("/src/lowvis/looks/cube.js").then(m => m.CUBE_SHAPE?.head ?? null)`);
 /** Opens a stored scene document as a fresh page load does. */
 async function openStored(document) {
 	await evaluate(`localStorage.setItem(${JSON.stringify(KEY)}, ${JSON.stringify(document)}); location.reload()`);
@@ -109,16 +112,17 @@ if (STAGE === "before") {
 	const old = await evaluate("window.__cozyclay.objects.map(o => o.id)");
 	if (old.length) await act("object.remove", { ids: old });
 	for (const c of await evaluate("window.__cozyclay.characters.map(c => c.id)")) await act("character.remove", { characterId: c });
-	const out = await install(clip, { label: "qa size" });
+	const body = await pageBody(), out = await install(clip, { label: "qa size", body });
 	assert.equal(out.ok, true, "the clip installs");
 	await waitFor("the rig", `window.__cozyclay.rigs?.[${JSON.stringify(ID)}]?.parent && window.__cozyclay.frameCount >= ${F}`);
-	assert.equal(await evaluate(`window.__cozyclay.characters.find(c => c.id === ${JSON.stringify(ID)}).scale`), OLD, "the build of before stores the body's size as the scale");
+	const scale = await evaluate(`window.__cozyclay.characters.find(c => c.id === ${JSON.stringify(ID)}).scale`);
+	assert.ok(Math.abs(scale * body - OLD) < 1e-6, `the build of before stores the body's size as the scale over its look's body (${scale} x ${body})`);
 	await sleep(1500);
 	// the stored document, opened fresh as the after stage opens it
 	const document = await evaluate(`localStorage.getItem(${JSON.stringify(KEY)})`);
 	await openStored(document);
 	const drawn = await look("before");
-	writeFileSync(join(OUT, "before.json"), JSON.stringify({ document, drawn, placed: out.placed }));
+	writeFileSync(join(OUT, "before.json"), JSON.stringify({ document, drawn, placed: out.placed, body, scale, head: await head() }));
 	console.log(`before: stored; skin ${drawn[0].skinBottom.toFixed(3)} to ${drawn[0].skinTop.toFixed(3)} m at f0`);
 	process.exit(0);
 }
@@ -128,8 +132,9 @@ const before = JSON.parse(readFileSync(join(OUT, "before.json"), "utf8"));
 await openStored(before.document);
 const report = {};
 {
-	const row = await evaluate(`window.__cozyclay.characters.find(c => c.id === ${JSON.stringify(ID)})`);
-	assert.equal(row.scale, 1, "carried over: the cube figure of 0.81 is the cube body at scale 1");
+	const row = await evaluate(`window.__cozyclay.characters.find(c => c.id === ${JSON.stringify(ID)})`), body = await pageBody(), sameHead = JSON.stringify(await head()) === JSON.stringify(before.head);
+	assert.ok(Math.abs(row.scale * body - before.scale * before.body) < 1e-9, `carried over: the cube figure stands as large as it was stored (scale ${row.scale} x ${body})`);
+	report.scale = { before: [before.scale, before.body], after: [row.scale, body], head: [before.head, await head()] };
 	const drawn = await look("after");
 	report.carried = drawn.map((d, k) => {
 		const was = before.drawn[k], bone = Math.max(...d.bones.map((p, j) => mm(p, was.bones[j])));
@@ -141,26 +146,30 @@ const report = {};
 		r.pixels = await differ(`before-f${FRAMES[k]}.png`, `after-f${FRAMES[k]}.png`);
 	}
 	console.log(`carried over: ${report.carried.map(r => `f${r.frame} bones ${r.bone.toFixed(3)} mm, props ${r.prop.toFixed(3)} mm, ${r.pixels.differ} of ${r.pixels.of} px differ`).join("; ")}`);
-	for (const r of report.carried) assert.equal(r.pixels.differ, 0, `f${r.frame}: the same pixels`);
+	// the look's head is the look's shape, not the scene's: a build with another head draws it (a meant difference)
+	if (sameHead) for (const r of report.carried) assert.equal(r.pixels.differ, 0, `f${r.frame}: the same pixels`);
+	else console.log(`the look's head ${JSON.stringify(report.scale.head[0])} -> ${JSON.stringify(report.scale.head[1])}: the pixels differ there; skin top ${report.carried.map(r => `${r.top[0].toFixed(3)} -> ${r.top[1].toFixed(3)}`).join(", ")} m`);
 	await sleep(1500);
 	const saved = JSON.parse(await evaluate(`localStorage.getItem(${JSON.stringify(KEY)})`)), stage = saved.scenes.find(s => s.id === saved.activeSceneId).stage;
 	assert.equal(stage.figureBody, lookBody("cube"), "the saved stage names the body its scales are of");
-	assert.equal(stage.characters.find(c => c.id === ID).scale, 1);
+	assert.equal(stage.characters.find(c => c.id === ID).scale, row.scale);
 	const read = describe();
 	assert.deepEqual(keptTakes(read), { kept: {}, bare: [ID] }, "an old take keeps no spec: the sidecar tells the agent so");
 	report.saved = { figureBody: stage.figureBody };
 }
 
-// --- a new character at scale 1 is the 1.50 m body ---
+// --- a new character at scale 1 is the 1.70 m body ---
 {
-	const id = (await act("character.add", { character: { x: 2, z: 0 } })).affectedIds[0];
+	const had = await evaluate("window.__cozyclay.characters.map(c => c.id)"), added = (await act("character.add", { character: { x: 2, z: 0 } })).affectedIds;
+	const id = added.find(a => !had.includes(a)); // the receipt names the cast it touched, the new one among them
 	await waitFor("its rig", `window.__cozyclay.rigs?.[${JSON.stringify(id)}]?.parent`);
 	const row = await evaluate(`window.__cozyclay.characters.find(c => c.id === ${JSON.stringify(id)})`);
 	assert.equal(row.scale, 1, "a new figure starts at scale 1");
 	const [d] = await look("new", [0], id);
 	report.newFigure = { top: d.skinTop, bottom: d.skinBottom };
-	assert.ok(Math.abs(d.skinTop - d.skinBottom - 1.49) < 0.02, `standing it is 1.49 m tall (${(d.skinTop - d.skinBottom).toFixed(3)} m)`);
-	console.log(`new figure at scale 1: ${(d.skinTop - d.skinBottom).toFixed(3)} m standing`);
+	// with no take it stands in the rig's T-pose, which the cube look draws 6 mm over its 1.70 m with the arms down (verify-look-body)
+	assert.ok(Math.abs(d.skinTop - d.skinBottom - 1.706) < 0.005, `in the T-pose it is 1.706 m tall (${(d.skinTop - d.skinBottom).toFixed(3)} m)`);
+	console.log(`new figure at scale 1: ${(d.skinTop - d.skinBottom).toFixed(3)} m in the T-pose`);
 	// the scale knob of its gizmo reads and writes the character's scale: a small pull outwards makes it a little larger
 	await act("view.select", { selection: { kind: "character", id } });
 	const key = (type, code, k) => send("Input.dispatchKeyEvent", { type, code, key: k, windowsVirtualKeyCode: k.toUpperCase().charCodeAt(0) });
