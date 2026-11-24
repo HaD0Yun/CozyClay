@@ -11,6 +11,7 @@
 // and a headless test drive the identical path.
 
 import * as THREE from "three";
+import { GLASS_PANE_OPACITY } from "./material-presets.js";
 
 export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 
@@ -121,9 +122,10 @@ varying float vViewDepth;
 uniform float uNear;
 uniform float uRange;
 uniform float uCurve;
+uniform float uCover;
 ${DEPTH_RAMP}
 void main() {
-	gl_FragColor = vec4(vec3(depthRamp(vViewDepth, uNear, uRange, uCurve)), 1.0);
+	gl_FragColor = vec4(vec3(depthRamp(vViewDepth, uNear, uRange, uCurve)), uCover);
 }
 `;
 
@@ -136,6 +138,7 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 			fragmentShader: DEPTH_FRAGMENT,
 			uniforms: {
 				uCurve: { value: CURVES[depthCurve] ?? 0 },
+				uCover: { value: 1 },
 				uNear: { value: Number.isFinite(depthRange?.near) ? depthRange.near : (Number.isFinite(camera?.near) ? camera.near : 0.1) },
 				uRange: { value: Number.isFinite(depthRange?.far) ? depthRange.far : DEPTH_RANGE_M },
 			},
@@ -146,6 +149,13 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 	}
 	if (kind === "normal") return new THREE.MeshNormalMaterial();
 	throw new Error(`Unknown render pass: ${kind}`);
+}
+
+/** How much of what is behind it a mesh covers in the picture: 1 for a solid, the opacity of a see-through material,
+ * the plain pane's share for clear glass (three's transmission). A mesh of several materials is as solid as its most solid one. */
+function surfaceCover(mesh) {
+	const cover = (m) => (m?.transparent && m.opacity < 1 ? m.opacity : m?.transmission > 0 ? 1 - m.transmission * (1 - GLASS_PANE_OPACITY) : 1);
+	return Math.max(...[mesh.material].flat().map(cover));
 }
 
 /**
@@ -171,8 +181,12 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 	// Particles and trails have no surface either, but they are in the way of
 	// what is behind them: in the depth plate each draws its own distance over
 	// the surfaces (userData.ownDepth, effects/effect-meshes.js), mixed by its
-	// opacity. In the normal plate they stay out.
-	const hidden = [], own = [];
+	// opacity. In the normal plate they stay out. A see-through surface (glass, a pane at part opacity) is a surface,
+	// and what is behind it is in the picture too: in the depth plate it draws its distance over what is behind it,
+	// mixed by the share of it the picture covers (a veil: the pass's material at that share, drawn after the solids).
+	const hidden = [], own = [], veiled = [], veils = new Map();
+	const veil = (cover) => veils.get(cover) ?? veils.set(cover, Object.assign(material.clone(), { transparent: true, depthWrite: false, allowOverride: false,
+		uniforms: { ...material.uniforms, uCover: { value: cover } } })).get(cover);
 	const ramp = kind === "depth" ? { near: material.uniforms.uNear.value, far: material.uniforms.uRange.value, curve: material.uniforms.uCurve.value } : null;
 	scene.traverse?.((node) => {
 		if (node.userData?.beautyOnly && node.visible) {
@@ -180,9 +194,11 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 			node.visible = false;
 		}
 		if (ramp && typeof node.userData?.ownDepth === "function") own.push(node);
+		else if (ramp && node.isMesh && node.material && surfaceCover(node) < 1) veiled.push([node, node.material]);
 	});
 	try {
 		for (const node of own) node.userData.ownDepth(ramp);
+		for (const [node] of veiled) node.material = veil(Math.round(surfaceCover(node) * 100) / 100);
 		scene.overrideMaterial = material;
 		// Empty sky is infinitely far away, so on a depth plate it is black. The
 		// studio's pale stage colour would otherwise read as "nearest thing in
@@ -197,6 +213,8 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 		scene.background = previousBackground;
 		for (const node of hidden) node.visible = true;
 		for (const node of own) node.userData.ownDepth(null);
+		for (const [node, drawn] of veiled) node.material = drawn;
+		for (const made of veils.values()) made.dispose();
 		material.dispose();
 	}
 	if (!buffer) return null;

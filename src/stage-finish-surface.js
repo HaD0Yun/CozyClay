@@ -3,6 +3,7 @@
 // loads, before any material compiles; stage-finish.js imports it first for that reason.
 import * as THREE from "three";
 import { GIZMO_LAYER, POSER_LAYER } from "./dualview.jsx";
+import { GLASS_PANE_OPACITY } from "./material-presets.js";
 
 // One light step per light with a direction. A directional light with none (its target on itself: the rig's fill and
 // rim while the bands are on, see applySurfaceLook) lights every face the same, at half the lit step: it lifts the set
@@ -123,7 +124,6 @@ const SURFACE_KEYS = ["COZY_BANDS", "COZY_BANDS_LEVEL", "COZY_FILL", "COZY_POOL"
 // Editor furniture (gizmos, handles, the selection cage) is UI: it never takes the look.
 const isUi = (node) => node.layers.isEnabled(GIZMO_LAYER) || node.layers.isEnabled(POSER_LAYER);
 
-const GLASS_OPACITY = 0.22;
 
 /** A fill light (userData.fillLight: the rig's fill and rim, room.jsx) has no direction while the bands are on, which
  *  the shader reads as "light every face alike" (DIRECT_BANDS), and its own aim again with them off. */
@@ -149,7 +149,7 @@ export function applySurfaceLook(scene, surface) {
 			const glass = material.userData.cozyGlass;
 			if (surface?.bands && material.transmission > 0) {
 				material.userData.cozyGlass = { transmission: material.transmission, transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite };
-				Object.assign(material, { transmission: 0, transparent: true, opacity: GLASS_OPACITY, depthWrite: false });
+				Object.assign(material, { transmission: 0, transparent: true, opacity: GLASS_PANE_OPACITY, depthWrite: false });
 			} else if (!surface?.bands && glass) {
 				Object.assign(material, glass);
 				delete material.userData.cozyGlass;
