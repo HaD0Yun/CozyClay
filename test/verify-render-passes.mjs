@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { passFileName, renderPass, PASS_KINDS, DEPTH_RANGE_M, depthGrey } from "../src/render-passes.js";
+import { applyPoseFade } from "../src/pose-fade.js";
 
 assert.equal(depthGrey(0.1, 0.1, 40, "inverse"), 1);
 assert.equal(depthGrey(40, 0.1, 40, "inverse"), 0);
@@ -137,5 +138,22 @@ console.log("PASS render passes: an unready rig reports null instead of throwing
 	const failing = { render() { throw new Error("context lost"); } };
 	assert.throws(() => renderPass(failing, veilScene, camera, "depth"), /context lost/);
 	assert.equal(pane.material, own.pane, "a draw that throws still gives the materials back");
+	// Pose mode's working fade is an editing aid: a prop it fades is as solid in the plate as it is in the set, and a
+	// pane keeps the share it was authored with. A mesh with no material at all is left alone.
+	const prop = new THREE.Group(), crate = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+	const tinted = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()), bare = new THREE.Mesh(new THREE.BoxGeometry(), []);
+	const tintedProp = new THREE.Group();
+	prop.add(crate); tintedProp.add(tinted);
+	veilScene.add(prop, tintedProp, bare);
+	applyPoseFade(prop, 0.2, 1);
+	applyPoseFade(tintedProp, 0.2, 0.5);
+	assert.deepEqual([crate.material.opacity, tinted.material.opacity], [0.2, 0.1], "the working fade is on the materials the pass meets");
+	const faded = { crate: crate.material, tinted: tinted.material };
+	const seen = [];
+	renderPass({ render() { seen.push({ crate: crate.material, tinted: tinted.material, bare: bare.material }); return new Uint8Array(4); } }, veilScene, camera, "depth");
+	assert.equal(seen[0].crate, faded.crate, "a prop under the working fade is a solid in the depth plate");
+	assert.equal(seen[0].tinted.uniforms.uCover.value, 0.5, "a pane under the working fade is veiled at its authored share");
+	assert.ok(Array.isArray(seen[0].bare) && seen[0].bare.length === 0, "a mesh without materials is not veiled");
+	assert.equal(tinted.material, faded.tinted, "and has its faded material back");
 	console.log("PASS render passes: see-through meshes are veiled for the depth draw and restored; own-distance nodes are asked and released");
 }

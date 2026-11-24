@@ -12,6 +12,7 @@
 
 import * as THREE from "three";
 import { GLASS_PANE_OPACITY } from "./material-presets.js";
+import { authoredOpacity } from "./pose-fade.js";
 
 export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 
@@ -153,10 +154,13 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 }
 
 /** How much of what is behind it a mesh covers in the picture: 1 for a solid, the opacity of a see-through material,
- * the plain pane's share for clear glass (three's transmission). A mesh of several materials is as solid as its most solid one. */
+ * the plain pane's share for clear glass (three's transmission). A mesh of several materials is as solid as its most solid one.
+ * The opacity is the authored one: a prop Pose mode fades to work on the figure is as solid in the plate as it is in the set. */
 function surfaceCover(mesh) {
-	const cover = (m) => (m?.transparent && m.opacity < 1 ? m.opacity : m?.transmission > 0 ? 1 - m.transmission * (1 - GLASS_PANE_OPACITY) : 1);
-	return Math.max(...[mesh.material].flat().map(cover));
+	const cover = (m) => (m?.transparent && authoredOpacity(m) < 1 ? authoredOpacity(m) : m?.transmission > 0 ? 1 - m.transmission * (1 - GLASS_PANE_OPACITY) : 1);
+	// a mesh with an empty list of materials draws nothing: it stays with the override, which draws nothing either
+	const materials = [mesh.material].flat();
+	return materials.length ? Math.max(...materials.map(cover)) : 1;
 }
 
 /**
