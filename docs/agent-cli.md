@@ -660,10 +660,11 @@ the panel can show what a key would buy you.
 
 The lists come from pi's model catalogue. With a ChatGPT sign-in, the
 ChatGPT list is the account's own lineup instead: the models the backend's
-model list names for that account, in its order, without the ones it hides
-from its own picker. A ChatGPT plan runs only those; the backend refuses a
-catalogue model outside them. When the model list cannot be read, the
-catalogue is listed.
+model list names for that account, in its order (`gpt-6-astra` first when it
+is among them), without the ones it marks `visibility: "hide"`. A ChatGPT
+plan runs only those; the backend refuses a catalogue model outside them.
+When the model list cannot be read, or names no model to list, the catalogue
+is listed.
 
 The model is picked per turn, so one session can start on ChatGPT and
 continue on Anthropic without losing its history.

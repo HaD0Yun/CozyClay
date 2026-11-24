@@ -53,7 +53,8 @@ export function headerRetryAfterMs(headers) {
 	} catch { return undefined; }
 }
 // pi-ai drops a failed response's headers, so the request's fetch is wrapped to keep a failed answer's wait. Only the
-// adapters that take a caller's fetch get it: the Google ones refuse one.
+// adapters listed here get it. The Google ones refused a caller's fetch until pi 1.6.0 and are not listed: a Gemini
+// wait is read from the error's text (retryAfterMs).
 const FETCH_APIS = new Set(["openai-completions", "openai-responses", "openai-codex-responses", "azure-openai-responses", "anthropic-messages", "mistral-conversations"]);
 // Gemini finish reasons pi-ai turns into "Provider stopped with: <reason>" that a new sample usually answers.
 // SAFETY, RECITATION, BLOCKLIST and the like are the content's, and stay final.

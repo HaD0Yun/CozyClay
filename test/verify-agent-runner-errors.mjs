@@ -709,6 +709,8 @@ for (const token of ["AIza-secret-0123456789abcdefghijk", "sk-or-secret", "sk-an
 // once it fires; before the pi-tools.mjs fix this never resolves that way
 // because `signal` is actually the harness's `onUpdate` callback (a
 // function), so `ctx.signal.aborted` throws / never becomes true.
+// Each message names a second call after the slow one: a Stop during the first leaves it unrun, and pi 1.6 still ends
+// it with a start and an "Operation aborted" end. The panel must get no row for a call that never ran.
 {
 	const observed = [];
 	let started;
@@ -733,7 +735,7 @@ for (const token of ["AIza-secret-0123456789abcdefghijk", "sk-or-secret", "sk-an
 	const models = createModels();
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted", name: "Scripted", input: ["text", "image"] }] });
 	models.setProvider(faux.provider);
-	installScripts(faux, [1, 2].map((turn) => fauxAssistantMessage([fauxToolCall("slow_tool", {}, { id: `slow-${turn}` })], { stopReason: "toolUse" })));
+	installScripts(faux, [1, 2].map((turn) => fauxAssistantMessage([fauxToolCall("slow_tool", {}, { id: `slow-${turn}` }), fauxToolCall("slow_tool", {}, { id: `unrun-${turn}` })], { stopReason: "toolUse" })));
 	const runner = createAgentRunner({ models });
 	const session = await runner.openSession("errors-tool-abort", { surface: "workflow" });
 	let previousSignal;
@@ -749,12 +751,13 @@ for (const token of ["AIza-secret-0123456789abcdefghijk", "sk-or-secret", "sk-an
 			assert.equal(signal.aborted, true);
 			assert.equal(frames.at(-1)?.type, "done", JSON.stringify(frames));
 			assert.ok(frames.some((frame) => frame.type === "error" && frame.code === "aborted"), JSON.stringify(frames));
+			assert.deepEqual(frames.filter((frame) => frame.type === "tool.start" || frame.type === "tool.done").map((frame) => `${frame.type} ${frame.callId}`), [`tool.start slow-${turn}`], "only the call that ran has a row; the call after the Stop has none");
 			previousSignal = signal;
 		}
 	} finally { await runner.close(); }
 	console.log("two-turn tool abort bindings", JSON.stringify(observed));
 	assert.deepEqual(observed, [{ turn: 1, aborted: true }, { turn: 2, aborted: true }], "each turn's slow-tool closure observes that turn's abort");
-	console.log("PASS both turns' tool handlers receive pi's real harness abort signal and complete with done");
+	console.log("PASS both turns' tool handlers receive pi's real harness abort signal and complete with done; the call after the Stop is never shown");
 }
 
 // --- abort persistence: the real session store never gets the cancelled

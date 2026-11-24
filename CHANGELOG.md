@@ -7,12 +7,13 @@ Agent
 - The agent runs on pi 1.6.0, which adds the newer GPT, Claude and Gemini
   models to the picker.
 - With a ChatGPT sign-in, the ChatGPT list is the account's own lineup: the
-  models the backend names for that account, in its order, without its
-  internal ones. Before, the list was pi's whole catalogue plus those internal
-  models, and a model the plan does not include failed when a turn was sent.
-  The first model of the list is one the account can run.
-- A tool call with a wrong argument is refused in words that name the field
-  ("frame: expected >= 1").
+  models the backend names for that account, in its order (gpt-6-astra first
+  when it is among them), without its internal ones. Before, the list was pi's
+  whole catalogue plus those internal models, and a model the plan does not
+  include failed when a turn was sent. The first model of the list is one the
+  account can run.
+- The refusal a model reads for a tool call with a wrong argument has pi
+  1.6.0's wording ("frame: expected >= 1" where it was "frame: must be >= 1").
 
 Depth exports
 
