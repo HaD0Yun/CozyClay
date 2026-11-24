@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { STUDIO_ELEMENTS, isSettableElement } from '../../src/studio-elements.js';
 import { stageFixture } from './stage-fixture.mjs';
 const values = { 'keyLight.x': -8, 'keyLight.y': 14, 'keyLight.z': -5, 'keyLight.intensity': 500, 'keyLight.warmth': .8,
-  environmentImage: 'data:image/png;base64,QQ==', environment: 'A rooftop', style: 'Watercolour', hasEnvSheet: true,
+  floor: false, environmentImage: 'data:image/png;base64,QQ==', environment: 'A rooftop', style: 'Watercolour', hasEnvSheet: true,
   camera: '9:16', cameraPresetId: 'wide', sensorId: 'super35', 'keyLight.color': '#9db6e6', 'lighting.sky': '#0b1426', 'lighting.skyTop': '#020408',
   'lighting.ambient': 0.6, 'lighting.hemiSky': '#34507f', 'lighting.hemiGround': '#0a0c12', 'lighting.fill': 0.25, 'lighting.fog': 0.45, 'lighting.exposure': 1.4, 'lighting.shadowSoftness': 0.75,
   'lighting.envLight': 1.3, 'lighting.ao': 0.8, 'lighting.hdr': 'builtin:night-street', 'lighting.hdrRotation': 30, 'lighting.hdrIntensity': 1.5, 'lighting.hdrBackground': false };

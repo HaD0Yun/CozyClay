@@ -64,6 +64,7 @@ const entries = [
 	{ path: "stage.environmentImage", type: "image", persisted: true, undoDomain: "stage", normalizer: "createSceneStage", note: "data:image only" },
 	{ path: "stage.environment", type: "string", persisted: true, undoDomain: "stage", normalizer: "createSceneStage", note: "location description every shot prompt is built from" },
 	{ path: "stage.style", type: "string", persisted: true, undoDomain: "stage", normalizer: "createSceneStage", note: "look / style line for shot prompts" },
+	{ path: "stage.floor", type: "boolean", persisted: true, undoDomain: "stage", normalizer: "createSceneStage", note: "show the lit stage floor in shots and exports; default true" },
 	{ path: "stage.hasEnvSheet", type: "boolean", persisted: true, undoDomain: "stage", normalizer: "createSceneStage", note: "author supplies an environment sheet instead of a description" },
 	{ path: "stage.camera", documentPath: "shotAspect", type: "enum", persisted: true, undoDomain: "stage", normalizer: "createSceneStage", enum: ["16:9", "2.39:1", "9:16", "1:1", "4:3", "12:7", "fal 480P"], note: "output aspect ratio" },
 	{ path: "stage.cameraPresetId", type: "id", nullable: true, persisted: true, undoDomain: "stage", normalizer: "createSceneStage" },

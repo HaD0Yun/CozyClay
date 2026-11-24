@@ -86,7 +86,7 @@ function fixture(options={}) {
  const chars=options.characters??[a,b], rigs={'actor-a':rig(),'actor-b':rig()}; rigs['actor-b'].parent.position.x=4;rigs['actor-b'].parent.updateMatrixWorld(true);
  const actionsRef=ref(null);
  const revision=ref(0), clock=ref(0), lastObject=ref(0), history=ref({past:[],future:[]}), characterRef=ref(chars), buffer=ref({waypoints:[],motion:null}), state=ref(ik.createIkState()), layers=ref(new Map());
- const stage={shotAspect:'16:9',cameraPresetId:null,sensorId:'fullFrame',hasCharSheet:false,environmentImage:null,environment:'a sunlit modern living room',style:'moody cinematic lighting, 35mm film look',hasEnvSheet:false,keyLight:{x:6,y:9,z:4,intensity:3,warmth:0,color:null},
+ const stage={shotAspect:'16:9',cameraPresetId:null,sensorId:'fullFrame',hasCharSheet:false,floor:true,environmentImage:null,environment:'a sunlit modern living room',style:'moody cinematic lighting, 35mm film look',hasEnvSheet:false,keyLight:{x:6,y:9,z:4,intensity:3,warmth:0,color:null},
   lighting:{preset:'studio',sky:null,skyTop:null,ambient:1,hemiSky:'#ffffff',hemiGround:'#5a5d64',fill:1,fog:0,exposure:1,shadowSoftness:0,envLight:0,ao:0,hdr:null,hdrRotation:0,hdrIntensity:1,hdrBackground:true}};
  const live=ref({characters:chars,objects:[],rigs,shots:[],scenes:[{id:'scene',name:'Fixture',objects:[],shotDocument:null,stage:null}],activeCharacterId:a.id,stage,timeline:{currentFrame:0,frameCount:48},filmback:{sensorId:'fullFrame',aspectRatio:16/9},studioSelection:{kind:'character',id:a.id},studioShotId:null,studioView:{mode:'scene',frame:0,playing:false,lookThrough:false,grid:false,autoColor:false}});
  const camera=new THREE.PerspectiveCamera(45,16/9); camera.position.set(0,1.6,5);
@@ -263,7 +263,7 @@ const stageEvidence = (patch = {}) => Object.entries({
  'stage.keyLight.x': {number:6}, 'stage.keyLight.y': {number:9}, 'stage.keyLight.z': {number:4},
  'stage.keyLight.intensity': {number:3}, 'stage.keyLight.warmth': {number:0},
  'stage.environmentImage': {text:null}, 'stage.environment': {text:'a sunlit modern living room'},
- 'stage.style': {text:'moody cinematic lighting, 35mm film look'}, 'stage.hasEnvSheet': {flag:false},
+ 'stage.style': {text:'moody cinematic lighting, 35mm film look'}, 'stage.floor': {flag:true}, 'stage.hasEnvSheet': {flag:false},
  'stage.camera': {text:'16:9'}, 'stage.cameraPresetId': {text:null}, 'stage.sensorId': {text:'fullFrame'},
  // The stage look (stage.lighting) reads back at its studio defaults.
  'stage.keyLight.color': {text:null}, 'stage.lighting.sky': {text:null}, 'stage.lighting.skyTop': {text:null}, 'stage.lighting.ambient': {number:1},

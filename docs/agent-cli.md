@@ -438,6 +438,13 @@ it was asked for; the CLI stops at the first such frame with `EDITOR_ERROR`
 (reload the tab). A failure names `details.frame` and how many files were
 already `written`.
 
+The stage fields include `floor` (boolean, default `true`), `keyLight`,
+`lighting`, `environment`, `environmentImage`, `style`, `hasEnvSheet`,
+`camera`, `cameraPresetId`, and `sensorId`. Set `floor` to `false` for a
+void without the lit deck in shots and exports; the optional editor reference
+grid stays on the gizmo layer. A hidden-floor contact-shadow catcher is a
+follow-up.
+
 `patch` carries one target kind per command — its commit domain — because one
 receipt is one revision step and one undo entry; a `character` patch and a
 `stage` patch are two commands. `--target` is `kind` (`stage`, or `shot` for
