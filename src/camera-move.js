@@ -130,7 +130,8 @@ export function interpolateFraming(a, b, anchor, t, ease = easeInOut, filmback =
 		y: lerp(A.aim.y, B.aim.y, k),
 		z: lerp(A.aim.z, B.aim.z, k),
 	};
-	const { yaw, pitch } = aimAngles(pos, aim);
+	// Keep a pole key's authored orientation while easing toward the other key.
+	const { yaw, pitch } = Math.abs(Math.cos(a.pitch)) < 1e-10 || Math.abs(Math.cos(b.pitch)) < 1e-10 ? { yaw: a.yaw + shortestArc(a.yaw, b.yaw) * k, pitch: lerp(a.pitch, b.pitch, k) } : aimAngles(pos, aim);
 	const focalMm = lerp(A.focalMm, B.focalMm, k), rollDeg = lerp(a.rollDeg ?? 0, b.rollDeg ?? 0, k);
 	return {
 		pos,
