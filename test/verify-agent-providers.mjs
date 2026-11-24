@@ -469,6 +469,38 @@ console.log("agent provider verification passed");
 	console.log("PASS 16w: live Codex catalogues are isolated per registry and account");
 }
 
+// The ChatGPT list is the signed-in account's own lineup: what its live list names, in that order, without the models
+// the backend hides from its own picker. A catalogue model outside it is not listed (the backend refuses it for that
+// plan); a catalogue model inside it keeps pi's name and efforts. Without a live list the catalogue is listed.
+{
+	const token = `e30.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "lineup" } })).toString("base64url")}.e30`;
+	const auth = { getAccessToken: async () => token, readStored: () => ({ access_token: token, refresh_token: "lineup-refresh", expires_at: Date.now() + 3600000 }), status: () => ({ signedIn: true }) };
+	const keys = { readKeys: () => ({}) };
+	const codexIds = async (client) => {
+		const models = await providers.createModels({ auth, keys, env: {}, codexBaseUrl: "http://127.0.0.1:61124" });
+		const listed = await providers.listAgentModels({ models, codex: client, auth, keys, env: {} });
+		return { models, list: listed.providers.find(provider => provider.id === "openai-codex").models };
+	};
+	const catalogue = (await codexIds({ listModels: async () => { throw new Error("offline"); } })).list;
+	assert.ok(catalogue.length >= 5 && catalogue[0].id === "gpt-6-astra", "without a live list the catalogue is listed, astra first");
+	const inCatalogue = catalogue.find(model => model.id !== "gpt-6-astra");
+	const live = [
+		{ slug: "gpt-lineup-internal", display_name: "Internal", visibility: "hide", supported_reasoning_levels: [{ effort: "low" }] },
+		{ slug: "gpt-lineup-new", display_name: "GPT Lineup New", visibility: "list", supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }] },
+		{ slug: inCatalogue.id, display_name: "the backend's own name", visibility: "list", supported_reasoning_levels: [{ effort: "low" }] },
+	];
+	const { models, list } = await codexIds({ listModels: async () => ({ models: live }) });
+	assert.deepEqual(list.map(model => model.id), ["gpt-lineup-new", inCatalogue.id], "the account's listed models, in the backend's order; the hidden one and the rest of the catalogue are left out");
+	assert.equal(list[0].label, "GPT Lineup New", "a model pi does not know is named as the backend names it");
+	assert.deepEqual(list[1], inCatalogue, "a catalogue model keeps pi's entry");
+	assert.ok(list.every(model => !Object.hasOwn(model, "hidden")), "the hidden mark is not part of the answer");
+	assert.equal(models.getModel("openai-codex", "gpt-lineup-new")?.id, "gpt-lineup-new", "a listed live model resolves for a turn");
+	const astraToo = (await codexIds({ listModels: async () => ({ models: [...live, { slug: "gpt-6-astra", visibility: "list", supported_reasoning_levels: [{ effort: "low" }] }] }) })).list;
+	assert.deepEqual(astraToo.map(model => model.id), ["gpt-6-astra", "gpt-lineup-new", inCatalogue.id], "an account that has astra gets it first");
+	assert.deepEqual((await codexIds({ listModels: async () => ({ models: [live[0]] }) })).list, catalogue, "a live list with nothing to list leaves the catalogue");
+	console.log("PASS the ChatGPT list is the account's own lineup: listed models only, in the backend's order");
+}
+
 // #379 / 16s: a live-only model advertised by the real, non-injected route
 // must reach the real Codex HTTP provider, not stop at UNKNOWN_MODEL.
 {

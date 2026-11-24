@@ -287,11 +287,11 @@ try {
 	await new Promise((resolve) => realCatalogServer.close(resolve));
 }
 {
-	// Sign-in state and the codex live-catalog merge, exercised directly against
+	// Sign-in state and the codex live list, exercised directly against
 	// providers.mjs: an env-configured provider reports signedIn/authSource, and
-	// openai-codex merges codex.listModels() with the static pi catalog only for
-	// models the catalog does not already have — astra stays catalog-sourced
-	// (and therefore keeps its full pi effort list) and still sorts first.
+	// openai-codex lists what codex.listModels() names. A model the pi catalog
+	// has stays catalog-sourced (astra keeps its full pi effort list) and astra
+	// still sorts first; a model the catalog lacks is added from the live list.
 	const { listAgentModels, resolveModel, resolveEffort, EFFORT_LEVELS } = await import("../bin/agent/providers.mjs");
 	const previousAnthropicKey = process.env.ANTHROPIC_API_KEY;
 	process.env.ANTHROPIC_API_KEY = "x";

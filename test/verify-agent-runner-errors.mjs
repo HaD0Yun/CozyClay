@@ -101,8 +101,12 @@ function errorMessage(text) {
 			const request = received.at(-1);
 			assert.equal(request.path, "/codex/responses");
 			assert.equal(request.body.model, model);
-			console.log("runner-effort-wire", JSON.stringify({ label, model, effort, reasoning: request.body.reasoning ?? null }));
-			expect(label, expectedEffort === undefined ? !Object.hasOwn(request.body, "reasoning") : request.body.reasoning?.effort === expectedEffort, JSON.stringify(request.body.reasoning));
+			// A model that takes its effort mid-conversation gets it in configuration_update items of the input (the last
+			// one is this request's), beside a fixed reasoning.effort; any other model gets it as reasoning.effort.
+			const updates = (Array.isArray(request.body.input) ? request.body.input : []).filter((item) => item?.type === "configuration_update");
+			const wire = updates.length ? updates.at(-1).reasoning?.effort : request.body.reasoning?.effort;
+			console.log("runner-effort-wire", JSON.stringify({ label, model, effort, reasoning: request.body.reasoning ?? null, updates: updates.length, wire: wire ?? null }));
+			expect(label, expectedEffort === undefined ? !Object.hasOwn(request.body, "reasoning") && !updates.length : wire === expectedEffort, JSON.stringify({ reasoning: request.body.reasoning, updates }));
 		};
 		const freshCases = [
 			["gpt-6-astra", "none", undefined],

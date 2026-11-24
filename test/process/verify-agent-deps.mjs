@@ -10,12 +10,12 @@ const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.me
 
 assert.equal(
 	manifest.dependencies?.["@earendil-works/pi-ai"],
-	"1.4.0",
+	"1.6.0",
 	"@earendil-works/pi-ai must be pinned exactly, no caret or range",
 );
 assert.equal(
 	manifest.dependencies?.["@earendil-works/pi-agent-core"],
-	"1.4.0",
+	"1.6.0",
 	"@earendil-works/pi-agent-core must be pinned exactly, no caret or range",
 );
 assert.equal(manifest.engines?.node, ">=22.19.0", "engines.node must require Node 22.19.0 or newer");

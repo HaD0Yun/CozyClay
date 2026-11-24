@@ -2,7 +2,8 @@
 // the ChatGPT Codex backend with a ChatGPT OAuth bearer.
 
 const CODEX_BASE = "https://chatgpt.com/backend-api/codex";
-const CLIENT_VERSION = "0.153.4";
+// The client version the model list is asked for: the backend leaves out a model whose minimal client version is newer.
+const CLIENT_VERSION = "0.172.0";
 
 function defaultSleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));

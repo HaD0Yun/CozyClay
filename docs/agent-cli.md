@@ -658,13 +658,20 @@ and the reasoning-effort levels that model actually supports. A provider you
 have no key for is still listed, its models with it and `signedIn: false`, so
 the panel can show what a key would buy you.
 
+The lists come from pi's model catalogue. With a ChatGPT sign-in, the
+ChatGPT list is the account's own lineup instead: the models the backend's
+model list names for that account, in its order, without the ones it hides
+from its own picker. A ChatGPT plan runs only those; the backend refuses a
+catalogue model outside them. When the model list cannot be read, the
+catalogue is listed.
+
 The model is picked per turn, so one session can start on ChatGPT and
 continue on Anthropic without losing its history.
 
 ### Prompt caching
 
 On an `anthropic-messages` model the request already carries Anthropic cache
-breakpoints from pi-ai 1.4.0 itself (default retention "short", i.e.
+breakpoints from pi-ai itself (default retention "short", i.e.
 `{"type":"ephemeral"}`), in
 `node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js`: every
 system block (`buildParams`), the last tool definition (`convertTools`, unless

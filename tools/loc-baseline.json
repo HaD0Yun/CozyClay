@@ -1,7 +1,6 @@
 {
 	"bin/agent/agent-routes.mjs": 761,
 	"bin/agent/agent-runner.mjs": 485,
-	"bin/agent/providers.mjs": 255,
 	"bin/agent/session-store.mjs": 324,
 	"bin/agent/supervisor.mjs": 283,
 	"bin/agent/video-adapters.mjs": 333,
@@ -15,8 +14,8 @@
 	"mcp/verify-live-p0.mjs": 264,
 	"mcp/verify-live.mjs": 389,
 	"src/analytics.js": 941,
-	"src/App.jsx": 4283,
-	"src/asset-pane.jsx": 574,
+	"src/App.jsx": 4282,
+	"src/asset-pane.jsx": 572,
 	"src/camera-follow.js": 494,
 	"src/camera-move.js": 281,
 	"src/command-bus.js": 340,
