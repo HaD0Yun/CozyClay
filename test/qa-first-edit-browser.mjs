@@ -140,7 +140,7 @@ async function expectEvents(surface, kind, label) {
 async function fresh(surface) {
 	await b.navigate(`${b.base.origin}/favicon.ico`);
 	await b.evaluate(`(() => {
-		localStorage.clear();
+		localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 		localStorage.setItem('cozyclay.locale', 'en');
 		localStorage.setItem('cozyclay.analyticsOptOut', '1');
 		localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'First-edit QA', updatedAt: Date.now() }));

@@ -72,7 +72,7 @@ async function press(code, key, keyCode, modifiers = 0) {
 function log(line) { console.log(line); }
 
 function installFixture() {
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "QA", updatedAt: Date.now() }));
 	let beforeSend;

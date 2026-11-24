@@ -135,7 +135,7 @@ const seeded = (() => {
 const base = new URL(page.url);
 for (const theme of ["light", "dark"]) {
 	await navigate(`${base.origin}/favicon.ico`);
-	await evaluate(`(() => { localStorage.clear(); localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.theme.v1', ${JSON.stringify(theme)}); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Speed Graph QA', updatedAt: Date.now() })); localStorage.setItem('cozyclay.scenes.v4', ${JSON.stringify(seeded)}); return true; })()`);
+	await evaluate(`(() => { localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded'); localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.theme.v1', ${JSON.stringify(theme)}); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Speed Graph QA', updatedAt: Date.now() })); localStorage.setItem('cozyclay.scenes.v4', ${JSON.stringify(seeded)}); return true; })()`);
 	await navigate(`${base.origin}/app/`);
 	await waitFor("hook", () => evaluate("Boolean(window.__cozyclay?.sceneObject) && (window.__cozyclay.objects||[]).length > 100"));
 	await waitFor("stage", () => evaluate("Boolean(window.__cclayPropWorld?.['cube'])"));

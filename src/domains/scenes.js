@@ -38,7 +38,7 @@ import {
 	normalizeCastStyle,
 	animationCopyOfStoryboard,
 } from "../project.js";
-import { playgroundSceneUrl, fetchSceneProject } from "../playground.js"; import { guestStart } from "../guest-start.js";
+import { playgroundSceneUrl, fetchSceneProject } from "../playground.js";
 import { pickProjectToOpen } from "../project-open-file.js";
 import { projectSummary, serializedSummary } from "../project-summary.js";
 import { captureProjectThumb } from "../project-thumbs.js";
@@ -210,12 +210,10 @@ export function useScenes(appContext) {
 
 	const [projectNameDialog, setProjectNameDialog] = useState(null);
 
-	// A first-run author should choose a document (or explicitly start a named
-	// local draft). Keep this as a light startup sheet so the studio remains
-	// inspectable while the choice is pending; it never traps the topbar.
-	// A ?scene= launch opens its starter instead of the chooser.
-	// A guest start (guest-start.js: a first visit to the hosted Studio) opens a ready project instead.
-	const [projectStartupOpen, setProjectStartupOpen] = useState(() => !appContext.shared.playgroundMode && !playgroundSceneUrl(globalThis.location?.search) && !loadProjectSession()?.name && !guestStart());
+	// The project chooser as a sheet over the Studio (File > New opens it; it never traps the topbar). No load starts
+	// with it: a first open goes straight to the stage in a project of its own (guest-start.js), a returning author
+	// resumes theirs, a ?scene= launch opens its starter.
+	const [projectStartupOpen, setProjectStartupOpen] = useState(false);
 
 	const [projectManifest, setProjectManifest] = useState({ items: [], totals: { embedded: 0, external: 0, missing: 0, bytes: 0 }, missing: [] });
 
@@ -383,7 +381,7 @@ export function useScenes(appContext) {
 	}
 
 	/** Open a bundled starter scene as a fresh, saveable project. Used by the
-	 * first-run dialog and by `npx cozyclay --scene <id>` (`?scene=`). */
+	 * project chooser and by `npx cozyclay --scene <id>` (`?scene=`). */
 	// A cast style chosen on the start screen overrides the starter's own.
 	async function openStarterScene(id, source = "starter", context = null, name = null, castStyle = undefined) {
 		if (source === "starter" && domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled";

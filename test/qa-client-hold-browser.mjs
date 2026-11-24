@@ -186,6 +186,8 @@ try {
 		localStorage.clear();
 		localStorage.setItem("cozyclay.locale", ${JSON.stringify(locale)}); localStorage.setItem("cozyclay.agent.tasks", "off");
 		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Hold QA", updatedAt: Date.now() }));
+		// the Agent pane starts folded: its bar (.studio-agent-bar) is this suite's ready signal and its way in
+		localStorage.setItem("cozyclay.shell.agent-pane.v1", "folded");
 		localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, JSON.stringify(scene));
 	})()`);
 	await send("Page.navigate", { url: `${origin}/app/` });

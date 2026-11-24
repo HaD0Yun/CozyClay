@@ -139,7 +139,7 @@ try {
 	// would boot on the first reload and poison every assertion below.
 	await waitFor("location.href.startsWith('http')", { timeoutMs: 30000 });
 	await evaluate(`(() => {
-		localStorage.clear();
+		localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 		localStorage.setItem('cozyclay.locale', 'en');
 	})()`);
 	await reloadPage();

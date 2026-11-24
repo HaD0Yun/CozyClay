@@ -120,7 +120,7 @@ async function seedReconstruction() {
 		}] }),
 	}] };
 	await b.navigate(`${b.base.origin}/favicon.ico`);
-	await b.evaluate(`localStorage.clear(); localStorage.setItem('${SCENES_STORAGE_KEY}', ${JSON.stringify(JSON.stringify(document))});
+	await b.evaluate(`localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded'); localStorage.setItem('${SCENES_STORAGE_KEY}', ${JSON.stringify(JSON.stringify(document))});
 		localStorage.setItem('cozyclay.locale', 'en'); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({name:'Issue 398 QA', updatedAt:1}));`);
 	log("RECONSTRUCTION", { objects: snapshot.objects.length, missingObjects: meta.scene.objectCount - snapshot.objects.length,
 		nameOnlyRows: snapshot.objects.filter(row => !row.renderer).length, frameCount: meta.scene.frameCount, aspect: meta.scene.aspect,

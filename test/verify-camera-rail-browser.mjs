@@ -81,7 +81,7 @@ await evaluate(`(() => {
 			stage: { characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "a person" }], hasCharSheet: false, shotAspect: "16:9" },
 		}],
 	};
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Rail QA", updatedAt: Date.now() }));
 	localStorage.setItem("${SCENES_STORAGE_KEY}", JSON.stringify(scene));

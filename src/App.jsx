@@ -41,6 +41,7 @@ import { captureFrameAt, captureHiddenFraming, captureV4Sheet, refuseHiddenCaptu
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
+import { agentPaneFolded, rememberAgentPane } from "./shell/agent-pane.js";
 
 import AgentPanel from "./workflow/AgentPanel.jsx";
 import SculptPanel from "./panels/SculptPanel.jsx";
@@ -2114,14 +2115,13 @@ export default function App() {
 	}, [viewMenuOpen]);
 	// The agent panel keeps owning its own collapsed flag (the rail button and
 	// Cmd/Ctrl+B both live inside it); the studio only mirrors the flag so the
-	// View ▾ item can render a checkmark. It boots collapsed here: the studio
-	// opens on the stage, not on a chat column.
-	const [agentCollapsed, setAgentCollapsed] = useState(true);
+	// View ▾ item can render a checkmark. It boots open unless the author folded
+	// it or the window is narrow (shell/agent-pane.js); an embed has no pane.
+	const [agentCollapsed, setAgentCollapsed] = useState(() => embedMode || playgroundMode || agentPaneFolded());
 	// Studio Agent is an Inspector peer, not an additional dock. Keeping this
 	// host-owned flag separate from the Workflow dock preserves the latter's
 	// session and layout while Cmd/Ctrl+B switches the existing Inspector row.
-	const studioAgentMode = !agentCollapsed;
-	const setStudioAgentMode = (enabled) => setAgentCollapsed(!enabled);
+	const studioAgentMode = !agentCollapsed, setStudioAgentMode = (enabled) => setAgentCollapsed(rememberAgentPane(!enabled));
 	const studioDocumentEpochRef = useRef(crypto.randomUUID());
 	const studioSceneEpochRef = useRef(crypto.randomUUID());
 	// The one Studio action registry, built from the command modules
@@ -2170,7 +2170,7 @@ export default function App() {
 	useEffect(() => {
 		if (embedMode) return;
 		// The toolbar control and Workflow's button dispatch the event; Cmd/Ctrl+B calls toggle with the keydown.
-		const toggle = (event) => { notePanelToggled(agentCollapsedRef.current, event?.type === "keydown" ? "key" : "button"); noteNavSwitch("agent_panel"); setAgentCollapsed(value => !value); };
+		const toggle = (event) => { notePanelToggled(agentCollapsedRef.current, event?.type === "keydown" ? "key" : "button"); noteNavSwitch("agent_panel"); setAgentCollapsed(value => rememberAgentPane(!value)); };
 		const key = event => { if ((event.metaKey || event.ctrlKey) && event.code === "KeyB") { event.preventDefault(); toggle(event); } };
 		window.addEventListener("cozyclay:agent-panel-toggle", toggle); window.addEventListener("keydown", key);
 		return () => { window.removeEventListener("cozyclay:agent-panel-toggle", toggle); window.removeEventListener("keydown", key); };
@@ -2202,7 +2202,8 @@ export default function App() {
 		if (!requested) return;
 		starterOpened.current = true;
 		// An id this build does not ship (a removed starter, a typo) is ignored:
-		// the studio opens as it would without ?scene=.
+		// the studio opens what is stored. With nothing stored that is the empty
+		// stage with no project: a ?scene= launch is no first open (guest-start.js).
 		if (!resolveSceneParam(requested)) {
 			console.warn(`cozyclay: ?scene=${requested} is not a starter scene in this build; ignored.`);
 			return;

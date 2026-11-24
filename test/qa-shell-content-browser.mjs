@@ -89,7 +89,7 @@ await setViewport(1920, 1080);
 const origin = new URL(appUrl).origin;
 await send("Page.navigate", { url: `${origin}/favicon.ico` });
 await evaluate(`(() => {
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Task 13", updatedAt: Date.now() }));
 })()`);

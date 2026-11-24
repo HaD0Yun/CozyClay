@@ -63,16 +63,16 @@ const evaluate = async (expression) => {
 	}
 };
 await send("Page.enable");
-// The harness seeds a project session, which skips the startup chooser this
-// suite tests. Clear it itself so CI needs no extra env.
+// The harness seeds a project session. Clear it, so the suite starts from a first open.
+const studioUrl = await evaluate("location.href");
+// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+{ const left = waitForPageLoad(); await send("Page.navigate", { url: `${await evaluate("location.origin")}/favicon.ico` }); await left; }
 await evaluate(`(() => {
 	localStorage.removeItem("cozyclay.project-session.v1");
 	localStorage.removeItem("${SCENES_STORAGE_KEY}");
 	localStorage.removeItem("${PREVIOUS_SCENES_STORAGE_KEY}");
 })()`);
-const loaded = waitForPageLoad();
-await send("Page.reload", { ignoreCache: true });
-await loaded;
+{ const back = waitForPageLoad(); await send("Page.navigate", { url: studioUrl }); await back; }
 const waitFor = (condition, timeoutMs = 15000) => evaluate(`new Promise((resolve) => {
 	let settled = false;
 	const finish = (value) => {
@@ -116,6 +116,15 @@ const expect = (name, condition, detail = "") => {
 	if (!condition) failures += 1;
 };
 
+const fileNew = async () => {
+	await evaluate("document.querySelector('[data-testid=menu-file]').click()");
+	expect("File shows New", await waitFor("!!document.querySelector('[data-testid=menubar-new]')"));
+	await evaluate("document.querySelector('[data-testid=menubar-new]').click()");
+};
+
+// Nothing is stored: a first open goes straight to the editor. The start screen is File › New's.
+expect("a first open goes straight to the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')"));
+await fileNew();
 expect("the 2b start screen renders", await waitFor("!!document.querySelector('.v2-start-screen.project-browser-backdrop.startup')"));
 expect("the left navigation is 232px", (await evaluate("Math.round(document.querySelector('.v2-start-nav')?.getBoundingClientRect().width || 0)")) === 232);
 expect("the right preview is 340px", (await evaluate("Math.round(document.querySelector('[data-testid=start-project-preview]')?.getBoundingClientRect().width || 0)")) === 340);
@@ -143,13 +152,8 @@ expect("the editor shows alley_chase_v2", editorName.includes("alley_chase_v2"),
 await new Promise((resolve) => setTimeout(resolve, 1200));
 expect("Create opens the studio without a tutorial pop-up", await evaluate("!document.querySelector('.v2-first-success-guide')"));
 
-// #551: File › New opens the same 2b start screen as first launch, not the
-// legacy Project name modal, and Create still asks before discarding work.
-const fileNew = async () => {
-	await evaluate("document.querySelector('[data-testid=menu-file]').click()");
-	expect("File shows New", await waitFor("!!document.querySelector('[data-testid=menubar-new]')"));
-	await evaluate("document.querySelector('[data-testid=menubar-new]').click()");
-};
+// #551: File › New opens the 2b start screen, not the legacy Project name modal, and Create still asks before
+// discarding work.
 const confirmAnswer = (answer) => evaluate(`(() => {
 	window.__qaConfirms = window.__qaConfirms || [];
 	window.confirm = (message) => { window.__qaConfirms.push(String(message)); return ${answer ? "true" : "false"}; };

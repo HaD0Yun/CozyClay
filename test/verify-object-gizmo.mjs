@@ -792,8 +792,8 @@ expect(
 // the legacy pair leaves every object the cases above created to reload
 // into the drop-to-surface section. Sweep all cozyclay keys but the editor
 // preferences: the locale, and the project session — without it the studio
-// reopens on the first-run project chooser, whose dialog sits over the
-// viewport and takes every canvas press the lifecycle section dispatches.
+// makes a first open (a new project of its own, src/guest-start.js) instead
+// of the returning author's studio the lifecycle section was written for.
 await evaluate("Object.keys(localStorage).filter(k => k.startsWith('cozyclay.') && k !== 'cozyclay.locale' && k !== 'cozyclay.project-session.v1').forEach(k => localStorage.removeItem(k))");
 await reloadPage();
 

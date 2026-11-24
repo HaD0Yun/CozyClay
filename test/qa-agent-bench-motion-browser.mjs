@@ -97,7 +97,7 @@ async function runScenario(id, index) {
 		const { send, ev } = cdp;
 		await send("Page.enable");
 		await sleep(800);
-		await ev(`localStorage.clear(); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: ${JSON.stringify(`Bench ${id} ${label}`)}, updatedAt: Date.now() })); true`);
+		await ev(`localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded'); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: ${JSON.stringify(`Bench ${id} ${label}`)}, updatedAt: Date.now() })); true`);
 		await send("Page.navigate", { url });
 		if (!(await waitFor(ev, "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclayProject?.open && window.__cozyclay?.rigA)", 120_000))) throw new Error("the Studio did not load");
 		await sleep(2000);
