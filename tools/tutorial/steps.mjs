@@ -8,24 +8,36 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, m
 const CLOSING_TITLE = { ko: "이번 영상에서 본 것", en: "What we covered" };
 const CHAPTER = { ko: (number) => `챕터 ${number}`, en: (number) => `Chapter ${number}` };
 
-/** Runs on every new document: the chosen UI language before the Studio's own scripts read it. */
-export const localeScript = (origin, locale) => `if (location.origin === ${JSON.stringify(origin)}) { try { localStorage.setItem("cozyclay.locale", ${JSON.stringify(locale)}); } catch {} }`;
+/** Runs on every new document, before the Studio's own scripts read the store: the chosen UI language, and the Agent
+ * pane folded while no choice is stored. The Studio opens with the pane unfolded; the episodes were written for the
+ * folded one (they point at its bar and open it themselves with Cmd/Ctrl+B). Neither key makes the load a returning one. */
+export const localeScript = (origin, locale) => `if (location.origin === ${JSON.stringify(origin)}) { try { localStorage.setItem("cozyclay.locale", ${JSON.stringify(locale)}); if (!localStorage.getItem("cozyclay.shell.agent-pane.v1")) localStorage.setItem("cozyclay.shell.agent-pane.v1", "folded"); } catch {} }`;
 
 /** Empty origin storage (no project session, no saved projects), then the Studio and its project chooser. A first open
  * goes straight to the editor, so the chooser the episodes start on is opened through File > New. */
 export async function openStudio(cdp, url) {
 	const origin = new URL(url).origin;
+	// Navigates, and waits until that page is the document: the next load event can still be the page before it.
+	const go = async (to, there) => {
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: to });
+		await loaded;
+		for (let tries = 0; tries < 100; tries += 1) {
+			if (await cdp.evaluate(`document.readyState === "complete" && (${there})`).catch(() => false)) return;
+			await sleep(100);
+		}
+		throw new Error(`the page never reached ${to}`);
+	};
 	// A Studio still open on the origin could write its session back after the clear.
-	if ((await cdp.evaluate("location.origin")) === origin) {
-		const blank = cdp.once("Page.loadEventFired");
-		await cdp.send("Page.navigate", { url: "about:blank" });
-		await blank;
-	}
+	if ((await cdp.evaluate("location.origin")) === origin) await go("about:blank", 'location.href === "about:blank"');
 	await cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "all" });
-	const loaded = cdp.once("Page.loadEventFired");
-	await cdp.send("Page.navigate", { url });
-	await loaded;
-	if (!(await cdp.waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')", 30000))) throw new Error("the Studio's first open never reached the editor");
+	// The Studio saves its scene as it leaves, and that write can land after the clear. A stored scene is no first open
+	// (src/guest-start.js): the Studio would open it with no project. A page of the origin that is not the Studio
+	// empties what is left; the new-document script then sets the language again.
+	await go(`${origin}/favicon.ico`, 'location.pathname === "/favicon.ico"');
+	await cdp.evaluate("localStorage.clear()");
+	await go(url, `location.pathname === ${JSON.stringify(new URL(url).pathname)}`);
+	if (!(await cdp.waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')", 30000))) throw new Error(`the Studio's first open never reached the editor (stored: ${await cdp.evaluate("Object.keys(localStorage).join(', ')")})`);
 	await cdp.evaluate("document.querySelector('[data-testid=menu-file]')?.click()");
 	if (!(await cdp.waitFor("!!document.querySelector('[data-testid=menubar-new]')", 10000))) throw new Error("the File menu never showed New");
 	await cdp.evaluate("document.querySelector('[data-testid=menubar-new]').click()");

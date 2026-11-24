@@ -696,7 +696,7 @@ if (runs("failed-action-and-reconnect")) {
 
 	await group("hidden embedded chat keeps state and refuses focus", () => {
 		expect("the hidden panel keeps its draft and transcript mounted", /hidden=\{/.test(panelSource) && !/if \(hidden\) return null/.test(panelSource));
-		expect("focus never moves to a hidden composer, and leaves one that is hidden", /if \(hidden\) \{[\s\S]{0,320}composerRef\.current\.blur\(\);[\s\S]{0,40}return;\s*\}\s*\n\s*if \(!\(embedded \|\| !collapsed\)\) return;\s*composerRef\.current\?\.focus\(\)/.test(panelSource));
+		expect("focus never moves to a hidden composer, and leaves one that is hidden", /if \(hidden\) \{[\s\S]{0,320}composerRef\.current\.blur\(\);[\s\S]{0,40}return;\s*\}\s*\n\s*if \(!\(embedded \|\| !collapsed\) \|\| shownAtStartRef\.current\) return;\s*composerRef\.current\?\.focus\(\)/.test(panelSource));
 		expect("the hidden panel is inert for assistive technology and the focus order", /hidden=\{embedded && hidden\}/.test(panelSource) && /\.agent-panel\[hidden\]\s*\{[^}]*display:\s*none/.test(panelCss));
 	});
 }

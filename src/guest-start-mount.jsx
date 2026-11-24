@@ -19,6 +19,10 @@ export default function GuestStart() {
 	const [tutorial, setTutorial] = useState(() => guestStart());
 	// The language comes first: choosing another one reloads the page, and the guest project must not exist yet
 	// then, or the reload would resume it with no tutorial. A visitor who chose before goes straight in.
+	// Known gap, older than the first open: the Studio stores its still-empty scene 400 ms after it mounts (App.jsx's
+	// debounced save), and the effect below reads the store when it runs. A guest who is asked answers after that save,
+	// so the effect finds a stored scene and is no first open: keeping the page's language shows the tutorial without
+	// the project and the character, and another language reloads into the empty stage without the tutorial.
 	const [language, setLanguage] = useState(localeChosen);
 	useEffect(() => {
 		// a playground page has its own scene; a guest waits for the language, any other first open starts at once

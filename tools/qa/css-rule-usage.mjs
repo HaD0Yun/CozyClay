@@ -243,8 +243,9 @@ await walkStudio("1600");
 await load({ width: 1280, height: 800 });
 await walkStudio("1280");
 await load({ session: false, width: 1440, height: 900 });
-// A first open goes straight to the editor; the start screen is File > New's.
-await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')", 60000);
+// No load starts on the start screen: this one (the scene the loads above stored, and no session) opens the editor
+// on that scene as it is, with no project made. The start screen is File > New's.
+await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!document.querySelector('[data-testid=menu-file]')", 60000);
 await click("[data-testid=menu-file]");
 await click("[data-testid=menubar-new]");
 await waitFor("!!document.querySelector('.v2-start-screen')", 60000);

@@ -169,6 +169,10 @@ expect("folding through the menu was stored", (await storedFold()) === "folded",
 await evaluate(`localStorage.removeItem('${PANE_KEY}')`);
 expect("the studio comes back with no stored choice", await reloadStudio());
 expect("with no stored choice the panel boots open on a wide window", await evaluate(`${collapsedFlag} === 'false' && ${panel}.getBoundingClientRect().width > 0`), await evaluate(`${collapsedFlag}`));
+// The author did not open this pane: its composer (mounted once the session resolves) must not take the keyboard from
+// the stage's shortcuts.
+await waitFor("!!document.querySelector('.agent-input')", 5000);
+expect("the panel that is open at start leaves the keyboard with the stage", await evaluate("!document.activeElement?.closest?.('.agent-panel')"), await evaluate("String(document.activeElement?.className)"));
 await pressToggleShortcut();
 expect("the shortcut folds it", await waitFor(`${collapsedFlag} === 'true'`, 8000));
 expect("the shortcut's fold is stored", (await storedFold()) === "folded", await storedFold());
@@ -179,6 +183,11 @@ expect("the shortcut unfolds it", await waitFor(`${collapsedFlag} === 'false'`, 
 expect("the unfold is stored", (await storedFold()) === "open", await storedFold());
 expect("the studio comes back after the unfold", await reloadStudio());
 expect("the unfold is kept across a reload", await evaluate(`${collapsedFlag} === 'false'`));
+// On a narrow window the pane takes turns with the other panels: it starts folded, whatever a wide window stored.
+await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 950, deviceScaleFactor: 1, mobile: false });
+expect("the studio comes back on a narrow window", await reloadStudio());
+expect("a narrow window starts folded although an unfold is stored", await evaluate(`${collapsedFlag} === 'true'`) && (await storedFold()) === "open", await storedFold());
+await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
 await evaluate(`localStorage.setItem('${PANE_KEY}', 'folded')`);
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }

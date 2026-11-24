@@ -381,7 +381,7 @@ export function useScenes(appContext) {
 	}
 
 	/** Open a bundled starter scene as a fresh, saveable project. Used by the
-	 * first-run dialog and by `npx cozyclay --scene <id>` (`?scene=`). */
+	 * project chooser and by `npx cozyclay --scene <id>` (`?scene=`). */
 	// A cast style chosen on the start screen overrides the starter's own.
 	async function openStarterScene(id, source = "starter", context = null, name = null, castStyle = undefined) {
 		if (source === "starter" && domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled";

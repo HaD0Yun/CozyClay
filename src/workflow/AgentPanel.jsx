@@ -321,7 +321,7 @@ export default function AgentPanel({
 
 	const composerRef = useRef(null);
 	const fileInputRef = useRef(null);
-	const focusPendingRef = useRef(false);
+	const focusPendingRef = useRef(false), shownAtStartRef = useRef(embedded && !hidden);
 	const transcriptRef = useRef(null);
 
 	// The host's context builder and image-action handler are read through refs
@@ -517,7 +517,10 @@ export default function AgentPanel({
 	// embedded panel never pulls focus out of the host's own surface. An
 	// embedded panel never collapses itself (its host hides it), so shown means
 	// open there: without that the Studio composer opened unfocused and the
-	// next Cmd+V landed on the stage.
+	// next Cmd+V landed on the stage. An embedded panel its host shows from the
+	// start was not opened by the author: it leaves the keyboard with the host
+	// (the Studio's stage shortcuts) until the author hides it and opens it again
+	// (the pending-focus effect below clears the flag), or clicks into it.
 	useEffect(() => {
 		if (hidden) {
 			// Chrome blurs a hidden focused field only on its next lifecycle step;
@@ -525,7 +528,7 @@ export default function AgentPanel({
 			if (composerRef.current && composerRef.current === document.activeElement) composerRef.current.blur();
 			return;
 		}
-		if (!(embedded || !collapsed)) return;
+		if (!(embedded || !collapsed) || shownAtStartRef.current) return;
 		composerRef.current?.focus();
 		// A composer still waiting on the model list is disabled and refuses
 		// focus; the open is remembered so it lands once the composer enables.
@@ -767,7 +770,7 @@ export default function AgentPanel({
 	const composerDisabled = panelState === "rate-limited" || !model || !modelIsSelectable(modelProviders, model);
 	const editableId = surface === "studio" && typeof transport.rewind === "function" ? editableMessageId(items) : null;
 	useEffect(() => {
-		if (hidden) focusPendingRef.current = false;
+		if (hidden) focusPendingRef.current = shownAtStartRef.current = false;
 		if (hidden || composerDisabled || !focusPendingRef.current) return;
 		focusPendingRef.current = false;
 		// Only claim focus nobody else has taken in the meantime.

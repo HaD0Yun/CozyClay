@@ -2286,3 +2286,6 @@ ORDER BY event, value
 
 An empty `value` on `scene:created` is a scene that was not made from the
 start screen's new-project path. Undo and redo never emit a second event.
+A first open (`src/guest-start.js`) makes its project through the same
+`project.new` action, so it also sends `scene_source: new_project` with the
+default `cast_style` (`hybrid`), although the author chose nothing there.

@@ -12,8 +12,8 @@ import "./camera-tutorial.css";
 const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
 // The camera tutorial: eight steps the operator finishes by doing them in the real Studio. It ran in the 2.x Studio
-// (#206, #211), left with the 3.0 start screen, and is back for a first visit to the hosted Studio (guest-start.js),
-// where it opens with the stage instead of the project chooser.
+// (#206, #211), left with the 3.0 start screen, and is back for a first visit to the hosted Studio (a guest start,
+// guest-start.js), where it opens with the stage.
 //
 //   cozyclay:nav               fly / walk / dolly / orbit  (src/controls.jsx, nav-signal.js)
 //   shotCount / railReady      shot / rail                 (authored state)

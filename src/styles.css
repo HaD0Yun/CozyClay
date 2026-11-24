@@ -297,7 +297,7 @@ select {
 	background: rgba(0, 0, 0, .55);
 }
 
-/* First-run chooser is intentionally non-blocking around the studio: the
+/* The chooser File > New opens is intentionally non-blocking around the studio: the
  * author can inspect the scene while deciding, and the topbar remains usable
  * for browser automation and keyboard users. The dialog itself remains fully
  * interactive. */

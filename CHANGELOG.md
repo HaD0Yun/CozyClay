@@ -11,7 +11,9 @@ Studio
 - The Agent pane is open when the Studio opens. Folding it (Window > Agent,
   Cmd/Ctrl+B, the pane's own button) is kept for the address, and so is
   opening it again. On a window of 1000 px or narrower it starts folded, and
-  what is folded there is not kept.
+  what is folded there is not kept. The pane that is open at start does not
+  take the keyboard: the stage's shortcuts work at once, and the composer has
+  the focus after a click in it, or once the pane is folded and opened again.
 
 Depth exports
 

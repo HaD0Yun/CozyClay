@@ -2203,7 +2203,8 @@ export default function App() {
 		if (!requested) return;
 		starterOpened.current = true;
 		// An id this build does not ship (a removed starter, a typo) is ignored:
-		// the studio opens as it would without ?scene=.
+		// the studio opens what is stored. With nothing stored that is the empty
+		// stage with no project: a ?scene= launch is no first open (guest-start.js).
 		if (!resolveSceneParam(requested)) {
 			console.warn(`cozyclay: ?scene=${requested} is not a starter scene in this build; ignored.`);
 			return;
