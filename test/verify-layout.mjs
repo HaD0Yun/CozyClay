@@ -136,10 +136,11 @@ expect("an unowned selection explains itself instead of showing a blank column",
 expect("the heavy motion pipeline starts collapsed", app.includes("function Foldout({ title, hidden, defaultOpen = true, openSignal = 0, children })") && app.includes("useState(defaultOpen)"));
 expect(
 	"recording stays clean unless review burn-in is explicitly enabled",
-	app.includes("capture: (frame, kind) => withExportFrame(frame, kind") &&
+	app.includes("capture: (frame, kind) => withExportFrame(frame, !kind ? null :") &&
 		app.includes("const plate = applyExportFrame(frame);") &&
 		app.includes("if (!shotForFrame?.review?.burnIn) return pixels;") &&
-		app.includes("decorate: passKind ? null : exportReviewDecoration") &&
+		// a pass (depth) is never burnt in: its only decoration is the plate's own softening
+		app.includes("decorate: passKind ? soften : exportReviewDecoration") &&
 		// #276 retains #193's preflight shot list in the immutable request.
 		// The executable export-recovery tests verify selection and retry.
 		app.includes("structuredClone({ shots: exportShots, playbackScene") &&
