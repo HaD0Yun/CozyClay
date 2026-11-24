@@ -124,10 +124,20 @@ assert.ok(DEPTH_SOFTEN_PX > 0 && DEPTH_SOFTEN_PX < 1, "the softness is under a p
 	const still = depthStill(precise, camera, { width: W, height: H }, (bytes) => bytes);
 	assert.deepEqual(precise.calls, [{ precise: true }], "the plate still asks once, for the precise pass");
 	assert.ok(grey(still, 70, 40) > grey(still, 20, 40), "and is a plate");
-	const plain = { scene, precise: false, calls: [], render(options) { this.calls.push(options ?? null); const out = new Uint8Array(W * H * 4); for (let i = 0; i < W * H; i += 1) out[i * 4] = i % W < W / 2 ? 90 : 180; return out; } };
+	// the 8-bit pass: a far wall at grey 90 and a near wall at grey 180 of the log curve over the stage's depth
+	const ramps = [], plain = { scene, precise: false, calls: [], render(options) {
+		this.calls.push(options ?? null);
+		const { uNear, uRange, uCurve } = scene.overrideMaterial.uniforms;
+		ramps.push({ near: uNear.value, far: uRange.value, curve: uCurve.value });
+		const out = new Uint8Array(W * H * 4); for (let i = 0; i < W * H; i += 1) out[i * 4] = i % W < W / 2 ? 90 : 180; return out;
+	} };
 	const flat = depthStill(plain, camera, { width: W, height: H }, (bytes) => bytes);
 	assert.deepEqual(plain.calls, [null, null], "the 8-bit still is drawn twice and never asks for half floats");
-	assert.equal(flat.length, W * H * 4);
+	assert.deepEqual(ramps[0], { near: 0.1, far: 40, curve: 2 }, "first by ratio over the stage's whole depth");
+	const wallNear = 0.1 * 400 ** (1 - 180 / 255), wallFar = 0.1 * 400 ** (1 - 90 / 255);
+	assert.ok(ramps[1].curve === 2 && ramps[1].near < wallNear && ramps[1].near > wallNear / 1.2 && ramps[1].far > wallFar && ramps[1].far < wallFar * 1.2,
+		`then by ratio over the range that holds the frame's two walls (${JSON.stringify(ramps[1])} around ${wallNear.toFixed(2)} .. ${wallFar.toFixed(2)} m)`);
+	assert.ok(flat instanceof Uint8ClampedArray && flat.length === W * H * 4 && flat[3] === 255, "and softened into an opaque plate");
 	assert.equal(depthStill({ scene, precise: true, render: () => null }, camera, { width: W, height: H }, () => "x"), null, "no read-back, no still");
 	console.log("PASS depth plate: the still follows what the renderer can read back");
 }
