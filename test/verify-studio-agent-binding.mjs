@@ -45,7 +45,7 @@ import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
 import { characterRowId } from '../src/hierarchy-model.js';
 
-const cases = ['character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'held-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
+const cases = ['character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'held-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'proxy-figure-root-frame', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
 const argv = process.argv.slice(2);
 assert(!argv.length || (argv.length === 2 && argv[0] === '--case' && cases.includes(argv[1])), 'Unknown test arguments');
 import { readStudioSource } from './bus/verify-domain-modules.mjs';
@@ -66,7 +66,7 @@ const carried = (() => {
  const source = readFileSync(new URL('../src/stage-attach-frames.js', import.meta.url), 'utf8');
  const start = source.indexOf('export const ATTACH_BONE_ROWS'), end = source.length;
  assert(start > 0 && end > start, 'app-stage.jsx attachment block');
- return new Function('THREE', 'SCENE_ATTACH_BONES', 'normalizeBoneName', `${source.slice(start, end).replace(/^export /gm, '')}\nreturn { attachFrameMatrix, sceneObjectMatrix, attachPlacementPatch, placeSceneObject, attachWorldMatrix };`)(THREE, objects.SCENE_ATTACH_BONES, normalizeBoneName);
+ return new Function('THREE', 'SCENE_ATTACH_BONES', 'normalizeBoneName', `${source.slice(start, end).replace(/^export /gm, '')}\nreturn { attachFrameMatrix, proxyFrameMatrix, sceneObjectMatrix, attachPlacementPatch, placeSceneObject, attachWorldMatrix };`)(THREE, objects.SCENE_ATTACH_BONES, normalizeBoneName);
 })();
 const aimAt = (p,t) => ({ yaw: Math.atan2(-(t.x-p.x), -(t.z-p.z)), pitch: Math.atan2(t.y-p.y, Math.hypot(t.x-p.x,t.z-p.z)) });
 const forwardFrom = (yaw,pitch) => new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch));
@@ -753,6 +753,22 @@ const implementations={
   assert.equal(placed.ok,true,`an arrange still runs while a prop is carried: ${JSON.stringify(placed)}`);
   const verified=await f.call('verify_result',f.request('verify_result',{targets:placed.affectedIds,checks:['placement'],visual:'none'}));
   assert(verified.checks.placement.overlapIds.includes(id),`a cube dropped where the carried prop is drawn overlaps it: ${JSON.stringify(verified.checks.placement)}`);
+ },
+ async 'proxy-figure-root-frame'(){
+  // A proxy figure has no rig: its placed group is the root frame, unscaled, and it has no bones.
+  const outer=new THREE.Group();outer.position.set(1,0,-2);const group=new THREE.Group();group.position.set(3,0,4);group.rotation.set(0,Math.PI/2,0);group.scale.setScalar(1.6);outer.add(group);
+  const frame=carried.proxyFrameMatrix(group,null,new THREE.Matrix4());assert(frame,'a placed proxy group gives a root frame');
+  const p=new THREE.Vector3(),q=new THREE.Quaternion(),s=new THREE.Vector3();frame.decompose(p,q,s);
+  assert.deepEqual(p.toArray().map(v=>Math.round(v*1e6)/1e6+0),[4,0,2],'world position includes the parents');
+  assert(Math.abs(q.angleTo(new THREE.Quaternion().setFromEuler(new THREE.Euler(0,Math.PI/2,0))))<1e-9,'world yaw');
+  assert.deepEqual(s.toArray().map(v=>Math.round(v*1e6)/1e6),[1,1,1],'the frame is unscaled like a rig root');
+  assert.equal(carried.proxyFrameMatrix(group,'rightHand',new THREE.Matrix4()),null,'a proxy figure has no bones');
+  assert.equal(carried.proxyFrameMatrix(null,null,new THREE.Matrix4()),null,'no group yet');
+  // A prop attached through that frame keeps its place on screen.
+  const prop={id:'p',x:5,y:1,z:2,rot:0,rotX:0,rotZ:0,scaleX:1,scaleY:1,scaleZ:1};
+  const world=carried.sceneObjectMatrix(prop,new THREE.Matrix4());
+  const local=frame.clone().invert().multiply(world);const back=frame.clone().multiply(local);
+  assert.deepEqual(new THREE.Vector3().setFromMatrixPosition(back).toArray().map(v=>Math.round(v*1e6)/1e6+0),[5,1,2]);
  },
  async 'run-action-object-attach-and-undo'(f){
   const run=(action,args)=>f.call('run_action',f.request('run_action',{action,args}));

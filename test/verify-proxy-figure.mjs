@@ -17,12 +17,12 @@ assert.equal(row.children, undefined);
 const source = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
 const mapping = source.slice(source.indexOf("characters.flatMap((entry, index) => {", source.indexOf("const characterViews")),
 	source.indexOf("}), [characters, activeChar.id, motion", source.indexOf("const characterViews")) + 2);
-const map = new Function("characters", "activeChar", "motion", "tlFrame", "shots", "shotAtFrame", "partColoursEnabled", "partColoursMode", "DEFAULT_POSE", "characterModelUrl", "defaultCharacterTint", "placementAt", "reportRig", "isProxyFigure", "defaultCharacterColour", "bodyScale",
+const map = new Function("characters", "activeChar", "motion", "tlFrame", "shots", "shotAtFrame", "partColoursEnabled", "partColoursMode", "DEFAULT_POSE", "characterModelUrl", "defaultCharacterTint", "placementAt", "reportRig", "isProxyFigure", "defaultCharacterColour", "bodyScale", "reportProxyFrame",
 	`return ${mapping}`);
-let rigReports = 0;
+let rigReports = 0, frameReports = 0;
 const views = map([proxy, createCharacterEntry({ id: "rig" })], proxy, null,
 	0, [], () => null, false, "shaded", {}, model => `/models/${model}.fbx`, () => "#bdbec3",
-	placementAt, () => { rigReports++; return () => {}; }, isProxyFigure, () => null, bodyScale);
+	placementAt, () => { rigReports++; return () => {}; }, isProxyFigure, () => null, bodyScale, () => { frameReports++; return () => {}; });
 assert.equal(Object.hasOwn(views[0], "url"), false);
 assert.equal(Object.hasOwn(views[0], "onRig"), false);
 assert.equal(views[0].posture, "sit");
@@ -31,6 +31,10 @@ assert.equal(views[0].pickId, "proxy");
 assert.equal(views[1].pickId, "rig");
 assert.equal(views[1].url, "/models/y-bot-tpose.fbx");
 assert.equal(rigReports, 1);
+// A proxy figure reports its placed group instead (its root frame for attached props); a rigged one does not.
+assert.equal(typeof views[0].onFrame, "function");
+assert.equal(Object.hasOwn(views[1], "onFrame"), false);
+assert.equal(frameReports, 1);
 console.log("PASS proxy hierarchy has no rig; render mapping carries posture without URL/onRig");
 
 // Untinted block figures are drawn in different default colours, by their place in the cast;

@@ -275,7 +275,7 @@ import {
 	TIMELINE_FPS,
 	ViewportLayoutInvalidator,
 	WORKSPACE_LAYOUT_KEY,
-	attachFrameMatrix,
+	characterFrameMatrix, reportProxyFrame,
 	captureMcpFrame,
 	characterModelUrl,
 	defaultCharacterColour, defaultCharacterTint,
@@ -1951,7 +1951,7 @@ export default function App() {
 	// rendered frame; the App keeps it pointed at the mounted rigs. A ref, not a
 	// prop value, so a fresh rig map never re-renders the set.
 	const attachFrameRef = useRef(null);
-	attachFrameRef.current = (characterId, bone, out) => attachFrameMatrix(rigs[characterId] ?? null, bone, out);
+	attachFrameRef.current = (characterId, bone, out) => characterFrameMatrix(rigs[characterId] ?? null, characterId, bone, out);
 	// the same frame at another timeline frame, from the character's take: where an attached emitter's particles were born
 	const attachFrameAtRef = useRef(null);
 	attachFrameAtRef.current = (characterId, bone, frame, now, out) => attachFrameAt({ rig: rigs[characterId] ?? null, take: appContext.storeDomain("motion")?.motionFor?.(characterId) ?? null,
@@ -2523,7 +2523,7 @@ export default function App() {
 			// clip, never separately — see Character for why. The world size:
 			// the scale times the body of the look it is drawn in (figure.js).
 			scale: bodyScale(entry),
-			...(isProxyFigure(entry) ? {} : { onRig: reportRig(entry.id) }),
+			...(isProxyFigure(entry) ? { onFrame: reportProxyFrame(entry.id) } : { onRig: reportRig(entry.id) }),
 			pickId,
 			parent: entry.parent ?? null,
 		}];
@@ -4563,7 +4563,7 @@ export default function App() {
 										partColoursMode={view.partColoursMode}
 										pose={view.pose}
 										scale={view.scale}
-										onRig={view.onRig} pickId={view.pickId}
+										onRig={view.onRig} onFrame={view.onFrame} pickId={view.pickId}
 									/>
 								</ObjectCarrier>
 							))}
