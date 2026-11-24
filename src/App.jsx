@@ -2229,8 +2229,9 @@ export default function App() {
 		});
 		// A project the host app asks for (src/host-project-files.js) opens after
 		// that restore, so it is the one left open. Subscribed once per page, like
-		// the restore, so there is no cleanup for StrictMode's replay to undo.
-		subscribeHostProjectOpen((handle) => { const open = () => openProjectByHandle(handle); void restored.then(open, open); });
+		// the restore, so there is no cleanup for StrictMode's replay to undo. The
+		// promise it hands back tells a waiting brief when the open is over.
+		subscribeHostProjectOpen((handle) => { const open = () => openProjectByHandle(handle); return restored.then(open, open); });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
@@ -4384,7 +4385,7 @@ export default function App() {
 		flySpeed, setFlySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
 		agentOpen: !agentCollapsed,
 		toggleAgent: () => window.dispatchEvent(new CustomEvent("cozyclay:agent-panel-toggle")),
-		saveStatus: { state: projectSaveState, text: projectStatus, dirty: projectDirty, name: projectName },
+		saveStatus: { state: projectSaveState, text: projectStatus, dirty: projectDirty, name: projectName }, hostProject: { token: () => projectHandleRef.current?.hostToken ?? null, save: async () => (await saveProject()).saved === true },
 		exportStatus: exportStatus && { ...exportStatus, cancel: stopShotRecording, retry: retryExport },
 		subscribeToasts: (listener) => { toastSinkRef.current.add(listener); return () => toastSinkRef.current.delete(listener); },
 		enterShotLook, startCameraPerformance: () => cameraPerformance.start(), stopCameraPerformance: () => cameraPerformance.stop(), cameraPerformanceRecording: cameraPerformance.active,

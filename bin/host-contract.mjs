@@ -19,9 +19,13 @@
 //   with the fields hosts read.
 // - HOST_CAPABILITIES names optional features a host may use. "project-files":
 //   the Studio opens and saves projects through window.cozyclayHost.projectFiles
-//   when the host provides it (src/host-project-files.js).
+//   when the host provides it (src/host-project-files.js). "agent-brief": the
+//   host hands the Studio's own agent one message with pictures through
+//   window.cozyclayHost.agentBrief and is told how that turn ended
+//   (src/host-agent-brief.js). A new capability is not a break: a host that
+//   does not know a name ignores it.
 export const HOST_CONTRACT_VERSION = 1;
-export const HOST_CAPABILITIES = Object.freeze(["project-files"]);
+export const HOST_CAPABILITIES = Object.freeze(["project-files", "agent-brief"]);
 
 export function hostContract(version) {
 	return { contract: HOST_CONTRACT_VERSION, version, capabilities: [...HOST_CAPABILITIES] };

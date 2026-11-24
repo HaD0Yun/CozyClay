@@ -46,10 +46,10 @@ export async function removeProjectThumb(name) {
 	}
 }
 
-// The viewport frame, cropped to 16:9 around its centre.
-function viewportBlob() {
+// The viewport frame, cropped to 16:9 around its centre; null without a stage.
+function viewportFrame() {
 	const source = document.querySelector(".viewport .stage canvas");
-	if (!source?.width || !source?.height) return Promise.resolve(null);
+	if (!source?.width || !source?.height) return null;
 	const canvas = document.createElement("canvas");
 	canvas.width = WIDTH;
 	canvas.height = HEIGHT;
@@ -57,7 +57,23 @@ function viewportBlob() {
 	const width = WIDTH / scale;
 	const height = HEIGHT / scale;
 	canvas.getContext("2d").drawImage(source, (source.width - width) / 2, (source.height - height) / 2, width, height, 0, 0, WIDTH, HEIGHT);
-	return new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.82));
+	return canvas;
+}
+
+function viewportBlob() {
+	const frame = viewportFrame();
+	return frame ? new Promise((resolve) => frame.toBlob(resolve, "image/webp", 0.82)) : Promise.resolve(null);
+}
+
+// The same picture as a PNG data URL, read now and stored nowhere: what the
+// Studio reports to a host app after a brief (src/host-agent-brief.js). null
+// when there is no stage to read.
+export function stageThumbDataUrl() {
+	try {
+		return typeof document === "undefined" ? null : viewportFrame()?.toDataURL("image/png") ?? null;
+	} catch {
+		return null;
+	}
 }
 
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
