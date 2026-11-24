@@ -70,13 +70,14 @@ const reset = async () => { await click("[data-testid=poser-reset]"); await idle
 const add = (p, d) => p.map((v, i) => v + d[i]);
 const heading = async () => evaluate(`(() => { const G = ${P}.controller.bridge.turnAt(6); return Math.atan2(G[2], G[8]) * 180 / Math.PI; })()`);
 
-async function openStudio(name) {
+async function openStudio() {
+	// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+	await send("Page.navigate", { url: new URL("/favicon.ico", url).href });
+	await poll("location.pathname === '/favicon.ico' && document.readyState === 'complete'", 15000);
 	await evaluate(`(() => { for (const k of Object.keys(localStorage)) if (/project-session|scenes|left-collapsed|first-success/i.test(k)) localStorage.removeItem(k); })()`);
 	await send("Page.navigate", { url });
-	await poll("document.readyState === 'complete' && !!document.querySelector('[data-testid=start-create]')", 30000);
-	await evaluate(`(() => { const i = document.querySelector('[data-testid="start-project-name"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(i, ${JSON.stringify(name)}); i.dispatchEvent(new Event("input", { bubbles: true })); })()`);
-	await click("[data-testid=start-create]");
-	await poll("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline')", 20000);
+	// Nothing is stored: a first open, straight to the editor in a project of its own.
+	await poll("document.readyState === 'complete' && !document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')", 30000);
 	await evaluate("document.querySelector('.v2-first-success-guide-close')?.click()");
 	await click("[data-testid=viewport-add]");
 	await poll("!!document.querySelector('.add-object-menu [data-add=character]')");
@@ -97,7 +98,7 @@ await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: t
 await send("Page.navigate", { url });
 await poll("document.readyState === 'complete'", 30000);
 await evaluate(`(() => { for (const k of Object.keys(localStorage)) if (/project-session|scenes|left-collapsed|first-success/i.test(k)) localStorage.removeItem(k); })()`);
-await openStudio("poser_tour");
+await openStudio();
 const ready = await poll("document.querySelector('[data-testid=poser-model]')?.dataset.status === 'ready' && !!window.__cozyclayPoser?.controller", 60000);
 const view = await evaluate("({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio })");
 await reset();
@@ -221,7 +222,7 @@ console.log(`PERF ${JSON.stringify(perf)}`);
 blocked = ["*cozy-poser-v1.onnx*"];
 await send("Network.setBlockedURLs", { urls: blocked });
 await evaluate(`caches.delete("cozy-poser-v1")`);
-await openStudio("poser_tour_missing");
+await openStudio();
 const failed = await poll("document.querySelector('[data-testid=poser-model]')?.dataset.status === 'failed'", 20000);
 await key("KeyW", "w");
 const wWorks = await poll("document.querySelector('.vp-tool-key[data-tool=ik]')?.classList.contains('active')", 3000);

@@ -1,11 +1,12 @@
-// The guest start's side of the Studio (guest-start.js has the rule): it asks for a language, then once creates the
-// project, puts one character on the stage, gives it a short walk (a sample motion, so the tutorial's Shot, Rail and
-// Play steps have somebody moving), and shows the camera tutorial until it is closed.
+// The first open's side of the Studio (guest-start.js has the rules). A first open creates the project once, and the
+// stage is there. A guest start first asks for a language, then also puts one character on the stage, gives it a
+// short walk (a sample motion, so the tutorial's Shot, Rail and Play steps have somebody moving), and shows the
+// camera tutorial until it is closed.
 import { useContext, useEffect, useRef, useState } from "react";
 import { AppContext, useBus } from "./app-context.js";
 import StudioCameraTutorial from "./camera-tutorial.jsx";
 import TutorialLanguage from "./camera-tutorial-language.jsx";
-import { guestStart } from "./guest-start.js";
+import { firstOpen, guestStart, holdFirstOpen } from "./guest-start.js";
 import { ko, localeChosen } from "./locale.js";
 import { sampleMotionSpec } from "./motion/sample-motions.js";
 import { NEW_CHARACTER_MODEL } from "./scenes.js";
@@ -15,16 +16,28 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function GuestStart() {
 	const { run } = useBus(), shell = useStudioShell(), app = useContext(AppContext), started = useRef(false);
-	const [tutorial, setTutorial] = useState(() => guestStart());
+	// What this load is, read once as the Studio mounts (a playground page has its own scene). The Studio stores its
+	// still-empty scene 400 ms later, and a guest answers the language question after that: the first open is marked as
+	// begun (guest-start.js), so it is still one when the answer comes and after the reload another language makes.
+	const [first] = useState(() => {
+		const open = !app?.shared?.playgroundMode && firstOpen(), guest = open && guestStart();
+		if (open) holdFirstOpen(true);
+		return { open, guest };
+	});
+	const [tutorial, setTutorial] = useState(first.guest);
 	// The language comes first: choosing another one reloads the page, and the guest project must not exist yet
 	// then, or the reload would resume it with no tutorial. A visitor who chose before goes straight in.
 	const [language, setLanguage] = useState(localeChosen);
 	useEffect(() => {
-		if (!language || started.current || !guestStart()) return;
+		// a guest waits for the language, any other first open starts at once
+		const { open, guest } = first;
+		if (started.current || !open || (guest && !language)) return;
 		started.current = true;
 		void (async () => {
 			const receipt = await run("project.new", { name: ko("Untitled Project", "제목 없는 프로젝트", "未命名项目") });
 			if (!receipt?.ok) return;
+			holdFirstOpen(false);
+			if (!guest) return;
 			shell?.spawnCharacter?.(NEW_CHARACTER_MODEL, 0, 0);
 			// The cast row lands with the add's commit, and the compile needs the rig loaded, which on a first visit is
 			// a download. Both are waited for: a walk that misses its moment leaves the camera steps nobody to follow.

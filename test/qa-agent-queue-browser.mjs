@@ -124,7 +124,9 @@ const bubbles = () => evaluate("[...document.querySelectorAll('.agent-row.user .
 try {
 	await send("Page.enable"); await send("Runtime.enable");
 	// an open project session skips the start page
-	await send("Page.addScriptToEvaluateOnNewDocument", { source: `localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.agent.tasks', ${JSON.stringify(process.env.QA_TASKS === "on" ? "on" : "off")}); if (!localStorage.getItem('cozyclay.project-session.v1')) localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Queue QA', updatedAt: Date.now() }));` });
+	// The pane starts folded, as these steps expect: `.studio-agent-bar` (the folded pane's bar) is the ready signal and
+	// the way in. Set on every load: opening the pane stores "open" (src/shell/agent-pane.js).
+	await send("Page.addScriptToEvaluateOnNewDocument", { source: `localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.shell.agent-pane.v1', 'folded'); localStorage.setItem('cozyclay.agent.tasks', ${JSON.stringify(process.env.QA_TASKS === "on" ? "on" : "off")}); if (!localStorage.getItem('cozyclay.project-session.v1')) localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Queue QA', updatedAt: Date.now() }));` });
 	await send("Page.navigate", { url: `${origin}/app/` });
 	await waitFor("!!window.__cozyclay?.runStudioAction && !!document.querySelector('.studio-agent-bar')", "Studio ready", 120_000);
 	if (!(await evaluate("!!document.querySelector('.agent-input') && document.querySelector('.agent-input').offsetParent !== null"))) await click(".studio-agent-bar");

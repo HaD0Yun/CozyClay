@@ -109,11 +109,19 @@ const expect = (name, condition, detail = "") => {
 };
 
 // --- Empty: the list sketches where projects will land ---------------------
+const studioUrl = await evaluate("location.href");
+// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+{ const left = waitForPageLoad(); await send("Page.navigate", { url: `${await evaluate("location.origin")}/favicon.ico` }); await left; }
 await evaluate(`(async () => {
-	localStorage.removeItem("cozyclay.project-session.v1");
+	for (const key of Object.keys(localStorage)) if (/project-session|scenes|scene\\.v1/.test(key)) localStorage.removeItem(key);
 	for (const name of ["cozyclay.project-handle.v1", "cozyclay.project-thumbs.v1"]) await new Promise((resolve) => { const request = indexedDB.deleteDatabase(name); request.onsuccess = request.onerror = request.onblocked = () => resolve(); });
 })()`);
-await reload();
+{ const back = waitForPageLoad(); await send("Page.navigate", { url: studioUrl }); await back; }
+// Nothing is stored: a first open goes straight to the editor. The start screen is File > New's.
+expect("a first open goes straight to the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')"));
+await click("[data-testid=menu-file]");
+expect("File shows New", await waitFor("!!document.querySelector('[data-testid=menubar-new]')"));
+await click("[data-testid=menubar-new]");
 expect("the start screen renders", await waitFor("!!document.querySelector('.v2-start-screen.startup [data-testid=start-recent-work]')"));
 expect("an empty list shows the placeholder rows and Open a project file", await waitFor("document.querySelectorAll('.v2-start-work-ghosts span').length === 3 && !!document.querySelector('.v2-start-work-empty .v2-start-empty-open')"));
 expect("an empty list has no search box", await evaluate("!document.querySelector('[data-testid=start-recent-search]')"));
@@ -137,6 +145,11 @@ await evaluate(`(async () => {
 	db.close();
 })()`);
 await reload();
+// The reload resumes the first open's project; the start screen is File > New's.
+expect("the reload resumes the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline')"));
+await click("[data-testid=menu-file]");
+expect("File shows New again", await waitFor("!!document.querySelector('[data-testid=menubar-new]')"));
+await click("[data-testid=menubar-new]");
 expect("the list shows the three projects newest first", await waitFor("document.querySelectorAll('.v2-start-work-row').length === 3"), JSON.stringify(await rowNames()));
 expect("rows are in recents order", JSON.stringify(await rowNames()) === JSON.stringify(["alley_chase", "rooftop_fight", "cafe_board"]), JSON.stringify(await rowNames()));
 expect("the count badge reads 3", (await evaluate("document.querySelector('.v2-start-work-title small')?.textContent")) === "3");

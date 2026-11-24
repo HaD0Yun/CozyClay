@@ -27,7 +27,7 @@ Against a dev server you already run:
 QA_URL=http://127.0.0.1:5594/app/ CDP_PORT=5595 node tools/qa-browser.mjs -- node tools/tutorial/record.mjs first-video
 ```
 
-Opening the Studio clears the origin's storage first (`Storage.clearDataForOrigin`), so it always shows the chooser with the name field. Downloads from an export step go to a scratch dir. One continuous capture is cut into the chapter files, so chapters join without a seam.
+Opening the Studio clears the origin's storage first (`Storage.clearDataForOrigin`), so the Studio makes a first open (straight to the editor), and the recorder then opens the project chooser with the name field through File > New. The Agent pane starts folded in a recording (the Studio opens with it unfolded): the episodes point at its bar and open it with Cmd/Ctrl+B. Downloads from an export step go to a scratch dir. One continuous capture is cut into the chapter files, so chapters join without a seam.
 
 Flags: `--locale en|ko` (UI and caption language), `--size 1600x1000|1920x1080`, `--voice off|say` (default off), `--wps-ko 1.6` and `--wps-en 2.5` (reading speed), `--fps 30`, `--out dist/tutorial`. `npm run build` empties `dist/`.
 
@@ -67,7 +67,7 @@ Each step has exactly one action:
 | `menu` | `{ open, then }`: click `open`, then click `then`, leaving the menu open for a spotlight |
 | `card` | `"opening"` (episode title), `"closing"` (lists the titled chapters) or `{ title, subtitle }` (numbered by its chapter) |
 | `terminal` | `{ typed, lines }`: `scenes/terminal.html` types the command and prints the lines |
-| `studio` | `true`: open the Studio at its startup chooser (an episode without it starts there) |
+| `studio` | `true`: open the Studio and its project chooser (an episode without it starts there) |
 
 A spotlight holds for 1.2 s + its label and note at reading speed, a card for at least 2 s, a terminal for 1.5 s after its last line; `hold` beside them overrides that.
 

@@ -108,16 +108,14 @@ try {
 	phase = "session";
 	session = await browserSession(port, timeoutMs, events);
 
-	// The studio opens a modal project chooser on a first run (no project
-	// session in storage). Its dialog sits over the viewport and takes the
-	// pointer, so every canvas press a suite dispatches lands on the dialog
-	// instead of the gizmo — the suite then reads "nothing moved" as a
-	// regression (#83). Seed a session before navigation so QA drives the
-	// studio a returning author sees. QA_STARTUP_CHOOSER=1 keeps the chooser
-	// for suites that exercise it.
-	if (process.env.QA_STARTUP_CHOOSER !== "1") {
+	// With nothing stored the Studio makes a first open: a new project of its own, the Agent pane unfolded. The suites
+	// were written for the studio a returning author sees (a project session, the stage to themselves), so one is
+	// seeded before navigation. QA_FIRST_OPEN=1 leaves the storage empty for a run that wants the first open.
+	if (process.env.QA_FIRST_OPEN !== "1") {
 		await session.navigate(`${new URL(pageUrl).origin}/favicon.ico`);
 		await session.evaluate("(() => { const key = 'cozyclay.project-session.v1'; if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ name: 'QA', updatedAt: Date.now() })); })()");
+		// The same returning author folded the Agent pane; a suite opens it when it needs it (src/shell/agent-pane.js).
+		await session.evaluate("(() => { const key = 'cozyclay.shell.agent-pane.v1'; if (!localStorage.getItem(key)) localStorage.setItem(key, 'folded'); })()");
 	}
 	await session.navigate(bootstrapUrl);
 

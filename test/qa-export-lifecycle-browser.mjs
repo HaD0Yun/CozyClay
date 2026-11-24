@@ -131,7 +131,7 @@ const graph = { version: 1, nodes: [{ id: "qa-scene", type: "scene", position: {
 // Runs in every same-origin document, including Workflow's actual iframe.
 function installBrowserFixture(sceneDocument, workflowGraph, deadline, scenesKey) {
 	if (window === window.top) {
-		localStorage.clear();
+		localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 		localStorage.setItem("cozyclay.locale", "en");
 		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "QA", updatedAt: Date.now() }));
 		localStorage.setItem(scenesKey, JSON.stringify(sceneDocument));

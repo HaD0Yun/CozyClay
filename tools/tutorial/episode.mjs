@@ -26,7 +26,7 @@
 //   terminal: { print?: [...], type?: "npx cozyclay", fresh? }  the install scene: print lines,
 //                                        then type on the last line and press Enter; continues the
 //                                        page an earlier terminal step left, unless fresh
-//   studio: true                         open the Studio at its startup chooser
+//   studio: true                         open the Studio and its project chooser
 // `until` is a selector the step waits for after its action. A step without
 // narration joins the cue of the narrated step before it. `speech: { ko?, en? }`
 // replaces what the voice reads (tools/tutorial/voice.mjs), not the caption.

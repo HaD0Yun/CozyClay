@@ -45,7 +45,7 @@ try {
 	await b.send("Emulation.setDeviceMetricsOverride", { width: 1438, height: 979, deviceScaleFactor: 1, mobile: false });
 	await b.navigate(`${b.base.origin}/favicon.ico`);
 	await b.evaluate(`(() => {
-		localStorage.clear();
+		localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 		localStorage.setItem('cozyclay.locale','en');
 		// The raw recorder this suite measures: the Studio's look speed (0.0032 rad/px), no smoothing.
 		localStorage.setItem('cozyclay.railAimFeel',JSON.stringify({sensitivity:0.0032*100*180/Math.PI,smoothing:0}));

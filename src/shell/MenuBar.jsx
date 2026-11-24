@@ -282,7 +282,7 @@ export default function MenuBar({ preferences }) {
 	const content = {
 		file: (
 			<>
-				{/* New opens the 2b start screen, the same one first launch shows. Its
+				{/* New opens the 2b start screen (no load starts on it: guest-start.js). Its
 				    Create runs project.new, which still asks before discarding unsaved changes. */}
 				<button type="button" role="menuitem" className="menubar-item" data-testid="menubar-new" onClick={item(() => { setProjectBrowserOpen(false); setProjectStartupOpen(true); })}>
 					<span className="menubar-item-label">{ko("New", "새로 만들기")}</span>

@@ -49,7 +49,7 @@ const navigate = async (url) => {
 await send("Runtime.enable");
 const base = new URL(page.url);
 await navigate(`${base.origin}/favicon.ico`);
-await evaluate(`(() => { localStorage.clear(); localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Rail reach QA', updatedAt: Date.now() })); localStorage.setItem('cozyclay.scenes.v4', ${JSON.stringify(doc)}); return true; })()`);
+await evaluate(`(() => { localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded'); localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Rail reach QA', updatedAt: Date.now() })); localStorage.setItem('cozyclay.scenes.v4', ${JSON.stringify(doc)}); return true; })()`);
 await navigate(`${base.origin}/app/`);
 await waitFor("hooks", () => evaluate("Boolean(window.__cozyclay?.sceneObject) && (window.__cozyclay.objects || []).length > 100"));
 await waitFor("stage", () => evaluate("Boolean(window.__cclayPropWorld?.['empty'] && window.__cclayPropWorld?.['cube'])"));

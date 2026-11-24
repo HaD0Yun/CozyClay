@@ -133,7 +133,7 @@ const scene = {
 };
 
 function installBrowserFixture(sceneDocument, deadline, scenesKey) {
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "QA", updatedAt: Date.now() }));
 	localStorage.setItem(scenesKey, JSON.stringify(sceneDocument));

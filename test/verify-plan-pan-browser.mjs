@@ -119,7 +119,7 @@ const seed = async ({ objects, characters, keepLayout = false }) => {
 		stage: { characters, hasCharSheet: false, shotAspect: "16:9" } }] };
 	await evaluate(`(() => {
 		const layout = ${keepLayout} ? localStorage.getItem("cozyclay.workspace-layout.v1") : null;
-		localStorage.clear();
+		localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 		if (layout) localStorage.setItem("cozyclay.workspace-layout.v1", layout);
 		localStorage.setItem("cozyclay.locale", "en");
 		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Pan QA", updatedAt: Date.now() }));

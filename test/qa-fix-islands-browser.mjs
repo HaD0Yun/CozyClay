@@ -85,14 +85,6 @@ const screenshot = async (name) => {
 	console.log(`SCREENSHOT ${path}`);
 	return path;
 };
-const setInput = (selector, value) => evaluate(`(() => {
-	const input = document.querySelector(${JSON.stringify(selector)});
-	if (!input) return false;
-	const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-	setter.call(input, ${JSON.stringify(value)});
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-	return true;
-})()`);
 const click = (selector) => evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return false; node.click(); return true; })()`);
 const press = async (code, keyName, modifiers = 0) => {
 	const text = !modifiers && keyName.length === 1 ? { text: keyName } : {};
@@ -134,12 +126,12 @@ const expect = (name, condition, detail = "") => {
 const appUrl = new URL(process.env.QA_URL || "http://127.0.0.1:5180/app/");
 appUrl.searchParams.set("agent", "mock");
 appUrl.searchParams.set("state", "ready");
+// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+{ const left = waitForPageLoad(); await send("Page.navigate", { url: `${await evaluate("location.origin")}/favicon.ico` }); await left; }
 await evaluate(`(() => { for (const key of Object.keys(localStorage)) if (/project-session|scenes|left-collapsed|first-success|mock\\.agent/i.test(key)) localStorage.removeItem(key); })()`);
 { const loaded = waitForPageLoad(); await send("Page.navigate", { url: appUrl.href }); await loaded; }
-expect("the start screen renders", await waitFor("!!document.querySelector('.v2-start-screen.startup [data-testid=start-create]')"));
-await setInput('[data-testid="start-project-name"]', "qa_fix_islands");
-await click("[data-testid=start-create]");
-expect("Create opens the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline')"));
+// Nothing is stored: a first open, straight to the editor in a project of its own.
+expect("a first open goes straight to the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')"));
 await evaluate("document.querySelector('.v2-first-success-guide-close')?.click()");
 await click("[data-testid=viewport-add]");
 await waitFor("!!document.querySelector('.add-object-menu [data-add=character]')");

@@ -7,10 +7,12 @@
 //
 // The studio has no room for another top bar button (IA rule R4), so the panel
 // is shown from View ▾ like every other "what is on screen" toggle. This suite
-// proves the three things that contract is made of: the studio boots with the
-// panel collapsed and NO .agent-topbar-toggle in the top bar, the View ▾ item
-// expands it, and Cmd/Ctrl+B collapses it again with the menu's checkmark
-// following along. Screenshots land in QA_SHOT_DIR for the PR body.
+// proves what that contract is made of: for an author who folded it the studio
+// boots with the panel collapsed, and there is NO .agent-topbar-toggle in the
+// top bar; the View ▾ item expands it, and Cmd/Ctrl+B collapses it again with
+// the menu's checkmark following along; with no stored choice it boots open,
+// and a fold or an unfold is kept across a reload (src/shell/agent-pane.js).
+// Screenshots land in QA_SHOT_DIR for the PR body.
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const port = Number(process.env.CDP_PORT || 9222);
@@ -102,10 +104,10 @@ expect(
 	await evaluate("!!document.querySelector('header.topbar') && ![...document.querySelectorAll('header.topbar button, header.topbar a')].some((el) => /agent/i.test(el.className + ' ' + el.textContent))"),
 );
 
-/* ---------------------------------------------- the panel boots collapsed - */
+/* ------- the panel boots collapsed for an author who folded it (the harness) - */
 
 expect("the agent panel is mounted", await waitFor(`!!${panel}`, 15000));
-expect("it boots collapsed", await evaluate(`${collapsedFlag} === 'true'`), await evaluate(`${collapsedFlag}`));
+expect("it boots collapsed for an author who folded it", await evaluate(`${collapsedFlag} === 'true'`), await evaluate(`${collapsedFlag}`));
 expect("collapsed, it takes no room at all — no rail, no control spent", await evaluate(`${panel}.getBoundingClientRect().width === 0 && getComputedStyle(${panel}).display === 'none'`));
 
 /* ------------------------------------------------------ the View ▾ item -- */
@@ -149,6 +151,44 @@ expect("and the item checks itself back on", await openMenu() && await waitFor(`
 await evaluate(`${item}.click()`);
 expect("the item collapses the panel exactly like the shortcut", await waitFor(`${collapsedFlag} === 'true'`, 8000));
 expect("the top bar is still free of an agent button", await evaluate("document.querySelectorAll('.agent-topbar-toggle').length === 0"));
+
+/* --------------------------- the fold is the author's choice, kept per address */
+
+const PANE_KEY = "cozyclay.shell.agent-pane.v1";
+const storedFold = () => evaluate(`localStorage.getItem('${PANE_KEY}')`);
+const reloadStudio = async () => {
+	const done = new Promise(resolve => {
+		const listener = event => { if (JSON.parse(event.data).method === 'Page.loadEventFired') { ws.removeEventListener('message', listener); resolve(); } };
+		ws.addEventListener('message', listener);
+	});
+	await send("Page.reload", { ignoreCache: false });
+	await done;
+	return waitFor(`!!${panel} && !!document.querySelector('.v2-outliner .v2-outliner-search')`, 40000);
+};
+expect("folding through the menu was stored", (await storedFold()) === "folded", await storedFold());
+await evaluate(`localStorage.removeItem('${PANE_KEY}')`);
+expect("the studio comes back with no stored choice", await reloadStudio());
+expect("with no stored choice the panel boots open on a wide window", await evaluate(`${collapsedFlag} === 'false' && ${panel}.getBoundingClientRect().width > 0`), await evaluate(`${collapsedFlag}`));
+// The author did not open this pane: its composer (mounted once the session resolves) must not take the keyboard from
+// the stage's shortcuts.
+await waitFor("!!document.querySelector('.agent-input')", 5000);
+expect("the panel that is open at start leaves the keyboard with the stage", await evaluate("!document.activeElement?.closest?.('.agent-panel')"), await evaluate("String(document.activeElement?.className)"));
+await pressToggleShortcut();
+expect("the shortcut folds it", await waitFor(`${collapsedFlag} === 'true'`, 8000));
+expect("the shortcut's fold is stored", (await storedFold()) === "folded", await storedFold());
+expect("the studio comes back after the fold", await reloadStudio());
+expect("the fold is kept across a reload", await evaluate(`${collapsedFlag} === 'true'`));
+await pressToggleShortcut();
+expect("the shortcut unfolds it", await waitFor(`${collapsedFlag} === 'false'`, 8000));
+expect("the unfold is stored", (await storedFold()) === "open", await storedFold());
+expect("the studio comes back after the unfold", await reloadStudio());
+expect("the unfold is kept across a reload", await evaluate(`${collapsedFlag} === 'false'`));
+// On a narrow window the pane takes turns with the other panels: it starts folded, whatever a wide window stored.
+await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 950, deviceScaleFactor: 1, mobile: false });
+expect("the studio comes back on a narrow window", await reloadStudio());
+expect("a narrow window starts folded although an unfold is stored", await evaluate(`${collapsedFlag} === 'true'`) && (await storedFold()) === "open", await storedFold());
+await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+await evaluate(`localStorage.setItem('${PANE_KEY}', 'folded')`);
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-agent-view-toggle-browser: all checks passed");

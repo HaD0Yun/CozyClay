@@ -15,6 +15,25 @@ Agent
 - The refusal a model reads for a tool call with a wrong argument has pi
   1.6.0's wording ("frame: expected >= 1" where it was "frame: must be >= 1").
   (#1345)
+Studio
+
+- The Studio opens straight on the stage. A first open (nothing stored for
+  the address yet) starts in a project of its own, "Untitled Project", in the
+  browser's store, instead of the project chooser. The chooser is File > New
+  and File > Open. A stored scene without a project opens as it is, and so
+  does the Studio when a workflow graph with nodes is stored. (#1346)
+- The hosted Studio's first visit (and `?try`) gets its project, its walking
+  character and the camera tutorial also when the visitor is first asked for
+  a language. Before, keeping the page's language left the tutorial without a
+  project or a character, and another language reloaded into the project
+  chooser. (#1346)
+- The Agent pane is open when the Studio opens. Folding it (Window > Agent,
+  Cmd/Ctrl+B, the pane's own button) is kept for the address, and so is
+  opening it again. On a window of 1000 px or narrower it starts folded, and
+  what is folded there is not kept. The pane that is open at start does not
+  take the keyboard: the stage's shortcuts work at once, and the composer has
+  the focus after a click in it, or once the pane is folded and opened again.
+  (#1346)
 
 Depth exports
 

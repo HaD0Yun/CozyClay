@@ -65,7 +65,7 @@ await evaluate(`(() => {
 		shotDocument: { version: 4, frameCount: 48, shots: [{ id: "shot-enclosure", name: "Lamp", startFrame: 0, endFrame: 47, cameraKeys: [] }], waypoints: [] },
 		stage: { characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "a smoker" }], hasCharSheet: false, shotAspect: "16:9",
 			keyLight: { x: 6, y: 9, z: 4, intensity: 0.02, warmth: 0.5 } } }] };
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.theme.v1", "dark");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Enclosure QA", updatedAt: Date.now() }));
