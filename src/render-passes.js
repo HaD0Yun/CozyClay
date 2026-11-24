@@ -26,8 +26,9 @@ export const DEPTH_RANGE_M = 40;
 // How the greys are shared out over the distance. "linear": equal metres, equal greys. "inverse": by nearness (1 / d).
 // "log": by ratio, so 1 m to 2 m takes as many greys as 4 m to 8 m; a previs frame holds a body two metres away and a
 // horizon forty metres away, and only the ratio gives both their steps. The first two write linear light into the sRGB
-// target (the stored byte is the encoded grey); "log" writes so that the stored byte is the grey itself.
-const CURVES = Object.freeze({ linear: 0, inverse: 1, log: 2 });
+// target (the stored byte is the encoded grey); "log" writes so that the stored byte is the grey itself. "ratio" is the
+// same share-out written as it is, for a read-back that keeps its precision (options.precise; depth-plate.js).
+const CURVES = Object.freeze({ linear: 0, inverse: 1, log: 2, ratio: 3 });
 /** The distance a pre-pass byte stands for, drawn with `curve` over near..far. */
 export function greyDistance(grey, near, far, curve) {
 	const encoded = Math.max(0, Math.min(255, grey)) / 255;
@@ -110,7 +111,7 @@ export const DEPTH_RAMP = /* glsl */ `
 float depthRamp(float d, float near, float far, float curve) {
 	if (curve > 1.5) {
 		float grey = 1.0 - clamp(log(max(d, near) / near) / log(far / near), 0.0, 1.0);
-		return grey <= 0.04045 ? grey / 12.92 : pow((grey + 0.055) / 1.055, 2.4);
+		return curve > 2.5 || grey <= 0.04045 ? (curve > 2.5 ? grey : grey / 12.92) : pow((grey + 0.055) / 1.055, 2.4);
 	}
 	if (curve > 0.5) return clamp((1.0 / max(d, near) - 1.0 / far) / (1.0 / near - 1.0 / far), 0.0, 1.0);
 	return 1.0 - clamp((d - near) / max(far - near, 0.0001), 0.0, 1.0);
@@ -204,7 +205,7 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 		// studio's pale stage colour would otherwise read as "nearest thing in
 		// the frame" to anything consuming the pass.
 		if (kind === "depth") scene.background = BACKGROUND_FAR;
-		buffer = capture.render();
+		buffer = capture.render(options.precise ? { precise: true } : undefined);
 	} finally {
 		// The viewport draws from this same scene object, so the override must
 		// come off before anything else can paint with it — even if the render

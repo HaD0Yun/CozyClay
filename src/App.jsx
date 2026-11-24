@@ -223,7 +223,7 @@ import { keyframePackEntries, keyframePackName } from "./keyframe-pack.js"; impo
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
 import { passFileName, renderPass } from "./render-passes.js";
-import { DEPTH_SOFTEN_PX, createDepthSoftener, depthRangeOverFrames, depthStill } from "./depth-plate.js";
+import { DEPTH_SOFTEN_PX, PLATE_PASS, createDepthSoftener, depthRangeOverFrames, depthStill, surveyedDepthPlate } from "./depth-plate.js";
 
 import { serializeOtio } from "./otio.js";
 import "./shell/mode.css";
@@ -2942,17 +2942,17 @@ export default function App() {
 		return burnInRgba(pixels, output.width, output.height, reviewSlate({ shot: shotForFrame, frame, fps: TIMELINE_FPS,
 			focalMm: sampled?.focalMm, projectName, focusDistance: focusDistance(sampled?.pos, target) }));
 	}
-	// The near and far distance of a depth video are the shot's own: one pre-pass over its frames, drawn with the curve
-	// the video will have, counts how much surface stands at each distance (depth-plate.js).
-	const shotDepthRange = (job, startFrame, endFrame, depthCurve) => depthRangeOverFrames(startFrame, endFrame, shotCamRef.current.near, depthCurve, (frame) => {
+	// The greys of a depth video are the shot's own: one pre-pass over its frames counts how much surface stands at each
+	// distance (depth-plate.js). These are the two steps of that walk: draw a frame's pass, then the job's own step.
+	const depthPrePass = (job, startFrame, endFrame, options) => [(frame) => {
 		job.controller.signal.throwIfAborted();
-		const depth = withExportFrame(frame, () => renderPass(job.capture, job.capture.scene, shotCamRef.current, "depth", null, { depthCurve }));
+		const depth = withExportFrame(frame, () => renderPass(job.capture, job.capture.scene, shotCamRef.current, "depth", null, options));
 		if (!depth) throw Object.assign(new Error("Depth capture failed"), { exportFailureCode: "render_failed" });
 		return depth;
 	}, (frame) => {
 		updateExportStatus(job, "preparing", { stage: "depth", completedFrames: frame - startFrame + 1, frameCount: endFrame - startFrame + 1, cancellable: true });
 		return exportBoundary(job);
-	});
+	}];
 	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "log", depthSoften = DEPTH_SOFTEN_PX, fileName = null, decorate = undefined } = {}, job = null) {
 		const resolvedEndFrame = endFrame ?? Math.max(0, currentRecordFrameCount() - 1);
 		// Preserve the download-free browser seam, without a nested lifecycle.
@@ -2961,13 +2961,15 @@ export default function App() {
 			{ external: true, download }));
 		job.controller.signal.throwIfAborted();
 		const output = job.request.context.output;
-		if (passKind === "depth" && !depthRange && resolvedEndFrame > startFrame) depthRange = await shotDepthRange(job, startFrame, resolvedEndFrame, depthCurve);
-		const soften = passKind === "depth" && depthSoften > 0 ? createDepthSoftener(output.width, output.height, depthSoften * output.height / 1080) : null;
+		// "log" (the default) is the plate made at full precision; the other curves are drawn straight into 8 bits.
+		const plate = passKind === "depth" && depthCurve === "log" ? await surveyedDepthPlate(output, startFrame, resolvedEndFrame, ...depthPrePass(job, startFrame, resolvedEndFrame, PLATE_PASS)) : null;
+		if (passKind === "depth" && !plate && !depthRange && resolvedEndFrame > startFrame) depthRange = await depthRangeOverFrames(startFrame, resolvedEndFrame, shotCamRef.current.near, depthCurve, ...depthPrePass(job, startFrame, resolvedEndFrame, { depthCurve }));
+		const soften = passKind === "depth" && !plate && depthSoften > 0 ? createDepthSoftener(output.width, output.height, depthSoften * output.height / 1080) : null;
 		const result = await exportOffscreenVideo({
 			startFrame, endFrame: resolvedEndFrame, fps: TIMELINE_FPS,
 			width: output.width, height: output.height,
-			capture: (frame, kind) => withExportFrame(frame, kind
-				? () => renderPass(job.capture, job.capture.scene, shotCamRef.current, kind, null, { depthRange, depthCurve }) : null),
+			capture: (frame, kind) => withExportFrame(frame, !kind ? null : plate ? () => plate.bytes(renderPass(job.capture, job.capture.scene, shotCamRef.current, kind, null, PLATE_PASS))
+				: () => renderPass(job.capture, job.capture.scene, shotCamRef.current, kind, null, { depthRange, depthCurve })),
 			decorate: passKind ? soften : exportReviewDecoration, ...(decorate !== undefined ? { decorate } : {}),
 			passKind, signal: job.controller.signal,
 			onFrame: ({ index, frameCount }) => updateExportStatus(job, "encoding", {
