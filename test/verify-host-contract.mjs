@@ -100,7 +100,8 @@ try {
 
 	// --- ready lines and the contract route -------------------------------------
 	assert.equal(HOST_CONTRACT_VERSION, 1, "contract version pinned; see the header of this file before changing it");
-	assert.deepEqual(HOST_CAPABILITIES, ["project-files"]);
+	// A capability may be added; a name that is here stays, because installed hosts look for it.
+	assert.deepEqual(HOST_CAPABILITIES, ["project-files", "agent-brief"]);
 	const contract = { contract: HOST_CONTRACT_VERSION, version, capabilities: [...HOST_CAPABILITIES] };
 	{
 		const port = await freePort();
