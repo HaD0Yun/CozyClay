@@ -3,7 +3,8 @@
 // Seeds the vintage car (a prop-only scene, no character motion: the case that
 // used to record only the shot under the playhead) with its 360-frame timeline
 // cut into two shots, 0–179 and 180–359.
-//   1. The Export menu offers both "whole timeline" and "this shot only".
+//   1. The plainly opened Export menu offers the whole-timeline video as
+//      "Video (mp4)" and not "this shot only" (that one is listed with Alt held).
 //   2. scope "timeline" records all 360 frames, across both shot boxes.
 //   3. scope "shot" records the playhead's shot (180 frames), and a named shot
 //      records that shot.
@@ -77,8 +78,9 @@ const openExport = async () => {
 await openExport();
 const labels = await evaluate("['export-video', 'export-video-shot'].map(id => document.querySelector(`[data-testid=${id}] .menubar-item-label`)?.textContent ?? null)");
 console.log(`1. Export menu: ${JSON.stringify(labels)}`);
-assert.match(labels[0] ?? "", /whole timeline/i);
-assert.match(labels[1] ?? "", /this shot/i);
+assert.equal(labels[0], "Video (mp4)");
+assert.equal(labels[1], null, "one shot's video is not in the plainly opened menu");
+assert.match(await evaluate("document.querySelector('[data-testid=export-video]').title"), /whole timeline/i);
 await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
 await sleep(300);
 

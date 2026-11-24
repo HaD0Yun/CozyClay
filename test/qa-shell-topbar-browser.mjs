@@ -71,7 +71,7 @@ const expect = (name, condition, detail = "") => {
 	console.log(`${condition ? "PASS" : "FAIL"} ${name}${condition ? "" : ` — ${detail}`}`);
 	if (!condition) failures += 1;
 };
-const click = async (selector) => {
+const click = async (selector, modifiers = 0) => {
 	const box = await evaluate(`(() => {
 		const element = document.querySelector(${JSON.stringify(selector)});
 		if (!element) throw new Error('Missing control: ' + ${JSON.stringify(selector)});
@@ -80,7 +80,7 @@ const click = async (selector) => {
 		return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
 	})()`);
 	for (const type of ["mousePressed", "mouseReleased"]) {
-		await send("Input.dispatchMouseEvent", { type, ...box, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 });
+		await send("Input.dispatchMouseEvent", { type, ...box, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1, modifiers });
 	}
 };
 const MOD = process.platform === "darwin" ? 4 : 2;
@@ -94,13 +94,14 @@ const screenshot = async (name, clip) => {
 	writeFileSync(path, Buffer.from(image.data, "base64"));
 	console.log(`SCREENSHOT ${path}`);
 };
-const openFileExport = async () => {
+// every: open the Export menu with Alt held, which also lists its other formats.
+const openFileExport = async (every = false) => {
 	if (!await evaluate("!!document.querySelector('.menubar-menu[data-menu=file]')")) {
 		await click("[data-testid=menu-file]");
 		await waitFor("!!document.querySelector('#export-menu-trigger')");
 	}
 	if (!await evaluate("!!document.querySelector('.export-menu')")) {
-		await click("#export-menu-trigger");
+		await click("#export-menu-trigger", every ? 1 : 0);
 		await waitFor("!!document.querySelector('.export-menu')");
 	}
 };
@@ -146,10 +147,14 @@ await send("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, de
 /* ------------------------------------------------ no shots (failure) --- */
 await load(sceneDocument([]));
 await openFileExport();
-expect("with no shots the OTIO item is absent", !await evaluate("!!document.querySelector('[data-testid=export-otio]')"));
-expect("with no shots the keyframe pack is disabled with its reason",
+const emptyItems = await evaluate("[...document.querySelectorAll('.export-menu [role=menuitem]')].map((item) => item.dataset.testid + (item.disabled ? ':' + item.dataset.disabledReason : ''))");
+expect("with no shots the menu holds the depth video alone, disabled with its reason, and says what is missing", emptyItems.join(",") === "export-depth-video:no-shots" && await evaluate("!!document.querySelector('.export-menu .export-menu-hint')"), emptyItems.join(","));
+await closeMenus();
+await openFileExport(true);
+expect("with no shots and Alt held the OTIO item is absent", !await evaluate("!!document.querySelector('[data-testid=export-otio]')"));
+expect("with no shots and Alt held the keyframe pack is disabled with its reason",
 	await evaluate("document.querySelector('[data-testid=export-keyframe-pack]').disabled && document.querySelector('[data-testid=export-keyframe-pack]').dataset.disabledReason === 'no-shots'"));
-expect("every other export format is still offered", await evaluate("['export-render-passes','export-depth-video','export-storyboard'].every((id) => !!document.querySelector('[data-testid=' + id + ']'))"));
+expect("with no shots and Alt held the passes and the storyboard are listed", await evaluate("['export-render-passes','export-depth-video','export-storyboard'].every((id) => !!document.querySelector('[data-testid=' + id + ']'))"));
 await closeMenus();
 const noShotDownload = once("Browser.downloadWillBegin", () => true, 3000);
 noShotDownload.catch(() => {});
@@ -190,12 +195,16 @@ expect("File holds New, Open…, Save, Save As…, Export", fileItems.join("|") 
 expect("Save carries topbar-save", await evaluate("!!document.querySelector('.menubar-menu [data-testid=topbar-save]')"));
 await openFileExport();
 const exportItems = await evaluate("[...document.querySelectorAll('.export-menu [role=menuitem]')].map((item) => item.dataset.testid)");
-expect("Export leads with the keyframe pack and keeps every format", exportItems.join(",") === "export-keyframe-pack,export-video,export-video-shot,export-render-passes,export-depth-video,export-storyboard,export-otio", exportItems.join(","));
+expect("Export holds three items: the video, its depth, the AI video reference", exportItems.join(",") === "export-video,export-depth-video,export-ai-reference", exportItems.join(","));
 expect("the Export trigger keeps both handles", await evaluate("!!document.querySelector('[data-testid=topbar-export]#export-menu-trigger')"));
 const flyout = await evaluate("(() => { const r = document.querySelector('.export-menu').getBoundingClientRect(); const f = document.querySelector('.menubar-menu[data-menu=file]').getBoundingClientRect(); return { left: r.left, right: r.right, fileRight: f.right }; })()");
 expect("the Export flyout opens beside File", flyout.left >= flyout.fileRight - 8 && flyout.right <= 1920, JSON.stringify(flyout));
 await screenshot("task-9-file-export.png", { x: 0, y: 0, width: 760, height: 360 });
 
+await closeMenus();
+await openFileExport(true);
+const everyItems = await evaluate("[...document.querySelectorAll('.export-menu [role=menuitem]')].map((item) => item.dataset.testid)");
+expect("opened with Alt held, Export lists every format after the three", everyItems.join(",") === "export-video,export-depth-video,export-ai-reference,export-keyframe-pack,export-video-shot,export-render-passes,export-storyboard,export-otio", everyItems.join(","));
 const menuDownload = once("Browser.downloadWillBegin");
 const menuDone = once("Browser.downloadProgress", (event) => event.state === "completed");
 await click("[data-testid=export-keyframe-pack]");
