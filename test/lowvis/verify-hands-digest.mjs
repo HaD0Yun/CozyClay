@@ -34,13 +34,16 @@ assert.ok(NOTES.includes(NEW_RUN), "the clip's notes say what a run follows");
 // locomotion, sit and bowl pinned again when a run came to move by captured runs (locomotion: its run, frames 153-313)
 // and a plant of any travel came to stay in the air until the pelvis is within a steady pace's reach of it (sit: frames
 // 231-245, bowl: 70-83; the other four demos are the same clips): were locomotion bdc5009b..., sit 3bcc2356..., bowl c3bd1854...
+// locomotion, sit, object, duo and push again when a walk, run or push along a path came to lower its pelvis over the
+// frames around a planted foot's reach (leg-reach.js; chop and bowl are the same clips): were locomotion dadc255a...,
+// sit 052113b9..., object 4732cdec..., duo 14533d7f..., push 4f65ce12...
 const BEFORE = {
-	locomotion: "dadc255a234a4911540ec0ce7688f326fd31fea2b94c4825ca56800551e50306",
-	sit: "052113b9bd55208d8e5bd3c113a25c99fb304b00a8d54d5cc0725a6f50336b2d",
-	object: "4732cdec73934c15f3f530726e1c10a24a394d587d57d559d0aa5798cb75304f", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
+	locomotion: "f816b718a98c94b12dea76873eeb260711e5b2ca8f87c9980dd80fe206c0d8da",
+	sit: "4bcdb0fe7e6ba70339a7d2abb9c8b15ed8af508704bfbd3e7dd254b20f3b9baf",
+	object: "247e88224a5bef9adf10d259c4ca32ff57371be4cdb0617983194e140127a298", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
-	duo: "14533d7f3f331bdca598f72e971af64c2743a796e85ed4078c89e8f4a3c6f3d8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
-	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
+	duo: "9245a20f66c385a85a39473c475fb57a3c0b06c49f55351203f6e773f4986fdc", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
+	push: "06c15ee43956e322e28563b2e6c3ac8038ee19767d9a057c690a0ad696a99ab4",
 	chop: "5744cf7780906abaf219774b5eb6b3f1552795ec685c747e52cc227a10c90a78", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
 	bowl: "1370d146155d08d55634251120102837414bf9020f505352e422740e2587103c", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
 };

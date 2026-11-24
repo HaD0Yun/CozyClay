@@ -6,6 +6,8 @@
 // State between actions: st = { p: [x, z] pelvis ground point, yaw, feet: [L, R] of { g: [x, z], yaw } }.
 import { ANKLE_HEIGHT, INDEX as J, REST } from "../rig17.js";
 import { clamp, mix, qMul, qRotate, qX, qY, rad, smooth, sub, wrap } from "./math.js";
+import { reachMarked } from "./leg-reach.js";
+import { buildPath } from "./path.js";
 import { LEG_LEN, SOLE, TOE } from "./solve.js";
 import { endSplit, fitCount as fitSteps, pace, warp } from "./pace.js";
 import { RUN_HIPS, WALK_CURVES, WALK_SPEED, WALK_WRIST, curve, runAt as runWith, runCurve } from "./gait-data.js";
@@ -196,29 +198,6 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st, told: fit && (fit.told || split) ? { ...fit.info, split } : null, split, plants: n };
 }
 
-/** Smooth path through points with unit tangents; at(d) and yaw(d) by arc length. */
-function buildPath(pts, dirs) {
-	const P = [pts[0]], cum = [0], segEnd = [];
-	for (let i = 0; i + 1 < pts.length; i++) {
-		const A = pts[i], B = pts[i + 1], c = dist2(A, B);
-		for (let k = 1; k <= 32; k++) {
-			const u = k / 32, h00 = 2 * u ** 3 - 3 * u * u + 1, h10 = u ** 3 - 2 * u * u + u, h01 = 3 * u * u - 2 * u ** 3, h11 = u ** 3 - u * u;
-			const p = [0, 1].map(a => h00 * A[a] + h10 * c * dirs[i][a] + h01 * B[a] + h11 * c * dirs[i + 1][a]);
-			cum.push(cum.at(-1) + dist2(P.at(-1), p)); P.push(p);
-		}
-		segEnd.push(cum.at(-1));
-	}
-	const total = cum.at(-1);
-	const at = d => {
-		d = clamp(d, 0, total);
-		let i = 1;
-		while (i < cum.length - 1 && cum[i] < d) i++;
-		const span = cum[i] - cum[i - 1];
-		return mix2(P[i - 1], P[i], span > 1e-9 ? (d - cum[i - 1]) / span : 0);
-	};
-	return { at, segEnd, yaw: d => yawTo(at(d - 0.04), at(d + 0.04)) };
-}
-
 const turnFrames = (d, N) => Math.min(N >> 1, Math.round(6 + 10 * Math.abs(d) / (Math.PI / 2)));
 
 /** Walk / run chain along a curved path: segs = [{ kind, to, heading, N }]. Stops at the end of the last one. */
@@ -283,7 +262,7 @@ function travel(st, segs) {
 	const kindAt = t => segs.findLast(s => s.F0 <= Math.max(0, t)).kind;
 	const share = (kind, t, half) => { let a = 0; for (let d = -half; d <= half; d++) a += kindAt(t + d) === kind; return a / (2 * half + 1); };
 	let r = stepper(st, Tm, plan, t => path.at(tab(S, t)), t => tab(yawTab, t), t => [share("run", t, 5), share("push", t - 9, 9)]); // the push posture comes on after its beat starts and goes after it ends
-	out.push(...r.frames);
+	out.push(...reachMarked(r.frames)); // a walk's or run's feet in reach over the frames around (leg-reach.js)
 	const rest = last.N - last.use;
 	const turns = [turnA];
 	let split = post == null && last.end ? endsTold(r.lands, [0, 1], last.kind, last.G) : null; // the end spots, as the path steps onto them

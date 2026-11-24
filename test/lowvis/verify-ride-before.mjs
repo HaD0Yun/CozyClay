@@ -30,7 +30,7 @@ const CASES = {
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const BEFORE = {
-	rideCarry: "e91d7ea82c2cb1d226f3812001a34ca1d18c6e2e6050977bb8e404222bbd7f9d", // pinned again when a walk's sway changed (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies)
+	rideCarry: "0616df4bd085b190027db894832ba2bc68d2b875621a0d65f05eaec71378b169", // pinned again when a walk's sway changed (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies), then e91d7ea8... (before a walk along a path lowered its pelvis over the frames around a planted foot's reach)
 	holdShare: "417da90d1512687047bbdc1bc6ea02c1f3ef1b420bb1ef8bee4ee26e8d773af1", // was a301a50f... (before aux.grips said the frame a hand took hold; the clip is the same)
 	rollKey: "40e3f44ed85bb5dfa238aa78f2d21716486d0f12ce6cce6136507bbbbef91aed", // was 18b0abf9... (before a hand took a prop as it lies)
 };

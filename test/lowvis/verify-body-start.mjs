@@ -45,7 +45,11 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// locomotion, sit and bowl pinned again with that run (locomotion: its run) and when a plant of any travel came to stay
 	// in the air until the pelvis is within a steady pace's reach of it (sit and bowl: the last steps of a walk that ends
 	// fast); were locomotion 4c58c177f5cba59f, sit f2ddb31cc94c2acd, bowl b6fda58a89c2aece
-	const BEFORE = { locomotion: "6f0eb4a5a4fd90c8", sit: "9822cd9f58deade4", object: "9099578f0aa12435", duo: "e577d20d50c20b28", push: "ff755b870529e06d", chop: "d0ba3462c327a127", bowl: "f40598adcca6642a" };
+	// locomotion, sit, object, duo and push again when a walk, run or push along a path came to lower its pelvis over the
+	// frames around a planted foot's reach (leg-reach.js: hips down only, by at most 61, 56, 2, 2 and 46 mm, on frames
+	// 97-208, 0-251, 0-2, 0-2 and 1-51; chop and bowl are the same clips); were locomotion 6f0eb4a5a4fd90c8, sit
+	// 9822cd9f58deade4, object 9099578f0aa12435, duo e577d20d50c20b28, push ff755b870529e06d
+	const BEFORE = { locomotion: "25befceded8c9fdc", sit: "84d6a8d4032f4b35", object: "aaf885032f862635", duo: "d0449834e7919d7a", push: "f76161ac170ff467", chop: "d0ba3462c327a127", bowl: "f40598adcca6642a" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
