@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, u
 import { createPortal } from "react-dom";
 import { useStudioShell } from "./studio-shell-context.js";
 import SourceOffer from "../source-offer.jsx"; import AiReferenceMenuItem from "./AiReferenceMenuItem.jsx";
+import ExportMoreItems from "./ExportMoreItems.jsx";
 import { ko } from "../locale.js"; import { WORKFLOW_ENTRY_ENABLED } from "../workflow-entry.js";
 import { noteShortcutsOpened } from "../shortcut-friction.js";
 import { appVersion } from "../app-version.js";
@@ -180,6 +181,8 @@ export default function MenuBar({ preferences }) {
 		setToast, embedMode, setProjectStartupOpen, setProjectBrowserOpen,
 	} = shell;
 	const [open, setOpen] = useState(null);
+	// The Export menu opened with Alt (Option) held also lists its other formats (ExportMoreItems.jsx).
+	const [exportEvery, setExportEvery] = useState(false);
 	const [focusFirst, setFocusFirst] = useState(false);
 	const [dialog, setDialog] = useState(null);
 	const rootRef = useRef(null);
@@ -263,6 +266,7 @@ export default function MenuBar({ preferences }) {
 					if (flyout) menuItems(flyout)[0]?.focus();
 				} else {
 					setFlyoutFocus(true);
+					setExportEvery(event.altKey);
 					setExportMenuOpen(true);
 				}
 			} else if (!inFlyout) move(1);
@@ -320,9 +324,10 @@ export default function MenuBar({ preferences }) {
 						ref={exportMenuTriggerRef}
 						aria-haspopup="menu"
 						aria-expanded={exportMenuOpen}
-						title={ko("Exports: keyframe pack, video, passes, storyboard, cut list", "내보내기: 키프레임 팩·영상·패스·스토리보드·컷 목록")}
-						onClick={() => {
+						title={ko("Exports: video, depth, AI video reference — hold Alt (Option) for every format", "내보내기: 영상·뎁스·AI 영상 레퍼런스 — Alt(Option)를 누르면 모든 형식")}
+						onClick={(event) => {
 							exportShotIdRef.current = null;
+							setExportEvery(event.altKey);
 							setExportMenuOpen((value) => !value);
 						}}
 					>
@@ -332,31 +337,13 @@ export default function MenuBar({ preferences }) {
 					{exportMenuOpen && (
 						<ExportFlyout anchorRef={exportMenuTriggerRef} autoFocus={flyoutFocus} onAutoFocused={focusedFlyout}>
 							<>
-							<button
-								type="button"
-								role="menuitem"
-								className="menubar-item export-menu-primary"
-								data-testid="export-keyframe-pack" data-fid="export_keyframe_pack"
-								disabled={!shots.length || recording}
-								data-disabled-reason={shots.length ? undefined : "no-shots"}
-								title={shots.length
-									? ko("First/last frames, clip, camera and prompt as one zip — hold Shift for every shot", "첫/마지막 프레임·클립·카메라·프롬프트를 zip 하나로 — Shift를 누르면 모든 샷")
-									: packReason}
-								onClick={(event) => {
-									const every = event.shiftKey;
-									const shotId = exportShotIdRef.current;
-									closeMenus(false);
-									void exportKeyframePacks(every, shotId);
-								}}
-							>
-								<span className="menubar-item-label">{ko("Keyframe pack (zip)", "키프레임 팩 (zip)")}</span>
-								<Shortcut keys={`${MOD}E`} />
-							</button>{shots.length > 0 && <AiReferenceMenuItem disabled={recording} onClick={() => { closeMenus(false); void exportAiReference(); }} />}
+							{/* Three exports: the previs itself, its depth, and the reference for an AI video model. The other
+							    formats follow them when the menu was opened with Alt (Option) held. */}
 							{(shots.length > 0 || hasCameraKeys || motion) && (
 								<button
 									type="button"
 									role="menuitem"
-									className="menubar-item"
+									className="menubar-item export-menu-primary"
 									data-testid="export-video" data-fid="export_video"
 									disabled={recording}
 									title={ko("Render the whole timeline to one MP4 — every shot back to back, camera and motion, no editor chrome", "타임라인 전체를 MP4 하나로 — 모든 샷을 이어서, 카메라·모션만, 편집 UI 제외")}
@@ -365,37 +352,9 @@ export default function MenuBar({ preferences }) {
 										void runStudioAction("export.shotVideo", { scope: "timeline" });
 									}}
 								>
-									<span className="menubar-item-label">{ko("Video — whole timeline (mp4)", "영상 — 타임라인 전체 (mp4)")}</span>
+									<span className="menubar-item-label">{ko("Video (mp4)", "영상 (mp4)")}</span>
 								</button>
 							)}
-							{shots.length > 0 && (
-								<button
-									type="button"
-									role="menuitem"
-									className="menubar-item"
-									data-testid="export-video-shot" data-fid="export_video_shot"
-									disabled={recording}
-									title={ko("Render one shot to its own MP4 — the shot you opened the menu from, or the one under the playhead", "샷 하나만 MP4로 — 메뉴를 연 샷, 아니면 재생 위치의 샷")}
-									onClick={() => {
-										const shotId = exportShotIdRef.current;
-										closeMenus(false);
-										void runStudioAction("export.shotVideo", shotId ? { shotId, scope: "shot" } : { scope: "shot" });
-									}}
-								>
-									<span className="menubar-item-label">{ko("Video — this shot only (mp4)", "영상 — 이 샷만 (mp4)")}</span>
-								</button>
-							)}
-							<button
-								type="button"
-								role="menuitem"
-								className="menubar-item"
-								data-testid="export-render-passes" data-fid="export_render_passes"
-								disabled={recording}
-								title={ko("Depth and normal conditioning plates of the current framing", "현재 프레이밍의 뎁스·노멀 컨디션 플레이트")}
-								onClick={item(exportRenderPasses)}
-							>
-								<span className="menubar-item-label">{ko("Depth + normal passes", "뎁스 + 노멀 패스")}</span>
-							</button>
 							<button
 								type="button"
 								role="menuitem"
@@ -412,37 +371,15 @@ export default function MenuBar({ preferences }) {
 							>
 								<span className="menubar-item-label">{ko("Depth (mp4)", "뎁스 (mp4)")}</span>
 							</button>
-							<button
-								type="button"
-								role="menuitem"
-								className="menubar-item"
-								data-testid="export-storyboard" data-fid="export_storyboard"
-								disabled={!shots.length || recording}
-								data-disabled-reason={shots.length ? undefined : "no-shots"}
-								title={shots.length
-									? ko("Contact sheet of every shot with its prompt", "모든 샷과 프롬프트를 담은 콘택트 시트")
-									: ko("Add a shot first — a storyboard is one row per shot", "샷을 먼저 추가하세요 — 스토리보드는 샷마다 한 줄입니다")}
-								onClick={item(() => void exportStoryboard())}
-							>
-								<span className="menubar-item-label">{ko("Storyboard (PNG)", "스토리보드 (PNG)")}</span>
-							</button>
-							{shots.length > 0 && (
-								<button
-									type="button"
-									role="menuitem"
-									className="menubar-item"
-									data-testid="export-otio" data-fid="export_otio"
-									title={ko("Download OTIO cut list", "OTIO 컷 목록 다운로드")}
-									onClick={item(downloadOtioCutList)}
-								>
-									<span className="menubar-item-label">{ko("OTIO cut list", "OTIO 컷 목록")}</span>
-								</button>
-							)}
+							{shots.length > 0 && <AiReferenceMenuItem disabled={recording} onClick={() => { closeMenus(false); void exportAiReference(); }} />}
+							{exportEvery && <ExportMoreItems shots={shots} recording={recording} packReason={packReason} shotIdRef={exportShotIdRef} shortcut={<Shortcut keys={`${MOD}E`} />}
+								close={() => closeMenus(false)} select={item} runStudioAction={runStudioAction} exportKeyframePacks={exportKeyframePacks}
+								exportRenderPasses={exportRenderPasses} exportStoryboard={exportStoryboard} downloadOtioCutList={downloadOtioCutList} />}
 							{!shots.length && (
 								<p className="export-menu-hint">
 									{hasCameraKeys || motion
-										? ko("Add a shot to export OTIO", "OTIO를 내보내려면 샷을 추가하세요")
-										: ko("Add a shot to export video or OTIO", "영상·OTIO를 내보내려면 샷을 추가하세요")}
+										? ko("Add a shot to export depth or an AI video reference", "뎁스나 AI 영상 레퍼런스를 내보내려면 샷을 추가하세요")
+										: ko("Add a shot to export", "내보내려면 샷을 추가하세요")}
 								</p>
 							)}
 							</>

@@ -77,8 +77,9 @@ const openExport = async () => {
 await openExport();
 const labels = await evaluate("['export-video', 'export-video-shot'].map(id => document.querySelector(`[data-testid=${id}] .menubar-item-label`)?.textContent ?? null)");
 console.log(`1. Export menu: ${JSON.stringify(labels)}`);
-assert.match(labels[0] ?? "", /whole timeline/i);
-assert.match(labels[1] ?? "", /this shot/i);
+assert.equal(labels[0], "Video (mp4)");
+assert.equal(labels[1], null, "one shot's video is not in the plainly opened menu");
+assert.match(await evaluate("document.querySelector('[data-testid=export-video]').title"), /whole timeline/i);
 await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
 await sleep(300);
 
