@@ -482,7 +482,7 @@ export default function App() {
 		get objects() { return storeRef.current.objects; },
 	}));
 	const {
-		preset, shotAspectKey, environmentImage, cameraPresetId, sensorId, keyLight, lighting, changeKeyLight,
+		preset, shotAspectKey, environmentImage, cameraPresetId, sensorId, keyLight, lighting, floor, changeKeyLight,
 		hasEnvSheet, environment, style, publishStudioStage,
 	} = stageDomain;
 	const shotsDomain = useShots(appContext.forRender({
@@ -2035,7 +2035,7 @@ export default function App() {
 		shotAspect: shotAspectKey,
 		cameraPresetId,
 		sensorId,
-		keyLight, lighting,
+		keyLight, lighting, floor,
 		// What this location IS and how it should look. Session state until #345:
 		// a reopened scene came back with another room's description.
 		environment,
@@ -2274,7 +2274,7 @@ export default function App() {
 		filmback,
 		// keyLight rides the live stage envelope: it is authored, undoable and
 		// patchable state, so every reader sees the body the save path writes.
-		stage: { shotAspect: shotAspectKey, cameraPresetId, sensorId, hasCharSheet, environmentImage, environment, style, hasEnvSheet, keyLight, lighting },
+		stage: { shotAspect: shotAspectKey, cameraPresetId, sensorId, hasCharSheet, environmentImage, environment, style, hasEnvSheet, keyLight, lighting, floor },
 		timeline: { currentFrame: tlFrame, frameCount: tlFrameCount, fps: tlFps },
 		activeCharacterId: characters.length ? activeCharacterId : null,
 		partColours: partColoursEnabled ? PART_COLOURS : null,
@@ -4470,7 +4470,7 @@ export default function App() {
 								onChange={(patch) => changeKeyLight("puck", patch)}
 								onDragEnd={endGestureUndo}
 							/>
-							{gridView ? <GridFloor layer={GIZMO_LAYER} light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} /> : <Room light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} />}
+							{gridView ? <GridFloor layer={GIZMO_LAYER} light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} /> : floor && <Room light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} />}
 							<SetProps
 								objects={stageSceneObjects}
 								authoredObjects={sceneObjects}

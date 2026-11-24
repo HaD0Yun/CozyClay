@@ -247,7 +247,7 @@ function migrateLegacyCast(source) {
 }
 
 const LEGACY_CAST_KEYS = Object.freeze(["charA", "charB", "showB", "poseA", "poseB", "subject", "subject2"]), STAGE_ENVELOPE_KEYS = new Set([
-	"characters", "hasCharSheet", "environmentImage", "environment", "style", "hasEnvSheet", "shotAspect", "cameraPresetId", "sensorId", "keyLight", "lighting", "figureBody",
+	"characters", "hasCharSheet", "floor", "environmentImage", "environment", "style", "hasEnvSheet", "shotAspect", "cameraPresetId", "sensorId", "keyLight", "lighting", "figureBody",
 	...LEGACY_CAST_KEYS,
 ]);
 
@@ -270,7 +270,8 @@ export function createSceneStage(stage = null) {
 	return {
 		...extras,
 		characters, ...(lookBody() === 1 ? {} : { figureBody: lookBody() }),
-		hasCharSheet: source.hasCharSheet === true,
+		// Old and malformed stages retain the lit deck.
+		hasCharSheet: source.hasCharSheet === true, floor: typeof source.floor === "boolean" ? source.floor : true,
 		// Persisted exactly like shotAspect: part of the stage envelope, written
 		// on every save and read back on load.
 		environmentImage: normalizeReferenceImage(source.environmentImage),

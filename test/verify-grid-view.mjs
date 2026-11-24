@@ -2,6 +2,8 @@
 // Blender-style grid viewport: persistence contract + rendering pins.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import React from "react";
+import { transformWithOxc } from "vite";
 import {
 	STAGE_BACKGROUND,
 	GRID_COLORS,
@@ -51,7 +53,17 @@ assert.ok(floor.includes("useEffect(() => () => material.dispose(), [material])"
 
 // --- App wiring pins -------------------------------------------------------
 const app = ["../src/App.jsx", "../src/shell/ViewportToolbar.jsx"].map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
-assert.ok(app.includes('{gridView ? <GridFloor layer={GIZMO_LAYER} light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} /> : <Room light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} />}'), "grid replaces the deck on the export-stripped gizmo layer and shares its theme, including authored sky and HDR overrides");
+assert.ok(app.includes('{gridView ? <GridFloor layer={GIZMO_LAYER} light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} /> : floor && <Room light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} />}'), "grid replaces the deck on the export-stripped gizmo layer and shares its theme, including authored sky and HDR overrides");
+// Exercise the actual App floor expression as a React tree for the shot camera.
+const expression = app.match(/\{gridView \? <GridFloor[^\n]+/)[0].slice(1, -1);
+const { code: compiled } = await transformWithOxc(`function render() { return (${expression}); }`, "floor.jsx", { lang: "jsx", jsx: { runtime: "classic" } });
+const Room = () => null, GridFloor = () => null;
+const renderFloor = new Function("React", "Room", "GridFloor", "GIZMO_LAYER", "gridView", "floor", "uiTheme", "lighting", `${compiled} return render();`);
+const tree = (gridView, visible) => renderFloor(React, Room, GridFloor, 1, gridView, visible, "dark", {});
+assert.equal(tree(false, true).type, Room, "the shot camera sees the deck when enabled");
+assert.equal(tree(false, false), false, "the shot camera has no deck when disabled");
+assert.equal(tree(true, false).type, GridFloor);
+assert.equal(tree(true, false).props.layer, 1, "the reference grid stays on the excluded gizmo layer");
 const look = readFileSync(new URL("../src/stage-lighting.js", import.meta.url), "utf8");
 assert.ok(app.includes("<StageAtmosphere lighting={lighting} keyLight={keyLight} theme={uiTheme} grid={gridView} />")
 	&& look.includes("const sky = themed ? stageBackground(theme) : l.sky;"), "the stage follows the UI theme with the grid on or off");
