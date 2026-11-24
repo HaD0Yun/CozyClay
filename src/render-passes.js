@@ -146,14 +146,21 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 	let buffer = null;
 	// A glow halo (userData.beautyOnly) is light, not a surface: drawn with the
 	// pass material it would be a solid quad in the depth or normal plate.
-	const hidden = [];
+	// Particles and trails have no surface either, but they are in the way of
+	// what is behind them: in the depth plate each draws its own distance over
+	// the surfaces (userData.ownDepth, effects/effect-meshes.js), mixed by its
+	// opacity. In the normal plate they stay out.
+	const hidden = [], own = [];
+	const ramp = kind === "depth" ? { near: material.uniforms.uNear.value, far: material.uniforms.uRange.value, inverse: material.uniforms.uInverse.value } : null;
 	scene.traverse?.((node) => {
 		if (node.userData?.beautyOnly && node.visible) {
 			hidden.push(node);
 			node.visible = false;
 		}
+		if (ramp && typeof node.userData?.ownDepth === "function") own.push(node);
 	});
 	try {
+		for (const node of own) node.userData.ownDepth(ramp);
 		scene.overrideMaterial = material;
 		// Empty sky is infinitely far away, so on a depth plate it is black. The
 		// studio's pale stage colour would otherwise read as "nearest thing in
@@ -167,6 +174,7 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 		scene.overrideMaterial = previousMaterial;
 		scene.background = previousBackground;
 		for (const node of hidden) node.visible = true;
+		for (const node of own) node.userData.ownDepth(null);
 		material.dispose();
 	}
 	if (!buffer) return null;

@@ -9,7 +9,10 @@
  * particles are lit by the stage's lights (wrapped, from the camera side);
  * additive ones are emissive. Both take the stage fog, write no depth and
  * cast no shadow. Their instance matrices are all zero, so a pass that
- * swaps in its own material (depth, normal) collapses them to nothing.
+ * swaps in its own material (normal, the ink prepass) collapses them to
+ * nothing. The depth pass is the exception (render-passes.js): it lets these
+ * two materials draw themselves, and they write their own distance as the
+ * pass's grey, mixed over what is behind by the particle's opacity.
  */
 import * as THREE from "three";
 import { EFFECT_PARTICLE_CAP, EFFECT_SEGMENT_CAP, evaluateEffects } from "./simulate.js";
@@ -65,6 +68,15 @@ const FRAGMENT_HEAD = /* glsl */ `
 #include <lights_pars_begin>
 #include <fog_pars_fragment>
 uniform float globalOpacity;
+uniform float passDepth; uniform float passNear; uniform float passFar; uniform float passInverse;
+// The depth pass's grey for a fragment at this view position (render-passes.js, the same ramp), premultiplied.
+vec4 effectDepth(vec3 viewPos, float alpha) {
+	float d = -viewPos.z;
+	float grey = passInverse > 0.5
+		? clamp((1.0 / max(d, passNear) - 1.0 / passFar) / (1.0 / passNear - 1.0 / passFar), 0.0, 1.0)
+		: 1.0 - clamp((d - passNear) / max(passFar - passNear, 0.0001), 0.0, 1.0);
+	return vec4(vec3(grey) * alpha, alpha);
+}
 ${SHADE}`;
 
 const PARTICLE_VERTEX = /* glsl */ `
@@ -96,6 +108,7 @@ ${FRAGMENT_HEAD}
 void main() {
 	float alpha = vColor.a * texture2D(map, vUv).r * globalOpacity;
 	if (alpha < 0.002) discard;
+	if (passDepth > 0.5) { gl_FragColor = effectDepth(vViewPos, alpha); return; }
 	gl_FragColor = effectOut(vLit > 0.5 ? effectLight(vColor.rgb, vViewPos) : vColor.rgb, alpha, vAdd);
 }`;
 
@@ -117,6 +130,7 @@ ${FRAGMENT_HEAD}
 void main() {
 	float alpha = vAlpha * pow(sin(PI * vAcross), 0.6) * globalOpacity;
 	if (alpha < 0.002) discard;
+	if (passDepth > 0.5) { gl_FragColor = effectDepth(vViewPos, alpha); return; }
 	gl_FragColor = effectOut(vAdd > 0.5 ? vColor : effectLight(vColor, vViewPos), alpha, vAdd);
 }`;
 
@@ -153,7 +167,8 @@ function puffAtlas() {
 
 function effectMaterial(vertexShader, fragmentShader, extra = {}) {
 	return new THREE.ShaderMaterial({
-		uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.lights, THREE.UniformsLib.fog]), globalOpacity: { value: 1 }, ...extra },
+		uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.lights, THREE.UniformsLib.fog]), globalOpacity: { value: 1 },
+			passDepth: { value: 0 }, passNear: { value: 0.1 }, passFar: { value: 40 }, passInverse: { value: 0 }, ...extra },
 		vertexShader, fragmentShader, lights: true, fog: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
 		blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
 		blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
@@ -175,6 +190,12 @@ function instancedQuads(material, capacity, layout) {
 	mesh.raycast = () => {};
 	// The editor's ink prepass outlines geometry; a puff of smoke is none.
 	mesh.userData.noInk = true;
+	// The depth pass asks this of a node that draws its own distance: on with the pass's ramp, off with null.
+	mesh.userData.ownDepth = (ramp) => {
+		material.allowOverride = !ramp;
+		material.uniforms.passDepth.value = ramp ? 1 : 0;
+		if (ramp) { material.uniforms.passNear.value = ramp.near; material.uniforms.passFar.value = ramp.far; material.uniforms.passInverse.value = ramp.inverse ? 1 : 0; }
+	};
 	return { mesh, attributes };
 }
 
