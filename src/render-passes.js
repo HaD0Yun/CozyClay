@@ -40,34 +40,8 @@ export function greyDistance(grey, near, far, curve) {
 	return near + (far - near) * (1 - linear);
 }
 
-/** Decode the sampled extrema of one depth pre-pass drawn with `curve` over near..far. */
-export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M, curve = "linear") {
-	let minGrey = 255;
-	let maxGrey = 0;
-	for (let index = 0; index < depth.length; index += 256) {
-		minGrey = Math.min(minGrey, depth[index]);
-		maxGrey = Math.max(maxGrey, depth[index]);
-	}
-	// Include the half-byte rounding interval so quantisation cannot clip a surface.
-	const distance = grey => greyDistance(grey, near, far, curve);
-	// An all-black sample hit no surface (only sky, or geometry between the samples): it bounds no near distance, so a
-	// shot of such frames keeps depthRangeFromFrames' fallback range instead of a near plane at the far end.
-	if (maxGrey === 0) return { min: NaN, max: far };
-	return { min: distance(maxGrey + 0.5), max: distance(minGrey - 0.5) };
-}
-
-/** Return the shot-wide near/far range from per-frame extrema. */
-export function depthRangeFromFrames(frames, fallbackNear = 0.1, fallbackFar = DEPTH_RANGE_M) {
-	let near = Infinity;
-	let far = -Infinity;
-	for (const frame of frames ?? []) {
-		if (Number.isFinite(frame?.min) && frame.min > 0) near = Math.min(near, frame.min);
-		if (Number.isFinite(frame?.max) && frame.max > 0) far = Math.max(far, frame.max);
-	}
-	if (!Number.isFinite(near) || !Number.isFinite(far)) return { near: fallbackNear, far: fallbackFar };
-	return { near, far: Math.max(far, near + 0.0001) };
-}
-
+/** The grey (0 far .. 1 near) the pass draws for distance `d` over near..far: the shader's ramp (DEPTH_RAMP) in JS.
+ * greyDistance reads the distance back from the byte the target stores for it. */
 export function depthGrey(d, near, far, curve = "linear") {
  if (curve === "log") return 1 - Math.max(0, Math.min(1, Math.log(Math.max(d, near) / near) / Math.log(far / near)));
  if (curve === "inverse") return Math.max(0, Math.min(1, (1 / Math.max(d, near) - 1 / far) / (1 / near - 1 / far)));
