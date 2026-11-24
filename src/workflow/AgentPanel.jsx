@@ -1,7 +1,7 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiRotateCw, FiX } from "react-icons/fi";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_MAX_COUNT, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
-import { isImeComposing } from "../ime.js";
+import { isImeComposing } from "../ime.js"; import { useStudioShell } from "../shell/studio-shell-context.js"; import { hostBriefReadiness, runHostBriefs } from "../host-agent-brief.js";
 import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
 import { ContextChips } from "./ContextChips.jsx"; import { captureAnnotatedImage, consumeMarks, markStills } from "../context-chips.js";
 import {
@@ -246,7 +246,8 @@ export default function AgentPanel({
 	// The surface is a prop, not an inference from the address bar: an embedded
 	// Studio panel is a Studio panel on every route.
 	const transport = useMemo(() => injectedTransport || createAgentTransport({ surface }), [injectedTransport, surface]);
-	const mockState = transport.mock ? transport.state : null;
+	// shell: the host app's project and the editor's link, for a brief the host hands the agent (src/host-agent-brief.js).
+	const mockState = transport.mock ? transport.state : null, shell = useStudioShell();
 
 	const [collapsed, setCollapsed] = useState(defaultCollapsed);
 	// Only the dock owns a width; an embedded host sizes the panel itself and
@@ -326,12 +327,9 @@ export default function AgentPanel({
 
 	// The host's context builder and image-action handler are read through refs
 	// so a re-rendered host never rebuilds the conversation.
-	const buildContextRef = useRef(buildContext);
-	buildContextRef.current = buildContext;
-	const imageActionRef = useRef(onImageAction);
-	imageActionRef.current = onImageAction;
-	const receiptRef = useRef(onReceipt);
-	receiptRef.current = onReceipt;
+	const buildContextRef = useRef(buildContext); buildContextRef.current = buildContext;
+	const imageActionRef = useRef(onImageAction); imageActionRef.current = onImageAction;
+	const receiptRef = useRef(onReceipt); receiptRef.current = onReceipt;
 
 	const store = useMemo(() => createAgentChatStore({
 		transport,
@@ -690,6 +688,15 @@ export default function AgentPanel({
 		setMenuOpen(false);
 		composerRef.current?.focus();
 	}, [store, surface]);
+
+	// A brief a host app hands this panel's agent (src/host-agent-brief.js) runs
+	// as a message in a new chat, or in the chat of the host's brief before it.
+	// The runner reads the panel through this ref, so a brief that waits (the
+	// models loading, a project opening) sees the panel as it is then, and a
+	// re-render never restarts it.
+	const briefPanelRef = useRef(null);
+	useEffect(() => { briefPanelRef.current = { ready: hostBriefReadiness({ authState, modelsState, model, restoreReady, editorReady: shell?.liveHubStatus !== "disconnected" }), project: shell?.hostProject, turn: { model, effort: effort ?? undefined }, newChat: newSession, loadChat: (sessionId) => transport.loadSession(sessionId), context: () => buildContextRef.current?.() ?? null, open: () => { if (!embedded) setCollapsed(false); else if (hidden) onCollapsedChange?.(false); } }; });
+	useEffect(() => (surface === "studio" ? runHostBriefs({ store, panel: () => briefPanelRef.current }) : undefined), [store, surface]);
 
 	const openHistory = useCallback(async () => {
 		if (surface !== "studio") return;

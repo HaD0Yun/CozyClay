@@ -12,7 +12,10 @@ import { playbackFrame, usePlaybackSnapshot } from "../motion/playback-frame-sto
 // - generation, blocks/refine, takes/recipe and preserve strength;
 // - agentOpen/toggleAgent, preferencesOpen/setPreferencesOpen;
 // - liveHubStatus, flySpeed/setFlySpeed (the navigation multiplier, not metres per second);
-// - castStyle ("rig" | "capsule" | "hybrid"), which orders Add > Character.
+// - castStyle ("rig" | "capsule" | "hybrid"), which orders Add > Character;
+// - hostProject ({ token(), save() }): the host app's token of the open project
+//   file (null for any other project) and the Save command, for a brief the
+//   host hands the agent (src/host-agent-brief.js).
 export const StudioShellContext = createContext(null);
 
 export function useStudioShell() {
