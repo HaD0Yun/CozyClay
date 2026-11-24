@@ -54,7 +54,7 @@ await send("Runtime.enable");
 await send("Emulation.setFocusEmulationEnabled", { enabled: true });
 await send("Page.navigate", { url: `${new URL(studioUrl).origin}/favicon.ico` });
 await evaluate(`(() => {
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.theme.v1", "dark");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Light facts QA", updatedAt: Date.now() }));

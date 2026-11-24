@@ -94,7 +94,7 @@ await evaluate(`(() => {
 			},
 		}],
 	};
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "QA", updatedAt: Date.now() }));
 	localStorage.setItem("${SCENES_STORAGE_KEY}", JSON.stringify(document));

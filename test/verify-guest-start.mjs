@@ -4,7 +4,7 @@
 // open of the hosted Studio (https) or of an address that asks with ?try: it also gets a walking character and the
 // camera tutorial. A returning visitor keeps what they had.
 import { readFileSync } from "node:fs";
-import { firstOpen, guestStart } from "../src/guest-start.js";
+import { firstOpen, guestStart, holdFirstOpen } from "../src/guest-start.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -23,11 +23,33 @@ expect("a first open needs nothing stored: no project session, no scene document
 expect("an embed or a ?scene= launch is no first open", firstOpen(at("http:", "?embed=scene"), store(null)) === false && firstOpen(at("https:", "?scene=/scenes/a.cclayproject"), store(null)) === false);
 expect("a guest start is always a first open", [at("https:"), at("http:", "?try")].every((where) => guestStart(where, store(null)) && firstOpen(where, store(null))));
 expect("a store that cannot be read is a first open, not a crash", firstOpen(at("http:"), { getItem: () => { throw new Error("blocked"); } }) === true);
+// A first open lasts until its project exists: the mark kept for the tab carries it past the scene the Studio stores
+// itself 400 ms after it mounts, and past the reload a language choice makes.
+{
+	const tab = (() => { const kept = {}; return { kept, getItem: (key) => kept[key] ?? null, setItem: (key, value) => { kept[key] = String(value); }, removeItem: (key) => { delete kept[key]; } }; })();
+	expect("a stored scene ends a first open that was never begun", firstOpen(at("http:"), draft("cozyclay.scenes.v5"), tab) === false);
+	holdFirstOpen(true, tab);
+	expect("a first open that has begun stays one past the Studio's own stored scene", firstOpen(at("http:"), draft("cozyclay.scenes.v5"), tab) === true && guestStart(at("https:"), draft("cozyclay.scenes.v5"), tab) === true);
+	expect("a project session ends it whatever the mark says", firstOpen(at("http:"), store({ name: "My Project" }), tab) === false);
+	holdFirstOpen(false, tab);
+	expect("once its project exists the mark is gone", Object.keys(tab.kept).length === 0 && firstOpen(at("http:"), draft("cozyclay.scenes.v5"), tab) === false);
+	const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => { throw new Error("blocked"); } };
+	holdFirstOpen(true, blocked);
+	expect("a tab store that cannot be used breaks nothing", firstOpen(at("http:"), store(null), blocked) === true && firstOpen(at("http:"), draft("cozyclay.scenes.v5"), blocked) === false);
+	// A workflow graph with nodes is the author's work (project.new would replace it); an empty graph is not.
+	const graph = (nodes) => ({ getItem: (key) => (key === "cozyclay.workflow.v1" ? JSON.stringify({ version: 1, nodes, edges: [] }) : null) });
+	const node = [{ id: "n1", type: "note", position: { x: 0, y: 0 }, data: {} }];
+	holdFirstOpen(true, tab);
+	expect("a stored workflow graph with nodes is no first open, begun or not", firstOpen(at("http:"), graph(node)) === false && firstOpen(at("http:"), graph(node), tab) === false && guestStart(at("https:"), graph(node)) === false);
+	expect("an empty stored workflow graph is still a first open", firstOpen(at("http:"), graph([])) === true);
+}
 expect("self-served with ?try: guest start", guestStart(at("http:", "?try=1"), store(null)) === true && guestStart(at("http:", "?try"), store(null)) === true);
 expect("?try with a project session: the visitor resumes it", guestStart(at("http:", "?try=1"), store({ name: "My Project" })) === false);
 expect("an embed never guest-starts", guestStart(at("https:", "?embed=playground"), store(null)) === false && guestStart(at("https:", "?embed=scene"), store(null)) === false);
 expect("a ?scene= launch opens its scene, not a guest project", guestStart(at("https:", "?scene=/scenes/a.cclayproject"), store(null)) === false);
 
+const mount = readFileSync(new URL("../src/guest-start-mount.jsx", import.meta.url), "utf8");
+expect("what the load is, is read once at mount and held until the project exists", mount.includes("const open = !app?.shared?.playgroundMode && firstOpen(), guest = open && guestStart();") && mount.includes("if (open) holdFirstOpen(true);") && mount.indexOf("holdFirstOpen(false);") > mount.indexOf('run("project.new"'));
 const scenes = readFileSync(new URL("../src/domains/scenes.js", import.meta.url), "utf8");
 expect("no load starts on the project chooser", scenes.includes("const [projectStartupOpen, setProjectStartupOpen] = useState(false);") && !scenes.includes("guestStart"));
 const panel = readFileSync(new URL("../src/panels/ProjectPanel.jsx", import.meta.url), "utf8");
@@ -36,11 +58,11 @@ const source = readFileSync(new URL("../src/guest-start-mount.jsx", import.meta.
 expect("it creates a named project through project.new, then one character", source.includes('run("project.new", { name:') && source.includes("spawnCharacter?.(NEW_CHARACTER_MODEL, 0, 0)"));
 expect("the character gets a sample walk, so the camera steps have somebody moving", source.includes('sampleMotionSpec("walk", character)') && source.includes("install: true"));
 expect("the walk waits for the character and retries until the rig can take it, instead of giving up after a second", source.includes("tries < 120 && !character") && source.includes("if (walk?.ok) return;") && source.includes("await pause(1500);") && source.includes("the sample walk did not install"));
-expect("the camera tutorial opens with the guest start and closes for good", source.includes("useState(() => guestStart())") && source.includes("<StudioCameraTutorial onClose={() => setTutorial(false)} />"));
+expect("the camera tutorial opens with the guest start and closes for good", source.includes("useState(first.guest)") && source.includes("<StudioCameraTutorial onClose={() => setTutorial(false)} />"));
 // The language comes before the project: another language reloads the page, and a reload after the project exists
 // would resume it without the tutorial.
 const language = readFileSync(new URL("../src/camera-tutorial-language.jsx", import.meta.url), "utf8");
-expect("a visitor who never chose a language is asked first, and the guest project waits for the answer", source.includes("useState(localeChosen)") && source.includes("if (started.current || app?.shared?.playgroundMode || !firstOpen() || (guest && !language)) return;") && source.includes("if (!receipt?.ok || !guest) return;") && source.includes("<TutorialLanguage onChosen={() => setLanguage(true)} />"));
+expect("a visitor who never chose a language is asked first, and the guest project waits for the answer", source.includes("useState(localeChosen)") && source.includes("if (started.current || !open || (guest && !language)) return;") && source.includes("if (!guest) return;") && source.includes("<TutorialLanguage onChosen={() => setLanguage(true)} />"));
 expect("the three languages are offered in their own names", ["English", "한국어", "简体中文"].every((name) => language.includes(`label: "${name}"`)));
 expect("keeping the page's language saves the choice without a reload; another one reloads into it", language.includes("if (language.id === LOCALE) { keepLocale(); onChosen?.(); } else setLocale(language.id);"));
 const stepsText = readFileSync(new URL("../src/camera-tutorial-steps.jsx", import.meta.url), "utf8");

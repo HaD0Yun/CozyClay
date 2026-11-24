@@ -88,7 +88,7 @@ await evaluate(`(() => {
 			},
 		}],
 	};
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("${SCENES_STORAGE_KEY}", JSON.stringify(document));
 })()`);

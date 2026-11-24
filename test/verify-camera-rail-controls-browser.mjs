@@ -63,7 +63,7 @@ try {
 	await b.send("Emulation.setDeviceMetricsOverride", { width: 1438, height: 979, deviceScaleFactor: 1, mobile: false });
 	await b.navigate(`${b.base.origin}/favicon.ico`);
 	await b.evaluate(`(() => {
-		localStorage.clear();
+		localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 		localStorage.setItem('cozyclay.locale','en');
 		localStorage.setItem('cozyclay.project-session.v1',JSON.stringify({name:'Rail controls QA',updatedAt:Date.now()}));
 		localStorage.setItem('${SCENES_STORAGE_KEY}',JSON.stringify({version:4,activeSceneId:'rail-controls',scenes:[{

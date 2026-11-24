@@ -123,7 +123,7 @@ export async function cameraBrowser() {
 	const seed = async () => {
 		await navigate(`${base.origin}/favicon.ico`);
 		await evaluate(`(() => {
-			localStorage.clear();
+			localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 			localStorage.setItem('cozyclay.locale', 'en');
 			localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Camera QA', updatedAt: Date.now() }));
 			localStorage.setItem('${SCENES_STORAGE_KEY}', JSON.stringify({ version: 4, activeSceneId: 'camera-qa', scenes: [{

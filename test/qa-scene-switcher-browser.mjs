@@ -114,7 +114,7 @@ await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, de
 await send("Page.navigate", { url: process.env.QA_URL ?? "http://127.0.0.1:5180/app/" });
 await waitFor("location.href.startsWith('http')");
 await evaluate(`(() => {
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "QA", updatedAt: Date.now() }));
 })()`);

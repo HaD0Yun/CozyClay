@@ -77,7 +77,7 @@ await evaluate(`(() => {
 				keyLight: { x: 6, y: 9, z: 4, intensity: ${KEY}, warmth: 0.5 } },
 		}],
 	};
-	localStorage.clear();
+	localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded');
 	localStorage.setItem("cozyclay.locale", "en");
 	// The dark theme's grey stage: the light theme's white deck would saturate every measurement.
 	localStorage.setItem("cozyclay.theme.v1", "dark");

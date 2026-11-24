@@ -78,7 +78,7 @@ try {
 	await send("Page.enable"); await send("Runtime.enable");
 	await send("Runtime.addBinding", { name: "__qaRecord" });
 	await send("Fetch.enable", { patterns: [{ urlPattern: "*/src/analytics.js*", requestStage: "Response" }] });
-	await send("Page.addScriptToEvaluateOnNewDocument", { source: `if (window === window.top) { localStorage.clear(); localStorage.setItem('cozyclay.locale', 'en');
+	await send("Page.addScriptToEvaluateOnNewDocument", { source: `if (window === window.top) { localStorage.clear(); localStorage.setItem('cozyclay.shell.agent-pane.v1','folded'); localStorage.setItem('cozyclay.locale', 'en');
 		localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'QA', updatedAt: Date.now() })); localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, ${JSON.stringify(JSON.stringify(scene))}); }
 		let beforeSend; window.__qaPosthog = { init(_key, options) { beforeSend = options.before_send; }, register() {}, opt_in_capturing() {}, opt_out_capturing() {},
 			has_opted_out_capturing: () => false, get_distinct_id: () => 'internal-qa-menu', get_session_id: () => '0192f0d6-3a4b-7c2d-8e9f-abcdefabcdef',
