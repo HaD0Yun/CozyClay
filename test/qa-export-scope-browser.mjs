@@ -3,7 +3,8 @@
 // Seeds the vintage car (a prop-only scene, no character motion: the case that
 // used to record only the shot under the playhead) with its 360-frame timeline
 // cut into two shots, 0–179 and 180–359.
-//   1. The Export menu offers both "whole timeline" and "this shot only".
+//   1. The plainly opened Export menu offers the whole-timeline video as
+//      "Video (mp4)" and not "this shot only" (that one is listed with Alt held).
 //   2. scope "timeline" records all 360 frames, across both shot boxes.
 //   3. scope "shot" records the playhead's shot (180 frames), and a named shot
 //      records that shot.

@@ -6800,8 +6800,8 @@ input[type=range] {
 	gap: 12px;
 }
 
-/* The keyframe pack is the delivery this studio exists to make, so it leads
-   the menu and wears the accent instead of reading as one option of five. */
+/* The menu's leading item (the video) wears the accent instead of reading as
+   one option among the others. */
 .export-menu button.export-menu-primary {
 	font-weight: 700;
 	color: var(--cyan);

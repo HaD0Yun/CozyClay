@@ -310,8 +310,9 @@ export default function MenuBar({ preferences }) {
 				</button>
 				<hr className="menubar-separator" />
 				{/* One Export menu for every delivery this studio makes (#193,
-				    R4). The keyframe pack leads because it is the pack an AI video
-				    tool is fed. One element cannot carry two data-testids: the
+				    R4). The video leads; the keyframe pack and the other formats are
+				    listed only when the menu is opened with Alt (Option) held. One
+				    element cannot carry two data-testids: the
 				    topbar contract keeps the attribute, the menu contract gets the
 				    same handle as an id, so both selectors reach this trigger. */}
 				<div className="export-menu-wrap">
@@ -375,11 +376,13 @@ export default function MenuBar({ preferences }) {
 							{exportEvery && <ExportMoreItems shots={shots} recording={recording} packReason={packReason} shotIdRef={exportShotIdRef} shortcut={<Shortcut keys={`${MOD}E`} />}
 								close={() => closeMenus(false)} select={item} runStudioAction={runStudioAction} exportKeyframePacks={exportKeyframePacks}
 								exportRenderPasses={exportRenderPasses} exportStoryboard={exportStoryboard} downloadOtioCutList={downloadOtioCutList} />}
+							{/* The hint names what the three items need, so it is also true under the Alt list, where the
+							    depth and normal passes export without a shot. */}
 							{!shots.length && (
 								<p className="export-menu-hint">
 									{hasCameraKeys || motion
 										? ko("Add a shot to export depth or an AI video reference", "뎁스나 AI 영상 레퍼런스를 내보내려면 샷을 추가하세요")
-										: ko("Add a shot to export", "내보내려면 샷을 추가하세요")}
+										: ko("Add a shot to export video, depth or an AI video reference", "영상·뎁스·AI 영상 레퍼런스를 내보내려면 샷을 추가하세요")}
 								</p>
 							)}
 							</>

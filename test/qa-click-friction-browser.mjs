@@ -91,7 +91,7 @@ try {
 	assert.ok(clicks.some((r) => r.event === "ui:rage_click" && r.properties.control === "tl_play" && r.properties.clicks === "4-5"), "Play rage click");
 	assert.ok(clicks.some((r) => r.event === "ui:dead_click" && r.properties.control === "export_depth_video" && r.properties.reason === "aria_disabled"), "the disabled entry is a dead click");
 	assert.equal(composer.length, 0, "the composer emits nothing");
-	assert.ok(!JSON.stringify(clicks).match(/"x"|"y"|Play|Keyframe/), "no coordinates or labels");
+	assert.ok(!JSON.stringify(clicks).match(/"x"|"y"|Play|Depth/), "no coordinates or labels");
 	assert.deepEqual(errors, [], "no uncaught page errors");
 	console.log("PASS qa-click-friction-browser: rage click on Play, dead click on a disabled export entry, nothing from the composer");
 } finally {

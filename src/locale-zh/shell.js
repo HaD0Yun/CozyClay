@@ -76,7 +76,7 @@ export const ZH_SHELL = {
 	"Exports: video, depth, AI video reference — hold Alt (Option) for every format": "导出：视频、深度、AI 视频参考 — 按住 Alt (Option) 显示所有格式",
 	"Video (mp4)": "视频 (mp4)",
 	"Add a shot to export depth or an AI video reference": "添加镜头后才能导出深度或 AI 视频参考",
-	"Add a shot to export": "添加镜头后才能导出",
+	"Add a shot to export video, depth or an AI video reference": "添加镜头后才能导出视频、深度或 AI 视频参考",
 	"First/last frames, clip, camera and prompt as one zip — hold Shift for every shot": "首/末帧、片段、摄影机和提示词打包为一个 zip — 按住 Shift 导出所有镜头",
 	"Keyframe pack (zip)": "关键帧包 (zip)",
 	"AI video reference (zip)": "AI 视频参考 (zip)",
