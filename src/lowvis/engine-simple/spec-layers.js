@@ -6,9 +6,10 @@ import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across, offBox } from "./prop-frame.js";
 import { carriedFrames, carryState } from "./carry.js";
 import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
-import { fly, launch } from "./air.js";
+import { fly, launch, raised } from "./air.js";
 
 export { partBoxes, resolveParts } from "./parts.js";
+export { shiftOf } from "./air.js";
 
 export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie", "launch"]);
 
@@ -36,7 +37,7 @@ export function buildBody(c, acts, F, ctx) {
 			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
 		} else if (a.verb === "launch") { // air.js; with no frame on the ground before it (frame 0, or the frame the flight before it comes down on) it stands one first
 			const lo = flights.at(-1)?.f1 ?? 0, from = ctx.props[list[i - 1]?.o.on], up = from?.parts && from !== prop ? topOn(from, st.p) : 0; // the drawn top it stood on and leaves
-			r = launch(st, N, { ...a.o, heading: a.o.heading == null ? null : rad(a.o.heading) }, { out, before: moved ? hold(st, 1)[0] : null, s: c.scale ?? 1, f0: a.f, lo, up, wait: a.f === lo ? 1 : 0 });
+			r = launch(st, N, { ...a.o, heading: a.o.heading == null ? null : rad(a.o.heading) }, { out, before: moved ? hold(st, 1)[0] : null, s: c.scale ?? 1, f0: a.f, lo, was: flights.at(-1), up, wait: a.f === lo ? 1 : 0, lift: ctx.lift });
 			if (r.flight) flights.push(r.flight);
 		}
 		else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
@@ -66,7 +67,15 @@ export function buildBody(c, acts, F, ctx) {
 	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
 	blur(B => B.lean, (B, v) => { B.lean = v; });
 	const world = ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
-	if (flights.length) fly(world, flights, c.scale ?? 1);
+	if (!flights.length) return world;
+	// the hips fly from where they are in the world to where they stand in it: a pose's shift counted (air.js shiftOf),
+	// after a flight has come down as the key in effect then leaves it
+	const shift = world.map((_, f) => ctx.lift?.(f)), held = shift.slice();
+	flights.forEach((fl, i) => { for (let f = fl.f1; f < (flights[i + 1]?.f0 ?? F); f++) held[f] = ctx.lift?.(f, fl.f1); });
+	const lifted = (by, sign) => world.forEach((B, f) => { if (by[f]?.some(Boolean)) world[f] = raised(B, by[f], sign); });
+	lifted(held, 1);
+	fly(world, flights, c.scale ?? 1);
+	lifted(shift, -1);
 	return world;
 }
 

@@ -7,8 +7,10 @@ import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, REST, TIPS, qConj, qRotate } fro
 /** Times the body's scale. off (m): a foot whose sole and toe tip are over this far from the floor and from every prop's
  *  box is off them; rise (m): a stretch is told when the hips rise over this far in it (a running stride's flight rises
  *  less) and jolt (m/s): their upward speed changes by over this from one frame to the next as they leave or come down
- *  (in the five captured running jumps, 24 samples a second: 0.31 to 0.97). */
-export const AIR = Object.freeze({ off: 0.03, rise: 0.1, jolt: 1 });
+ *  (in the five captured running jumps, 24 samples a second: 0.31 to 0.97). most (m/s, at every body scale: the legs'
+ *  push and gravity change that speed alike): a launch's largest such change over its whole push, or give, is told
+ *  over this (in those jumps: 0.52 to 0.97 over the push, 0.63 to 1.15 over the give). */
+export const AIR = Object.freeze({ off: 0.03, rise: 0.1, jolt: 1, most: 1.2 });
 const OFF = AIR.off, RISE = AIR.rise;
 const FOOT = [J.LeftFoot, J.RightFoot], LOW = [[0, -ANKLE_HEIGHT, 0], TIPS.LeftFoot.map((v, k) => v - REST[J.LeftFoot][k])]; // under the ankle, the toe tip
 
@@ -19,8 +21,10 @@ const FOOT = [J.LeftFoot, J.RightFoot], LOW = [[0, -ANKLE_HEIGHT, 0], TIPS.LeftF
  *  frame b + 1 themselves; it also has the push before it, measured as the captured jumps' is (air.js PUSH): `up`
  *  squared over twice the Hips' rise `over` (m) from their lowest point in the 0.6 s on the ground before, pushFrames
  *  frames back (m/s2; null: they leave from that lowest point, or not upward), and short: the frames the engine had
- *  too few on the ground for its dip and push. Any other stretch has leave and land: the largest change of the Hips'
- *  upward speed from one frame to the next within a frame of a - 1 (and of b + 1), in m/s. */
+ *  too few on the ground for its dip and push. Every stretch has leave and land: the largest change of the Hips'
+ *  upward speed from one frame to the next within a frame of a - 1 (and of b + 1), in m/s; for a launch over its whole
+ *  push and give: from that lowest point before it, and to their lowest point in the 0.6 s on the ground after it
+ *  (told where over AIR.most). */
 export function airStretches(clip, aux) {
 	const F = clip.frameCount, fps = clip.fps ?? 24, out = [];
 	// how far point p is from a prop's box on frame f (under 0: inside it)
@@ -28,7 +32,8 @@ export function airStretches(clip, aux) {
 	for (const c of clip.characters) {
 		const s = c.scale ?? 1, P = (f, j) => Array.from(c.pos.slice((f * JOINT_COUNT + j) * 3, (f * JOINT_COUNT + j) * 3 + 3)), Q = (f, j) => Array.from(c.quat.slice((f * JOINT_COUNT + j) * 4, (f * JOINT_COUNT + j) * 4 + 4));
 		const vy = f => (f > 0 && f < F ? (P(f, J.Hips)[1] - P(f - 1, J.Hips)[1]) * fps : 0);
-		const dv = f => Math.max(0, ...[f - 1, f, f + 1].filter(k => k >= 2 && k < F).map(k => Math.abs(vy(k) - vy(k - 1)))); // the largest one-frame change within a frame of f
+		const most = (p, q) => { let m = 0; for (let k = Math.max(2, p); k <= q && k < F; k++) m = Math.max(m, Math.abs(vy(k) - vy(k - 1))); return m; }; // the largest one-frame change on frames p..q
+		const dv = f => most(f - 1, f + 1);
 		const one = (a, b) => {
 			const h0 = P(Math.max(0, a - 1), J.Hips), h1 = P(a, J.Hips), e = b + 1 < F ? P(b + 1, J.Hips) : null, e0 = P(b, J.Hips);
 			let top = -Infinity; for (let f = a; f <= b; f++) top = Math.max(top, P(f, J.Hips)[1]);
@@ -42,8 +47,9 @@ export function airStretches(clip, aux) {
 			if (t.at) t.down = (3 * y(e) - 4 * y(e - 1) + y(e - 2)) * -fps / 2;
 			const since = Math.max(0, g - Math.round(0.6 * fps), ...mine.filter(o => o.f1 <= g).map(o => o.f1)); // not back into the flight before it
 			let low = g; for (let f = g - 1; f >= since; f--) if (y(f) < y(low)) low = f;
-			const over = y(g) - y(low);
-			out.push({ ...t, launch: true, push: over > 0 && t.up > 0 ? t.up * t.up / (2 * over) : null, over, pushFrames: g - low, short: fl.short });
+			const over = y(g) - y(low), until = Math.min(F - 1, e + Math.round(0.6 * fps), ...mine.filter(o => o.f0 > e).map(o => o.f0 - 1)); // not on into the flight after it
+			let lowB = e; for (let f = e + 1; f <= until; f++) if (y(f) < y(lowB)) lowB = f;
+			out.push({ ...t, launch: true, push: over > 0 && t.up > 0 ? t.up * t.up / (2 * over) : null, over, pushFrames: g - low, short: fl.short, leave: most(Math.min(low + 1, t.a - 1), t.a + 1), land: t.at ? most(e - 1, lowB + 1) : 0 });
 		}
 		const off = f => FOOT.every(j => LOW.every(o => { const p = P(f, j), d = qRotate(Q(f, j), o); for (let k = 0; k < 3; k++) p[k] += d[k] * s; return p[1] > OFF * s && clip.props.every(pr => toBox(pr, p, f) > OFF * s); }));
 		for (let f = 1; f < F - 1; f++) {
@@ -62,5 +68,6 @@ export function airLines(clip, aux) {
 	const list = airStretches(clip, aux);
 	return list.length ? ["air (what each launch, and each other stretch with both feet off the floor and every prop, came out as):", ...list.map(t => `- ${t.who} f${t.a}-${t.b} ${t.launch ? `launch: ${frames(t.frames)} in the air` : `feet off, no launch: ${frames(t.frames)}`}, hips up to ${n(t.rise)} m over the frame before; leave at ${n(t.up)} m/s up and ${n(t.along)} m/s along, ${t.at ? `come down at ${n(t.down)} m/s down over [${n(t.at[0])}, ${n(t.at[1])}]` : "in the air on the clip's last frame"}` +
 		(t.launch ? (t.push == null ? "" : `; the push before it: ${n(t.push, 1)} m/s2 over ${n(t.over)} m in ${frames(t.pushFrames)}`) + (t.short ? `; ${frames(t.short)} on the ground short of the dip and push its take-off speed needs` : "")
+				+ [["leave", t.leave], ["come down", t.land]].filter(([, v]) => v > AIR.most).map(([w, v]) => `; their upward speed changes in one frame by ${n(v)} m/s as they ${w}`).join("")
 			: `; their upward speed changes in one frame by ${n(t.leave)} m/s as they leave and by ${n(t.land)} m/s as they come down`))] : [];
 }

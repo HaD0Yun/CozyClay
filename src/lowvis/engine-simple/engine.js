@@ -8,7 +8,8 @@
 //     A prop with parts (its drawn shape): sit {on} sits on the highest part top under the hips (sit {on, part}: on that
 //     part's top), and on any body action `on` it but lie each foot stands on the part top under it (up to 0.5 m up).
 //     launch {to?:[x,z], heading?, vel?:[x,y,z]}   the body leaves the ground: from this frame to its next body action its
-//     hips fly the path gravity gives (9.8 m/s2), as high as that time in the air takes them, and it comes down on to
+//     hips fly the path gravity gives (9.8 m/s2) from where they are (a tilt key's shift counted; one still blending
+//     as it comes down counts at the value it ends on), as high as that time in the air takes them, and it comes down on to
 //     (default: where the speed along the ground it had carries it), facing heading. vel (m/s): it leaves with that
 //     velocity as nearly as whole frames in the air allow (to is not read), comes down where gravity brings it and
 //     stands; its next body action, if that comes first, ends the flight there, at other speeds. On frame 0, or on the
@@ -123,7 +124,7 @@ import { keyPose, propKeys, shownAt } from "./prop-keys.js";
 import { carriedBuild } from "./carry.js";
 import { arcSized, buildBodySized, solveSized } from "./size.js";
 import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
-import { bodyCarriers, buildUpper, expandRepeats, partBoxes, resolveParts } from "./spec-layers.js";
+import { bodyCarriers, buildUpper, expandRepeats, partBoxes, resolveParts, shiftOf } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
@@ -154,7 +155,7 @@ function buildOnce(written, def, carrier) {
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
-		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
+		return (upper => ({ id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body (air.js)
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}, props[p.id].shownKeys.length ? { shown: [] } : {}) })); // by: what carries a moving prop on each frame, shown: whether it is drawn (clip.js)

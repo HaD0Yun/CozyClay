@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { airLines, airStretches } from "../../src/lowvis/engine-simple/air-told.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
+import { travel } from "../../src/lowvis/pi/measure.mjs";
 
 const scene = (s, frames = 72, props = []) => ({ demo: "x", frames, characters: [{ id: "a", at: [0, 0], heading: 0, ...(s === 1 ? {} : { scale: s }) }], props });
 const build = (s, acts, frames, props, spec = {}) => { const def = scene(s, frames, props); return buildClip({ a: acts, ...spec }, def); };
@@ -50,14 +51,52 @@ for (const s of [0.6, 1, 1.4]) {
 	const two = build(1, [[0, "idle", {}], [24, "launch", { to: [0, 1] }], [36, "launch", { to: [0, 2] }], [48, "idle", {}]]);
 	assert.deepEqual(two.aux.flights.map(fl => [fl.f0, fl.f1]), [[24, 36], [37, 48]], "the second launch stands on the frame the first comes down on");
 	assert.ok(step(two.clip.characters[0], 1, 71) < 0.15, `two launches in a row: the hips go ${step(two.clip.characters[0], 1, 71).toFixed(3)} m a frame at most`);
-	assert.match(airLines(two.clip, two.aux)[2], /13 frames on the ground short of the dip and push its take-off speed needs$/);
+	assert.match(airLines(two.clip, two.aux)[2], /13 frames on the ground short of the dip and push its take-off speed needs; their upward speed changes in one frame by \d\.\d\d m\/s as they leave$/);
+	// the speed along the ground a launch keeps after a launch is that flight's
+	for (const first of [{}, { to: [0, 6] }, { vel: [0, 2.4, 3] }]) {
+		const kept = build(1, [[0, "run", { to: [0, 4] }], [40, "launch", first], [52, "launch", {}], [64, "idle", {}]], 96), [k1, k2] = airStretches(kept.clip, kept.aux);
+		assert.ok(k2.along > 0.6 * k1.along && k2.along < 1.3 * k1.along, `after a flight at ${k1.along.toFixed(2)} m/s along the next keeps ${k2.along.toFixed(2)}`);
+	}
 }
-// from a seat: the hips do not dip under it, and the ground after the flight keeps its height (no jolt as it comes down)
+// raised by a pose's shift (a top higher than a body stands on) and thrown off it: it flies from that height and the
+// landing is given over frames; the travel row ends at a launch
 {
-	const c = build(1, [[0, "sit", { height: 0.45, over: 0 }], [30, "launch", { to: [0, 1] }], [42, "idle", {}]]).clip.characters[0];
+	const box = { id: "box", size: [1, 1.5, 1], at: [0, 0.75, 0] };
+	const r = build(1, [[0, "idle", {}], [0, "pose", { tilt: [0, 0], shift: [0, 1.5, 0], over: 0 }], [60, "launch", { vel: [0, 2.9, 2.1] }], [60, "pose", { tilt: [0, 0], shift: [0, 0, 0], over: 14, ease: "in" }]], 120, [box]);
+	const c = r.clip.characters[0], [t] = airStretches(r.clip, r.aux);
+	assert.ok(t.launch && Math.abs(t.up - 2.9) < 0.15 && t.down > 6, `off 1.5 m it leaves at ${t.up.toFixed(2)} up and comes down at ${t.down.toFixed(2)}`);
+	assert.ok(jolt(c, 62, 119) < 1.6, `its landing: ${jolt(c, 62, 119).toFixed(2)} m/s in a frame at most`);
+	assert.equal(/changes in one frame by (\d\.\d\d) m\/s as they come down$/.exec(airLines(r.clip, r.aux)[1])?.[1], jolt(c, 62, 119).toFixed(2), "the row tells the largest one-frame change of the whole give");
+	const acts = [[0, "run", { to: [0, 5] }], [40, "launch", {}], [52, "walk", { to: [0, 12] }]], run = build(1, acts, 120);
+	assert.deepEqual(travel(run.clip, run.aux, { a: acts }).map(x => [x.a, x.b, x.verb]), [[0, 40, "run"], [52, 119, "walk"]]);
+	// the shift's own keys do not bend the flight (keys that pass each other, a key that outlasts it): gravity's path in
+	// the world, down to where the key under way ends, with no fall left over after the landing
+	const up = [[0, "idle", {}], [0, "pose", { tilt: [0, 0], shift: [0, 1.5, 0], over: 0 }]], gravity = (c, t) => { for (let f = t.a; f < t.b; f++) { const acc = (hipsY(c, f + 1) - 2 * hipsY(c, f) + hipsY(c, f - 1)) * 576; assert.ok(Math.abs(acc + 9.8) < 0.01, `f${f} the raised hips fall at ${acc.toFixed(2)} m/s2`); } };
+	for (const keys of [[[60, "pose", { tilt: [0, 0], shift: [0, 0.75, 0], over: 8 }], [68, "pose", { tilt: [0, 0], shift: [0, 0, 0], over: 8 }]], [[60, "pose", { tilt: [0, 0], shift: [0, 0, 0], over: 40, ease: "in" }]]]) {
+		const k = build(1, [...up, [60, "launch", { vel: [0, 0, 1.5] }], ...keys], 120, [box]), kc = k.clip.characters[0], [kt] = airStretches(k.clip, k.aux);
+		gravity(kc, kt);
+		assert.ok(jolt(kc, kt.b + 1, 119) < 1.3 && Math.abs(hipsY(kc, 119) - hipsY(c, 119)) < 1e-6, `a shift key of ${keys[0][2].over} frames: ${jolt(kc, kt.b + 1, 119).toFixed(2)} m/s in a frame at most after the landing`);
+	}
+	// a shift that stays: it hops where it is, as high as asked, and stands there again
+	const stay = build(1, [...up, [60, "launch", { vel: [0, 2.5, 0] }]], 120, [box]), sc = stay.clip.characters[0], [st] = airStretches(stay.clip, stay.aux);
+	assert.ok(Math.abs(st.up - 2.5) < 0.11 && Math.abs(hipsY(sc, 119) - hipsY(sc, 0)) < 1e-6 && jolt(sc, 2, 119) < 0.6, `on a shift that stays it leaves at ${st.up.toFixed(2)} m/s up`);
+}
+// the landing's give: as deep as the legs' push takes the speed up, no deeper than the crouch before a take-off; only a
+// landing too fast for the hardest captured give in that goes deeper
+{
+	const low = (c, a, b) => { let m = Infinity; for (let f = a; f <= b; f++) m = Math.min(m, hipsY(c, f)); return hipsY(c, 0) - m; };
+	const small = build(0.6, [[0, "idle", {}], [24, "launch", {}], [36, "idle", {}]]).clip.characters[0];
+	assert.ok(low(small, 36, 71) < low(small, 0, 23) + 0.005, `scale 0.6: after a jump of 12 frames the hips go ${low(small, 36, 71).toFixed(3)} m under standing, before it ${low(small, 0, 23).toFixed(3)}`);
+	const high = build(1, [[0, "idle", {}], [24, "launch", {}], [48, "idle", {}]], 96).clip.characters[0];
+	assert.ok(low(high, 48, 95) > low(high, 0, 23) + 0.1 && jolt(high, 48, 95) < 1, `after 24 frames in the air the hips go ${low(high, 48, 95).toFixed(3)} m under standing and their speed changes by ${jolt(high, 48, 95).toFixed(2)} m/s in a frame at most`);
+}
+// from a seat, also one raised by a pose's shift: the hips do not dip under it, and the ground after the flight keeps
+// its height (no jolt as it comes down)
+for (const shift of [0, 1.2]) {
+	const c = build(1, [[0, "sit", { height: 0.45, over: 0 }], [0, "pose", { tilt: [0, 0], shift: [0, shift, 0], over: 0 }], [30, "launch", { to: [0, 1] }], [42, "idle", {}]]).clip.characters[0];
 	let low = Infinity; for (let f = 0; f < 30; f++) low = Math.min(low, hipsY(c, f));
 	assert.ok(low > hipsY(c, 0) - 0.005, `the hips stay ${(hipsY(c, 0) - low).toFixed(3)} m under the seat at most`);
-	assert.ok(jolt(c, 42, 71) < 0.6, `landing from a seat's height: ${jolt(c, 42, 71).toFixed(2)} m/s in a frame at most`);
+	assert.ok(jolt(c, 0, 41) < 0.6 && jolt(c, 42, 71) < 0.6, `leaving and landing from a seat's height: ${jolt(c, 42, 71).toFixed(2)} m/s in a frame at most`);
 }
 // off a prop that moves: it leaves from where the prop has carried it
 {
