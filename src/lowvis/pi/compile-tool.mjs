@@ -10,7 +10,7 @@ import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINTS, JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
-import { badness, bodyText, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
+import { airLines, badness, bodyText, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
 import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
 import { insideText } from "./inside.mjs";
@@ -264,7 +264,7 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 			...shapeLines(def, state.shapes, state.said),
 			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)), ...fresh.map(k => about[k]),
-			...(feature.pace ? travelLines(parsed, aux, asBuilt) : []),
+			...(feature.pace ? [...travelLines(parsed, aux, asBuilt), ...airLines(parsed, aux)] : []), // air: engine-simple/air-told.js
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,

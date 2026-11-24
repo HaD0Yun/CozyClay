@@ -1,0 +1,153 @@
+// A body off the ground (the body action `launch`): its hips fly under gravity from the last frame on the ground before
+// the action to the frame of the next body action, where it comes down. The engine makes the take-off and the landing
+// from the speeds of that flight: over the frames before it the hips dip into a crouch and push up onto the toes, and
+// their speed along the ground goes over to the flight's; over the frames after it they give into a crouch with the
+// speed they come down with and rise again, while the speed along the ground goes over to the next action's. Lengths
+// and speeds here are the rig body's (size.js divides them by the body's scale); gravity is 9.8 m/s2 in the world.
+import { clamp, mix, mixV, qRotate, qSlerp, qY, smooth, wrap } from "./math.js";
+import { STAND_Y, footPose, hold, home, standB } from "./gait.js";
+import { LEG_LEN, SOLE } from "./solve.js";
+import { INDEX as J, OFFSET } from "../rig17.js";
+
+const FPS = 24, G = 9.8 / FPS / FPS; // m per frame per frame, in the world
+/** The push of the legs, m/s2: the hips' speed as they leave the ground, squared, over twice their rise from the lowest
+ *  point of the crouch, in five captured running jumps 7 to 12 (mean 9.4 at 120 samples a second); the give after the
+ *  landing, the same way, 7 to 15. */
+export const PUSH = 9.3;
+const TOES = 0.13, CROUCH = 0.3; // m of the rig body: hips over standing as the feet push off or touch down on their toes (captured 0.06-0.13); deepest crouch
+const DIP = 7, RISE = 10, EDGE = 2; // frames: into the crouch before the push, back up after the landing's give, of speed change along the ground past the push and the give
+
+const UPLEG = [J.LeftUpLeg, J.RightUpLeg];
+const xz = p => [p[0], p[2]];
+const add2 = (a, b) => [a[0] + b[0], a[1] + b[1]], sub2 = (a, b) => [a[0] - b[0], a[1] - b[1]];
+const add3 = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+/** How far the hips of body frame B can dip: down to the deepest crouch over the floor its feet are on (none from a seat, a kneel or a lie). */
+const room = B => clamp(B.p[1] - Math.max(...B.feet.map(ft => ft.floor ?? 0)) - (STAND_Y - CROUCH), 0, CROUCH);
+
+/** The up and down of a flight of T frames whose landing frame's hips are dy over its take-off frame's (g, acc: gravity
+ *  and the legs' push, per frame per frame). The hips leave ra over the take-off frame's height at v0 a frame and come
+ *  down rb over the landing frame's at v1: on the toes, or for a hop too small for that as high as its push or give
+ *  reaches. Before it they dip cUp over `dip` frames and push for tUp frames; after it they give cDn over tDn frames.
+ *  n: the frames on the ground before it (the dip and the push take no more); roomA, roomB: room() at both ends. */
+function upDown(dy, T, g, acc, n, roomA, roomB) {
+	let ra = n ? TOES : 0, rb = TOES, v0 = 0, v1 = 0;
+	const speeds = () => { v0 = (dy + rb - ra) / T + g * T / 2; v1 = v0 - g * T; };
+	for (let i = 0; i < 40; i++) { // ra and rb follow from the speeds and the speeds from them: settled step by step
+		speeds();
+		ra += ((v0 > 0 ? Math.min(TOES, v0 * v0 / (4 * acc), v0 * n / 2) : 0) - ra) / 4;
+		rb += ((v1 < 0 ? Math.min(TOES, v1 * v1 / (4 * acc)) : 0) - rb) / 4;
+	}
+	speeds();
+	const up = v0 > 0, down = v1 < 0, want = up ? Math.max(0, v0 * v0 / (2 * acc) - ra) : 0;
+	// with few frames on the ground the dip is as much shallower as it is shorter, so it is never faster than a whole one
+	const cUp = up ? Math.min(want, roomA, Math.max(0, roomA * (n - 2 * ra / v0) / (DIP + 2 * roomA / v0))) : 0, tUp = up ? 2 * (cUp + ra) / v0 : 0;
+	const cDn = down ? clamp(v1 * v1 / (2 * acc) - rb, 0, roomB) : 0, tDn = down ? 2 * (cDn + rb) / -v1 : 0;
+	// short: the frames the ground before it lacks for the whole dip and push that speed takes
+	const rAll = up ? Math.min(TOES, v0 * v0 / (4 * acc)) : 0, cAll = Math.min(roomA, Math.max(0, v0 * v0 / (2 * acc) - rAll)), all = up ? (cAll > 0 ? DIP : 0) + 2 * (cAll + rAll) / v0 : 0;
+	return { ra, rb, v0, v1, cUp, tUp, dip: cUp > 0 ? Math.min(DIP, n - tUp) : 0, cDn, tDn, short: Math.max(0, Math.round(all) - n) };
+}
+
+/** The frames of a launch action of n frames from state st. o: { to?: [x, z], vel?: [x, y, z] (m/s, world; to is then
+ *  not read), heading? (rad) }; at: { out: the frames before it, before: the frame it leaves from in this action's own
+ *  frame of reference (null: the last of out), s: the body's scale, f0: its frame, lo: the frame the flight before it
+ *  came down on (0: none), up: how high over the floor the drawn top is that it stands on and leaves, wait: frames it
+ *  stands first }. Returns { frames, st, flight }: the frames in the air (with
+ *  vel, then the frames it stands where it came down), the state it lands in, and the flight for fly() (null: it
+ *  never leaves). */
+export function launch(st, n, o, { out, before, s, f0, lo, up = 0, wait = 0 }) {
+	if (wait) { const stood = hold(st, wait), r = launch(st, n - wait, o, { out: [...out, ...stood], before: stood.at(-1), s, f0: f0 + wait, lo, up }); return { ...r, frames: [...stood, ...r.frames] }; }
+	before ??= out.at(-1) ?? hold(st, 1)[0];
+	const yaw = o.heading ?? st.yaw, g = G / s, acc = PUSH / FPS / FPS / s, a = f0 - 1;
+	const v = k => (k > 0 && k < out.length ? sub2(xz(out[k].p), xz(out[k - 1].p)) : [0, 0]);
+	const plan = t => upDown(STAND_Y - before.p[1] - up, t, g, acc, a - lo, room(before), CROUCH); // of a flight of t frames after which it stands on the floor
+	let fast = [0, 0]; // the speed along the ground it had: that of its fastest frame in the second before
+	for (let k = Math.max(1, f0 - FPS); k < f0; k++) if (Math.hypot(...v(k)) > Math.hypot(...fast)) fast = v(k);
+	let T = n + 1; // frames from the last frame on the ground to the first again
+	if (Array.isArray(o.vel)) { // thrown: in the air the whole number of frames whose flight leaves nearest that speed up, unless the next body action comes first
+		const vel = o.vel.map(x => x / FPS / s), near = Math.round((vel[1] + Math.sqrt(vel[1] ** 2 + 2 * g * Math.max(0, before.p[1] + up - STAND_Y))) / g);
+		T = Math.max(1, near);
+		for (let k = Math.max(1, near - 3); k <= near + 3; k++) if (Math.abs(plan(k).v0 - vel[1]) < Math.abs(plan(T).v0 - vel[1])) T = k;
+		T = Math.min(n + 1, T); fast = [vel[0], vel[2]];
+	}
+	if (T < 2 || n < 1) return { frames: hold(st, n), st, flight: null }; // no frame in the air
+	let to = Array.isArray(o.vel) ? null : o.to;
+	if (!Array.isArray(to)) { // where that speed takes the hips: fly()'s sum of the take-off, the flight and the landing, for a body that then stands
+		const P = plan(T), wa = Math.max(lo, Math.round(a - P.tUp - EDGE)), m = a - wa, ml = Math.max(0, Math.round(P.tDn + EDGE));
+		let hips = xz(before.p);
+		for (let k = wa + 1; k <= a; k++) hips = sub2(hips, v(k));
+		hips = add2(hips, [0, 1].map(i => v(wa)[i] * (m ? (m - 1) / 2 : 0) + fast[i] * (T + (m ? (m + 1) / 2 : 0) + (ml ? (ml - 1) / 2 : 0))));
+		to = sub2(hips, xz(standB({ ...st, p: [0, 0], yaw }).p));
+	}
+	const land = { p: to.slice(), yaw, feet: [1, -1].map(side => ({ g: home(to, yaw, side), yaw })) };
+	const air = Array.from({ length: Math.min(n, T - 1) }, () => ({ ...before, p: before.p.slice(), feet: before.feet.map(ft => ({ ...ft, planted: false })) }));
+	const after = Array.from({ length: n - air.length }, () => standB(land));
+	return { frames: [...air, ...after], st: land, flight: { f0, f1: f0 + air.length } };
+}
+
+/** Puts each flight's hips on the path gravity gives from the last frame on the ground to the first again and makes its
+ *  take-off and landing from the speeds of that path (the head of this file). out: the body frames (rig body, where
+ *  they are in the world); s: the body's scale. A frame in the air gets B.air = the flight; the flight gets short: the
+ *  frames the ground before it lacked for its whole dip and push. */
+export function fly(out, flights, s) {
+	const F = out.length, g = G / s, acc = PUSH / FPS / FPS / s;
+	flights.forEach((fl, n) => {
+		const a = fl.f0 - 1, b = fl.f1, T = b - a;
+		if (a < 0 || T < 1) return;
+		const lo = n ? flights[n - 1].f1 : 0, hi = flights[n + 1] ? flights[n + 1].f0 - 1 : F - 1, end = out[Math.min(b, F - 1)], A0 = out[a];
+		const base = out.map(B => xz(B.p)), d = k => (k > 0 ? sub2(base[k], base[k - 1]) : [0, 0]); // the steps along the ground before this flight moves them
+		const { ra, rb, v0, v1, cUp, tUp, dip, cDn, tDn, short } = upDown(end.p[1] - A0.p[1], T, g, acc, a - lo, room(A0), room(end)), ya = A0.p[1] + ra;
+		// along the ground: from the speed at the start of the take-off to the flight's, and from it to the speed at the end of the landing
+		// (the legs change it while they push and while they give: over the push and the give and EDGE frames more)
+		const va = Math.max(lo, Math.round(a - Math.max(dip, EDGE) - tUp)), vb = Math.min(hi, Math.round(b + tDn + RISE)), wa = Math.max(va, Math.round(a - tUp - EDGE)), wb = Math.min(vb, Math.round(b + tDn + EDGE));
+		const us = d(wa), ue = wb > b && wb < F - 1 ? d(wb) : [0, 0];
+		let Ka = 0, Ja = 0, Kl = 0, Jl = 0, dispA = [0, 0], dispB = [0, 0];
+		for (let k = wa + 1; k <= a; k++) { const w = (k - wa) / (a - wa); Ka += w; Ja += 1 - w; dispA = add2(dispA, d(k)); }
+		for (let k = b + 1; k <= wb; k++) { const w = (k - b) / (wb - b); Kl += 1 - w; Jl += w; dispB = add2(dispB, d(k)); }
+		const vh = [0, 1].map(i => (xz(end.p)[i] - xz(A0.p)[i] - ue[i] * Jl + dispB[i] - us[i] * Ja + dispA[i]) / (T + Kl + Ka));
+		// the take-off: the speed along the ground, and the dip and push of the hips
+		let off = [0, 0];
+		for (let k = va + 1; k <= a; k++) {
+			const w = (k - wa) / (a - wa), t = k - a;
+			if (k > wa) off = add2(off, sub2([mix(us[0], vh[0], w), mix(us[1], vh[1], w)], d(k)));
+			move(out, k, off, !(tUp > 0) ? 0 : t >= -tUp ? -cUp + 0.5 * v0 / tUp * (t + tUp) ** 2 : dip > 0 ? -cUp * smooth((t + tUp + dip) / dip) : 0);
+		}
+		// the landing: the speed along the ground goes over to the one after; the hips give and rise again
+		const back = [];
+		off = [0, 0];
+		for (let k = vb; k > wb; k--) back[k] = off;
+		for (let k = wb; k >= b; k--) { back[k] = off; if (k > b) { const w = (k - b) / (wb - b); off = sub2(off, sub2([mix(vh[0], ue[0], w), mix(vh[1], ue[1], w)], d(k))); } }
+		back[b] = off;
+		const pa = xz(out[a].p), pb = add2(xz(end.p), off);
+		for (let k = b; k <= vb && k < F; k++) {
+			const t = k - b;
+			move(out, k, back[k], t < tDn ? rb + v1 * t - 0.5 * v1 / tDn * t * t : -cDn * (1 - smooth((t - tDn) / RISE)));
+		}
+		// the flight: the hips on the parabola; the feet go with them from where they left to where they come down
+		const L = out[Math.min(b, F - 1)], fa = out[a].feet.map(ft => sub3(ft.a, out[a].p)), fb = L.feet.map(ft => sub3(ft.a, L.p)), vx = sub2(pb, pa);
+		for (let k = a + 1; k < b && k < F; k++) {
+			const t = k - a, u = t / T, w = smooth(u), p = [pa[0] + vx[0] * u, ya + v0 * t - 0.5 * g * t * t, pa[1] + vx[1] * u];
+			out[k] = { ...out[k], p, q: qSlerp(out[a].q, L.q, w), yaw: out[a].yaw + wrap(L.yaw - out[a].yaw) * w, lean: mix(out[a].lean, L.lean, w), air: fl,
+				feet: out[k].feet.map((ft, i) => ({ ...ft, a: add3(p, mixV(fa[i], fb[i], w)), q: qSlerp(out[a].feet[i].q, L.feet[i].q, w), planted: false })) };
+		}
+		fl.short = short;
+	});
+}
+
+/** Moves frame k's hips by off along the ground and y up; a planted foot rises onto its toes as the hips rise over standing. */
+function move(out, k, off, y) {
+	const B = out[k];
+	out[k] = { ...B, p: [B.p[0] + off[0], B.p[1] + y, B.p[2] + off[1]] };
+	out[k].feet = B.feet.map((ft, i) => (ft.planted ? onToes(ft, add3(out[k].p, qRotate(qY(B.yaw), OFFSET[UPLEG[i]]))) : ft));
+}
+/** A planted foot pitched on its toe tip (at most 60 deg) until its ankle is in reach of its hip joint at `hip`. */
+function onToes(ft, hip) {
+	const reach = ankle => Math.hypot(...sub3(hip, ankle)) <= 0.99 * LEG_LEN;
+	if (reach(ft.a)) return ft;
+	const g = add3(ft.a, qRotate(ft.q, SOLE)), fwd = qRotate(ft.q, [0, 0, 1]), yaw = Math.atan2(fwd[0], fwd[2]), at = m => footPose([g[0], g[2]], g[1], yaw, m);
+	let lo = 0, hi = Math.PI / 3;
+	for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (reach(at(m).a)) hi = m; else lo = m; }
+	const on = at(hi);
+	if (reach(on.a)) return { ...ft, ...on };
+	const d = sub3(on.a, hip), l = Math.hypot(...d) / (0.99 * LEG_LEN); // out of reach on its toes too: it leaves the floor toward the hip
+	return { ...ft, q: on.q, a: add3(hip, [d[0] / l, d[1] / l, d[2] / l]), planted: false };
+}

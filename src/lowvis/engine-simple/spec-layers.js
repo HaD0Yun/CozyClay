@@ -6,10 +6,11 @@ import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across, offBox } from "./prop-frame.js";
 import { carriedFrames, carryState } from "./carry.js";
 import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
+import { fly, launch } from "./air.js";
 
 export { partBoxes, resolveParts } from "./parts.js";
 
-export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie", "launch"]);
 
 export function buildBody(c, acts, F, ctx) {
 	const yaw = rad(c.heading), list = acts.filter(a => BODY.has(a[1])).map(([f, verb, o = {}]) => ({ f, verb, o }));
@@ -21,18 +22,24 @@ export function buildBody(c, acts, F, ctx) {
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
 	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
+	const flights = []; // every launch: its frames in the air (air.js)
 	const stands = []; // per frame of an action on a prop with drawn parts: that prop, and whether the body sits (parts.js standOnParts)
 	for (let i = 0; i < list.length; i++) {
-		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length;
+		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length, moved = !!ctx.carrier && on(a) !== frame;
 		if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
-		if (ctx.carrier && on(a) !== frame) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
+		if (moved) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
 		let r;
 		if (moving(a)) {
 			const segs = [seg(a, N)];
 			while (moving(list[i + 1]) && on(list[i + 1]) === frame && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
 			r = locomote(st, segs);
 			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
-		} else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
+		} else if (a.verb === "launch") { // air.js; with no frame on the ground before it (frame 0, or the frame the flight before it comes down on) it stands one first
+			const lo = flights.at(-1)?.f1 ?? 0, from = ctx.props[list[i - 1]?.o.on], up = from?.parts && from !== prop ? topOn(from, st.p) : 0; // the drawn top it stood on and leaves
+			r = launch(st, N, { ...a.o, heading: a.o.heading == null ? null : rad(a.o.heading) }, { out, before: moved ? hold(st, 1)[0] : null, s: c.scale ?? 1, f0: a.f, lo, up, wait: a.f === lo ? 1 : 0 });
+			if (r.flight) flights.push(r.flight);
+		}
+		else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
 		else if (POSTURE.has(a.verb)) { // over: frames of the change (default: the whole span), then the posture holds; 0 = at once
 			if (a.o.over != null && !(Number.isFinite(a.o.over) && a.o.over >= 0)) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: over wants a number of frames >= 0, got ${JSON.stringify(a.o.over)}`);
 			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over));
@@ -48,15 +55,19 @@ export function buildBody(c, acts, F, ctx) {
 	}
 	if (stands.length) standOnParts(out, stands);
 	// soften pelvis height and lean so action boundaries have no kinks (the solver still guarantees leg reach)
+	// (a frame in the air, air.js, is a clip's end to the frames beside it: the ground before and after a flight keep their heights)
+	const air = out.map((_, f) => flights.some(fl => f >= fl.f0 && f < fl.f1)), beside = (f, k) => (k < 0 || k >= F || air[k] ? f : k);
 	const blur = (get, set) => {
 		for (let pass = 0; pass < 3; pass++) {
 			const v = out.map(get);
-			out.forEach((B, f) => set(B, 0.25 * v[Math.max(0, f - 1)] + 0.5 * v[f] + 0.25 * v[Math.min(F - 1, f + 1)]));
+			out.forEach((B, f) => set(B, 0.25 * v[beside(f, f - 1)] + 0.5 * v[f] + 0.25 * v[beside(f, f + 1)]));
 		}
 	};
 	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
 	blur(B => B.lean, (B, v) => { B.lean = v; });
-	return ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
+	const world = ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
+	if (flights.length) fly(world, flights, c.scale ?? 1);
+	return world;
 }
 
 /** The ids of the props that move (scene `moves: true`) on which some body-layer action of a character is done (`on`). */
@@ -68,6 +79,8 @@ const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);
 const flat = (p, x, z) => { const d = offBox(p, [x, p.c[1], z]); return Math.hypot(d[0], d[2]); }; // floor-plane distance to a prop's footprint
 
+/** How high over the floor the drawn top of prop p is that a body at floor point [x, z] stands on (parts.js standOnParts: a top up to 0.5 m up); 0: none. */
+const topOn = (p, [x, z]) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn), y = topUnder(p.parts, (x - p.c[0]) * cs - (z - p.c[2]) * sn, (x - p.c[0]) * sn + (z - p.c[2]) * cs, 0.5 - p.c[1]); return y == null ? 0 : p.c[1] + y; };
 const ownToWorld = (p, v) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn); return [p.c[0] + v[0] * cs + v[2] * sn, p.c[1] + v[1], p.c[2] - v[0] * sn + v[2] * cs]; };
 /** The seat top (world y) of a sit on prop p with drawn parts: over the point the hips end on (st moved back by `back`),
  *  the top of part `seat` there (at its centre when the hips end off it), else the highest drawn top under the hips (the

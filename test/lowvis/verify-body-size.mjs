@@ -79,8 +79,10 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 		.replace(/ parts \(told by the Studio's scene and the tool[^\n]*?tells you when they change\./, "").replace(/\n- to the drawn: [^\n]*/, "");
 	// and the words for a body's drawn parts and the rows against them (verify-body-parts.mjs), taken out
 	const withoutBodyParts = text => text.replace(/ A body's drawn parts, named for their joints,[^\n]*?x negated\./, "").replace(/\n {19}\| \{on:characterId, part, at\?\}[^\n]*\n[^\n]*/, "").replace("(a place on a prop or a body as for a hand)", "(a place on a prop as for a hand)").replace(/\n- on a drawn body: [^\n]*/, "");
+	// and the SPEC words for a body off the ground (launch) and the air rows (verify-launch.mjs), taken out
+	const withoutLaunch = text => text.replace(/\n {4}launch \{to\?[^]*?where they left the ground\)\./, "").replace(/\n- air: [^\n]*/, "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutLaunch(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant)))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");

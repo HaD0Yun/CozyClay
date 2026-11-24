@@ -7,6 +7,15 @@
 //     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
 //     A prop with parts (its drawn shape): sit {on} sits on the highest part top under the hips (sit {on, part}: on that
 //     part's top), and on any body action `on` it but lie each foot stands on the part top under it (up to 0.5 m up).
+//     launch {to?:[x,z], heading?, vel?:[x,y,z]}   the body leaves the ground: from this frame to its next body action its
+//     hips fly the path gravity gives (9.8 m/s2), as high as that time in the air takes them, and it comes down on to
+//     (default: where the speed along the ground it had carries it), facing heading. vel (m/s): it leaves with that
+//     velocity as nearly as whole frames in the air allow (to is not read), comes down where gravity brings it and
+//     stands; its next body action, if that comes first, ends the flight there, at other speeds. On frame 0, or on the
+//     frame another launch comes down, it first stands one frame. The engine makes the crouch and push before it and
+//     the give after it from the flight's speeds; the feet leave the floor and plant where it comes down. Pose keys
+//     go on in the air (a foot's at is then measured from the floor point raised as far as the hips are over
+//     where they left the ground).
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.
@@ -122,7 +131,6 @@ import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shar
 import { reachEntry } from "./reach.js";
 import { inHand, settleHold } from "./take.js";
 import { flowAdd, handsMoved, startHand, startScalar } from "./flow.js";
-
 export { NOTES, expandRepeats };
 
 const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
@@ -159,6 +167,7 @@ function buildOnce(written, def, carrier) {
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
+	const flights = chars.flatMap(c => [...new Set(c.body.map(B => B.air).filter(Boolean))].map(fl => ({ who: c.id, ...fl }))); if (flights.length) aux.flights = flights; // launches (air.js)
 	const walls = Object.values(props).filter(o => !o.moves && o.c[1] + o.size[1] / 2 > 0.3);
 	const fly = p => {
 		const r = p.size[1] / 2, b = p.fly.bounce, n = Math.max(1, Math.ceil(len(p.vel) / 0.03)), sp = Math.hypot(p.vel[0], p.vel[2]);
@@ -274,7 +283,7 @@ function buildOnce(written, def, carrier) {
 			if (!k) return null;
 			const w = EASE[k.ease](prog(k, f));
 			if (k.to === "plant" && w >= 1) return null;
-			const at = t => t === "plant" ? bf : t.q ? t : { a: t.place ? target(c, i, t.place, f) : t.world ? toBody(c.tilt, t.world) : add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
+			const at = t => t === "plant" ? bf : t.q ? t : { a: t.place ? target(c, i, t.place, f) : t.world ? toBody(c.tilt, t.world) : add([B.p[0], B.air ? B.p[1] - c.body[B.air.f0 - 1].p[1] : 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
 			const a = at(k.from), b = at(k.to);
 			return { a: arcSized(a.a, b.a, w, add(B.p, qRotate(B.q, mul(OFFSET[UPLEG[i]], c.s))), c.s), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, done: prog(k, f) >= 1, self: k.to.place, ...(c.tilt ? { floor: -1e9 } : {}) };

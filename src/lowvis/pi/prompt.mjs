@@ -11,6 +11,8 @@ import { lookBody } from "../studio/figure.js";
 import { CLIP_FPS } from "../clip.js";
 import { POINT } from "../studio/scene.js";
 import { JUMP, RIDE_TURN } from "../jumps.js";
+import { PUSH } from "../engine-simple/air.js";
+import { AIR as AIR_M } from "../engine-simple/air-told.js";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {
@@ -85,6 +87,7 @@ const KINDS = ` A prop the Studio lists with kind is a Studio object that has no
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
 const JUMPS = `\n- jump between two frames: a body's Hips joint or a moving prop, within a frame of a key (its frame or the frame its over ends), steps far from its steps before and after (a stop of one frame inside a move, a hop): told over ${JUMP * 100} cm (times the body's scale), not for a key of its own with over 0 or 1. A ride's way to its at: its own row, over ${JUMP * 100} cm or ${RIDE_TURN} deg a frame on the carrier.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
+const AIR = `\n- air: for every launch, the frames in the air, how high the hips rose, their speed as they left and came down and where, and the push before it, from the hips' lowest point in the 0.6 s before (a human's in captured jumps: about ${Math.round(PUSH)} m/s2); the same, with the two changes, for every other stretch with both feet over ${AIR_M.off} m off the floor and every prop's box where the hips rise over ${AIR_M.rise} m and their upward speed changes by over ${AIR_M.jolt} m/s in one frame as they leave or come down (times the body's scale; a human's: under ${AIR_M.jolt}).`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. Where an id has several actions with one frame and verb, the edit's entries with that frame and verb name them in their order. The reply says what the edit did.`;
 const NUMBERS = {
@@ -133,7 +136,7 @@ THE TOOL
 motion({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${f.edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" | { joint, of: "<characterId>" }, props: "outline" } adds a sheet of other frames, another view, a close framing on one character, prop or joint (joints as for a hand target), or every prop drawn as its edges alone (a body inside or behind it shows), in the same call or alone. Only the images of your latest call stay visible to you; the text of every call stays.
 
 THE NUMBERS
-${NUMBERS[f.text]}${JUMPS}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.tops ? GAPS : ""}${f.pace ? PACE : ""}${f.balance ? BAL : ""}
+${NUMBERS[f.text]}${JUMPS}${f.reach ? REACH : ""}${f.inside ? INSIDE : ""}${f.tops ? GAPS : ""}${f.pace ? PACE + AIR : ""}${f.balance ? BAL : ""}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.

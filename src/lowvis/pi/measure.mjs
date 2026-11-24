@@ -21,6 +21,7 @@ import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
 import { bodyRows } from "./bodies.mjs";
 export { bodyText } from "./bodies.mjs";
+export { airLines } from "../engine-simple/air-told.js"; // a body off the ground, for the tool's text
 import { insideRows } from "./inside.mjs";
 import { gapRows } from "./gaps.mjs";
 import { JUMP, RIDE_TURN, groupJumps } from "../jumps.js";
