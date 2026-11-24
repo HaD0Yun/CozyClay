@@ -132,6 +132,7 @@ import {
 	readProjectDocument,
 	WORKFLOW_STORAGE_KEY,
 } from "./project.js";
+import { subscribeHostProjectOpen } from "./host-project-files.js";
 import ProjectBrowser, { ProjectNameDialog } from "./project-browser.jsx";
 import { usePoseEntry } from "./pose-entry.js";
 import { noteDeleteUndone, notePanelToggled } from "./studio-telemetry.js";
@@ -2220,15 +2221,16 @@ export default function App() {
 	useEffect(() => {
 		if (projectAutoOpenedRef.current) return;
 		projectAutoOpenedRef.current = true;
-		loadStoredProjectHandle().then(async (record) => {
+		const restored = loadStoredProjectHandle().then(async (record) => {
 			if (!record?.handle) return;
 			const permission = await queryHandlePermission(record.handle);
-			if (permission === "granted") {
-				await restoreStoredProject(record);
-				return;
-			}
-			if (permission === "prompt") setRestoreOffer(record);
+			if (permission === "granted") await restoreStoredProject(record);
+			else if (permission === "prompt") setRestoreOffer(record);
 		});
+		// A project the host app asks for (src/host-project-files.js) opens after
+		// that restore, so it is the one left open. Subscribed once per page, like
+		// the restore, so there is no cleanup for StrictMode's replay to undo.
+		subscribeHostProjectOpen((handle) => { const open = () => openProjectByHandle(handle); void restored.then(open, open); });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
