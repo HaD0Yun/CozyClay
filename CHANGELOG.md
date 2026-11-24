@@ -58,6 +58,17 @@ Depth exports
   `"inverse"`; the last two are drawn straight into 8 bits over the shot's
   own range. (#1344)
 
+Fixes
+
+- The viewport bar's lens value is a short number again ("28mm"). It printed
+  every digit of the shot camera's lens ("28.000000000000004mm" for a 28 mm
+  prime that came back from the field of view with an arithmetic tail,
+  "24.44391231902759mm" for a lens between primes), which ran out over the
+  viewport and the Details panel, and the lens menu marked no prime for a
+  lens with a tail. The camera readouts write the lens to a tenth of a
+  millimetre. The bar writes whole millimetres: a lens between primes
+  (27.8 mm) reads "28mm" there, and the menu marks no prime for it. (#1347)
+
 ## 3.3.0 - 2026-11-24
 
 Body motion from a motion writer model and a deterministic engine, a cube figure, lights as aimed objects, a rail camera you turn by hand, the toon look by default, and an AI video reference export. Storyboard projects are removed.

@@ -150,7 +150,7 @@ export default function ViewportToolbar() {
 					title={ko("Lens — pick a prime or set the field of view", "렌즈 — 단렌즈를 고르거나 화각을 조절")}
 					onClick={() => menu.toggle("lens")}
 				>
-					{shot.focalMm}mm
+					{Math.round(shot.focalMm)}mm
 				</button>
 				{menu.open === "lens" && (
 					<div className="vp-menu" role="menu" aria-label={ko("Lens", "렌즈")}>
