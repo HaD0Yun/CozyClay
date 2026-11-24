@@ -8,8 +8,10 @@ Depth exports
   is read back at half-float precision, the greys are shared out by distance
   ratio and by where the shot's surfaces stand, and the relief inside one
   surface (an arm in front of a torso, a moulding on a wall) is drawn larger.
-  The range is the shot's own, counted over its frames. A renderer that cannot
-  read half floats back draws the same share-out straight into 8 bits.
+  The video's range is the shot's own, counted over its frames (about 120 of
+  them in a longer shot); a still's is its frame's. A renderer that cannot
+  read half floats back draws the greys by ratio alone over that range,
+  straight into 8 bits, without the relief.
 - Smoke, fire, sparks, steam, dust, rain, snow and trails are in the depth
   plate: each draws its own distance over what is behind it, mixed by its
   opacity. Glass and other see-through materials do the same, by the share of

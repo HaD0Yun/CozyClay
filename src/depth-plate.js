@@ -2,11 +2,13 @@
 // of a surface is kept, and how soft its edges are. The pass itself is drawn by render-passes.js.
 //
 // The stage knows every distance exactly, and a plate has 256 greys for a body two metres from the lens and a horizon
-// forty metres away. Written straight into 8 bits, a body 30 cm deep at four metres gets five greys. So the pass is read
+// forty metres away. Shared out by ratio and written straight into 8 bits, a body 30 cm deep at four metres gets six
+// greys (255 x ln(4.3 / 4) / ln(40 / 2)); shared out by metres it gets two. So the pass is read
 // back at half-float precision (PLATE_PASS: the nearness of every pixel by distance ratio, 0 sky to 1 at the lens), and
 // the greys are made here: shared out by ratio and by where the shot's surfaces stand, with each surface's own relief
 // drawn larger than the tone curve alone would draw it. A renderer that cannot read half floats back (capture.precise
-// is false) gets the same share-out by ratio drawn straight into 8 bits, without the relief.
+// is false) gets the greys by ratio alone over the shot's range, drawn straight into 8 bits: no share by where the
+// surfaces stand, no relief.
 import { DEPTH_RANGE_M, greyDistance, renderPass } from "./render-passes.js";
 
 // How soft the edges of a depth plate are: the sigma of a gaussian in pixels of a 1080-high frame. A plate with hard
@@ -55,9 +57,9 @@ function depthRangeFromCounts(counts, near, far, curve, clip = CLIP) {
 	return { near: Math.max(near, nearest / give), far: farthest * give };
 }
 
-/** The range of a depth video drawn with one curve straight into 8 bits ("linear", "inverse"): one pre-pass over its
- * frames. `draw(frame)` answers that frame's pre-pass from `near` to the stage's working depth; `after(frame)` is the
- * caller's own step between two frames. */
+/** The range of a depth video drawn with one curve straight into 8 bits ("linear", "inverse", and "log" where the
+ * renderer reads no half floats back): one pre-pass over its frames. `draw(frame)` answers that frame's pre-pass from
+ * `near` to the stage's working depth; `after(frame)` is the caller's own step between two frames. */
 export async function depthRangeOverFrames(startFrame, endFrame, near, curve, draw, after = null) {
 	const counts = new Uint32Array(256);
 	for (let frame = startFrame; frame <= endFrame; frame += 1) {

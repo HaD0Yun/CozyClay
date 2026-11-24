@@ -147,7 +147,10 @@ function surfaceCover(mesh) {
  * @param {"depth"|"normal"} kind
  * @param {(buffer: Uint8Array) => string} [toDataUrl] converts the rig's RGBA
  *   read-back into a PNG data URL; omitted, the raw buffer comes back
- * @returns {string|Uint8Array|null} the PNG data URL (or the raw buffer)
+ * @param {{ depthRange?: { near: number, far: number }, depthCurve?: "linear"|"inverse"|"log"|"ratio", precise?: boolean }} [options]
+ *   the depth ramp's range (default: the camera's near plane to DEPTH_RANGE_M) and curve (default "linear");
+ *   precise asks the rig for a half-float read-back (a capture whose `precise` is true)
+ * @returns {string|Uint8Array|Uint16Array|null} the PNG data URL, or the raw buffer (RGBA bytes; RGBA half floats when precise)
  */
 export function renderPass(capture, scene, camera, kind, toDataUrl = null, options = {}) {
 	if (!capture || !scene || !camera) return null;
