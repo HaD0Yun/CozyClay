@@ -67,6 +67,15 @@ assert.deepEqual(split.map(({ startFrame, endFrame }) => [startFrame, endFrame])
 assert.throws(() => cutAtFrame(shots, "missing", 80, framing(80)), /Unknown shots ID: missing/, "unknown shot IDs fail explicitly");
 assert.equal(split[1].cameraKeys.some((entry) => entry.frame === 40), true);
 
+// Shot edits must carry outgoing easing with their keys.
+const easedShot = createShot("Eased", 0, 39, [{ ...key(0), ease: "linear" }, { ...key(20), ease: "easeOut" }, key(39)]);
+assert.equal(duplicateShot([easedShot], easedShot.id, 100)[1].cameraKeys[0].ease, "linear");
+assert.equal(reorderShot([easedShot], easedShot.id, 40, 100)[0].cameraKeys[1].ease, "easeOut");
+const easedSplit = cutAtFrame([easedShot], easedShot.id, 20, framing(20));
+assert.equal(easedSplit[0].cameraKeys[0].ease, "linear");
+assert.equal(easedSplit[1].cameraKeys[0].ease, "easeOut");
+assert.equal(cutAtFrame([easedShot], easedShot.id, 10, framing(10))[1].cameraKeys[0].ease, "linear");
+
 const removedMiddle = removeShot(split, split[1].id);
 assert.deepEqual(removedMiddle.map(({ startFrame, endFrame }) => [startFrame, endFrame]), [[20, 39], [100, 139]], "delete leaves an empty gap");
 const removedAll = removeShot(removeShot(removedMiddle, removedMiddle[1].id), removedMiddle[0].id);
