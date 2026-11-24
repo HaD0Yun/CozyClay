@@ -103,12 +103,15 @@ const castStyle = () => evaluate("window.__cozyclayProject.export('qa').then((te
 const noPicker = "!document.querySelector('[data-testid=start-previs-mode]') && !document.querySelector('[data-testid=start-cast-style]')";
 // Fresh first launch: no project session, no scenes.
 const firstLaunch = async () => {
+	const studioUrl = await evaluate("location.href");
+	// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+	{ const left = waitForPageLoad(); await send("Page.navigate", { url: `${await evaluate("location.origin")}/favicon.ico` }); await left; }
 	await evaluate(`(() => {
 		localStorage.removeItem(${JSON.stringify(SESSION_KEY)});
 		localStorage.removeItem("${SCENES_STORAGE_KEY}");
 		localStorage.removeItem("${PREVIOUS_SCENES_STORAGE_KEY}");
 	})()`);
-	await reload();
+	{ const back = waitForPageLoad(); await send("Page.navigate", { url: studioUrl }); await back; }
 };
 const editorOpen = "!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline')";
 
@@ -122,7 +125,16 @@ const expect = (name, condition, detail = "") => {
 
 await firstLaunch();
 
-// --- First launch: name + Create only ----------------------------------------
+// --- First launch: straight to the editor, in a project of its own ------------
+expect("a first launch goes straight to the editor", await waitFor(`${editorOpen} && !!localStorage.getItem('cozyclay.project-session.v1')`));
+const launched = await session();
+expect("the first launch's project has a name and no previs mode", typeof launched?.name === "string" && launched.name.length > 0 && launched?.previsMode === undefined, JSON.stringify(launched));
+expect("the first launch's project casts Hybrid", (await castStyle()) === "hybrid");
+
+// --- File > New on it: name + Create only -------------------------------------
+await click("[data-testid=menu-file]");
+expect("File shows New on the first launch's project", await waitFor("!!document.querySelector('[data-testid=menubar-new]')"));
+await click("[data-testid=menubar-new]");
 expect("the start screen renders", await waitFor("!!document.querySelector('.v2-start-screen.startup [data-testid=start-create]')"));
 expect("the start screen offers no mode or cast picker", await evaluate(noPicker));
 expect("the start screen offers Open a saved project", await evaluate("!!document.querySelector('[data-testid=start-open-project-card]')"));

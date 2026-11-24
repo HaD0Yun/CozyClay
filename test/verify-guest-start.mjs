@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Guest start (src/guest-start.js): a first visit to the hosted Studio skips the project chooser and opens a ready
-// project. The rule: no project session yet, not an embed or a ?scene= launch, and the page is hosted (https) or asks
-// with ?try. A self-served Studio (http) and a returning visitor keep what they had.
+// First open and guest start (src/guest-start.js). A first open (nothing stored for the address, not an embed or a
+// ?scene= launch) goes straight to the stage in a project of its own, with no project chooser. A guest start is a first
+// open of the hosted Studio (https) or of an address that asks with ?try: it also gets a walking character and the
+// camera tutorial. A returning visitor keeps what they had.
 import { readFileSync } from "node:fs";
-import { guestStart } from "../src/guest-start.js";
+import { firstOpen, guestStart } from "../src/guest-start.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -17,14 +18,18 @@ expect("hosted, first visit: guest start", guestStart(at("https:"), store(null))
 expect("hosted, a project session exists: the visitor resumes it", guestStart(at("https:"), store({ name: "My Project" })) === false);
 const draft = (key) => ({ getItem: (k) => (k === key ? JSON.stringify({ version: 5, activeSceneId: "a", scenes: [] }) : null) });
 expect("hosted, an unnamed stored draft and no session: the draft stays", ["cozyclay.scenes.v5", "cozyclay.scenes.v4", "cozyclay.scenes.v1", "cozyclay.scene.v1"].every((key) => guestStart(at("https:"), draft(key)) === false));
-expect("self-served (http), first run: the chooser stays", guestStart(at("http:"), store(null)) === false);
+expect("self-served (http), first run: a first open, not a guest start", guestStart(at("http:"), store(null)) === false && firstOpen(at("http:"), store(null)) === true);
+expect("a first open needs nothing stored: no project session, no scene document", firstOpen(at("http:"), store({ name: "My Project" })) === false && ["cozyclay.scenes.v5", "cozyclay.scenes.v4", "cozyclay.scenes.v1", "cozyclay.scene.v1"].every((key) => firstOpen(at("http:"), draft(key)) === false));
+expect("an embed or a ?scene= launch is no first open", firstOpen(at("http:", "?embed=scene"), store(null)) === false && firstOpen(at("https:", "?scene=/scenes/a.cclayproject"), store(null)) === false);
+expect("a guest start is always a first open", [at("https:"), at("http:", "?try")].every((where) => guestStart(where, store(null)) && firstOpen(where, store(null))));
+expect("a store that cannot be read is a first open, not a crash", firstOpen(at("http:"), { getItem: () => { throw new Error("blocked"); } }) === true);
 expect("self-served with ?try: guest start", guestStart(at("http:", "?try=1"), store(null)) === true && guestStart(at("http:", "?try"), store(null)) === true);
 expect("?try with a project session: the visitor resumes it", guestStart(at("http:", "?try=1"), store({ name: "My Project" })) === false);
 expect("an embed never guest-starts", guestStart(at("https:", "?embed=playground"), store(null)) === false && guestStart(at("https:", "?embed=scene"), store(null)) === false);
 expect("a ?scene= launch opens its scene, not a guest project", guestStart(at("https:", "?scene=/scenes/a.cclayproject"), store(null)) === false);
 
 const scenes = readFileSync(new URL("../src/domains/scenes.js", import.meta.url), "utf8");
-expect("the chooser's first state leaves a guest start alone", scenes.includes("&& !loadProjectSession()?.name && !guestStart());"));
+expect("no load starts on the project chooser", scenes.includes("const [projectStartupOpen, setProjectStartupOpen] = useState(false);") && !scenes.includes("guestStart"));
 const panel = readFileSync(new URL("../src/panels/ProjectPanel.jsx", import.meta.url), "utf8");
 expect("the project panel mounts the guest start", panel.includes("<GuestStart />"));
 const source = readFileSync(new URL("../src/guest-start-mount.jsx", import.meta.url), "utf8");
@@ -35,7 +40,7 @@ expect("the camera tutorial opens with the guest start and closes for good", sou
 // The language comes before the project: another language reloads the page, and a reload after the project exists
 // would resume it without the tutorial.
 const language = readFileSync(new URL("../src/camera-tutorial-language.jsx", import.meta.url), "utf8");
-expect("a visitor who never chose a language is asked first, and the guest project waits for the answer", source.includes("useState(localeChosen)") && source.includes("if (!language || started.current || !guestStart()) return;") && source.includes("<TutorialLanguage onChosen={() => setLanguage(true)} />"));
+expect("a visitor who never chose a language is asked first, and the guest project waits for the answer", source.includes("useState(localeChosen)") && source.includes("if (started.current || app?.shared?.playgroundMode || !firstOpen() || (guest && !language)) return;") && source.includes("if (!receipt?.ok || !guest) return;") && source.includes("<TutorialLanguage onChosen={() => setLanguage(true)} />"));
 expect("the three languages are offered in their own names", ["English", "한국어", "简体中文"].every((name) => language.includes(`label: "${name}"`)));
 expect("keeping the page's language saves the choice without a reload; another one reloads into it", language.includes("if (language.id === LOCALE) { keepLocale(); onChosen?.(); } else setLocale(language.id);"));
 const stepsText = readFileSync(new URL("../src/camera-tutorial-steps.jsx", import.meta.url), "utf8");

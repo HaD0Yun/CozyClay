@@ -11,7 +11,8 @@ const CHAPTER = { ko: (number) => `챕터 ${number}`, en: (number) => `Chapter $
 /** Runs on every new document: the chosen UI language before the Studio's own scripts read it. */
 export const localeScript = (origin, locale) => `if (location.origin === ${JSON.stringify(origin)}) { try { localStorage.setItem("cozyclay.locale", ${JSON.stringify(locale)}); } catch {} }`;
 
-/** Empty origin storage (no project session, no saved projects), then the Studio: the chooser a first-time author sees. */
+/** Empty origin storage (no project session, no saved projects), then the Studio and its project chooser. A first open
+ * goes straight to the editor, so the chooser the episodes start on is opened through File > New. */
 export async function openStudio(cdp, url) {
 	const origin = new URL(url).origin;
 	// A Studio still open on the origin could write its session back after the clear.
@@ -24,6 +25,10 @@ export async function openStudio(cdp, url) {
 	const loaded = cdp.once("Page.loadEventFired");
 	await cdp.send("Page.navigate", { url });
 	await loaded;
+	if (!(await cdp.waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')", 30000))) throw new Error("the Studio's first open never reached the editor");
+	await cdp.evaluate("document.querySelector('[data-testid=menu-file]')?.click()");
+	if (!(await cdp.waitFor("!!document.querySelector('[data-testid=menubar-new]')", 10000))) throw new Error("the File menu never showed New");
+	await cdp.evaluate("document.querySelector('[data-testid=menubar-new]').click()");
 }
 
 /** An action value with every target in it resolved for the UI language. */
@@ -103,7 +108,7 @@ export async function runStep(context, step) {
 		await sleep(step.hold ?? 1500);
 	} else if (action === "studio") {
 		await openStudio(cdp, url);
-		if (!(await cdp.waitFor("document.querySelector('.v2-start-screen')", 20000))) throw new Error(`step ${step.id}: the startup chooser never showed`);
+		if (!(await cdp.waitFor("document.querySelector('.v2-start-screen')", 20000))) throw new Error(`step ${step.id}: the project chooser never showed`);
 	}
 	if (step.until && !(await cdp.waitFor(`!!window.__tutorialFind(${JSON.stringify(local(step.until))})`, 20000))) {
 		throw new Error(`step ${step.id}: ${JSON.stringify(step.until)} never showed`);

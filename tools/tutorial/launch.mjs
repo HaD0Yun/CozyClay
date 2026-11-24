@@ -49,7 +49,7 @@ try {
 		await new Promise((resolve) => setTimeout(resolve, 250));
 	}
 	const recorder = spawnOwned(process.execPath, ["tools/qa-browser.mjs", "--", process.execPath, "tools/tutorial/record.mjs", ...process.argv.slice(2)], {
-		env: { ...process.env, QA_URL: url, CDP_PORT: cdpPort, QA_STARTUP_CHOOSER: "1" },
+		env: { ...process.env, QA_URL: url, CDP_PORT: cdpPort, QA_FIRST_OPEN: "1" },
 	});
 	children.push(recorder);
 	process.exitCode = (await waitForExit(recorder)).code ?? 1;

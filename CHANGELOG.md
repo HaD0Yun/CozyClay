@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Studio
+
+- The Studio opens straight on the stage. A first open (nothing stored for
+  the address yet) starts in a project of its own, "Untitled Project", in the
+  browser's store, instead of the project chooser. The chooser is File > New
+  and File > Open. A stored scene without a project opens as it is.
+- The Agent pane is open when the Studio opens. Folding it (Window > Agent,
+  Cmd/Ctrl+B, the pane's own button) is kept for the address, and so is
+  opening it again. On a window of 1000 px or narrower it starts folded, and
+  what is folded there is not kept.
+
 Depth exports
 
 - The depth video and the depth still keep the detail of the stage: the pass

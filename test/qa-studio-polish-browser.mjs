@@ -85,14 +85,6 @@ const screenshot = async (name) => {
 	console.log(`SCREENSHOT ${path}`);
 	return path;
 };
-const setInput = (selector, value) => evaluate(`(() => {
-	const input = document.querySelector(${JSON.stringify(selector)});
-	if (!input) return false;
-	const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-	setter.call(input, ${JSON.stringify(value)});
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-	return true;
-})()`);
 const click = (selector) => evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return false; node.click(); return true; })()`);
 const rect = (selector) => evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null; })()`);
 const exported = () => evaluate("window.__cozyclayProject.export('qa').then((text) => { const p = JSON.parse(text); const scene = p.scenes.scenes.find((s) => s.id === p.scenes.activeSceneId) ?? p.scenes.scenes[0]; return { keyLight: scene.stage.keyLight, objects: scene.objects }; })");
@@ -114,12 +106,13 @@ const expect = (name, condition, detail = "") => {
 	if (!condition) failures += 1;
 };
 
+const studioUrl = await evaluate("location.href");
+// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+{ const left = waitForPageLoad(); await send("Page.navigate", { url: `${await evaluate("location.origin")}/favicon.ico` }); await left; }
 await evaluate(`(() => { for (const key of Object.keys(localStorage)) if (/project-session|scenes|left-collapsed|first-success/i.test(key)) localStorage.removeItem(key); })()`);
-await reload();
-expect("the start screen renders", await waitFor("!!document.querySelector('.v2-start-screen.startup [data-testid=start-create]')"));
-await setInput('[data-testid="start-project-name"]', "qa_polish");
-await click("[data-testid=start-create]");
-expect("Create opens the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline')"));
+{ const back = waitForPageLoad(); await send("Page.navigate", { url: studioUrl }); await back; }
+// Nothing is stored: a first open, straight to the editor in a project of its own.
+expect("a first open goes straight to the editor", await waitFor("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')"));
 
 // --- 1. Default lighting --------------------------------------------------------
 const { keyLight } = await exported();

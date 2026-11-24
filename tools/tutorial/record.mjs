@@ -75,7 +75,7 @@ try {
 	await cdp.send("Page.enable");
 	const input = createInput(cdp, { mac: (await cdp.evaluate("navigator.platform")).startsWith("Mac") });
 	await input.install(TEACHING_OVERLAY, localeScript(new URL(url).origin, options.locale));
-	// An episode that opens the Studio itself starts on its first scene; otherwise on the chooser.
+	// An episode that opens the Studio itself starts on its first scene; otherwise on the project chooser.
 	const firstScene = steps.map(actionOf).find((action) => action === "terminal" || action === "studio");
 	if (firstScene === "terminal") {
 		const loaded = cdp.once("Page.loadEventFired");

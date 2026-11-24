@@ -60,13 +60,14 @@ const readBody = () => evaluate(`(() => { const c = ${P}.controller, b = c.bridg
 	return { hand: b.jointPoser(19), feet: [b.jointPoser(24), b.jointPoser(28)], low, lowName, quats: (() => { const q = []; b.rig.traverse((n) => { if (n.isBone) q.push(n.quaternion.toArray().map((x) => +x.toFixed(6))); }); return q; })() }; })()`);
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
-async function openPoseMode(name) {
+async function openPoseMode() {
+	// The Studio saves its scene as it leaves, and a stored scene is no first open: clear from another page of the origin.
+	await send("Page.navigate", { url: new URL("/favicon.ico", url).href });
+	await poll("location.pathname === '/favicon.ico' && document.readyState === 'complete'", 15000);
 	await evaluate(`(() => { for (const k of Object.keys(localStorage)) if (/project-session|scenes|left-collapsed|first-success/i.test(k)) localStorage.removeItem(k); })()`);
 	await send("Page.navigate", { url });
-	await poll("document.readyState === 'complete' && !!document.querySelector('[data-testid=start-create]')", 30000);
-	await evaluate(`(() => { const i = document.querySelector('[data-testid="start-project-name"]'); if (!i) return; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(i, ${JSON.stringify(name)}); i.dispatchEvent(new Event("input", { bubbles: true })); })()`);
-	await click("[data-testid=start-create]");
-	await poll("!document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline')", 20000);
+	// Nothing is stored: a first open, straight to the editor in a project of its own.
+	await poll("document.readyState === 'complete' && !document.querySelector('.v2-start-screen') && !!document.querySelector('.timeline') && !!localStorage.getItem('cozyclay.project-session.v1')", 30000);
 	await evaluate("document.querySelector('.v2-first-success-guide-close')?.click()");
 	await click("[data-testid=viewport-add]");
 	await poll("!!document.querySelector('.add-object-menu [data-add=character]')");
@@ -95,7 +96,7 @@ if (!HEADED) await send("Emulation.setDeviceMetricsOverride", { width: 1438, hei
 await send("Page.navigate", { url });
 await poll("document.readyState === 'complete'", 30000);
 await evaluate(`caches.delete("cozy-poser-v1")`);
-expect("Pose mode opens on a Y Bot with an E tool", await openPoseMode("qa_poser"));
+expect("Pose mode opens on a Y Bot with an E tool", await openPoseMode());
 expect("the character is a Y Bot", (await evaluate("window.__cozyclay.characters[0].model")) === "y-bot-tpose");
 await pause(1000);
 const reloads = events.filter((e) => e.method === "Page.frameNavigated").length;
@@ -260,7 +261,7 @@ expect("at least two turn-only dots were pressed", pressedTurnOnly >= 2, `${pres
 await evaluate(`caches.delete("cozy-poser-v1")`);
 workerNetwork = { blocked: ["*cozy-poser-v1.onnx*"], };
 await send("Network.setBlockedURLs", { urls: ["*cozy-poser-v1.onnx*"] });
-expect("Pose mode opens again on a fresh page", await openPoseMode("qa_poser_missing"));
+expect("Pose mode opens again on a fresh page", await openPoseMode());
 const errorsBefore = events.filter((e) => e.method === "Runtime.exceptionThrown").length;
 await key("KeyE", "e");
 expect("with the model blocked the panel shows the failure", await poll("document.querySelector('[data-testid=poser-model]')?.dataset.status === 'failed'", 20000));

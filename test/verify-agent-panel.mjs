@@ -46,10 +46,25 @@ expect("AgentPanel imports its own stylesheet", panel.includes('import "./agent-
 // --- Studio mount -------------------------------------------------------
 // The studio has no room for another top bar button (IA rule R4): the panel is
 // shown from the View ▾ menu, exactly like every other "what is on screen"
-// toggle, and it boots collapsed so the studio still opens on the stage.
+// toggle. It boots open unless the author folded it or the window is narrow (src/shell/agent-pane.js).
 expect("Studio imports the shared AgentPanel", studio.includes('import AgentPanel from "./workflow/AgentPanel.jsx"'));
 expect("Studio mounts AgentPanel beside the authoring workspace", studio.includes("<AgentPanel") && studio.includes("sceneName={scenes.find((entry) => entry.id === activeSceneId)?.name"));
-expect("Studio boots the panel collapsed and mirrors the flag", studio.includes("defaultCollapsed") && studio.includes("onCollapsedChange={setAgentCollapsed}") && studio.includes("useState(true)"));
+expect("Studio boots the panel by the author's stored choice and mirrors the flag", studio.includes("defaultCollapsed") && studio.includes("onCollapsedChange={setAgentCollapsed}") && studio.includes("useState(() => embedMode || playgroundMode || agentPaneFolded())"));
+expect("every fold from the Studio's chrome is remembered", studio.includes("setAgentCollapsed(rememberAgentPane(!enabled))") && studio.includes("setAgentCollapsed(value => rememberAgentPane(!value))"));
+{
+	const { agentPaneFolded, rememberAgentPane } = await import("../src/shell/agent-pane.js");
+	const store = (initial = {}) => { const kept = { ...initial }; return { kept, getItem: (key) => kept[key] ?? null, setItem: (key, value) => { kept[key] = String(value); } }; };
+	const KEY = "cozyclay.shell.agent-pane.v1";
+	expect("nothing stored: the pane is open on a wide window, folded on a narrow one", agentPaneFolded(store(), false) === false && agentPaneFolded(store(), true) === true);
+	expect("the stored choice wins over the window's width", agentPaneFolded(store({ [KEY]: "folded" }), false) === true && agentPaneFolded(store({ [KEY]: "open" }), true) === false);
+	expect("an unknown stored value is no choice", agentPaneFolded(store({ [KEY]: "yes" }), false) === false);
+	const kept = store();
+	expect("remembering answers the fold and stores it", rememberAgentPane(true, kept, false) === true && kept.kept[KEY] === "folded" && rememberAgentPane(false, kept, false) === false && kept.kept[KEY] === "open");
+	expect("on a narrow window a fold is answered and not stored", rememberAgentPane(true, kept, true) === true && kept.kept[KEY] === "open");
+	const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+	const warn = console.warn; console.warn = () => {};
+	try { expect("a blocked store keeps no choice and breaks nothing", agentPaneFolded(blocked, false) === false && rememberAgentPane(true, blocked, false) === true); } finally { console.warn = warn; }
+}
 expect("AgentPanel accepts the host's default/notify pair", panel.includes("defaultCollapsed = false") && panel.includes("onCollapsedChange?.(collapsed)") && panel.includes("useState(defaultCollapsed)"));
 expect("Studio adds NO agent button to the top bar", !studio.includes("agent-topbar-toggle") && !/topbar-action[^"]*agent/i.test(studio));
 expect("the View menu owns the panel toggle", (() => {

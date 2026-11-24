@@ -38,7 +38,7 @@ import {
 	normalizeCastStyle,
 	animationCopyOfStoryboard,
 } from "../project.js";
-import { playgroundSceneUrl, fetchSceneProject } from "../playground.js"; import { guestStart } from "../guest-start.js";
+import { playgroundSceneUrl, fetchSceneProject } from "../playground.js";
 import { pickProjectToOpen } from "../project-open-file.js";
 import { projectSummary, serializedSummary } from "../project-summary.js";
 import { captureProjectThumb } from "../project-thumbs.js";
@@ -210,12 +210,10 @@ export function useScenes(appContext) {
 
 	const [projectNameDialog, setProjectNameDialog] = useState(null);
 
-	// A first-run author should choose a document (or explicitly start a named
-	// local draft). Keep this as a light startup sheet so the studio remains
-	// inspectable while the choice is pending; it never traps the topbar.
-	// A ?scene= launch opens its starter instead of the chooser.
-	// A guest start (guest-start.js: a first visit to the hosted Studio) opens a ready project instead.
-	const [projectStartupOpen, setProjectStartupOpen] = useState(() => !appContext.shared.playgroundMode && !playgroundSceneUrl(globalThis.location?.search) && !loadProjectSession()?.name && !guestStart());
+	// The project chooser as a sheet over the Studio (File > New opens it; it never traps the topbar). No load starts
+	// with it: a first open goes straight to the stage in a project of its own (guest-start.js), a returning author
+	// resumes theirs, a ?scene= launch opens its starter.
+	const [projectStartupOpen, setProjectStartupOpen] = useState(false);
 
 	const [projectManifest, setProjectManifest] = useState({ items: [], totals: { embedded: 0, external: 0, missing: 0, bytes: 0 }, missing: [] });
 
