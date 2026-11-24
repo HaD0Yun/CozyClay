@@ -222,7 +222,7 @@ import { buildShotPrompt } from "./shot-prompt.js";
 import { keyframePackEntries, keyframePackName } from "./keyframe-pack.js"; import { openAiReferenceDialog } from "./ai-reference-export.js"; import AiReferenceDialog from "./ai-reference-dialog.jsx";
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
-import { DEPTH_RANGE_M, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
+import { DEPTH_RANGE_M, DEPTH_SOFTEN_PX, createDepthSoftener, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
 
 import { serializeOtio } from "./otio.js";
 import "./shell/mode.css";
@@ -2941,20 +2941,36 @@ export default function App() {
 		return burnInRgba(pixels, output.width, output.height, reviewSlate({ shot: shotForFrame, frame, fps: TIMELINE_FPS,
 			focalMm: sampled?.focalMm, projectName, focusDistance: focusDistance(sampled?.pos, target) }));
 	}
-	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "linear", fileName = null, decorate = undefined } = {}, job = null) {
+	// The near and far distance of a depth video are the shot's own: one pre-pass over its frames, drawn with the curve
+	// the video will have (the nearness curve resolves the near end finely, where it spends its greys).
+	async function shotDepthRange(job, startFrame, endFrame, depthCurve) {
+		const near = shotCamRef.current.near, samples = [];
+		for (let frame = startFrame; frame <= endFrame; frame += 1) {
+			job.controller.signal.throwIfAborted();
+			const depth = withExportFrame(frame, () => renderPass(job.capture, job.capture.scene, shotCamRef.current, "depth", null, { depthCurve }));
+			if (!depth) throw Object.assign(new Error("Depth capture failed"), { exportFailureCode: "render_failed" });
+			samples.push(depthRangeFromPixels(depth, near, DEPTH_RANGE_M, depthCurve));
+			updateExportStatus(job, "preparing", { stage: "depth", completedFrames: frame - startFrame + 1, frameCount: endFrame - startFrame + 1, cancellable: true });
+			await exportBoundary(job);
+		}
+		return depthRangeFromFrames(samples, near, DEPTH_RANGE_M);
+	}
+	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "inverse", depthSoften = DEPTH_SOFTEN_PX, fileName = null, decorate = undefined } = {}, job = null) {
 		const resolvedEndFrame = endFrame ?? Math.max(0, currentRecordFrameCount() - 1);
 		// Preserve the download-free browser seam, without a nested lifecycle.
 		if (!job) return executeExportRequest(exportRequest(passKind === "depth" ? "depth_video" : "video",
-			(ownedJob) => runShotExport({ startFrame, endFrame: resolvedEndFrame, download, passKind, depthRange, depthCurve, fileName, decorate }, ownedJob),
+			(ownedJob) => runShotExport({ startFrame, endFrame: resolvedEndFrame, download, passKind, depthRange, depthCurve, depthSoften, fileName, decorate }, ownedJob),
 			{ external: true, download }));
 		job.controller.signal.throwIfAborted();
 		const output = job.request.context.output;
+		if (passKind === "depth" && !depthRange && resolvedEndFrame > startFrame) depthRange = await shotDepthRange(job, startFrame, resolvedEndFrame, depthCurve);
+		const soften = passKind === "depth" && depthSoften > 0 ? createDepthSoftener(output.width, output.height, depthSoften * output.height / 1080) : null;
 		const result = await exportOffscreenVideo({
 			startFrame, endFrame: resolvedEndFrame, fps: TIMELINE_FPS,
 			width: output.width, height: output.height,
 			capture: (frame, kind) => withExportFrame(frame, kind
 				? () => renderPass(job.capture, job.capture.scene, shotCamRef.current, kind, null, { depthRange, depthCurve }) : null),
-			decorate: passKind ? null : exportReviewDecoration, ...(decorate !== undefined ? { decorate } : {}),
+			decorate: passKind ? soften : exportReviewDecoration, ...(decorate !== undefined ? { decorate } : {}),
 			passKind, signal: job.controller.signal,
 			onFrame: ({ index, frameCount }) => updateExportStatus(job, "encoding", {
 				completedFrames: index + 1, frameCount, cancellable: true,
@@ -2990,21 +3006,7 @@ export default function App() {
 		const endFrame = target && (shotId || !motion) ? target.endFrame : Math.max(0, currentRecordFrameCount() - 1);
 		return executeExportRequest(exportRequest("depth_video", async (job) => {
 			if (!target) throw Object.assign(new Error("Add a shot before exporting depth video"), { exportFailureCode: "render_failed" });
-			let depthRange = null;
-			if (endFrame > startFrame) {
-				const samples = [];
-				for (let frame = startFrame; frame <= endFrame; frame += 1) {
-					job.controller.signal.throwIfAborted();
-					const depth = withExportFrame(frame, () => renderPass(job.capture, job.capture.scene, shotCamRef.current, "depth"));
-					if (!depth) throw Object.assign(new Error("Depth capture failed"), { exportFailureCode: "render_failed" });
-					samples.push(depthRangeFromPixels(depth, shotCamRef.current.near, DEPTH_RANGE_M));
-					updateExportStatus(job, "preparing", { stage: "depth", completedFrames: frame - startFrame + 1,
-						frameCount: endFrame - startFrame + 1, cancellable: true });
-					await exportBoundary(job);
-				}
-				depthRange = depthRangeFromFrames(samples, shotCamRef.current.near, DEPTH_RANGE_M);
-			}
-			return runShotExport({ startFrame, endFrame, passKind: "depth", depthRange, fileName: "blocking-depth.mp4" }, job);
+			return runShotExport({ startFrame, endFrame, passKind: "depth", fileName: "blocking-depth.mp4" }, job);
 		}));
 	}
 

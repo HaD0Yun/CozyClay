@@ -86,7 +86,7 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 					// either way: with the look on the finish (stage-finish.js) draws the frame as the canvas does, tone
 					// curve and exposure included; with it off the frame is drawn into a target three treats as the
 					// canvas. A pass (render-passes.js, an override material) is data, drawn as is into the plain target.
-					const finishLook = scene.userData.finishLook ?? null;
+					const finishLook = scene.overrideMaterial ? null : scene.userData.finishLook ?? null;
 					const drawn = finishLook || scene.overrideMaterial ? target : asCanvas();
 					try {
 						if (finishLook) finish.render(gl, scene, cam, target, finishLook);

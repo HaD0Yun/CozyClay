@@ -22,8 +22,8 @@ export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 // under it spread across the full range instead of collapsing to black.
 export const DEPTH_RANGE_M = 40;
 
-/** Decode the sampled extrema of one depth pre-pass. */
-export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M) {
+/** Decode the sampled extrema of one depth pre-pass drawn with `curve` over near..far. */
+export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M, curve = "linear") {
 	let minGrey = 255;
 	let maxGrey = 0;
 	for (let index = 0; index < depth.length; index += 256) {
@@ -35,6 +35,7 @@ export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M) {
 	const distance = grey => {
 		const encoded = Math.max(0, Math.min(255, grey)) / 255;
 		const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
+		if (curve === "inverse") return 1 / (linear * (1 / near - 1 / far) + 1 / far);
 		return near + (far - near) * (1 - linear);
 	};
 	// An all-black sample hit no surface (only sky, or geometry between the samples): it bounds no near distance, so a
@@ -58,6 +59,34 @@ export function depthRangeFromFrames(frames, fallbackNear = 0.1, fallbackFar = D
 export function depthGrey(d, near, far, curve = "linear") {
  if (curve === "inverse") return Math.max(0, Math.min(1, (1 / Math.max(d, near) - 1 / far) / (1 / near - 1 / far)));
  return 1 - Math.max(0, Math.min(1, (d - near) / Math.max(far - near, 0.0001)));
+}
+
+// How soft the edges of a depth video are: the sigma of a gaussian in pixels of a 1080-high frame. A depth plate
+// with hard steps tells whatever reads it that every edge of a blocking figure is exact; this lets them give a little.
+export const DEPTH_SOFTEN_PX = 3;
+
+/** A per-frame decorator for offscreen-export: `(frame, rgba) => rgba`, the grey under a gaussian of `sigma` pixels
+ * (three box passes; the variance of three boxes of radius r is r(r+1)). */
+export function createDepthSoftener(width, height, sigma) {
+	const radius = Math.max(1, Math.round((Math.sqrt(1 + 4 * sigma * sigma) - 1) / 2)), span = radius * 2 + 1, count = width * height;
+	const a = new Float32Array(count), b = new Float32Array(count), out = new Uint8ClampedArray(count * 4);
+	const pass = (from, to, n, step, lines, lineStep) => {
+		for (let line = 0; line < lines; line += 1) {
+			const base = line * lineStep;
+			let acc = 0;
+			for (let k = -radius; k <= radius; k += 1) acc += from[base + Math.min(n - 1, Math.max(0, k)) * step];
+			for (let i = 0; i < n; i += 1) {
+				to[base + i * step] = acc / span;
+				acc += from[base + Math.min(n - 1, i + radius + 1) * step] - from[base + Math.max(0, i - radius) * step];
+			}
+		}
+	};
+	return (frame, rgba) => {
+		for (let i = 0; i < count; i += 1) a[i] = rgba[i * 4];
+		for (let round = 0; round < 3; round += 1) { pass(a, b, width, 1, height, width); pass(b, a, height, width, width, 1); }
+		for (let i = 0; i < count; i += 1) { out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = a[i]; out[i * 4 + 3] = 255; }
+		return out;
+	};
 }
 
 /** File name for a downloaded pass: `blocking-frame-depth.png`. */
