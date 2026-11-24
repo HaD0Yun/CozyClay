@@ -39,12 +39,18 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// clip; upper-layer keys that flow on into the next) (push the same); were locomotion 2d1a6d6afc122219, sit 69ae9ec17d853bb6, object 800f6742b10944e6, duo c856198951e663f2, push ff755b870529e06d, chop 6577f662ae05285a, bowl d85e95275202dc36)
 	// chop and bowl again when a prop key starts where the key before has the prop on its frame (were chop 598b98622653d95a,
 	// bowl a0b912519da349db), and again when a hand takes a prop as it lies (were chop 74ac71e5e65d558b, bowl 6d8e8f512143c0b1)
-	const BEFORE = { locomotion: "4c58c177f5cba59f", sit: "f2ddb31cc94c2acd", object: "9099578f0aa12435", duo: "e577d20d50c20b28", push: "ff755b870529e06d", chop: "d0ba3462c327a127", bowl: "b6fda58a89c2aece" };
+	// and so is the run note, said again when a run came to move by captured runs (gait-data.js)
+	const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
+	const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); it starts and stops in half a second, as a walk does";
+	// locomotion, sit and bowl pinned again with that run (locomotion: its run) and when a plant of any travel came to stay
+	// in the air until the pelvis is within a steady pace's reach of it (sit and bowl: the last steps of a walk that ends
+	// fast); were locomotion 4c58c177f5cba59f, sit f2ddb31cc94c2acd, bowl b6fda58a89c2aece
+	const BEFORE = { locomotion: "6f0eb4a5a4fd90c8", sit: "9822cd9f58deade4", object: "9099578f0aa12435", duo: "e577d20d50c20b28", push: "ff755b870529e06d", chop: "d0ba3462c327a127", bowl: "f40598adcca6642a" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 		const { clip } = buildClip(structuredClone(spec));
-		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n));
+		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n === RUN_NOW ? RUN_WAS : n));
 		for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}

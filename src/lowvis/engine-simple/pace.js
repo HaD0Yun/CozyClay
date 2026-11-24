@@ -33,7 +33,7 @@ export function pace(Tm, stepT, { ease, burst }, G) {
  *  stance the count is not fitted to (endSplit tells what it did). told: what differs from what was written
  *  (stepFrames: as written), with the lengths so computed; stepPlan: the plan's longest step along the pelvis path. */
 export function fitCount(L, steps, { sf, stepFrames, room, G, gait, how = {}, longest, end }) {
-	const reach = longest * (1 - G.sw / 2);
+	const reach = longest * (1 - (G.swLong ?? G.sw) / 2); // swLong: the swing share of the pace whose step is the longest
 	const plan = n => {
 		const stepT = Math.min(sf, room / (n - 1 + G.sw)), u = pace((n - 1 + G.sw) * stepT, stepT, how, G), land = k => L * u((k + G.sw) * stepT);
 		const spot = [0, ...Array.from({ length: n }, (_, k) => (k < n - 2 ? L * u((k + 1 + G.sw / 2) * stepT) : L))];
@@ -67,7 +67,7 @@ const most = (list, key) => list.reduce((a, b) => (b[key] > a[key] ? b : a));
  *  furthest past the bound (else the furthest foot they moved). */
 export function endSplit(lands, gait, longest, G, u, H, hip, tol = 0.04) {
 	const l = Math.hypot(...u), d = [u[0] / l, u[1] / l], ahead = (h, k, back = 0) => [h[0] + k * d[0], h[1] + k * d[1] - back];
-	const reach = longest * (1 - G.sw / 2), bound = { step: Math.max(longest, ...H.map((h, i) => gap(ahead(h, longest), H[1 - i]))), far: Math.max(reach, ...H.map(h => gap(ahead(h, reach, G.trail), hip))) };
+	const reach = longest * (1 - (G.swLong ?? G.sw) / 2), bound = { step: Math.max(longest, ...H.map((h, i) => gap(ahead(h, longest), H[1 - i]))), far: Math.max(reach, ...H.map(h => gap(ahead(h, reach, G.trail), hip))) };
 	const last = [null, null], made = [];
 	for (const e of lands ?? []) {
 		const o = last[1 - e.side], other = o?.home ? [e.other[0] + o.home[0] - o.g[0], e.other[1] + o.home[1] - o.g[1]] : e.other;

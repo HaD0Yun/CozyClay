@@ -97,7 +97,7 @@ for (const [name, verb, o, scale] of [
 }
 {
 	const r = run([I, [10, "run", { to: [0, 2], steps: 3 }]], { frames: 200 });
-	assert.ok(/make 2 steps of up to 1\.00 m \(the last plant brings the feet together\), and put a foot up to [\d.]+ m from the hips as it lands or lifts, further than a run at a steady pace of its longest steps that way puts one, 0\.45 m, so it took \d+ plants/.test(r.text), `a run whose steps fit but whose feet land far from the hips is told why: ${r.text}`);
+	assert.ok(/make 2 steps of up to 1\.00 m \(the last plant brings the feet together\), and put a foot up to [\d.]+ m from the hips as it lands or lifts, further than a run at a steady pace of its longest steps that way puts one, 0\.41 m, so it took \d+ plants/.test(r.text), `a run whose steps fit but whose feet land far from the hips is told why: ${r.text}`);
 	console.log("ok V4 a run 2 m, steps 3 (steps of 1 m): told the foot's distance from the hips");
 }
 // --- X1: end spots to the side, or ahead and to the side, are measured on the floor: the step onto them and the foot ---

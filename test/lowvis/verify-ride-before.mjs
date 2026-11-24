@@ -37,11 +37,15 @@ const BEFORE = {
 // the knee note said again when a knee's side came from knee.js (notes.js, stored in every clip) goes back to its text of then
 const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
 const KNEE_NOW = "the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target";
+// and so does the run note, said again when a run came to move by captured runs (gait-data.js); these specs have no run
+const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
+const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); it starts and stops in half a second, as a walk does";
 const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]]) => {
 	const { clip, aux: { rides, walks, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride); aux.walks came with the counted walk
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
 	assert.ok(clip.notes.includes(KNEE_NOW), `${name}: the clip's notes have the knee note of now`);
-	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n));
+	assert.ok(clip.notes.includes(RUN_NOW), `${name}: the clip's notes have the run note of now`);
+	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n === RUN_NOW ? RUN_WAS : n));
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));

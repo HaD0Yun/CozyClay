@@ -46,9 +46,13 @@ for (const [name, c] of Object.entries(CASES)) {
 // fingerprints from the engine before turned props (tag plan-before), for scenes without `turn`
 // pinned again when a walk's sway changed (a walk's sway grows with its walking share, unless the walk begins the
 // clip; upper-layer keys that flow on into the next); were demo locomotion sum 28131.24091937811 abs 28401.80087036852; demo sit sum 16988.58993812318 abs 17320.271679534184; demo object sum 55091.27338733278 abs 55316.25554604278; demo duo sum 33152.77082839731 abs 34324.063255972105; demo push sum 16378.90072069702 abs 16937.86911301625; demo chop sum 8219.455195052107 abs 8965.554830944; demo bowl sum 24537.662118600478 abs 35986.80608473104; carry it sum 1297.472180864108 abs 2676.4528935573157; push it sum 644.6375135840353 abs 1815.2169889187685
+// locomotion, sit and bowl pinned again when a run came to move by captured runs (locomotion) and a plant of any travel
+// came to stay in the air until the pelvis is within a steady pace's reach of it (sit, bowl); were demo locomotion sum
+// 28130.083676914313 abs 28399.302929434976; demo sit sum 16990.66750680106 abs 17321.00111858535; demo bowl sum
+// 24528.879504649638 abs 35990.91364999904
 const BEFORE = {
-	"demo locomotion": { n: 17136, sum: 28130.083676914313, abs: 28399.302929434976 },
-	"demo sit": { n: 19590, sum: 16990.66750680106, abs: 17321.00111858535 },
+	"demo locomotion": { n: 17136, sum: 28147.99666942686, abs: 28417.158837437884 },
+	"demo sit": { n: 19590, sum: 16992.174418004324, abs: 17322.508029788616 },
 	"demo object": { n: 40323, sum: 55092.74944710477, abs: 55317.84371392813 },
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs); were sum 33296.306707722404,
 	// 8217.462717724167, 24537.719764461508 and abs 34465.81906765248, 8963.464780009705, 35987.17491706315; again with its
@@ -63,7 +67,7 @@ const BEFORE = {
 	"demo chop": { n: 17787, sum: 8232.0546934057, abs: 8978.06813223084 },
 	// bowl again for the same reason (each pin's slide starts from its full 90-degree tip; was sum 24536.379817133275,
 	// abs 35988.71533513136)
-	"demo bowl": { n: 22179, sum: 24528.879504649638, abs: 35990.91364999904 },
+	"demo bowl": { n: 22179, sum: 24527.38707116872, abs: 35992.187527195056 },
 	"sit on it": { n: 4899, sum: 1932.92509540655, abs: 2080.8489820194295 },
 	"carry it": { n: 5184, sum: 1299.1545993132574, abs: 2678.462190854703 },
 	"push it": { n: 5184, sum: 644.6375135840353, abs: 1815.2169889187685 },

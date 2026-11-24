@@ -101,7 +101,7 @@ for (const [name, frames, o, has] of [
 	assert.ok(turned.length === 1 && +turned[0][1] + +turned[0][2] === r.plants.length, `${name}: the plants of the turn and of the walk are the plants walked (${r.plants.length}): ${r.text}`);
 	console.log(`ok W6 ${name}: ${m[0]}`);
 }
-for (const [verb, o, longest] of [["run", { to: [0, 4], steps: 4 }, "1.20"], ["run", { to: [2, 3.5], steps: 3 }, "1.20"], ["push", { to: [0, 2], steps: 3 }, "0.40"], ["push", { to: [-1.2, 0], steps: 2 }, "0.40"]]) {
+for (const [verb, o, longest] of [["run", { to: [0, 5], steps: 4 }, "1.42"], ["run", { to: [2, 3.5], steps: 3 }, "1.42"], ["push", { to: [0, 2], steps: 3 }, "0.40"], ["push", { to: [-1.2, 0], steps: 2 }, "0.40"]]) {
 	const r = run([I, [10, verb, o]], { frames: 200 });
 	assert.ok(r.text.includes(`longer than the longest step of a ${verb} that way, ${longest} m`) && !r.text.includes("of a walk"), `${verb} ${JSON.stringify(o)}: ${r.text}`);
 	console.log(`ok W6 ${verb} ${JSON.stringify(o)}: names a ${verb}'s longest step, ${longest} m`);
