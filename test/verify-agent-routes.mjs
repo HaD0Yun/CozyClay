@@ -287,11 +287,11 @@ try {
 	await new Promise((resolve) => realCatalogServer.close(resolve));
 }
 {
-	// Sign-in state and the codex live-catalog merge, exercised directly against
+	// Sign-in state and the codex live list, exercised directly against
 	// providers.mjs: an env-configured provider reports signedIn/authSource, and
-	// openai-codex merges codex.listModels() with the static pi catalog only for
-	// models the catalog does not already have — astra stays catalog-sourced
-	// (and therefore keeps its full pi effort list) and still sorts first.
+	// openai-codex lists what codex.listModels() names. A model the pi catalog
+	// has stays catalog-sourced (astra keeps its full pi effort list) and astra
+	// still sorts first; a model the catalog lacks is added from the live list.
 	const { listAgentModels, resolveModel, resolveEffort, EFFORT_LEVELS } = await import("../bin/agent/providers.mjs");
 	const previousAnthropicKey = process.env.ANTHROPIC_API_KEY;
 	process.env.ANTHROPIC_API_KEY = "x";
@@ -307,11 +307,12 @@ try {
 		assert.equal(anthropic.authSource, "env", "the api key came from the environment");
 		const codexProvider = result.providers.find((provider) => provider.id === "openai-codex");
 		assert.equal(codexProvider.signedIn, true);
-		assert.equal(codexProvider.models[0].id, "gpt-6-astra", "the catalog's astra still sorts first after the merge");
-		assert.ok(codexProvider.models[0].efforts.includes("max"), "the merge never overwrites astra's catalog entry with codex's live one");
+		assert.equal(codexProvider.models[0].id, "gpt-6-astra", "the catalog's astra, which the live list names too, still sorts first");
+		assert.ok(codexProvider.models[0].efforts.includes("max"), "astra keeps its catalog entry, not codex's live one");
 		assert.ok(codexProvider.models.some((model) => model.id === "gpt-9-nova"), "a live model the pi catalog does not know about still appears");
 		assert.equal(codexProvider.models.find((model) => model.id === "gpt-9-nova").key, "openai-codex/gpt-9-nova");
-		console.log("PASS openai-codex merges the live catalog with the pi catalog, keeping astra first");
+		assert.deepEqual(codexProvider.models.map((model) => model.id), ["gpt-6-astra", "gpt-5", "gpt-9-nova"], "the list is what the live list names: astra first, the rest in its order, no other catalog model");
+		console.log("PASS openai-codex lists what the live list names, a catalog model with its catalog entry, astra first");
 
 		await assert.rejects(resolveModel("anthropic/does-not-exist", { models: base }), (error) => error.code === "UNKNOWN_MODEL", "resolveModel rejects an unknown model id with the frozen error code");
 		const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");

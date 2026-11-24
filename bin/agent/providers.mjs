@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as defaultAuth from "../codex-auth.mjs";
+import { accountLineup, liveModelsCodex, wireEffort } from "./codex-live-models.mjs";
 import * as defaultKeys from "./provider-keys.mjs";
 import { createCredentialStore } from "./credential-store.mjs";
 import { readCredentials } from "./provider-keys.mjs";
@@ -103,7 +104,6 @@ export async function loadProvider(id, { baseUrl, env = process.env } = {}) {
 
 const PI_EFFORT_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const piEffort = (level) => level === "none" ? "off" : level === "ultra" ? "max" : level;
-const wireEffort = (level) => (level === "off" ? "none" : level);
 
 const registryCatalogueState = new WeakMap();
 function catalogueState(models) {
@@ -251,22 +251,6 @@ function catalogModels(models, providerId, getSupportedThinkingLevels) {
 		});
 }
 
-/** Codex's live `/models` list, in the same shape as `catalogModels`. Used
- * only to add models the pi catalogue does not (yet) know about. */
-function liveModelsCodex(result) {
-	const list = Array.isArray(result) ? result : result?.models ?? [];
-	return list.map((model) => {
-		const id = typeof model === "string" ? model : model.slug || model.id;
-		const levels = (Array.isArray(model.supported_reasoning_levels)
-			? model.supported_reasoning_levels.map((level) => (typeof level === "string" ? level : level.effort)).filter(Boolean).filter((level) => level !== "ultra").map(wireEffort)
-			: []);
-		const efforts = levels.length ? levels : ["none"];
-		const requestedDefault = typeof model.default_reasoning_level === "string" ? wireEffort(model.default_reasoning_level) : undefined;
-		const defaultEffort = efforts.includes("medium") ? "medium" : (efforts.includes(requestedDefault) ? requestedDefault : efforts[0]);
-		return { id, key: `openai-codex/${id}`, label: id, efforts, defaultEffort, input: ["text", "image"] };
-	}).filter((model) => model.id);
-}
-
 const astraFirst = (a, b) => Number(b.id === "gpt-6-astra") - Number(a.id === "gpt-6-astra");
 const cliproxyFirst = (a, b) => astraFirst(a, b) || Number(b.id === "claude-fable-5-1") - Number(a.id === "claude-fable-5-1");
 
@@ -294,7 +278,8 @@ export async function listAgentModels({ models, codex, auth = defaultAuth, keys 
 					list = catalogModels(resolvedModels, provider.id, getSupportedThinkingLevels);
 					const known = new Set(list.map((model) => model.id));
 					list = [...list, ...fallbackLive.filter((model) => !known.has(model.id))];
-				} catch { /* the live catalog is a bonus; the static catalog still lists astra */ }
+					list = accountLineup(list, catalogueState(resolvedModels).models);
+				} catch { /* without the live list the static catalog is listed */ }
 			}
 			list = [...list].sort(astraFirst);
 		} else if (provider.id === "cliproxy") {

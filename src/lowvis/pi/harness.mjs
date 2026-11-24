@@ -198,7 +198,9 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			log(`model call ${call.n}: ${(call.ms / 1000).toFixed(1)} s, ${msg.stopReason}, context ${call.context}, out ${call.output}${text ? `, text ${text.length} chars` : ""}`);
 			open = null;
 		}
-		if (event.type === "tool_execution_end" && event.isError && !byToolCall.has(event.toolCallId)) { // refused before motion ran: the arguments did not fit the schema, or the safety stop
+		// A stopped run (the caller's signal, the time limit): pi 1.6 ends each remaining call of the message as "Operation
+		// aborted" without running it. That is no refusal of the model's arguments, so it is no call of the record.
+		if (event.type === "tool_execution_end" && event.isError && !byToolCall.has(event.toolCallId) && !agent.signal?.aborted) { // refused before motion ran: the arguments did not fit the schema, or the safety stop
 			const text = scrub((event.result?.content ?? []).filter(c => c.type === "text").map(c => c.text).join(" "));
 			const isBlock = record.safety.hit === "shots" && motion.state.calls >= safety.shots;
 			shots.push({ n: null, toolCallId: event.toolCallId, status: isBlock ? "blocked" : "rejected", error: text, atMs: round(now()), ms: 0, images: 0, files: [], sent: [], scene: motion.state.scene, spec: motion.state.spec, shown: null, text });
