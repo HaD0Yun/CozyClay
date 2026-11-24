@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Fixes
+
+- The viewport bar's lens value is a short number again ("28mm"). It printed
+  the lens with its arithmetic tail ("28.000000000000004mm"), which ran out
+  over the viewport and the Details panel, and the lens menu showed no prime
+  as chosen. The camera readouts write the lens to a tenth of a millimetre;
+  the bar writes whole millimetres. (#1347)
+
 Depth exports
 
 - The depth video and the depth still keep the detail of the stage: the pass
