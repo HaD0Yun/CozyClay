@@ -28,34 +28,13 @@ export const DEPTH_RANGE_M = 40;
 // target (the stored byte is the encoded grey); "log" writes so that the stored byte is the grey itself.
 const CURVES = Object.freeze({ linear: 0, inverse: 1, log: 2 });
 /** The distance a pre-pass byte stands for, drawn with `curve` over near..far. */
-function greyDistance(grey, near, far, curve) {
+export function greyDistance(grey, near, far, curve) {
 	const encoded = Math.max(0, Math.min(255, grey)) / 255;
 	if (curve === "log") return near * (far / near) ** (1 - encoded);
 	// CaptureRig reads an sRGB target, not the shader's linear grey.
 	const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
 	if (curve === "inverse") return 1 / (linear * (1 / near - 1 / far) + 1 / far);
 	return near + (far - near) * (1 - linear);
-}
-
-/** Count one pre-pass frame's greys into `counts` (256 bins), every 16th pixel. */
-export function countDepthGreys(depth, counts = new Uint32Array(256)) {
-	for (let index = 0; index < depth.length; index += 64) counts[depth[index]] += 1;
-	return counts;
-}
-
-/** The near and far distance that hold the counted surface but for `clip` of it at each end, so a sliver beside the
- * lens or a speck at the horizon does not take the greys of everything else; then a twentieth of the span (as a ratio) is
- * given back at each end, so what was left out still steps and the farthest wall is not the sky. Bin 0 is sky, or past the far end. */
-export function depthRangeFromCounts(counts, near = 0.1, far = DEPTH_RANGE_M, curve = "linear", clip = 0.01) {
-	let total = 0;
-	for (let grey = 1; grey < 256; grey += 1) total += counts[grey];
-	if (!total) return { near, far };
-	let low = 1, high = 255;
-	for (let seen = counts[low]; seen < total * clip && low < 255;) seen += counts[low += 1];
-	for (let seen = counts[high]; seen < total * clip && high > 1;) seen += counts[high -= 1];
-	const nearest = Math.max(near, greyDistance(high + 0.5, near, far, curve)), farthest = Math.max(greyDistance(low - 0.5, near, far, curve), nearest * 1.01);
-	const give = (farthest / nearest) ** 0.05;
-	return { near: Math.max(near, nearest / give), far: farthest * give };
 }
 
 /** Decode the sampled extrema of one depth pre-pass drawn with `curve` over near..far. */
@@ -90,35 +69,6 @@ export function depthGrey(d, near, far, curve = "linear") {
  if (curve === "log") return 1 - Math.max(0, Math.min(1, Math.log(Math.max(d, near) / near) / Math.log(far / near)));
  if (curve === "inverse") return Math.max(0, Math.min(1, (1 / Math.max(d, near) - 1 / far) / (1 / near - 1 / far)));
  return 1 - Math.max(0, Math.min(1, (d - near) / Math.max(far - near, 0.0001)));
-}
-
-// How soft the edges of a depth video are: the sigma of a gaussian in pixels of a 1080-high frame. A depth plate
-// with hard steps tells whatever reads it that every edge of a blocking figure is exact; this lets them give a little.
-export const DEPTH_SOFTEN_PX = 0.6;
-
-/** A per-frame decorator for offscreen-export: `(frame, rgba) => rgba`, the grey under a gaussian of `sigma` pixels. */
-export function createDepthSoftener(width, height, sigma) {
-	const radius = Math.max(1, Math.ceil(sigma * 3)), count = width * height;
-	const kernel = Float32Array.from({ length: radius * 2 + 1 }, (_, i) => Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)));
-	const sum = kernel.reduce((total, weight) => total + weight, 0);
-	const a = new Float32Array(count), b = new Float32Array(count), out = new Uint8ClampedArray(count * 4);
-	const pass = (from, to, n, step, lines, lineStep) => {
-		for (let line = 0; line < lines; line += 1) {
-			const base = line * lineStep;
-			for (let i = 0; i < n; i += 1) {
-				let acc = 0;
-				for (let k = -radius; k <= radius; k += 1) acc += kernel[k + radius] * from[base + Math.min(n - 1, Math.max(0, i + k)) * step];
-				to[base + i * step] = acc / sum;
-			}
-		}
-	};
-	return (frame, rgba) => {
-		for (let i = 0; i < count; i += 1) a[i] = rgba[i * 4];
-		pass(a, b, width, 1, height, width);
-		pass(b, a, height, width, width, 1);
-		for (let i = 0; i < count; i += 1) { out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = a[i]; out[i * 4 + 3] = 255; }
-		return out;
-	};
 }
 
 /** File name for a downloaded pass: `blocking-frame-depth.png`. */
