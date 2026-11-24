@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { buildShotCameraTracks } from "../src/camera-direction.js";
 import { createCameraReadout, sampleCameraReadout } from "../src/camera-readout.js";
-import { focalMmToFov, fovToFocalMm } from "../src/shot.js";
 
 const shot = {
 	id: "rail-readout",
@@ -34,21 +33,28 @@ console.log("PASS camera readout source returns the rendered rail lens and roll"
 // the arithmetic's tail, which the viewport bar printed in full ("28.000000000000004mm") and the lens menu's check
 // mark missed. The camera the readout hands on keeps the exact value.
 {
-	const readoutFor = (focalMm) => {
-		const lensShot = { ...shot, id: "lens", camera: { ...shot.camera, focalMm } };
-		const lensScene = { ...scene };
-		lensScene.cameraTrack = buildShotCameraTracks({ shots: [lensShot], subjectTrack: scene.subjectTrack, fps: 24, filmback: scene.filmback });
-		return createCameraReadout({ scene: lensScene, shots: [lensShot], filmback: scene.filmback, subjectAt: () => ({ x: 0, y: 0, z: 0, rot: 0 }) })(12);
-	};
-	// a 28 mm prime through the field of view and back, on a filmback where the round trip leaves a tail
-	const tailed = [["fullFrame", 16 / 9], ["fullFrame", 2.39], ["super35", 16 / 9], ["super35", 2.39], ["fullFrame", 4 / 3]]
-		.map(([sensorId, aspectRatio]) => fovToFocalMm(focalMmToFov(28, sensorId, aspectRatio), sensorId, aspectRatio)).find((mm) => mm !== 28) ?? 28.000000000000004;
+	const subjectAt = () => ({ x: 0, y: 0, z: 0, rot: 0 });
+	// The lens is written on the track's samples, which the sampled camera takes as it is: the fixture is the same
+	// number wherever the test runs. Whether a round trip through the field of view leaves a tail, and which one,
+	// hangs on the platform's tan and atan.
+	const readoutFor = (focalMm) => createCameraReadout({
+		scene: { ...scene, cameraTrack: scene.cameraTrack.map((sample) => sample && { ...sample, focalMm }) },
+		shots: [shot], filmback: scene.filmback, subjectAt,
+	})(12);
+	const tailed = 28.000000000000004; // the value the bar printed
 	assert.notEqual(tailed, 28, "the fixture is a lens with an arithmetic tail");
 	const prime = readoutFor(tailed);
+	assert.equal(prime.camera.focalMm, tailed, "the camera keeps the exact lens");
 	assert.equal(prime.shot.focalMm, 28, "a prime with a tail reads as the prime");
 	assert.equal(`${prime.shot.focalMm}mm`, "28mm", "and its label is short");
-	assert.equal(prime.camera.focalMm, tailed, "the camera keeps the exact lens");
-	assert.equal(readoutFor(31.74).shot.focalMm, 31.7, "a lens between primes reads to a tenth");
+	assert.equal(readoutFor(27.999999999999996).shot.focalMm, 28, "a tail below the prime reads as the prime too");
+	assert.equal(readoutFor(24.44391231902759).shot.focalMm, 24.4, "a lens between primes reads to a tenth");
 	assert.equal(readoutFor(40).shot.focalMm, 40, "a whole lens is untouched");
+	// and on the path the Studio takes: a 28 mm rail lens through the field of view and back, with or without a tail
+	const lensShot = { ...shot, id: "lens", camera: { ...shot.camera, focalMm: 28 } };
+	const cameraTrack = buildShotCameraTracks({ shots: [lensShot], subjectTrack: scene.subjectTrack, fps: 24, filmback: scene.filmback });
+	const rail = createCameraReadout({ scene: { ...scene, cameraTrack }, shots: [lensShot], filmback: scene.filmback, subjectAt })(12);
+	assert.ok(Math.abs(rail.camera.focalMm - 28) < 1e-9, "the rail's lens comes back from the field of view");
+	assert.equal(rail.shot.focalMm, 28, "and reads as the prime");
 	console.log("PASS camera readouts write the lens to a tenth of a millimetre");
 }
