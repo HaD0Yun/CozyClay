@@ -18,6 +18,7 @@
 import { SCENES_VERSION } from "./scenes.js";
 import { ASSET_MAX_SOURCE_BYTES, assetIdForBytes, isAssetId, isImageAssetId, isMeshAssetId, meshIdForBytes, normalizeAsset, referencedAssetIds } from "./scene-assets.js";
 import { ko } from "./locale.js"; import { hdrIdForBytes, isHdrAssetId } from "./stage-hdr.js";
+import { hasHostProjectFiles, hostProjectFilePermission, isHostProjectFile, pickHostProjectFile, readHostProjectFile, writeHostProjectFile } from "./host-project-files.js";
 
 export const PROJECT_VERSION = 5;
 // Every project is an animation project. A v5 file written by an older build
@@ -398,9 +399,10 @@ export function readProjectDocument(raw) {
 	};
 }
 
-export function hasFileSystemAccess() {
-	return typeof window !== "undefined" && typeof window.showSaveFilePicker === "function" && typeof window.showOpenFilePicker === "function";
-}
+// A host app's window may provide the project files instead
+// (src/host-project-files.js): their handles are plain records that the
+// functions below hand back to the host.
+export const hasFileSystemAccess = () => hasHostProjectFiles() || (typeof window !== "undefined" && typeof window.showSaveFilePicker === "function" && typeof window.showOpenFilePicker === "function");
 
 const PICKER_TYPES = [
 	{
@@ -410,26 +412,24 @@ const PICKER_TYPES = [
 ];
 
 export async function pickProjectFileForSave(suggestedName) {
-	const handle = await window.showSaveFilePicker({
-		suggestedName: `${suggestedName || "Untitled"}${PROJECT_EXTENSION}`,
-		types: PICKER_TYPES,
-	});
-	return handle;
+	const fileName = `${suggestedName || "Untitled"}${PROJECT_EXTENSION}`;
+	return hasHostProjectFiles() ? pickHostProjectFile("save", fileName) : window.showSaveFilePicker({ suggestedName: fileName, types: PICKER_TYPES });
 }
 
 export async function pickProjectFileForOpen() {
-	const [handle] = await window.showOpenFilePicker({ types: PICKER_TYPES, multiple: false });
-	return handle;
+	if (hasHostProjectFiles()) return pickHostProjectFile("open");
+	return (await window.showOpenFilePicker({ types: PICKER_TYPES, multiple: false }))[0];
 }
 
 export async function writeProjectFile(handle, serialized) {
+	if (isHostProjectFile(handle)) return writeHostProjectFile(handle, serialized);
 	const writable = await handle.createWritable();
 	await writable.write(serialized);
 	await writable.close();
 }
 
 export async function readProjectFile(handle) {
-	const file = await handle.getFile();
+	const file = isHostProjectFile(handle) ? await readHostProjectFile(handle) : await handle.getFile();
 	return { name: file.name.replace(/\.cclayproject$|\.json$/i, ""), text: await file.text(), savedAt: file.lastModified };
 }
 
@@ -638,7 +638,7 @@ export async function listProjectsInDirectory(dirHandle) {
 /** "granted" | "prompt" | "denied" — never throws. */
 export async function queryHandlePermission(handle) {
 	try {
-		return await handle.queryPermission({ mode: "readwrite" });
+		return isHostProjectFile(handle) ? hostProjectFilePermission() : await handle.queryPermission({ mode: "readwrite" });
 	} catch {
 		return "denied";
 	}
@@ -650,6 +650,7 @@ export async function queryHandlePermission(handle) {
  * "granted" | "prompt" | "denied" — never throws. */
 export async function requestHandlePermission(handle) {
 	try {
+		if (isHostProjectFile(handle)) return hostProjectFilePermission();
 		if ((await handle.queryPermission({ mode: "readwrite" })) === "granted") return "granted";
 		return await handle.requestPermission({ mode: "readwrite" });
 	} catch {

@@ -1,12 +1,14 @@
 /**
  * The launcher's own /__cozyclay/* routes, kept out of bin/cozyclay.mjs:
  * the telemetry toggle the Studio's privacy setting posts to, the update
- * routes behind the Studio's update chip, and the clip of a motion run, which
+ * routes behind the Studio's update chip, the clip of a motion run, which
  * lives outside the package (agent/motion-files.mjs) at the address the page
- * fetches it from (src/lowvis/studio/clip-load.js).
+ * fetches it from (src/lowvis/studio/clip-load.js), and the host contract a
+ * host app reads (bin/host-contract.mjs).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { runFiles } from "./agent/motion-files.mjs";
+import { hostContract } from "./host-contract.mjs";
 import { setTelemetryEnabled } from "./telemetry-state.mjs";
 import { lookupLatest } from "./update-check.mjs";
 import { canSelfUpdate, createInstaller } from "./update-install.mjs";
@@ -31,6 +33,21 @@ export function createStudioRoutes({ port, stateFile, takeRuntime, update: { cur
 		installer: createInstaller(),
 		restarter: restart ? createRestarter({ port, ...restart }) : null,
 	});
+	// GET only, from the Studio page or a local process without an Origin (the
+	// host app's own fetch), like GET /__cozyclay/update.
+	const sendContract = (req, res) => {
+		const send = (status, body, headers = {}) => {
+			res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
+			res.end(JSON.stringify(body));
+		};
+		if (req.method !== "GET") return send(405, { error: "method not allowed" }, { allow: "GET" });
+		const origin = req.headers.origin;
+		const allowed = origin === undefined
+			? [`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host)
+			: [`http://127.0.0.1:${port}`, `http://${"local" + "host"}:${port}`].includes(origin);
+		if (!allowed) return send(403, { error: "forbidden origin" });
+		send(200, hostContract(currentVersion));
+	};
 	return function handleStudioRoute(req, res, url) {
 		const run = /^\/lowvis\/clips\/pi\/([A-Za-z0-9_-]+)\.json$/.exec(url.pathname), clip = run && runFiles(run[1]).clipFile;
 		if (clip && req.method === "GET" && existsSync(clip)) {
@@ -40,6 +57,10 @@ export function createStudioRoutes({ port, stateFile, takeRuntime, update: { cur
 		}
 		if (url.pathname === "/__cozyclay/update" || url.pathname === "/__cozyclay/update/restart") {
 			void updateRoute(req, res);
+			return true;
+		}
+		if (url.pathname === "/__cozyclay/contract") {
+			sendContract(req, res);
 			return true;
 		}
 		if (url.pathname !== "/__cozyclay/telemetry") return false;
