@@ -67,8 +67,8 @@ const key = async (key, code, keyCode) => {
 	await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key, code, windowsVirtualKeyCode: keyCode });
 	await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode });
 };
-const flyoutOpen = "!!document.querySelector('[data-testid=export-keyframe-pack]')";
-const flyoutReady = actionable("[data-testid=export-keyframe-pack]");
+const flyoutOpen = "!!document.querySelector('[data-testid=export-video]')";
+const flyoutReady = actionable("[data-testid=export-video]");
 const opened = () => records.filter((record) => record.event === "export:menu_opened");
 const shot = (id, startFrame, endFrame) => ({ id, name: id, startFrame, endFrame, camera: { mode: "keys" }, cameraKeys: [] });
 const scene = { version: 4, activeSceneId: "qa-menu", scenes: [{ id: "qa-menu", name: "QA menu", objects: [], shotDocument: { version: 4, frameCount: 96, waypoints: [], shots: [shot("qa-shot-a", 0, 47), shot("qa-shot-b", 48, 95)] },

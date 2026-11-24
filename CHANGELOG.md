@@ -34,6 +34,13 @@ Studio
   take the keyboard: the stage's shortcuts work at once, and the composer has
   the focus after a click in it, or once the pane is folded and opened again.
   (#1346)
+Export menu
+
+- File > Export lists three items: Video (mp4), which renders the whole
+  timeline, Depth (mp4) and AI video reference (zip). The other formats (the
+  keyframe pack, one shot's video, the depth and normal stills, the
+  storyboard sheet, the OTIO cut list) follow them when the menu is opened
+  with Alt (Option) held. Cmd/Ctrl+E still exports the keyframe pack.
 
 Depth exports
 

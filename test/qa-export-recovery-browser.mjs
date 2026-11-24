@@ -108,7 +108,8 @@ async function menu(open = true) {
 	if (!await evaluate("!!document.querySelector('#export-menu-trigger')")) {
 		await changeAndWait("!!document.querySelector('#export-menu-trigger')", () => click("[data-testid=menu-file]"), "File menu open");
 	}
-	await changeAndWait("!!document.querySelector('.export-menu')", () => click("#export-menu-trigger"), "Export menu open");
+	// Alt held: the menu also lists its other formats (the keyframe pack, one shot's video, the cut list).
+	await changeAndWait("!!document.querySelector('.export-menu')", () => click("#export-menu-trigger", { modifiers: 1 }), "Export menu open");
 }
 async function exportMenu(testid, modifiers = 0) {
 	await menu();

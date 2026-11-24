@@ -150,7 +150,8 @@ const reloadApp = async () => {
 const openFileExport = async () => {
 	await click("[data-testid=menu-file]");
 	await waitFor("!!document.querySelector('#export-menu-trigger')");
-	await click("#export-menu-trigger");
+	// Alt held: the menu also lists its other formats (the keyframe pack, one shot's video, the cut list).
+	await evaluate("document.querySelector('#export-menu-trigger').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, altKey: true })), true");
 	await waitFor("!!document.querySelector('.export-menu')");
 };
 const workspaceFiles = () => evaluate(`(async () => {

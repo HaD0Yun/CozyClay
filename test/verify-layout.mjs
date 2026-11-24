@@ -82,12 +82,14 @@ expect(
 	!css.includes(".viewport-readout"),
 );
 expect(
-	"one File › Export menu leads with the keyframe pack",
+	"one File › Export menu leads with the video and keeps the other formats behind Alt",
 	app.includes('data-testid="topbar-export"') &&
 	app.includes('id="export-menu-trigger"') &&
 	app.includes('className="menubar-item export-menu-primary"') &&
 	app.includes('data-testid="export-video"') &&
-	app.includes('data-testid="export-otio"'),
+	app.includes('data-testid="export-depth-video"') &&
+	app.includes("{exportEvery && <ExportMoreItems") &&
+	readFileSync(new URL("../src/shell/ExportMoreItems.jsx", import.meta.url), "utf8").includes('data-testid="export-otio"'),
 );
 // Letterbox bars are editor chrome. Painting them with the scene background
 // put a sheet of near-white either side of the frame the moment a narrower

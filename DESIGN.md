@@ -173,8 +173,11 @@ Removed in 3.0.
 ### G7 — export and save
 
 The File menu contains New, Open…, Save `⌘S`, Save As…, then Export ▸ with
-Keyframe pack (zip) `⌘E` first, Video (mp4), Depth + normal, Storyboard (PNG, the shot grid),
-and OTIO cut list only when a shot exists. Existing ids stay on the moved
+Video (mp4), Depth (mp4) and AI video reference (zip). Opened with Alt (Option)
+held, Export also lists Keyframe pack (zip) `⌘E`, Video — this shot only (mp4),
+Depth + normal passes, Storyboard (PNG, the shot grid) and OTIO cut list; the
+AI video reference, the one-shot video and the cut list are listed only when a
+shot exists. Existing ids stay on the moved
 controls: `topbar-save`, `topbar-export`, `export-keyframe-pack`,
 `export-video`, `export-otio`, `export-menu-trigger`. Save state remains
 `data-testid="project-save-status"` in the 24 px status bar (`Autosaved 2 min
