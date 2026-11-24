@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { airLines, airStretches } from "../../src/lowvis/engine-simple/air-told.js";
-import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
+import { INDEX as J, JOINT_COUNT, REST } from "../../src/lowvis/rig17.js";
 import { travel } from "../../src/lowvis/pi/measure.mjs";
 
 const scene = (s, frames = 72, props = []) => ({ demo: "x", frames, characters: [{ id: "a", at: [0, 0], heading: 0, ...(s === 1 ? {} : { scale: s }) }], props });
@@ -89,6 +89,21 @@ for (const s of [0.6, 1, 1.4]) {
 	assert.ok(low(small, 36, 71) < low(small, 0, 23) + 0.005, `scale 0.6: after a jump of 12 frames the hips go ${low(small, 36, 71).toFixed(3)} m under standing, before it ${low(small, 0, 23).toFixed(3)}`);
 	const high = build(1, [[0, "idle", {}], [24, "launch", {}], [48, "idle", {}]], 96).clip.characters[0];
 	assert.ok(low(high, 48, 95) > low(high, 0, 23) + 0.1 && jolt(high, 48, 95) < 1, `after 24 frames in the air the hips go ${low(high, 48, 95).toFixed(3)} m under standing and their speed changes by ${jolt(high, 48, 95).toFixed(2)} m/s in a frame at most`);
+	// the give and the spec's own crouch (a hip key down) together go no deeper than the give alone may: the hips no lower
+	// than the knees stand, the knees over the floor
+	for (const s of [0.73, 1]) {
+		const box = { id: "box", size: [s, 1.8, s], at: [0, 0.9, 0] }, r = build(s, [[0, "idle", {}], [0, "pose", { tilt: [0, 0], shift: [0, 1.8, 0], over: 0 }], [60, "launch", { vel: [0, 2.9, 2.1] }], [60, "pose", { tilt: [0, 0], shift: [0, 0, 0], over: 14, ease: "in" }], [81, "pose", { hip: [0, -0.3, 0], bow: 30, over: 4 }], [95, "pose", { hip: [0, 0, 0], bow: 0, over: 14 }]], 130, [box]);
+		const c = r.clip.characters[0], b = r.aux.flights[0].f1;
+		let knee = Infinity; for (let f = b; f < 130; f++) knee = Math.min(knee, at(c, f, J.LeftLeg)[1], at(c, f, J.RightLeg)[1]);
+		assert.ok(hipsY(c, 0) - low(c, b, 129) > REST[J.LeftLeg][1] * s - 0.005 && knee > 0.1 * s, `scale ${s}: a crouch key at the landing: hips ${(hipsY(c, 0) - low(c, b, 129)).toFixed(3)} m over the floor, knees ${knee.toFixed(3)} m`);
+		// the shallower give is the one the flight was planned with: it still leaves at the written speed along the ground
+		const along = (at(c, b - 4, J.Hips)[2] - at(c, b - 5, J.Hips)[2]) * 24;
+		assert.ok(Math.abs(along - 2.1) < 0.02, `scale ${s}: a crouch key at the landing: in the air at ${along.toFixed(3)} m/s along, written 2.1`);
+		// a hip key that comes down after the give has risen again leaves the landing as it is without one
+		const late = (key => build(s, [[0, "idle", {}], [0, "pose", { tilt: [0, 0], shift: [0, 1.8, 0], over: 0 }], [60, "launch", { vel: [0, 2.9, 2.1] }], [60, "pose", { tilt: [0, 0], shift: [0, 0, 0], over: 14, ease: "in" }], ...key], 130, [box]).clip.characters[0]);
+		const [plain, keyed] = [late([]), late([[b + 24, "pose", { hip: [0, -0.3, 0], over: 6 }]])];
+		for (let f = b; f < b + 24; f++) assert.ok(Math.abs(hipsY(plain, f) - hipsY(keyed, f)) < 1e-9, `scale ${s}: a hip key 24 frames after the landing moves the hips on frame ${f}`);
+	}
 }
 // from a seat, also one raised by a pose's shift: the hips do not dip under it, and the ground after the flight keeps
 // its height (no jolt as it comes down)

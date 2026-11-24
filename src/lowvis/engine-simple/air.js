@@ -54,15 +54,32 @@ function upDown(dy, T, g, acc, n, roomA, roomB, lowA = 0, lowB = 0, deepB = room
 	return { ra, rb, v0, v1, cUp, tUp, dip: cUp > 0 ? Math.min(DIP, n - tUp) : 0, cDn, tDn, short: Math.max(0, Math.round(all) - n) };
 }
 
+/** The hips over the landing frame's height t frames after they touch down rb over it at v1 a frame: they give cDn over
+ *  tDn frames and rise again over RISE. */
+const settle = (t, rb, v1, cDn, tDn) => (t < tDn ? rb + v1 * t - 0.5 * v1 / tDn * t * t : -cDn * (1 - smooth((t - tDn) / RISE)));
+/** The give of a landing on frame b with plan P (upDown) beside the spec's hip keys (lower: how far they lower the hips
+ *  on a frame, null: none): on no frame do the give and they together lower the hips deeper than the give alone may
+ *  (`deep`: to the knees' standing height), or than they alone do on that frame. The give is the deepest that keeps to
+ *  that, and as much quicker as it is shallower, with the same speed at the touch-down. launch() plans the flight
+ *  along the ground with the same give. Returns { cDn, tDn }. */
+function give(P, deep, lower, b) {
+	const { rb, v1 } = P, frames = c => 2 * (c + rb) / -v1;
+	const fits = c => { for (let t = 0, tDn = frames(c); t <= tDn + RISE; t++) if (-settle(t, rb, v1, c, tDn) > Math.max(0, deep - lower(b + t)) + 1e-9) return false; return true; };
+	if (!lower || !(P.cDn > 0) || fits(P.cDn)) return { cDn: P.cDn, tDn: P.tDn };
+	let lo = 0, hi = P.cDn;
+	for (let i = 0; i < 30; i++) { const c = (lo + hi) / 2; if (fits(c)) lo = c; else hi = c; }
+	return { cDn: lo, tDn: frames(lo) };
+}
+
 /** The frames of a launch action of n frames from state st. o: { to?: [x, z], vel?: [x, y, z] (m/s, world; to is then
  *  not read), heading? (rad) }; at: { out: the frames before it, before: the frame it leaves from in this action's own
  *  frame of reference (null: the last of out), s: the body's scale, f0: its frame, lo: the frame the flight before it
  *  came down on (0: none), was: that flight, up: how high over the floor the drawn top is that it stands on and leaves,
- *  wait: frames it stands first, lift: shiftOf() of its tilt keys (null: none) }. Returns { frames, st, flight }: the frames in the air
- *  (with vel, then the frames it stands where it came down), the state it lands in, and the flight for fly() (null:
- *  it never leaves; along: its step along the ground a frame). */
-export function launch(st, n, o, { out, before, s, f0, lo, was, up = 0, wait = 0, lift }) {
-	if (wait) { const stood = hold(st, wait), r = launch(st, n - wait, o, { out: [...out, ...stood], before: stood.at(-1), s, f0: f0 + wait, lo, was, up, lift }); return { ...r, frames: [...stood, ...r.frames] }; }
+ *  wait: frames it stands first, lift: shiftOf() of its tilt keys (null: none), lower: as fly() gets it }. Returns
+ *  { frames, st, flight }: the frames in the air (with vel, then the frames it stands where it came down), the state
+ *  it lands in, and the flight for fly() (null: it never leaves; along: its step along the ground a frame). */
+export function launch(st, n, o, { out, before, s, f0, lo, was, up = 0, wait = 0, lift, lower }) {
+	if (wait) { const stood = hold(st, wait), r = launch(st, n - wait, o, { out: [...out, ...stood], before: stood.at(-1), s, f0: f0 + wait, lo, was, up, lift, lower }); return { ...r, frames: [...stood, ...r.frames] }; }
 	before ??= out.at(-1) ?? hold(st, 1)[0];
 	const yaw = o.heading ?? st.yaw, g = G / s, acc = PUSH / FPS / FPS / s, a = f0 - 1;
 	// the step along the ground on frame k of the frames before (the frames of the flight before it stand where it left, then where it landed: its steps are that flight's)
@@ -82,7 +99,7 @@ export function launch(st, n, o, { out, before, s, f0, lo, was, up = 0, wait = 0
 	}
 	if (T < 2 || n < 1) return { frames: hold(st, n), st, flight: null }; // no frame in the air
 	// fly()'s sum of the take-off, the flight and the landing, for a body that then stands: where that speed takes the hips, or with `to` the speed that takes them there
-	const P = plan(T), wa = Math.max(lo, Math.round(a - P.tUp - EDGE)), m = a - wa, ml = Math.max(0, Math.round(P.tDn + EDGE)), span = T + (m ? (m + 1) / 2 : 0) + (ml ? (ml - 1) / 2 : 0);
+	const P = plan(T), wa = Math.max(lo, Math.round(a - P.tUp - EDGE)), m = a - wa, ml = Math.max(0, Math.round(give(P, DEEP, lower, f0 + Math.min(n, T - 1)).tDn + EDGE)), span = T + (m ? (m + 1) / 2 : 0) + (ml ? (ml - 1) / 2 : 0);
 	const stand = xz(standB({ ...st, p: [0, 0], yaw }).p), slow = v(wa).map(x => x * (m ? (m - 1) / 2 : 0));
 	let to = Array.isArray(o.vel) ? null : o.to, hips = xz(before.p);
 	for (let k = wa + 1; k <= a; k++) hips = sub2(hips, v(k));
@@ -97,15 +114,17 @@ export function launch(st, n, o, { out, before, s, f0, lo, was, up = 0, wait = 0
 /** Puts each flight's hips on the path gravity gives from the last frame on the ground to the first again and makes its
  *  take-off and landing from the speeds of that path (the head of this file). out: the body frames (rig body, where
  *  they are in the world); s: the body's scale. A frame in the air gets B.air = the flight; the flight gets short: the
- *  frames the ground before it lacked for its whole dip and push. */
-export function fly(out, flights, s) {
+ *  frames the ground before it lacked for its whole dip and push. lower: lowerOf() of the spec's hip keys in the rig
+ *  body's lengths, 0 past the clip's end (null: none; give()). */
+export function fly(out, flights, s, lower = null) {
 	const F = out.length, g = G / s, acc = PUSH / FPS / FPS / s;
 	flights.forEach((fl, n) => {
 		const a = fl.f0 - 1, b = fl.f1, T = b - a;
 		if (a < 0 || T < 1) return;
 		const lo = n ? flights[n - 1].f1 : 0, hi = flights[n + 1] ? flights[n + 1].f0 - 1 : F - 1, end = out[Math.min(b, F - 1)], A0 = out[a];
 		const base = out.map(B => xz(B.p)), d = k => (k > 0 ? sub2(base[k], base[k - 1]) : [0, 0]); // the steps along the ground before this flight moves them
-		const { ra, rb, v0, v1, cUp, tUp, dip, cDn, tDn, short } = upDown(end.p[1] - A0.p[1], T, g, acc, a - lo, room(A0), room(end), low(A0), low(end), room(end, DEEP), HARD / FPS / FPS / s), ya = A0.p[1] + ra;
+		const P = upDown(end.p[1] - A0.p[1], T, g, acc, a - lo, room(A0), room(end), low(A0), low(end), room(end, DEEP), HARD / FPS / FPS / s), ya = A0.p[1] + P.ra;
+		const { rb, v0, v1, cUp, tUp, dip, short } = P, { cDn, tDn } = give(P, room(end, DEEP), lower, b);
 		// along the ground: from the speed at the start of the take-off to the flight's, and from it to the speed at the end of the landing
 		// (the legs change it while they push and while they give: over the push and the give and EDGE frames more)
 		const va = Math.max(lo, Math.round(a - Math.max(dip, EDGE) - tUp)), vb = Math.min(hi, Math.round(b + tDn + RISE)), wa = Math.max(va, Math.round(a - tUp - EDGE)), wb = Math.min(vb, Math.round(b + tDn + EDGE));
@@ -130,7 +149,7 @@ export function fly(out, flights, s) {
 		const pa = xz(out[a].p), pb = add2(xz(end.p), off);
 		for (let k = b; k <= vb && k < F; k++) {
 			const t = k - b;
-			move(out, k, back[k], t < tDn ? rb + v1 * t - 0.5 * v1 / tDn * t * t : -cDn * (1 - smooth((t - tDn) / RISE)));
+			move(out, k, back[k], settle(t, rb, v1, cDn, tDn));
 		}
 		// the flight: the hips on the parabola; the feet go with them from where they left to where they come down
 		const L = out[Math.min(b, F - 1)], fa = out[a].feet.map(ft => sub3(ft.a, out[a].p)), fb = L.feet.map(ft => sub3(ft.a, L.p)), vx = sub2(pb, pa);
@@ -149,12 +168,24 @@ export function fly(out, flights, s) {
  *  value it ends on, at the end of its blend or on the frame before the next key (the body comes down where that key
  *  brings it, and the rest of its blend is the flight's). null with no tilt key. */
 export function shiftOf(keys) {
+	const at = keyed(keys, [0, 0, 0, 0, 0]);
+	return at && ((f, b) => at(f, b).slice(2, 5));
+}
+/** How far the spec's hip keys lower the hips on frame f (m, world; 0 where they raise them), as engine.js blends them. null with no hip key. */
+export function lowerOf(keys) {
+	const at = keyed(keys, [0, 0, 0]);
+	return at && (f => Math.max(0, -(at(f)[1] ?? 0)));
+}
+/** The value of a vector field's keys on frame f as engine.js blends it (its scalar(): each key from where the field is, by
+ *  its ease, with the flow of keys that pass each other, flow.js); with b (shiftOf), from b on as the key in effect on b
+ *  ends. null with no key. */
+function keyed(keys, zero) {
 	if (!keys?.length) return null;
-	const ks = keys.map(k => ({ ...k })), seen = []; // copies (a key's start is written on it); seen[f]: the tilt on frame f
-	const tilt = f => {
+	const ks = keys.map(k => ({ ...k })), seen = []; // copies (a key's start is written on it); seen[f]: the value on frame f
+	const value = f => {
 		for (let g = seen.length; g <= f; g++) {
 			const k = ks.findLast(x => x.f <= g);
-			if (k && k.from === undefined) startScalar(ks, k, g, seen[g - 1] ?? undefined, seen[g - 2] ?? undefined, [0, 0, 0, 0, 0]);
+			if (k && k.from === undefined) startScalar(ks, k, g, seen[g - 1] ?? undefined, seen[g - 2] ?? undefined, zero);
 			const u = k && (k.over > 0 ? (g - k.f) / k.over : 1), on = k && k.over > 0 && flowAdd(k.m0, k.m1, u, k.over);
 			seen.push(k ? mixV(k.from, k.to, (EASE[k.ease] ?? EASE.inout)(u)).map((x, n) => (on ? x + on[n] : x)) : null);
 		}
@@ -162,7 +193,7 @@ export function shiftOf(keys) {
 	};
 	return (f, b) => {
 		const i = b == null || f < b ? -1 : ks.findLastIndex(x => x.f <= b), k = ks[i], end = k && Math.min(k.f + k.over, (ks[i + 1]?.f ?? Infinity) - 1);
-		return (tilt(k && f < end ? end : f) ?? [0, 0, 0, 0, 0]).slice(2, 5);
+		return value(k && f < end ? end : f) ?? zero;
 	};
 }
 /** Body frame B moved by d (world), its feet and the floor under them with it (sign -1: back). */

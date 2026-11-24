@@ -124,7 +124,7 @@ import { keyPose, propKeys, shownAt } from "./prop-keys.js";
 import { carriedBuild } from "./carry.js";
 import { arcSized, buildBodySized, solveSized } from "./size.js";
 import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
-import { bodyCarriers, buildUpper, expandRepeats, partBoxes, resolveParts, shiftOf } from "./spec-layers.js";
+import { bodyCarriers, buildUpper, expandRepeats, partBoxes, resolveParts, shiftOf, lowerOf } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
@@ -155,7 +155,7 @@ function buildOnce(written, def, carrier) {
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
-		return (upper => ({ id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body (air.js)
+		return (upper => ({ id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt), lower: lowerOf(upper.keys.hip) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body, lower: how far the hip keys lower it (air.js)
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}, props[p.id].shownKeys.length ? { shown: [] } : {}) })); // by: what carries a moving prop on each frame, shown: whether it is drawn (clip.js)

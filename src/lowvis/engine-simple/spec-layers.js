@@ -9,7 +9,7 @@ import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
 import { fly, launch, raised } from "./air.js";
 
 export { partBoxes, resolveParts } from "./parts.js";
-export { shiftOf } from "./air.js";
+export { lowerOf, shiftOf } from "./air.js";
 
 export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie", "launch"]);
 
@@ -24,6 +24,7 @@ export function buildBody(c, acts, F, ctx) {
 	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
 	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
 	const flights = []; // every launch: its frames in the air (air.js)
+	const lower = ctx.lower && (f => (f < F ? ctx.lower(f) : 0)); // how far the hip keys lower the hips on a frame of the clip (air.js give)
 	const stands = []; // per frame of an action on a prop with drawn parts: that prop, and whether the body sits (parts.js standOnParts)
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length, moved = !!ctx.carrier && on(a) !== frame;
@@ -37,7 +38,7 @@ export function buildBody(c, acts, F, ctx) {
 			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
 		} else if (a.verb === "launch") { // air.js; with no frame on the ground before it (frame 0, or the frame the flight before it comes down on) it stands one first
 			const lo = flights.at(-1)?.f1 ?? 0, from = ctx.props[list[i - 1]?.o.on], up = from?.parts && from !== prop ? topOn(from, st.p) : 0; // the drawn top it stood on and leaves
-			r = launch(st, N, { ...a.o, heading: a.o.heading == null ? null : rad(a.o.heading) }, { out, before: moved ? hold(st, 1)[0] : null, s: c.scale ?? 1, f0: a.f, lo, was: flights.at(-1), up, wait: a.f === lo ? 1 : 0, lift: ctx.lift });
+			r = launch(st, N, { ...a.o, heading: a.o.heading == null ? null : rad(a.o.heading) }, { out, before: moved ? hold(st, 1)[0] : null, s: c.scale ?? 1, f0: a.f, lo, was: flights.at(-1), up, wait: a.f === lo ? 1 : 0, lift: ctx.lift, lower });
 			if (r.flight) flights.push(r.flight);
 		}
 		else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
@@ -74,7 +75,7 @@ export function buildBody(c, acts, F, ctx) {
 	flights.forEach((fl, i) => { for (let f = fl.f1; f < (flights[i + 1]?.f0 ?? F); f++) held[f] = ctx.lift?.(f, fl.f1); });
 	const lifted = (by, sign) => world.forEach((B, f) => { if (by[f]?.some(Boolean)) world[f] = raised(B, by[f], sign); });
 	lifted(held, 1);
-	fly(world, flights, c.scale ?? 1);
+	fly(world, flights, c.scale ?? 1, lower);
 	lifted(shift, -1);
 	return world;
 }
