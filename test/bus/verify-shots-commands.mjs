@@ -17,6 +17,8 @@ const inputs = {
   'shot.clearCameraRail': { shotId: 'shot-a' },
   'shot.rename': { shotId: 'shot-a', name: 'Wide' }, 'shot.setCameraMode': { shotId: 'shot-a', mode: 'follow' },
   'shot.set': { id: 'shot-a', set: { targetModel: 'seedance-2.5' } }, 'shot.setTimeline': { frameCount: 96 },
+  // Include easing in the agent action parity contract.
+  'shot.setKeyEase': { shotId: 'shot-a', keyId: 'key-a', ease: 'linear' },
   'shot.frame': { subjectIds: ['actor-a'], keyAtFrame: 5, framing: { exact: { position: { x: 1, y: 2, z: 6 }, lookAt: { x: 0, y: 1, z: 0 }, focalMm: 35 } } },
 };
 assert.deepEqual(Object.keys(inputs).sort(), declarations.filter(row => row.kind === 'mutation' && row.exposure !== 'ui-only').map(row => row.id).sort());
@@ -172,5 +174,20 @@ test('setCameraMode: an agent sets a shot camera to keys after its rail is gone;
     assert.equal(f.run('shot.rename', { shotId: 'shot-a', name: 'Wide opener' }, 'agent').ok, true);
     assert.equal(f.shots.read().find(shot => shot.id === 'shot-a').name, 'Wide opener');
     console.log('PASS setCameraMode and rename from the agent');
+  } finally { f.dispose(); }
+});
+
+// Verify clearing and undo restore the authored key.
+test('camera key easing sets, clears, validates and undoes', () => {
+  const f = shotsFixture();
+  try {
+    const args = { shotId: 'shot-a', keyId: 'key-a' };
+    const set = f.run('shot.setKeyEase', { ...args, ease: 'linear' }, 'agent');
+    assert.equal(set.ok, true); assert.equal(f.shots.read()[0].cameraKeys[0].ease, 'linear');
+    assert.equal(f.run('shot.setKeyEase', { ...args, ease: 'invalid' }, 'agent').ok, false);
+    const clear = f.run('shot.setKeyEase', { ...args, ease: null }, 'agent');
+    assert.equal(clear.ok, true); assert.equal('ease' in f.shots.read()[0].cameraKeys[0], false);
+    assert.equal(f.run('edit.undo', { receiptId: clear.receiptId }).status, 'undone');
+    assert.equal(f.shots.read()[0].cameraKeys[0].ease, 'linear');
   } finally { f.dispose(); }
 });
