@@ -94,27 +94,28 @@ export function depthGrey(d, near, far, curve = "linear") {
 
 // How soft the edges of a depth video are: the sigma of a gaussian in pixels of a 1080-high frame. A depth plate
 // with hard steps tells whatever reads it that every edge of a blocking figure is exact; this lets them give a little.
-export const DEPTH_SOFTEN_PX = 1.5;
+export const DEPTH_SOFTEN_PX = 0.6;
 
-/** A per-frame decorator for offscreen-export: `(frame, rgba) => rgba`, the grey under a gaussian of `sigma` pixels
- * (three box passes; the variance of three boxes of radius r is r(r+1)). */
+/** A per-frame decorator for offscreen-export: `(frame, rgba) => rgba`, the grey under a gaussian of `sigma` pixels. */
 export function createDepthSoftener(width, height, sigma) {
-	const radius = Math.max(1, Math.round((Math.sqrt(1 + 4 * sigma * sigma) - 1) / 2)), span = radius * 2 + 1, count = width * height;
+	const radius = Math.max(1, Math.ceil(sigma * 3)), count = width * height;
+	const kernel = Float32Array.from({ length: radius * 2 + 1 }, (_, i) => Math.exp(-((i - radius) ** 2) / (2 * sigma * sigma)));
+	const sum = kernel.reduce((total, weight) => total + weight, 0);
 	const a = new Float32Array(count), b = new Float32Array(count), out = new Uint8ClampedArray(count * 4);
 	const pass = (from, to, n, step, lines, lineStep) => {
 		for (let line = 0; line < lines; line += 1) {
 			const base = line * lineStep;
-			let acc = 0;
-			for (let k = -radius; k <= radius; k += 1) acc += from[base + Math.min(n - 1, Math.max(0, k)) * step];
 			for (let i = 0; i < n; i += 1) {
-				to[base + i * step] = acc / span;
-				acc += from[base + Math.min(n - 1, i + radius + 1) * step] - from[base + Math.max(0, i - radius) * step];
+				let acc = 0;
+				for (let k = -radius; k <= radius; k += 1) acc += kernel[k + radius] * from[base + Math.min(n - 1, Math.max(0, i + k)) * step];
+				to[base + i * step] = acc / sum;
 			}
 		}
 	};
 	return (frame, rgba) => {
 		for (let i = 0; i < count; i += 1) a[i] = rgba[i * 4];
-		for (let round = 0; round < 3; round += 1) { pass(a, b, width, 1, height, width); pass(b, a, height, width, width, 1); }
+		pass(a, b, width, 1, height, width);
+		pass(b, a, height, width, width, 1);
 		for (let i = 0; i < count; i += 1) { out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = a[i]; out[i * 4 + 3] = 255; }
 		return out;
 	};
