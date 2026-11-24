@@ -271,6 +271,16 @@ test('framing: independent filmback inversion, key/lens/aim boundaries and measu
   const fractions = [0, 4].map(z => fixture().prepare('frame_shot', { subjectIds: ['alex'], framing: { exact: { position: { x: 0, y: 1, z: 5 }, lookAt: { x: 0, y: 1, z }, focalMm: 35 } } }).checks.screenFraction);
   near(...fractions);
 });
+// Exact vertical aims retain the existing shot orientation for a stable screen top.
+test('framing: exact vertical aim retains yaw', () => {
+  const f = fixture(), initial = f.apply('frame_shot', { subjectIds: ['alex'], framing });
+  const yaw = initial.details.framing.yaw;
+  for (const [y, targetY, pitch] of [[5, 0, -Math.PI / 2], [-3, 1, Math.PI / 2]]) {
+    const plan = f.apply('frame_shot', { subjectIds: ['alex'], framing: { exact: { position: { x: 0, y, z: 0 }, lookAt: { x: 0, y: targetY, z: 0 }, focalMm: 35 } } });
+    near(plan.details.framing.pitch, pitch); near(plan.details.framing.yaw, yaw);
+    assert.deepEqual(framingChecks(['alex'], f.state, f.ports), plan.checks);
+  }
+});
 test('framing: measured occlusion and camera side instead of an unmeasured warning', () => {
   const exact = position => ({ exact: { position, lookAt: { x: 0, y: 1, z: 0 }, focalMm: 35 } });
   const f = fixture(), clear = f.prepare('frame_shot', { subjectIds: ['alex'], framing: exact({ x: 0, y: 1.6, z: 5 }) });
