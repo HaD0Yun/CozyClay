@@ -11,6 +11,8 @@
 // and a headless test drive the identical path.
 
 import * as THREE from "three";
+import { GLASS_PANE_OPACITY } from "./material-presets.js";
+import { authoredOpacity } from "./pose-fade.js";
 
 export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 
@@ -22,40 +24,26 @@ export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 // under it spread across the full range instead of collapsing to black.
 export const DEPTH_RANGE_M = 40;
 
-/** Decode the sampled extrema of one depth pre-pass. */
-export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M) {
-	let minGrey = 255;
-	let maxGrey = 0;
-	for (let index = 0; index < depth.length; index += 256) {
-		minGrey = Math.min(minGrey, depth[index]);
-		maxGrey = Math.max(maxGrey, depth[index]);
-	}
-	// CaptureRig reads an sRGB target, not the shader's linear grey. Include
-	// the half-byte rounding interval so quantisation cannot clip a surface.
-	const distance = grey => {
-		const encoded = Math.max(0, Math.min(255, grey)) / 255;
-		const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
-		return near + (far - near) * (1 - linear);
-	};
-	// An all-black sample hit no surface (only sky, or geometry between the samples): it bounds no near distance, so a
-	// shot of such frames keeps depthRangeFromFrames' fallback range instead of a near plane at the far end.
-	if (maxGrey === 0) return { min: NaN, max: far };
-	return { min: distance(maxGrey + 0.5), max: distance(minGrey - 0.5) };
+// How the greys are shared out over the distance. "linear": equal metres, equal greys. "inverse": by nearness (1 / d).
+// "log": by ratio, so 1 m to 2 m takes as many greys as 4 m to 8 m; a previs frame holds a body two metres away and a
+// horizon forty metres away, and only the ratio gives both their steps. The first two write linear light into the sRGB
+// target (the stored byte is the encoded grey); "log" writes so that the stored byte is the grey itself. "ratio" is the
+// same share-out written as it is, for a read-back that keeps its precision (options.precise; depth-plate.js).
+const CURVES = Object.freeze({ linear: 0, inverse: 1, log: 2, ratio: 3 });
+/** The distance a pre-pass byte stands for, drawn with `curve` over near..far. */
+export function greyDistance(grey, near, far, curve) {
+	const encoded = Math.max(0, Math.min(255, grey)) / 255;
+	if (curve === "log") return near * (far / near) ** (1 - encoded);
+	// CaptureRig reads an sRGB target, not the shader's linear grey.
+	const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
+	if (curve === "inverse") return 1 / (linear * (1 / near - 1 / far) + 1 / far);
+	return near + (far - near) * (1 - linear);
 }
 
-/** Return the shot-wide near/far range from per-frame extrema. */
-export function depthRangeFromFrames(frames, fallbackNear = 0.1, fallbackFar = DEPTH_RANGE_M) {
-	let near = Infinity;
-	let far = -Infinity;
-	for (const frame of frames ?? []) {
-		if (Number.isFinite(frame?.min) && frame.min > 0) near = Math.min(near, frame.min);
-		if (Number.isFinite(frame?.max) && frame.max > 0) far = Math.max(far, frame.max);
-	}
-	if (!Number.isFinite(near) || !Number.isFinite(far)) return { near: fallbackNear, far: fallbackFar };
-	return { near, far: Math.max(far, near + 0.0001) };
-}
-
+/** The grey (0 far .. 1 near) the pass draws for distance `d` over near..far: the shader's ramp (DEPTH_RAMP) in JS.
+ * greyDistance reads the distance back from the byte the target stores for it. */
 export function depthGrey(d, near, far, curve = "linear") {
+ if (curve === "log") return 1 - Math.max(0, Math.min(1, Math.log(Math.max(d, near) / near) / Math.log(far / near)));
  if (curve === "inverse") return Math.max(0, Math.min(1, (1 / Math.max(d, near) - 1 / far) / (1 / near - 1 / far)));
  return 1 - Math.max(0, Math.min(1, (d - near) / Math.max(far - near, 0.0001)));
 }
@@ -93,15 +81,27 @@ void main() {
 }
 `;
 
+/** GLSL: the value the depth pass writes for view distance d on a ramp near..far (curve as in CURVES). */
+export const DEPTH_RAMP = /* glsl */ `
+float depthRamp(float d, float near, float far, float curve) {
+	if (curve > 1.5) {
+		float grey = 1.0 - clamp(log(max(d, near) / near) / log(far / near), 0.0, 1.0);
+		return curve > 2.5 || grey <= 0.04045 ? (curve > 2.5 ? grey : grey / 12.92) : pow((grey + 0.055) / 1.055, 2.4);
+	}
+	if (curve > 0.5) return clamp((1.0 / max(d, near) - 1.0 / far) / (1.0 / near - 1.0 / far), 0.0, 1.0);
+	return 1.0 - clamp((d - near) / max(far - near, 0.0001), 0.0, 1.0);
+}
+`;
+
 const DEPTH_FRAGMENT = /* glsl */ `
 varying float vViewDepth;
 uniform float uNear;
 uniform float uRange;
-uniform bool uInverse;
+uniform float uCurve;
+uniform float uCover;
+${DEPTH_RAMP}
 void main() {
-	float normalized = clamp((vViewDepth - uNear) / max(uRange - uNear, 0.0001), 0.0, 1.0);
-	float grey = uInverse ? clamp((1.0 / max(vViewDepth, uNear) - 1.0 / uRange) / (1.0 / uNear - 1.0 / uRange), 0.0, 1.0) : 1.0 - normalized;
-	gl_FragColor = vec4(vec3(grey), 1.0);
+	gl_FragColor = vec4(vec3(depthRamp(vViewDepth, uNear, uRange, uCurve)), uCover);
 }
 `;
 
@@ -113,7 +113,8 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 			vertexShader: DEPTH_VERTEX,
 			fragmentShader: DEPTH_FRAGMENT,
 			uniforms: {
-				uInverse: { value: depthCurve === "inverse" },
+				uCurve: { value: CURVES[depthCurve] ?? 0 },
+				uCover: { value: 1 },
 				uNear: { value: Number.isFinite(depthRange?.near) ? depthRange.near : (Number.isFinite(camera?.near) ? camera.near : 0.1) },
 				uRange: { value: Number.isFinite(depthRange?.far) ? depthRange.far : DEPTH_RANGE_M },
 			},
@@ -126,6 +127,16 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 	throw new Error(`Unknown render pass: ${kind}`);
 }
 
+/** How much of what is behind it a mesh covers in the picture: 1 for a solid, the opacity of a see-through material,
+ * the plain pane's share for clear glass (three's transmission). A mesh of several materials is as solid as its most solid one.
+ * The opacity is the authored one: a prop Pose mode fades to work on the figure is as solid in the plate as it is in the set. */
+function surfaceCover(mesh) {
+	const cover = (m) => (m?.transparent && authoredOpacity(m) < 1 ? authoredOpacity(m) : m?.transmission > 0 ? 1 - m.transmission * (1 - GLASS_PANE_OPACITY) : 1);
+	// a mesh with an empty list of materials draws nothing: it stays with the override, which draws nothing either
+	const materials = [mesh.material].flat();
+	return materials.length ? Math.max(...materials.map(cover)) : 1;
+}
+
 /**
  * Render one pass through the capture rig.
  *
@@ -136,7 +147,10 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
  * @param {"depth"|"normal"} kind
  * @param {(buffer: Uint8Array) => string} [toDataUrl] converts the rig's RGBA
  *   read-back into a PNG data URL; omitted, the raw buffer comes back
- * @returns {string|Uint8Array|null} the PNG data URL (or the raw buffer)
+ * @param {{ depthRange?: { near: number, far: number }, depthCurve?: "linear"|"inverse"|"log"|"ratio", precise?: boolean }} [options]
+ *   the depth ramp's range (default: the camera's near plane to DEPTH_RANGE_M) and curve (default "linear");
+ *   precise asks the rig for a half-float read-back (a capture whose `precise` is true)
+ * @returns {string|Uint8Array|Uint16Array|null} the PNG data URL, or the raw buffer (RGBA bytes; RGBA half floats when precise)
  */
 export function renderPass(capture, scene, camera, kind, toDataUrl = null, options = {}) {
 	if (!capture || !scene || !camera) return null;
@@ -146,20 +160,33 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 	let buffer = null;
 	// A glow halo (userData.beautyOnly) is light, not a surface: drawn with the
 	// pass material it would be a solid quad in the depth or normal plate.
-	const hidden = [];
+	// Particles and trails have no surface either, but they are in the way of
+	// what is behind them: in the depth plate each draws its own distance over
+	// the surfaces (userData.ownDepth, effects/effect-meshes.js), mixed by its
+	// opacity. In the normal plate they stay out. A see-through surface (glass, a pane at part opacity) is a surface,
+	// and what is behind it is in the picture too: in the depth plate it draws its distance over what is behind it,
+	// mixed by the share of it the picture covers (a veil: the pass's material at that share, drawn after the solids).
+	const hidden = [], own = [], veiled = [], veils = new Map();
+	const veil = (cover) => veils.get(cover) ?? veils.set(cover, Object.assign(material.clone(), { transparent: true, depthWrite: false, allowOverride: false,
+		uniforms: { ...material.uniforms, uCover: { value: cover } } })).get(cover);
+	const ramp = kind === "depth" ? { near: material.uniforms.uNear.value, far: material.uniforms.uRange.value, curve: material.uniforms.uCurve.value } : null;
 	scene.traverse?.((node) => {
 		if (node.userData?.beautyOnly && node.visible) {
 			hidden.push(node);
 			node.visible = false;
 		}
+		if (ramp && typeof node.userData?.ownDepth === "function") own.push(node);
+		else if (ramp && node.isMesh && node.material && surfaceCover(node) < 1) veiled.push([node, node.material]);
 	});
 	try {
+		for (const node of own) node.userData.ownDepth(ramp);
+		for (const [node] of veiled) node.material = veil(Math.round(surfaceCover(node) * 100) / 100);
 		scene.overrideMaterial = material;
 		// Empty sky is infinitely far away, so on a depth plate it is black. The
 		// studio's pale stage colour would otherwise read as "nearest thing in
 		// the frame" to anything consuming the pass.
 		if (kind === "depth") scene.background = BACKGROUND_FAR;
-		buffer = capture.render();
+		buffer = capture.render(options.precise ? { precise: true } : undefined);
 	} finally {
 		// The viewport draws from this same scene object, so the override must
 		// come off before anything else can paint with it — even if the render
@@ -167,6 +194,9 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 		scene.overrideMaterial = previousMaterial;
 		scene.background = previousBackground;
 		for (const node of hidden) node.visible = true;
+		for (const node of own) node.userData.ownDepth(null);
+		for (const [node, drawn] of veiled) node.material = drawn;
+		for (const made of veils.values()) made.dispose();
 		material.dispose();
 	}
 	if (!buffer) return null;

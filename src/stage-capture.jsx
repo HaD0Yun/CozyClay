@@ -49,12 +49,18 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			let canvasTarget = null;
 			const asCanvas = () => (canvasTarget ??= Object.assign(new THREE.WebGLRenderTarget(width, height, { colorSpace: THREE.SRGBColorSpace, samples: 4, internalFormat: "RGBA8" }), { isXRRenderTarget: true }));
 			const buffer = new Uint8Array(width * height * 4);
+			// A data pass that asks for its precision (render-passes.js, { precise: true }) is drawn into a half-float target
+			// and read back as half floats: 8 bits hold 256 steps, and a depth plate is made from more (depth-plate.js).
+			let preciseTarget = null, preciseBuffer = null;
+			const asPrecise = () => (preciseTarget ??= new THREE.WebGLRenderTarget(width, height, { type: THREE.HalfFloatType, colorSpace: THREE.LinearSRGBColorSpace, samples: 4 }));
 			let held = true;
 			holders += 1;
 			return {
 				scene,
-				dispose: () => { if (!held) return; held = false; target.dispose(); canvasTarget?.dispose(); release(); },
-				render() {
+				// whether this renderer can draw into and read back a half-float target (render({ precise: true }))
+				precise: gl.extensions.has("EXT_color_buffer_float") || gl.extensions.has("EXT_color_buffer_half_float"),
+				dispose: () => { if (!held) return; held = false; target.dispose(); canvasTarget?.dispose(); preciseTarget?.dispose(); release(); },
+				render({ precise = false } = {}) {
 					const cam = camera();
 					if (!cam) return null;
 					// the transform gizmo is UI: it never reaches an exported frame
@@ -86,15 +92,16 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 					// either way: with the look on the finish (stage-finish.js) draws the frame as the canvas does, tone
 					// curve and exposure included; with it off the frame is drawn into a target three treats as the
 					// canvas. A pass (render-passes.js, an override material) is data, drawn as is into the plain target.
-					const finishLook = scene.userData.finishLook ?? null;
-					const drawn = finishLook || scene.overrideMaterial ? target : asCanvas();
+					const finishLook = scene.overrideMaterial ? null : scene.userData.finishLook ?? null;
+					const drawn = precise ? asPrecise() : finishLook || scene.overrideMaterial ? target : asCanvas();
+					const pixels = precise ? (preciseBuffer ??= new Uint16Array(width * height * 4)) : buffer;
 					try {
 						if (finishLook) finish.render(gl, scene, cam, target, finishLook);
 						else {
 							gl.setRenderTarget(drawn);
 							gl.render(scene, cam);
 						}
-						gl.readRenderTargetPixels(drawn, 0, 0, width, height, buffer);
+						gl.readRenderTargetPixels(drawn, 0, 0, width, height, pixels);
 					} finally {
 						gl.setRenderTarget(previous);
 						if (fog) {
@@ -102,7 +109,7 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 							fog.far = fogFar;
 						}
 					}
-					return buffer;
+					return pixels;
 				},
 			};
 		}

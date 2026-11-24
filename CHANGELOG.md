@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Depth exports
+
+- The depth video and the depth still keep the detail of the stage: the pass
+  is read back at half-float precision, the greys are shared out by distance
+  ratio and by where the shot's surfaces stand, and the relief inside one
+  surface (an arm in front of a torso, a moulding on a wall) is drawn larger.
+  The video's range is the shot's own, counted over its frames (about 120 of
+  them in a longer shot); a still's is its frame's. A renderer that cannot
+  read half floats back draws the greys by ratio alone over that range,
+  straight into 8 bits, without the relief. (#1344)
+- Smoke, fire, sparks, steam, dust, rain, snow and trails are in the depth
+  plate: each draws its own distance over what is behind it, mixed by its
+  opacity. Glass and other see-through materials do the same, by the share of
+  what is behind them the picture covers; before, a glass pane was a solid
+  wall. (#1344)
+- The depth and normal passes are no longer drawn through the toon look: the
+  depth plate has no ink lines. (#1344)
+- The edges of a depth plate are softened by 0.6 pixels (at 1080 lines).
+  (#1344)
+- `export.shotVideo` takes `depthCurve: "log"` (the default), `"linear"` or
+  `"inverse"`; the last two are drawn straight into 8 bits over the shot's
+  own range. (#1344)
+
 ## 3.3.0 - 2026-11-24
 
 Body motion from a motion writer model and a deterministic engine, a cube figure, lights as aimed objects, a rail camera you turn by hand, the toon look by default, and an AI video reference export. Storyboard projects are removed.

@@ -21,6 +21,10 @@
 
 import { GREY_BOX } from "./object-colors.js";
 
+// How much of what is behind it a clear glass pane covers where the Studio draws it as a plain pane: the flat look's
+// picture (stage-finish-surface.js) and the depth plate (render-passes.js) give it the same share.
+export const GLASS_PANE_OPACITY = 0.22;
+
 export const MATERIAL_LOOKS = Object.freeze({
 	clay: { roughness: 0.82 },
 	wood: { roughness: 0.68, color: "#9a6b3f", pattern: "wood", tile: 0.5, grain: "long", contrast: 0.32, bump: 0.0015, roughVar: 0.1 },

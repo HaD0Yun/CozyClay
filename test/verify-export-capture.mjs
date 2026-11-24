@@ -22,7 +22,10 @@ let currentTarget = initialTarget;
 let capturedCamera;
 let drawnInto;
 let readbackError = null;
+// what the renderer says it can draw into: a capture reads it once, when it is made
+const extensionNames = new Set(["EXT_color_buffer_float"]);
 const gl = {
+	extensions: { has: (name) => extensionNames.has(name) },
 	getRenderTarget: () => currentTarget,
 	setRenderTarget: (target) => { currentTarget = target; },
 	render: (_scene, camera) => { capturedCamera = camera; drawnInto = currentTarget; },
@@ -109,6 +112,32 @@ assert.equal(drawn[4], scene.userData.finishLook);
 assert.equal(currentTarget, initialTarget, "a finished capture restores the render target");
 delete scene.userData.finishLook;
 
+// A pass is data with the look on too: it is not drawn through the finish (no ink lines on a depth plate).
+scene.userData.finishLook = { name: "toon" };
+scene.overrideMaterial = new THREE.MeshNormalMaterial();
+const finished = finishes[0].renders.length;
+assert.ok(exportApi.render() instanceof Uint8Array);
+assert.equal(finishes[0].renders.length, finished, "a pass does not go through the look's finish");
+assert.equal(drawnInto, targets[1], "it is drawn as is into the plain target");
+delete scene.userData.finishLook;
+// A pass that asks for its precision is drawn into a half-float target of the capture's own, made once, and read
+// back as half floats; a pass that does not ask keeps its bytes.
+assert.equal(exportApi.precise, true, "a renderer with float colour buffers reads a pass back at half-float precision");
+const before = targets.length;
+const half = exportApi.render({ precise: true });
+assert.ok(half instanceof Uint16Array && half.length === 12 * 7 * 4, "the precise read-back is RGBA half floats");
+const preciseTarget = targets.at(-1);
+assert.equal(targets.length, before + 1);
+assert.equal(drawnInto, preciseTarget);
+assert.deepEqual([preciseTarget.width, preciseTarget.height, preciseTarget.samples, preciseTarget.texture.type], [12, 7, 4, THREE.HalfFloatType]);
+assert.equal(preciseTarget.isXRRenderTarget, undefined, "data is not tone-mapped or encoded");
+assert.equal(exportApi.render({ precise: true }), half);
+assert.equal(targets.length, before + 1, "the half-float target is made once");
+assert.ok(exportApi.render() instanceof Uint8Array, "an 8-bit pass still reads bytes");
+assert.equal(drawnInto, targets[1]);
+assert.equal(currentTarget, initialTarget, "a precise capture restores the render target");
+scene.overrideMaterial = null;
+
 readbackError = new Error("injected readback failure");
 assert.throws(() => exportApi.render(), (error) => error === readbackError);
 assert.equal(currentTarget, initialTarget, "failed capture restores render target");
@@ -119,7 +148,17 @@ assert.equal(finishes[0].disposals, 1, "the export was the last holder of the ol
 exportApi.dispose();
 assert.equal(finishes[0].disposals + targets[1].disposals, 2, "a second dispose frees nothing twice");
 assert.equal(asCanvas.disposals, 1, "attempt cleanup releases the export's canvas-like target with it");
+assert.equal(preciseTarget.disposals, 1, "and its half-float target");
 assert.equal(targets[3].disposals, 0, "attempt cleanup does not dispose the live preview");
+// A renderer that cannot draw into a float colour buffer says so, and a capture of it makes no half-float target.
+extensionNames.clear();
+const plain = apiRef.current.createExportCapture({ width: 4, height: 4 });
+assert.equal(plain.precise, false, "without float colour buffers a capture is 8-bit only");
+plain.dispose();
+extensionNames.add("EXT_color_buffer_half_float");
+const halfOnly = apiRef.current.createExportCapture({ width: 4, height: 4 });
+assert.equal(halfOnly.precise, true, "half-float colour buffers are enough");
+halfOnly.dispose();
 cleanup();
 assert.ok(targets.every((target) => target.disposals === 1));
 assert.ok(finishes.length >= 1 && finishes.every((finish) => finish.disposals === 1), "every rig's finish is released with it");

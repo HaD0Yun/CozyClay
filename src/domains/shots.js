@@ -391,7 +391,7 @@ export function useShots(appContext) {
   // "shot" records one shot (shotId, or the one under the playhead). Without a
   // scope the old rule stands: a named shot, or the playhead's shot when there
   // is no motion, else the whole record.
-  async function exportShotVideo({ download = true, shotId = null, scope = null, passKind = null, depthCurve = "linear", output = null } = {}, commandContext = null) {
+  async function exportShotVideo({ download = true, shotId = null, scope = null, passKind = null, depthCurve = "log", output = null } = {}, commandContext = null) {
     if (appContext.shared.recRef.current) return null;
     const atPlayhead = shotIndexAtFrame(shots, tlFrame);
     const target = shotId ? shots.find(entry => entry.id === shotId) : shots[atPlayhead >= 0 ? atPlayhead : 0] ?? null;

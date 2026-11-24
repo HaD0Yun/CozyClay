@@ -14,6 +14,11 @@ export function writePoseFadeOpacity(value, storage = globalThis.localStorage) {
 
 // Keyed by material: a material shared by several meshes is recorded once, so the restore is exact.
 const originals = new WeakMap();
+// The opacity a faded material was authored with: its own times its object's, without the working fade.
+const authored = new WeakMap();
+/** How see-through a material is in the scene as authored. Pose mode's working fade is an editing aid, not a property
+    of the set: a pass that reports the scene (the depth plate, render-passes.js) reads this, not the opacity drawn. */
+export const authoredOpacity = (material) => authored.get(material) ?? material?.opacity;
 const noRaycast = () => {};
 // Keyed by mesh, not userData: R3F replaces an inline userData prop on re-render (#974).
 const savedRaycasts = new WeakMap();
@@ -55,6 +60,7 @@ export function applyPoseFade(root, fade, own = 1) {
 				if (!originals.has(material)) {
 					originals.set(material, { transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite });
 				}
+				authored.set(material, originals.get(material).opacity * own);
 				const target = originals.get(material).opacity * opacity;
 				if (material.opacity !== target || !material.transparent || material.depthWrite) {
 					material.transparent = true;
@@ -65,6 +71,7 @@ export function applyPoseFade(root, fade, own = 1) {
 			} else if (originals.has(material)) {
 				Object.assign(material, originals.get(material));
 				originals.delete(material);
+				authored.delete(material);
 				material.needsUpdate = true;
 			}
 		}

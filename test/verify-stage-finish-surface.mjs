@@ -1,15 +1,17 @@
 // The surface layer of the finish (src/stage-finish-surface.js): the shader chunk patch took in this three version, and
 // applySurfaceLook puts the look on materials and on the rig's fill lights. The module is evaluated from its source
-// with the two layer constants it imports from a .jsx file handed in; three itself is real.
+// with the two layer constants it imports from a .jsx file handed in, and the plain pane's share of clear glass (the one
+// the depth plate uses, material-presets.js); three itself is real.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
+import { GLASS_PANE_OPACITY } from "../src/material-presets.js";
 
 const source = readFileSync(new URL("../src/stage-finish-surface.js", import.meta.url), "utf8");
 const body = source.replace(/^import .*$/gm, "").replace(/^export /gm, "");
 const GIZMO_LAYER = 5, POSER_LAYER = 4;
 const chunks = { ...THREE.ShaderChunk };
-const { applySurfaceLook, installSurfaceLooks } = new Function("THREE", "GIZMO_LAYER", "POSER_LAYER", `${body}; return { applySurfaceLook, installSurfaceLooks };`)({ ...THREE, ShaderChunk: chunks }, GIZMO_LAYER, POSER_LAYER);
+const { applySurfaceLook, installSurfaceLooks } = new Function("THREE", "GIZMO_LAYER", "POSER_LAYER", "GLASS_PANE_OPACITY", `${body}; return { applySurfaceLook, installSurfaceLooks };`)({ ...THREE, ShaderChunk: chunks }, GIZMO_LAYER, POSER_LAYER, GLASS_PANE_OPACITY);
 
 // Every replacement found its stock line: a three upgrade that rewrites one would leave that part of the look out silently.
 assert.equal(installSurfaceLooks(chunks), true);
@@ -49,7 +51,7 @@ assert.equal(deck.material.defines.COZY_LAMP_STOCK, "", "a material that asks fo
 assert.equal(prop.material.defines.COZY_LAMP_STOCK, undefined, "every other surface takes the lamp's flat pool");
 assert.equal(unlit.material.defines, undefined, "an unlit material is left alone");
 assert.equal(gizmo.material.defines?.COZY_BANDS, undefined, "editor furniture never takes the look");
-assert.deepEqual([glass.material.transmission, glass.material.transparent], [0, true], "glass under the look is a plain tinted pane");
+assert.deepEqual([glass.material.transmission, glass.material.transparent, glass.material.opacity], [0, true, GLASS_PANE_OPACITY], "glass under the look is a plain tinted pane");
 assert.equal(direction(fill).length(), 0, "a fill light has no direction under the bands: the shader lights every face alike from it");
 assert.ok(direction(placed).length() > 1, "a placed directional light keeps its direction, shadow or not");
 const version = prop.material.version;

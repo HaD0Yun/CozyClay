@@ -163,6 +163,42 @@ expect("the depth pass differs from the RGB capture", passes.depth !== rgbPlate)
 expect("the normal pass differs from the RGB capture", passes.normal !== rgbPlate);
 expect("the studio still renders in colour after the passes", await waitFor("(() => { const f = window.__captureFrame(); return f && f.pixels > 0; })()", 10_000));
 
+/* --- the depth plate keeps the stage's detail ------------------------------ */
+
+// The plate's greys are made from the pass's own precision (src/depth-plate.js), so the deck and the figure take many
+// of the 256 greys; and rain, which has no surface, is in the plate: before, a pass that swapped materials drew none.
+const plateStats = () => evaluate(`(async () => {
+	const image = new Image();
+	image.src = window.__cozyclay.renderPass("depth");
+	await image.decode();
+	const canvas = document.createElement("canvas");
+	canvas.width = image.width; canvas.height = image.height;
+	const context = canvas.getContext("2d");
+	context.drawImage(image, 0, 0);
+	const data = context.getImageData(0, 0, canvas.width, canvas.height).data, greys = new Set();
+	let sum = 0;
+	for (let i = 0; i < data.length; i += 4) { greys.add(data[i]); sum += data[i]; }
+	return { greys: greys.size, sum };
+})()`);
+const act = (id, args) => evaluate(`Promise.resolve(window.__cozyclay.runStudioAction(${JSON.stringify(id)}, ${JSON.stringify(args)})).then((r) => ({ ok: r?.ok === true, ids: r?.affectedIds ?? [], message: r?.message ?? null }))`);
+// The dry and the wet plate are taken at one frame, so the rain is the only thing between them (the shot's camera
+// moves with the frame), and the dry plate is taken twice: a plate that differed from itself would prove nothing.
+const until = async (holds, timeoutMs = 10_000) => { for (const deadline = Date.now() + timeoutMs; ;) { const stats = await plateStats(); if (holds(stats) || Date.now() >= deadline) return stats; } };
+await evaluate("Promise.resolve(window.__cozyclay.setFrame(40))");
+expect("the studio draws the frame the plates are taken at", await waitFor("(() => { const f = window.__captureFrame(); return f && f.pixels > 0; })()", 10_000));
+await plateStats();
+const dry = await plateStats(), again = await plateStats();
+expect("the depth plate uses more than a hundred greys", dry.greys > 100, JSON.stringify(dry));
+expect("one frame gives one depth plate", again.sum === dry.sum, JSON.stringify({ dry, again }));
+const rain = await act("object.add", { kind: "effect", name: "QA rain", placement: { x: 0, z: 0 } });
+expect("an effect is added for the depth check", rain.ok, JSON.stringify(rain));
+expect("the effect is rain over the stage", (await act("object.set", { id: rain.ids[0], set: { effect: { preset: "rain", area: { x: 12, y: 6, z: 12 } } } })).ok);
+const wet = await until((stats) => stats.sum !== dry.sum);
+expect("rain is in the depth plate", wet.sum !== dry.sum, JSON.stringify({ dry, wet }));
+expect("the effect is taken out again", (await act("object.remove", { ids: rain.ids })).ok);
+const dried = await until((stats) => stats.sum === dry.sum);
+expect("without the rain the plate is the dry plate again", dried.sum === dry.sum, JSON.stringify({ dry, dried }));
+
 expect("browser run has no uncaught page errors", pageErrors.length === 0, pageErrors.join(" | "));
 
 ws.close();

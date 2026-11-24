@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as THREE from "three";
-import { applyPoseFade, withPoseFadeLifted, POSE_FADE_DEFAULT, POSE_FADE_STORAGE_KEY, readPoseFadeOpacity, writePoseFadeOpacity } from "../src/pose-fade.js";
+import { applyPoseFade, authoredOpacity, withPoseFadeLifted, POSE_FADE_DEFAULT, POSE_FADE_STORAGE_KEY, readPoseFadeOpacity, writePoseFadeOpacity } from "../src/pose-fade.js";
 
 function prop() {
 	const shared = new THREE.MeshStandardMaterial({ opacity: 1 });
@@ -42,6 +42,19 @@ test("changing the opacity scales from the authored value, not the faded one", (
 	applyPoseFade(root, 0.6);
 	assert.equal(shared.opacity, 0.6);
 	assert.equal(glass.opacity, 0.5 * 0.6);
+});
+
+test("the authored opacity stays readable under the working fade", () => {
+	const { root, shared, glass } = prop();
+	assert.deepEqual([authoredOpacity(shared), authoredOpacity(glass)], [1, 0.5], "an untouched material is authored as it is drawn");
+	applyPoseFade(root, 0.2, 0.8);
+	assert.equal(shared.opacity, 0.2 * 0.8, "the working fade and the object's own opacity are both drawn");
+	assert.deepEqual([authoredOpacity(shared), authoredOpacity(glass)], [0.8, 0.5 * 0.8], "the authored opacity leaves the working fade out");
+	applyPoseFade(root, 0, 1);
+	assert.deepEqual([shared.opacity, authoredOpacity(shared)], [0, 1], "a prop faded away is still a solid in the set");
+	applyPoseFade(root, null, 1);
+	assert.deepEqual([authoredOpacity(shared), authoredOpacity(glass)], [1, 0.5], "leaving pose mode leaves nothing behind");
+	assert.equal(authoredOpacity(undefined), undefined, "no material, no opacity");
 });
 
 test("full opacity and leaving pose mode restore materials and picking exactly", () => {
