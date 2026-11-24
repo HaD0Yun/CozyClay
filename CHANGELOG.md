@@ -1,20 +1,9 @@
 # Changelog
 
-## Unreleased
+## 3.3.1 - 2026-11-24
 
-Agent
+The Studio opens straight on the stage with the Agent pane open, the Export menu lists three items, the model picker lists what the signed-in account can run, and depth exports keep the detail of the stage.
 
-- The agent runs on pi 1.6.0, which adds the newer GPT, Claude and Gemini
-  models to the picker. (#1345)
-- With a ChatGPT sign-in, the ChatGPT list is the account's own lineup: the
-  models the backend names for that account, in its order (gpt-6-astra first
-  when it is among them), without its internal ones. Before, the list was pi's
-  whole catalogue plus those internal models, and a model the plan does not
-  include failed when a turn was sent. The first model of the list is one the
-  account can run. (#1345)
-- The refusal a model reads for a tool call with a wrong argument has pi
-  1.6.0's wording ("frame: expected >= 1" where it was "frame: must be >= 1").
-  (#1345)
 Studio
 
 - The Studio opens straight on the stage. A first open (nothing stored for
@@ -34,6 +23,7 @@ Studio
   take the keyboard: the stage's shortcuts work at once, and the composer has
   the focus after a click in it, or once the pane is folded and opened again.
   (#1346)
+
 Export menu
 
 - File > Export lists three items: Video (mp4), which renders the whole
@@ -41,6 +31,21 @@ Export menu
   keyframe pack, one shot's video, the depth and normal stills, the
   storyboard sheet, the OTIO cut list) follow them when the menu is opened
   with Alt (Option) held. Cmd/Ctrl+E still exports the keyframe pack.
+  (#1349)
+
+Agent
+
+- The agent runs on pi 1.6.0, which adds the newer GPT, Claude and Gemini
+  models to the picker. (#1345)
+- With a ChatGPT sign-in, the ChatGPT list is the account's own lineup: the
+  models the backend names for that account, in its order (gpt-6-astra first
+  when it is among them), without its internal ones. Before, the list was pi's
+  whole catalogue plus those internal models, and a model the plan does not
+  include failed when a turn was sent. The first model of the list is one the
+  account can run. (#1345)
+- The refusal a model reads for a tool call with a wrong argument has pi
+  1.6.0's wording ("frame: expected >= 1" where it was "frame: must be >= 1").
+  (#1345)
 
 Depth exports
 
