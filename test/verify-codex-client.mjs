@@ -75,7 +75,7 @@ function client(fetch, sleep) {
 {
 	const fetch = mockFetch([() => jsonResponse({ data: [{ slug: "gpt-5.1-codex", input_modalities: ["text", "image"] }] })]);
 	const models = await client(fetch).listModels();
-	assert.equal(fetch.calls[0].url, "https://chatgpt.com/backend-api/codex/models?client_version=0.153.4");
+	assert.equal(fetch.calls[0].url, "https://chatgpt.com/backend-api/codex/models?client_version=0.172.0");
 	assert.equal(fetch.calls[0].method, "GET");
 	assert.equal(fetch.calls[0].headers.authorization, "Bearer tok-123");
 	assert.equal(models.data[0].slug, "gpt-5.1-codex");

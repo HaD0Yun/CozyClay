@@ -194,11 +194,11 @@ check("a restored transcript shows an observation's image, never its label as th
 	}
 });
 
-// The real runner: a Korean Studio prompt and a scripted model calling a bulky tool 18 times in one turn (34k characters
-// a result; the scripted provider's usage, which the budget reads, counts each about 8.5k tokens plus its cache write,
-// so the turn passes the limit once and stays under the ceiling).
+// The real runner: a Korean Studio prompt and a scripted model calling a bulky tool 22 times in one turn (34k characters
+// a result; the scripted provider's usage, which the budget reads, counts each about 8.5k tokens, so the turn passes
+// the limit with a step's worth of older results to shrink once, and stays under the ceiling).
 const fake = createFakeModel();
-fake.script([...Array.from({ length: 18 }, (_, i) => [{ type: "toolCall", id: `t${i}`, name: "script", arguments: { code: `return ${i};` } }]), [{ type: "text", text: "완료" }]]);
+fake.script([...Array.from({ length: 22 }, (_, i) => [{ type: "toolCall", id: `t${i}`, name: "script", arguments: { code: `return ${i};` } }]), [{ type: "text", text: "완료" }]]);
 const stored = [];
 const tools = [{ name: "script", parameters: { type: "object", properties: { code: { type: "string" } }, required: ["code"], additionalProperties: false },
 	handler: async ({ code }) => ({ ok: true, receipt: uuid(Number(code.match(/\d+/)[0])), specId: spec(Number(code.match(/\d+/)[0])), pad: "y".repeat(34_000) }) }];
@@ -211,7 +211,7 @@ check("through the runner: the turn ends with done; one step shrinks the oldest 
 	assert.equal(frames.at(-1)?.type, "done");
 	const results = fake.calls.at(-1).messages.filter(m => m.role === "toolResult");
 	const short = results.filter(isShort);
-	assert.equal(results.length, 18);
+	assert.equal(results.length, 22);
 	assert.ok(short.length >= 1 && results.length - short.length >= 10, `${short.length} shrunk`);
 	assert.ok(short.every(m => text(m).includes("spec-")));
 	const changes = prefixChanges(fake.calls.map(request => request.messages));

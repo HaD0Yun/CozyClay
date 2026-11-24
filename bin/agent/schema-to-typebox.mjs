@@ -1,9 +1,10 @@
 // Converts a plain JSON-Schema object (the dialect used by
 // src/studio-agent-protocol.js and bin/agent/agent-tools.mjs) into a
-// TypeBox TSchema, using the `Type` builder re-exported by
-// @earendil-works/pi-ai (itself a re-export of typebox). pi's Tool.parameters
-// wants a TSchema, not a plain JSON-Schema object, so every CozyClay tool
-// schema needs to pass through this converter before it reaches pi.
+// TypeBox TSchema with typebox's `Type` builder. pi's Tool.parameters takes
+// it (a TSchema is JSON Schema), and the adapters check a tool call's
+// arguments against the same object with typebox's Value.Check
+// (pi-tools.mjs), so every CozyClay tool schema passes through this
+// converter before it reaches pi.
 //
 // Structural keywords (type, properties, items, oneOf, anyOf, allOf, const,
 // $ref) drive the conversion; everything else on a schema node (enum,
@@ -16,7 +17,7 @@
 // `format` is the one exception: it is a hint (e.g. "email", "date-time"),
 // not a constraint, so it is dropped rather than forwarded — TypeBox/AJV
 // would otherwise enforce it as if it were a pattern.
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 
 const STRUCTURAL_OBJECT_KEYS = ["type", "properties"];
 const STRUCTURAL_ARRAY_KEYS = ["type", "items"];

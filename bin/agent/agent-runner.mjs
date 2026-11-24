@@ -515,7 +515,9 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				if (state.active) state.active.eventAt = clock(); if (event.type === "message_update") {
 					reasoning.onMessageEvent(event.assistantMessageEvent);
 					if (event.assistantMessageEvent?.type === "text_delta") pushFrame({ type: "text.delta", text: event.assistantMessageEvent.delta });
-				} else if (event.type === "tool_execution_start") startTool(event);
+				// After a Stop, pi 1.6 still starts and ends each remaining tool call of the message ("Operation aborted", never
+				// run): no row for a call that did not run. Its end is dropped by endTool (abortedCalls).
+				} else if (event.type === "tool_execution_start") { if (!state.agent?.signal?.aborted) startTool(event); }
 				else if (event.type === "tool_execution_end") endTool(event); else if (event.type === "message_end" && state.active?.pendingContext) { pushFrame(state.active.pendingContext); state.active.pendingContext = null; }
 				else if (event.type === "agent_end") finish(event);
 			});

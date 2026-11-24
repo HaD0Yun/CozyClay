@@ -853,7 +853,7 @@ const MOCK_PROVIDER_MODELS = {
 	openrouter: [{ id: "deepseek-v3", label: "DeepSeek V3", efforts: ["none"], defaultEffort: "none" }],
 	cliproxy: [{ id: "claude-sonnet-5", label: "Claude Sonnet 5", efforts: ["none", "low", "medium", "high"], defaultEffort: "medium" }],
 };
-/** A ChatGPT model the sidecar learns about from the live catalogue, which it
+/** A ChatGPT model the sidecar learns about from the account's live list, which it
  * can only read with the credential: signing out does not merely draw it
  * disabled, it stops being advertised at all. That is the transition browser
  * QA drives to prove the panel never submits a model the dropdown is no

@@ -10,10 +10,11 @@ const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs"]);
 const ROOT_DEPENDENCY_ALLOWLIST = Object.freeze({
 	// the anthropic-subscription lane spawns the official Claude Code binary through the SDK
 	"@anthropic-ai/claude-agent-sdk": "^0.3.306",
-	"@earendil-works/pi-agent-core": "1.4.0",
-	"@earendil-works/pi-ai": "1.4.0",
-	"@earendil-works/pi-codemode": "1.4.0",
-	// the tool schemas the pi agents take (bin/agent/pi-tools.mjs, src/lowvis/pi/harness.mjs); the version pi-ai pins
+	"@earendil-works/pi-agent-core": "1.6.0",
+	"@earendil-works/pi-ai": "1.6.0",
+	"@earendil-works/pi-codemode": "1.6.0",
+	// the tool schemas the pi agents take (bin/agent/schema-to-typebox.mjs, src/lowvis/pi/harness.mjs) and the check of
+	// a tool call's arguments (bin/agent/pi-tools.mjs); pinned exactly
 	typebox: "1.3.27",
 	// JSON Schema → Zod shape for the SDK's tool() definitions (SDK already depends on zod)
 	zod: "^4.6.7",

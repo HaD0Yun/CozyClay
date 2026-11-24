@@ -9,6 +9,7 @@
 // layer puts it. Then what a failing provider leaves: the answer names the writer, and no key or address is kept.
 // And a sign-in that lists the motion model but refuses it for the account: one refused call, then the session's model
 // writes in the same call and the answer names both; a rate limit, a refused credential, a server error do not do that.
+// Last, a run stopped during a motion call: the calls the loop then skips are not calls of the record.
 //   node test/lowvis/verify-writer-sign-ins.mjs
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -17,6 +18,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
+import { createFakeModel } from "../fixtures/fake-model.mjs";
 
 for (const name of Object.keys(process.env)) if (/_API_KEY$|^CLIPROXY_|^COZYCLAY_MOTION_/.test(name)) delete process.env[name];
 const TMP = mkdtempSync(join(tmpdir(), "writer-sign-ins-"));
@@ -403,4 +405,19 @@ function reached(server, run, { key, model, count = 2 }) {
 	assert.equal(await writerRoute({ env: {}, models, picked: "anthropic/claude-opus-5-5" }), null, "a picked model of a provider without a sign-in");
 	assert.equal(await writerRoute({ env: { CLIPROXY_BASE_URL: "not an address", CLIPROXY_API_KEY: "some-key" }, models, picked: null }), null);
 	console.log("PASS no sign-in, and an environment value that is no address: no route (the session has no motion tool)");
+}
+
+// 10. a run stopped while a motion call runs, the message naming a second call: pi ends the second as "Operation
+// aborted" without running it. The record keeps the call that ran; the unrun one is no refused call (no mistake of the model).
+{
+	const fake = createFakeModel(), controller = new AbortController();
+	fake.script([[{ type: "toolCall", id: "ran", name: "motion", arguments: {} }, { type: "toolCall", id: "unrun", name: "motion", arguments: {} }], [{ type: "text", text: REPORT }]]);
+	const run = await runScene({ name: "sign-ins", request: "c1 waves.", variant: "studio", model: "scripted", effort: "medium", env: {}, outDir: outDir(), signal: controller.signal,
+		writer: { models: fake.models, model: fake.models.getModel("faux", "scripted"), provider: "faux", via: "sign-in", secrets: [] },
+		// the Studio is asked for its shapes at the start of a motion call: the Stop lands there, inside the first call
+		shapes: {}, reshape: async () => { controller.abort(); return {}; } });
+	assert.deepEqual(run.transcript[0].shots.map(shot => shot.toolCallId), ["ran", "unrun"], "the model asked for two calls");
+	assert.deepEqual(run.calls.shots.map(shot => shot.toolCallId), ["ran"], "only the call that ran is a call of the record");
+	assert.equal(fake.calls.length, 1, "the model is not asked again after the Stop");
+	console.log("PASS a run stopped during a motion call: the call the loop skipped is not in the record");
 }
