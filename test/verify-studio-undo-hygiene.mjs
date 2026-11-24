@@ -151,6 +151,8 @@ const COMMAND_INPUTS = {
 	"shot.setCameraRail": { shotId: "shot-1", points: [{ x: -2, z: 4 }, { x: 3, z: 4 }] }, "shot.clearCameraRail": { shotId: "shot-1" },
 	"shot.set": { id: "shot-1", set: { targetModel: "seedance-2.5" } }, "shot.rename": { shotId: "shot-1", name: "Renamed" },
 	"shot.setCamera": { shotId: "shot-1", patch: { mode: "follow" } }, "shot.setCameraMode": { shotId: "shot-1", mode: "follow" }, "shot.addKey": { shotId: "shot-1", frame: 8 },
+	// Cover the new shot-domain mutation.
+	"shot.setKeyEase": { shotId: "shot-1", keyId: "key-1", ease: "linear" },
 	"shot.moveKey": { shotId: "shot-1", keyId: "key-1", frame: 8 }, "shot.removeKey": { shotId: "shot-1", keyId: "key-1" },
 	"shot.recordKeys": { shotId: "shot-1", keys: [{ frame: 8, framing: { pos: { x: 0, y: 1.6, z: 5 }, yaw: 0, pitch: 0, fovDeg: 40 } }] },
 	"shot.setOptics": { shotId: "shot-1", optics: { shiftX: 0.1, shiftY: 0, focusTargetId: "actor" } },
@@ -324,7 +326,8 @@ const cases = {
 	},
 	async "every command mutation writes inside one entry of its undo domain"() {
 		const mutations = Object.values(COMMAND_MODULES).flatMap(module => module.declarations).filter(entry => entry.kind === "mutation");
-		assert.equal(mutations.length, 74);
+		// Count the camera easing mutation.
+		assert.equal(mutations.length, 75);
 		for (const declaration of mutations) {
 			// A new shot needs free room at the playhead; the others act inside shot-1.
 			const f = commandFixture({ frame: declaration.id === "shot.create" ? 24 : 8 }), [name] = Object.entries(COMMAND_MODULES).find(([, module]) => module.declarations.includes(declaration));

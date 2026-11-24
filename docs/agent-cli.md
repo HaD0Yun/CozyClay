@@ -781,6 +781,8 @@ the pre-selected actions the index declares (`character.setPose`,
 `inspect_studio { scope: "actions", ids }` and bounded to 6 KB (whole schemas
 only; the ids that did not fit are listed under `omitted`).
 
+`shot.setKeyEase { shotId, keyId, ease }` sets the outgoing camera-key segment to `easeInOut` (default), `linear`, `easeIn`, or `easeOut`; use `null` to restore the default.
+
 Every fix is validated before the note is stored: its action must be in the
 action index, its `args` must be an object, and when the action's schema was
 read every key in its `required` list must be present. A fix that fails is

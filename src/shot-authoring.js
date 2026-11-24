@@ -5,7 +5,7 @@
  */
 
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
-import { createShot } from "./cuts.js";
+import { createShot } from "./cuts.js"; import { EASES } from "./camera-move.js";
 import { cameraRoll, railShotFields } from "./camera-block.js"; import { craneMarkTurn } from "./camera-rail-head.js";
 import { normalizeStableItems } from "./stable-items.js";
 import { VIDEO_MODEL_PRESETS } from "./model-presets.js";
@@ -133,7 +133,8 @@ function repairKeys(entries, minFrame, maxFrame, ids = new Set()) {
 		const frame = Math.max(firstFrame, Math.min(maxFrame, Math.round(key.frame)));
 		byFrame.set(frame, {
 			id: key.id,
-			frame,
+			// Retain valid pacing while repairing malformed saves.
+			frame, ...(typeof key.ease === "string" && Object.hasOwn(EASES, key.ease) ? { ease: key.ease } : {}),
 			framing: {
 				pos: { x: key.framing.pos.x, y: key.framing.pos.y, z: key.framing.pos.z },
 				yaw: key.framing.yaw,

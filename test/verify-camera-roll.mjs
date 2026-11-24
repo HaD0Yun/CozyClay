@@ -52,6 +52,9 @@ console.log("PASS a rail rolls its camera for the whole run and saves the roll w
 
 // Authoring: an agent writes a roll on a key or on the rail.
 const keysSchema = STUDIO_PATCH_SET_SCHEMAS.shot.properties.cameraKeys;
+// The key schema accepts only supported segment easing.
+validateStudioSchema(keysSchema, [{ frame: 0, ease: "linear", framing: { pos: { x: 0, y: 1.6, z: 4 }, yaw: 0, pitch: 0, fovDeg: 40 } }]);
+assert.throws(() => validateStudioSchema(keysSchema, [{ frame: 0, ease: "invalid", framing: { pos: { x: 0, y: 1.6, z: 4 }, yaw: 0, pitch: 0, fovDeg: 40 } }]));
 validateStudioSchema(keysSchema, [{ frame: 0, framing: { pos: { x: 0, y: 1.6, z: 4 }, yaw: 0, pitch: 0, fovDeg: 40, rollDeg: 15 } }]);
 assert.throws(() => validateStudioSchema(keysSchema, [{ frame: 0, framing: { pos: { x: 0, y: 1.6, z: 4 }, yaw: 0, pitch: 0, fovDeg: 40, rollDeg: 400 } }]));
 const setRail = studioActionDeclaration("shot.setCameraRail").input;

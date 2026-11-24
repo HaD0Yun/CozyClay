@@ -20,6 +20,8 @@ assert.deepEqual(cameraKeyStops([key(0, 0, 5), key(48, 0, 5), key(120, 2, 5)]), 
 assert.deepEqual(cameraKeyStops([key(0, 0, 5), key(48, 2, 5), key(96, 0, 5)]), [], "a reversal is meant too");
 assert.deepEqual(cameraKeyStops([key(0, 0, 5), key(96, 2, 5)]), [], "two keys never stop mid-move");
 assert.deepEqual(cameraKeyStops([key(0, 0, 5), key(24, 0, 5, { yaw: 0.3 }), key(48, 0, 5, { yaw: 0.6 })]), [24], "a pan keyed through its middle stops too");
+// A continuous key should not produce a stop warning.
+assert.deepEqual(cameraKeyStops(orbit.map(key => ({ ...key, ease: "linear" }))), []);
 const [warning] = cameraKeyWarnings({ id: "shot-1", cameraKeys: [...orbit, key(240, 0.5, 5), key(288, 0.2, 5)] });
 assert.equal(warning.code, "CAMERA_KEY_STOPS");
 assert.equal(warning.id, "shot-1");

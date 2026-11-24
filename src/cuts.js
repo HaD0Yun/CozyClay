@@ -24,7 +24,8 @@ function uniqueKeys(keys, min = -Infinity, max = Infinity) {
 	for (const key of normalizeStableItems(keys, "camera-key")) {
 		if (!Number.isFinite(key.frame) || !key.framing) continue;
 		const frame = Math.max(min, Math.min(max, Math.round(key.frame)));
-		byFrame.set(frame, { id: key.id, frame, framing: cloneFraming(key.framing) });
+		// Preserve the outgoing segment pace across shot edits.
+		byFrame.set(frame, { id: key.id, frame, framing: cloneFraming(key.framing), ...(key.ease === undefined ? {} : { ease: key.ease }) });
 	}
 	return [...byFrame.values()].sort((a, b) => a.frame - b.frame);
 }
@@ -118,9 +119,11 @@ export function cutAtFrame(shots, shotId, frame, currentFraming) {
 		cameraKeys: uniqueKeys(source.cameraKeys, source.startFrame, cutFrame - 1),
 		camera: cloneCameraBlock(source.camera),
 	};
+	const outgoingEase = source.cameraKeys.findLast((key) => key.frame <= cutFrame)?.ease;
 	const downstream = { ...createShot(`Shot ${shots.length + 1}`, cutFrame, source.endFrame, [
 		...source.cameraKeys.filter((key) => key.frame >= cutFrame),
-		{ id: createStableItemId("camera-key"), frame: cutFrame, framing: currentFraming },
+		// Keep the outgoing pace when a cut creates or replaces a key.
+		{ id: createStableItemId("camera-key"), frame: cutFrame, framing: currentFraming, ...(outgoingEase === undefined ? {} : { ease: outgoingEase }) },
 	], rebaseRecordedAim(source.camera, cutFrame - source.startFrame)), ...shotExtras(source) };
 	return [...shots.slice(0, index), upstream, downstream, ...shots.slice(index + 1)];
 }
