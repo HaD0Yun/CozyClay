@@ -5,7 +5,8 @@
 // forty metres away. Written straight into 8 bits, a body 30 cm deep at four metres gets five greys. So the pass is read
 // back at half-float precision (PLATE_PASS: the nearness of every pixel by distance ratio, 0 sky to 1 at the lens), and
 // the greys are made here: shared out by ratio and by where the shot's surfaces stand, with each surface's own relief
-// drawn larger than the tone curve alone would draw it.
+// drawn larger than the tone curve alone would draw it. A renderer that cannot read half floats back (capture.precise
+// is false) gets the same share-out by ratio drawn straight into 8 bits, without the relief.
 import { DEPTH_RANGE_M, greyDistance, renderPass } from "./render-passes.js";
 
 // How soft the edges of a depth plate are: the sigma of a gaussian in pixels of a 1080-high frame. A plate with hard
@@ -14,7 +15,7 @@ export const DEPTH_SOFTEN_PX = 0.6;
 /** The pass a plate is made from (renderPass options). */
 export const PLATE_PASS = Object.freeze({ depthCurve: "ratio", precise: true });
 
-const BINS = 1024, CLIP = 0.01;
+const BINS = 1024, CLIP = 0.01, SURVEYED = 120;
 // TONE_BY_SURFACE: the share of the greys that goes by where the shot's surfaces stand (the rest goes evenly by ratio).
 // RELIEF: how many times its size in the tone curve a surface's own relief is added on top. RELIEF_REACH: how far apart
 // (as a share of the ratio span) two pixels may stand and still be one surface. RELIEF_SPAN: the neighbourhood a
@@ -101,8 +102,10 @@ function createDepthPlate(width, height) {
 	// how much two pixels a given step of nearness apart are one surface: a table over 0 .. 4 reaches
 	const same = Float32Array.from({ length: 257 }, (_, i) => (i === 256 ? 0 : Math.exp(-((i / 64) ** 2) / 2))), alike = (a, b) => same[Math.min(256, Math.round((Math.abs(a - b) / RELIEF_REACH) * 64))];
 	let span = 1;
-	// A surface's level: the nearness around a pixel, read only from pixels of the same surface (one pass across, one down).
-	// A sample on an edge is a mix of two surfaces (the pass is anti-aliased) and stands for neither: it is left out.
+	// A surface's relief at each sample: its nearness less the level around it, the level read only from samples of the
+	// same surface (one pass across, one down). A sample on an edge is a mix of two surfaces (the pass is anti-aliased)
+	// and stands for neither: it is left out. Samples are taken in pairs, one on each side, or not at all: a slope then
+	// averages to its own centre, beside an edge and at the frame's border too, and has no relief.
 	const levels = () => {
 		for (let y = 0; y < lh; y += 1) {
 			for (let x = 0; x < lw; x += 1) {
@@ -114,17 +117,18 @@ function createDepthPlate(width, height) {
 		for (const [from, to, n, step, lines, lineStep] of [[low, across, lw, 1, lh, lw], [across, level, lh, lw, lw, 1]]) {
 			for (let line = 0; line < lines; line += 1) {
 				for (let i = 0; i < n; i += 1) {
-					const at = line * lineStep + i * step, centre = low[at];
-					let acc = 0, weights = 0;
-					for (let k = -radius; k <= radius; k += 1) {
-						const other = line * lineStep + Math.min(n - 1, Math.max(0, i + k)) * step, weight = inside[other] * beside[Math.abs(k)] * alike(low[other], centre);
-						acc += weight * from[other];
-						weights += weight;
+					const at = line * lineStep + i * step, centre = low[at], reach = Math.min(radius, i, n - 1 - i);
+					let acc = from[at], weights = 1;
+					for (let k = 1; k <= reach; k += 1) {
+						const a = at - k * step, b = at + k * step, weight = beside[k] * Math.min(inside[a] * alike(low[a], centre), inside[b] * alike(low[b], centre));
+						acc += weight * (from[a] + from[b]);
+						weights += 2 * weight;
 					}
-					to[at] = weights > 1e-6 ? acc / weights : centre;
+					to[at] = acc / weights;
 				}
 			}
 		}
+		for (let i = 0; i < level.length; i += 1) level[i] = low[i] - level[i];
 	};
 	return {
 		survey(half) {
@@ -152,12 +156,12 @@ function createDepthPlate(width, height) {
 						const fx = Math.min(lw - 1, Math.max(0, (x - 2) / STEP)), x0 = Math.min(lw - 2, Math.floor(fx)), tx = fx - x0, corner = y0 * lw + x0;
 						const w00 = inside[corner] * (1 - tx) * (1 - ty) * alike(low[corner], t), w10 = inside[corner + 1] * tx * (1 - ty) * alike(low[corner + 1], t);
 						const w01 = inside[corner + lw] * (1 - tx) * ty * alike(low[corner + lw], t), w11 = inside[corner + lw + 1] * tx * ty * alike(low[corner + lw + 1], t), weights = w00 + w10 + w01 + w11;
-						const around = weights > 1e-4 ? (w00 * level[corner] + w10 * level[corner + 1] + w01 * level[corner + lw] + w11 * level[corner + lw + 1]) / weights : t;
+						const relief = weights > 1e-4 ? (w00 * level[corner] + w10 * level[corner + 1] + w01 * level[corner + lw] + w11 * level[corner + lw + 1]) / weights : 0;
 						const bin = Math.min(BINS - 1e-3, t * BINS), edge = Math.floor(bin), curve = tone[edge] + (tone[edge + 1] - tone[edge]) * (bin - edge);
 						// a pixel on an edge is a mix of two surfaces: it has no relief of its own
 						const within = (other) => Math.abs(near[other] - t) < RELIEF_REACH;
 						const whole = within(x > 0 ? at - 1 : at) && within(x < width - 1 ? at + 1 : at) && within(y > 0 ? at - width : at) && within(y < height - 1 ? at + width : at);
-						value = curve + (whole ? (RELIEF * (t - around)) / span : 0);
+						value = curve + (whole ? (RELIEF * relief) / span : 0);
 					}
 					grey[at * 4] = value * 255;
 				}
@@ -167,11 +171,12 @@ function createDepthPlate(width, height) {
 	};
 }
 
-/** A shot's plate maker with its tone curve made: one pre-pass over the frames. `draw(frame)` answers that frame's
- * PLATE_PASS read-back; `after(frame)` is the caller's own step between two frames. */
+/** A shot's plate maker with its tone curve made: one pre-pass over the frames (about SURVEYED of them, evenly
+ * spread, the last one always: where the surfaces of a shot stand does not need every frame). `draw(frame)` answers
+ * that frame's PLATE_PASS read-back; `after(frame)` is the caller's own step between two frames. */
 export async function surveyedDepthPlate(size, startFrame, endFrame, draw, after = null) {
-	const plate = createDepthPlate(size.width, size.height);
-	for (let frame = startFrame; frame <= endFrame; frame += 1) {
+	const plate = createDepthPlate(size.width, size.height), stride = Math.max(1, Math.ceil((endFrame - startFrame + 1) / SURVEYED));
+	for (let frame = startFrame; frame <= endFrame; frame = frame < endFrame ? Math.min(endFrame, frame + stride) : frame + 1) {
 		plate.survey(draw(frame));
 		await after?.(frame);
 	}
@@ -182,6 +187,13 @@ export async function surveyedDepthPlate(size, startFrame, endFrame, draw, after
 /** One frame's depth plate, made as the depth video makes its frames, from this frame's own surfaces. `size` is the
  * capture's { width, height }; `toDataUrl` encodes the RGBA bytes. */
 export function depthStill(capture, camera, size, toDataUrl) {
+	if (!capture.precise) {
+		const first = renderPass(capture, capture.scene, camera, "depth", null, { depthCurve: "log" });
+		if (!first) return null;
+		const depthRange = depthRangeFromCounts(countDepthGreys(first), camera.near, DEPTH_RANGE_M, "log");
+		const soften = createDepthSoftener(size.width, size.height, (DEPTH_SOFTEN_PX * size.height) / 1080);
+		return renderPass(capture, capture.scene, camera, "depth", (buffer) => toDataUrl(soften(0, buffer)), { depthRange, depthCurve: "log" });
+	}
 	const half = renderPass(capture, capture.scene, camera, "depth", null, PLATE_PASS);
 	if (!half) return null;
 	const plate = createDepthPlate(size.width, size.height);

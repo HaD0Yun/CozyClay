@@ -57,6 +57,8 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			holders += 1;
 			return {
 				scene,
+				// whether this renderer can draw into and read back a half-float target (render({ precise: true }))
+				precise: gl.extensions.has("EXT_color_buffer_float") || gl.extensions.has("EXT_color_buffer_half_float"),
 				dispose: () => { if (!held) return; held = false; target.dispose(); canvasTarget?.dispose(); preciseTarget?.dispose(); release(); },
 				render({ precise = false } = {}) {
 					const cam = camera();

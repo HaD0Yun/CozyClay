@@ -2953,18 +2953,19 @@ export default function App() {
 		updateExportStatus(job, "preparing", { stage: "depth", completedFrames: frame - startFrame + 1, frameCount: endFrame - startFrame + 1, cancellable: true });
 		return exportBoundary(job);
 	}];
-	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "log", depthSoften = DEPTH_SOFTEN_PX, fileName = null, decorate = undefined } = {}, job = null) {
+	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "log", fileName = null, decorate = undefined } = {}, job = null) {
 		const resolvedEndFrame = endFrame ?? Math.max(0, currentRecordFrameCount() - 1);
 		// Preserve the download-free browser seam, without a nested lifecycle.
 		if (!job) return executeExportRequest(exportRequest(passKind === "depth" ? "depth_video" : "video",
-			(ownedJob) => runShotExport({ startFrame, endFrame: resolvedEndFrame, download, passKind, depthRange, depthCurve, depthSoften, fileName, decorate }, ownedJob),
+			(ownedJob) => runShotExport({ startFrame, endFrame: resolvedEndFrame, download, passKind, depthRange, depthCurve, fileName, decorate }, ownedJob),
 			{ external: true, download }));
 		job.controller.signal.throwIfAborted();
 		const output = job.request.context.output;
-		// "log" (the default) is the plate made at full precision; the other curves are drawn straight into 8 bits.
-		const plate = passKind === "depth" && depthCurve === "log" ? await surveyedDepthPlate(output, startFrame, resolvedEndFrame, ...depthPrePass(job, startFrame, resolvedEndFrame, PLATE_PASS)) : null;
+		// "log" (the default) is the plate made at full precision where the renderer can read it back; the other curves,
+		// and "log" where it cannot, are drawn straight into 8 bits.
+		const plate = passKind === "depth" && depthCurve === "log" && job.capture.precise ? await surveyedDepthPlate(output, startFrame, resolvedEndFrame, ...depthPrePass(job, startFrame, resolvedEndFrame, PLATE_PASS)) : null;
 		if (passKind === "depth" && !plate && !depthRange && resolvedEndFrame > startFrame) depthRange = await depthRangeOverFrames(startFrame, resolvedEndFrame, shotCamRef.current.near, depthCurve, ...depthPrePass(job, startFrame, resolvedEndFrame, { depthCurve }));
-		const soften = passKind === "depth" && !plate && depthSoften > 0 ? createDepthSoftener(output.width, output.height, depthSoften * output.height / 1080) : null;
+		const soften = passKind === "depth" && !plate ? createDepthSoftener(output.width, output.height, DEPTH_SOFTEN_PX * output.height / 1080) : null;
 		const result = await exportOffscreenVideo({
 			startFrame, endFrame: resolvedEndFrame, fps: TIMELINE_FPS,
 			width: output.width, height: output.height,

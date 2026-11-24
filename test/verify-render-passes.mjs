@@ -96,3 +96,46 @@ assert.equal(renderPass({ render: () => null }, scene, camera, "depth", () => "n
 assert.throws(() => renderPass(stubCapture(scene), scene, camera, "albedo"), /Unknown render pass/);
 assert.equal(scene.overrideMaterial, null, "the rejected kind never touched the scene");
 console.log("PASS render passes: an unready rig reports null instead of throwing");
+
+// The depth pass and what has no solid surface. A node that draws its own distance (particles, trails) is asked to for
+// the draw and released after; a see-through mesh is drawn through a veil of the pass's material at the share of what
+// is behind it that the picture covers, and gets its own material back; the normal pass does neither.
+{
+	const veilScene = new THREE.Scene();
+	const pane = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.3 }));
+	const glass = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshPhysicalMaterial({ transmission: 1 }));
+	const solid = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+	const mixed = new THREE.Mesh(new THREE.BoxGeometry(), [new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.3 }), new THREE.MeshStandardMaterial()]);
+	const asked = [], particles = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5 }));
+	particles.userData.ownDepth = (ramp) => asked.push(ramp);
+	veilScene.add(pane, glass, solid, mixed, particles);
+	const own = { pane: pane.material, glass: glass.material, solid: solid.material, mixed: mixed.material, particles: particles.material };
+	const drawn = [];
+	const rig = { render(options) { drawn.push({ options: options ?? null, override: veilScene.overrideMaterial, pane: pane.material, glass: glass.material, solid: solid.material, mixed: mixed.material, particles: particles.material }); return new Uint8Array(4); } };
+	renderPass(rig, veilScene, camera, "depth", null, { depthCurve: "log" });
+	const at = drawn[0];
+	assert.ok(at.pane !== own.pane && at.pane.uniforms.uCover.value === 0.3, "a pane at part opacity is drawn through a veil of that opacity");
+	assert.ok(at.pane.transparent && at.pane.depthWrite === false && at.pane.allowOverride === false, "the veil is drawn after the solids, writes no depth and is not overridden");
+	assert.equal(at.glass.uniforms.uCover.value, 0.22, "clear glass covers the share the plain pane covers");
+	assert.equal(at.pane.uniforms.uNear, at.override.uniforms.uNear, "the veil shares the pass's ramp");
+	assert.equal(at.override.uniforms.uCover.value, 1, "the pass itself covers what it draws whole");
+	assert.equal(at.solid, own.solid, "a solid keeps its material (the scene override draws it)");
+	assert.equal(at.mixed, own.mixed, "a mesh with one solid material is a solid");
+	assert.equal(at.particles, own.particles, "a node that draws its own distance is not veiled");
+	assert.equal(asked.length, 2, "it is asked for the draw and released after");
+	assert.deepEqual(asked[0], { near: 0.25, far: DEPTH_RANGE_M, curve: 2 }, "with the pass's ramp");
+	assert.equal(asked[1], null);
+	assert.deepEqual([pane.material, glass.material, solid.material, mixed.material], [own.pane, own.glass, own.solid, own.mixed], "every mesh has its own material back");
+	assert.equal(at.options, null, "an 8-bit pass asks the capture for nothing");
+	renderPass(rig, veilScene, camera, "depth", null, { depthCurve: "ratio", precise: true });
+	assert.deepEqual(drawn[1].options, { precise: true }, "the precise pass asks the capture for a half-float read-back");
+	assert.equal(asked[2].curve, 3, "and is drawn by ratio, written as it is");
+	asked.length = 0;
+	renderPass(rig, veilScene, camera, "normal");
+	assert.equal(drawn[2].pane, own.pane, "the normal pass veils nothing");
+	assert.equal(asked.length, 0, "and asks no node for its own distance");
+	const failing = { render() { throw new Error("context lost"); } };
+	assert.throws(() => renderPass(failing, veilScene, camera, "depth"), /context lost/);
+	assert.equal(pane.material, own.pane, "a draw that throws still gives the materials back");
+	console.log("PASS render passes: see-through meshes are veiled for the depth draw and restored; own-distance nodes are asked and released");
+}
