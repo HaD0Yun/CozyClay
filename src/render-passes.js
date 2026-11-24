@@ -22,6 +22,42 @@ export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 // under it spread across the full range instead of collapsing to black.
 export const DEPTH_RANGE_M = 40;
 
+// How the greys are shared out over the distance. "linear": equal metres, equal greys. "inverse": by nearness (1 / d).
+// "log": by ratio, so 1 m to 2 m takes as many greys as 4 m to 8 m; a previs frame holds a body two metres away and a
+// horizon forty metres away, and only the ratio gives both their steps. The first two write linear light into the sRGB
+// target (the stored byte is the encoded grey); "log" writes so that the stored byte is the grey itself.
+const CURVES = Object.freeze({ linear: 0, inverse: 1, log: 2 });
+/** The distance a pre-pass byte stands for, drawn with `curve` over near..far. */
+function greyDistance(grey, near, far, curve) {
+	const encoded = Math.max(0, Math.min(255, grey)) / 255;
+	if (curve === "log") return near * (far / near) ** (1 - encoded);
+	// CaptureRig reads an sRGB target, not the shader's linear grey.
+	const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
+	if (curve === "inverse") return 1 / (linear * (1 / near - 1 / far) + 1 / far);
+	return near + (far - near) * (1 - linear);
+}
+
+/** Count one pre-pass frame's greys into `counts` (256 bins), every 16th pixel. */
+export function countDepthGreys(depth, counts = new Uint32Array(256)) {
+	for (let index = 0; index < depth.length; index += 64) counts[depth[index]] += 1;
+	return counts;
+}
+
+/** The near and far distance that hold the counted surface but for `clip` of it at each end, so a sliver beside the
+ * lens or a speck at the horizon does not take the greys of everything else; then a twentieth of the span (as a ratio) is
+ * given back at each end, so what was left out still steps and the farthest wall is not the sky. Bin 0 is sky, or past the far end. */
+export function depthRangeFromCounts(counts, near = 0.1, far = DEPTH_RANGE_M, curve = "linear", clip = 0.01) {
+	let total = 0;
+	for (let grey = 1; grey < 256; grey += 1) total += counts[grey];
+	if (!total) return { near, far };
+	let low = 1, high = 255;
+	for (let seen = counts[low]; seen < total * clip && low < 255;) seen += counts[low += 1];
+	for (let seen = counts[high]; seen < total * clip && high > 1;) seen += counts[high -= 1];
+	const nearest = Math.max(near, greyDistance(high + 0.5, near, far, curve)), farthest = Math.max(greyDistance(low - 0.5, near, far, curve), nearest * 1.01);
+	const give = (farthest / nearest) ** 0.05;
+	return { near: Math.max(near, nearest / give), far: farthest * give };
+}
+
 /** Decode the sampled extrema of one depth pre-pass drawn with `curve` over near..far. */
 export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M, curve = "linear") {
 	let minGrey = 255;
@@ -30,14 +66,8 @@ export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M, cur
 		minGrey = Math.min(minGrey, depth[index]);
 		maxGrey = Math.max(maxGrey, depth[index]);
 	}
-	// CaptureRig reads an sRGB target, not the shader's linear grey. Include
-	// the half-byte rounding interval so quantisation cannot clip a surface.
-	const distance = grey => {
-		const encoded = Math.max(0, Math.min(255, grey)) / 255;
-		const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
-		if (curve === "inverse") return 1 / (linear * (1 / near - 1 / far) + 1 / far);
-		return near + (far - near) * (1 - linear);
-	};
+	// Include the half-byte rounding interval so quantisation cannot clip a surface.
+	const distance = grey => greyDistance(grey, near, far, curve);
 	// An all-black sample hit no surface (only sky, or geometry between the samples): it bounds no near distance, so a
 	// shot of such frames keeps depthRangeFromFrames' fallback range instead of a near plane at the far end.
 	if (maxGrey === 0) return { min: NaN, max: far };
@@ -57,13 +87,14 @@ export function depthRangeFromFrames(frames, fallbackNear = 0.1, fallbackFar = D
 }
 
 export function depthGrey(d, near, far, curve = "linear") {
+ if (curve === "log") return 1 - Math.max(0, Math.min(1, Math.log(Math.max(d, near) / near) / Math.log(far / near)));
  if (curve === "inverse") return Math.max(0, Math.min(1, (1 / Math.max(d, near) - 1 / far) / (1 / near - 1 / far)));
  return 1 - Math.max(0, Math.min(1, (d - near) / Math.max(far - near, 0.0001)));
 }
 
 // How soft the edges of a depth video are: the sigma of a gaussian in pixels of a 1080-high frame. A depth plate
 // with hard steps tells whatever reads it that every edge of a blocking figure is exact; this lets them give a little.
-export const DEPTH_SOFTEN_PX = 3;
+export const DEPTH_SOFTEN_PX = 1.5;
 
 /** A per-frame decorator for offscreen-export: `(frame, rgba) => rgba`, the grey under a gaussian of `sigma` pixels
  * (three box passes; the variance of three boxes of radius r is r(r+1)). */
@@ -122,15 +153,26 @@ void main() {
 }
 `;
 
+/** GLSL: the value the depth pass writes for view distance d on a ramp near..far (curve as in CURVES). */
+export const DEPTH_RAMP = /* glsl */ `
+float depthRamp(float d, float near, float far, float curve) {
+	if (curve > 1.5) {
+		float grey = 1.0 - clamp(log(max(d, near) / near) / log(far / near), 0.0, 1.0);
+		return grey <= 0.04045 ? grey / 12.92 : pow((grey + 0.055) / 1.055, 2.4);
+	}
+	if (curve > 0.5) return clamp((1.0 / max(d, near) - 1.0 / far) / (1.0 / near - 1.0 / far), 0.0, 1.0);
+	return 1.0 - clamp((d - near) / max(far - near, 0.0001), 0.0, 1.0);
+}
+`;
+
 const DEPTH_FRAGMENT = /* glsl */ `
 varying float vViewDepth;
 uniform float uNear;
 uniform float uRange;
-uniform bool uInverse;
+uniform float uCurve;
+${DEPTH_RAMP}
 void main() {
-	float normalized = clamp((vViewDepth - uNear) / max(uRange - uNear, 0.0001), 0.0, 1.0);
-	float grey = uInverse ? clamp((1.0 / max(vViewDepth, uNear) - 1.0 / uRange) / (1.0 / uNear - 1.0 / uRange), 0.0, 1.0) : 1.0 - normalized;
-	gl_FragColor = vec4(vec3(grey), 1.0);
+	gl_FragColor = vec4(vec3(depthRamp(vViewDepth, uNear, uRange, uCurve)), 1.0);
 }
 `;
 
@@ -142,7 +184,7 @@ function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 			vertexShader: DEPTH_VERTEX,
 			fragmentShader: DEPTH_FRAGMENT,
 			uniforms: {
-				uInverse: { value: depthCurve === "inverse" },
+				uCurve: { value: CURVES[depthCurve] ?? 0 },
 				uNear: { value: Number.isFinite(depthRange?.near) ? depthRange.near : (Number.isFinite(camera?.near) ? camera.near : 0.1) },
 				uRange: { value: Number.isFinite(depthRange?.far) ? depthRange.far : DEPTH_RANGE_M },
 			},
@@ -180,7 +222,7 @@ export function renderPass(capture, scene, camera, kind, toDataUrl = null, optio
 	// the surfaces (userData.ownDepth, effects/effect-meshes.js), mixed by its
 	// opacity. In the normal plate they stay out.
 	const hidden = [], own = [];
-	const ramp = kind === "depth" ? { near: material.uniforms.uNear.value, far: material.uniforms.uRange.value, inverse: material.uniforms.uInverse.value } : null;
+	const ramp = kind === "depth" ? { near: material.uniforms.uNear.value, far: material.uniforms.uRange.value, curve: material.uniforms.uCurve.value } : null;
 	scene.traverse?.((node) => {
 		if (node.userData?.beautyOnly && node.visible) {
 			hidden.push(node);

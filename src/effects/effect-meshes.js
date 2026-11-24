@@ -16,6 +16,7 @@
  */
 import * as THREE from "three";
 import { EFFECT_PARTICLE_CAP, EFFECT_SEGMENT_CAP, evaluateEffects } from "./simulate.js";
+import { DEPTH_RAMP } from "../render-passes.js";
 
 /** How much of what is behind an emissive (fire, sparks) particle it hides:
  * 0 would be purely additive, which vanishes over a light stage; at 0.85 a
@@ -68,14 +69,11 @@ const FRAGMENT_HEAD = /* glsl */ `
 #include <lights_pars_begin>
 #include <fog_pars_fragment>
 uniform float globalOpacity;
-uniform float passDepth; uniform float passNear; uniform float passFar; uniform float passInverse;
-// The depth pass's grey for a fragment at this view position (render-passes.js, the same ramp), premultiplied.
+uniform float passDepth; uniform float passNear; uniform float passFar; uniform float passCurve;
+${DEPTH_RAMP}
+// The depth pass's value for a fragment at this view position (the pass's own ramp), premultiplied.
 vec4 effectDepth(vec3 viewPos, float alpha) {
-	float d = -viewPos.z;
-	float grey = passInverse > 0.5
-		? clamp((1.0 / max(d, passNear) - 1.0 / passFar) / (1.0 / passNear - 1.0 / passFar), 0.0, 1.0)
-		: 1.0 - clamp((d - passNear) / max(passFar - passNear, 0.0001), 0.0, 1.0);
-	return vec4(vec3(grey) * alpha, alpha);
+	return vec4(vec3(depthRamp(-viewPos.z, passNear, passFar, passCurve)) * alpha, alpha);
 }
 ${SHADE}`;
 
@@ -168,7 +166,7 @@ function puffAtlas() {
 function effectMaterial(vertexShader, fragmentShader, extra = {}) {
 	return new THREE.ShaderMaterial({
 		uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.lights, THREE.UniformsLib.fog]), globalOpacity: { value: 1 },
-			passDepth: { value: 0 }, passNear: { value: 0.1 }, passFar: { value: 40 }, passInverse: { value: 0 }, ...extra },
+			passDepth: { value: 0 }, passNear: { value: 0.1 }, passFar: { value: 40 }, passCurve: { value: 0 }, ...extra },
 		vertexShader, fragmentShader, lights: true, fog: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
 		blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
 		blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
@@ -194,7 +192,7 @@ function instancedQuads(material, capacity, layout) {
 	mesh.userData.ownDepth = (ramp) => {
 		material.allowOverride = !ramp;
 		material.uniforms.passDepth.value = ramp ? 1 : 0;
-		if (ramp) { material.uniforms.passNear.value = ramp.near; material.uniforms.passFar.value = ramp.far; material.uniforms.passInverse.value = ramp.inverse ? 1 : 0; }
+		if (ramp) { material.uniforms.passNear.value = ramp.near; material.uniforms.passFar.value = ramp.far; material.uniforms.passCurve.value = ramp.curve; }
 	};
 	return { mesh, attributes };
 }

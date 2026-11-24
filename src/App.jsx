@@ -222,7 +222,7 @@ import { buildShotPrompt } from "./shot-prompt.js";
 import { keyframePackEntries, keyframePackName } from "./keyframe-pack.js"; import { openAiReferenceDialog } from "./ai-reference-export.js"; import AiReferenceDialog from "./ai-reference-dialog.jsx";
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
-import { DEPTH_RANGE_M, DEPTH_SOFTEN_PX, createDepthSoftener, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
+import { DEPTH_RANGE_M, DEPTH_SOFTEN_PX, countDepthGreys, createDepthSoftener, depthRangeFromCounts, passFileName, renderPass } from "./render-passes.js";
 
 import { serializeOtio } from "./otio.js";
 import "./shell/mode.css";
@@ -2942,20 +2942,20 @@ export default function App() {
 			focalMm: sampled?.focalMm, projectName, focusDistance: focusDistance(sampled?.pos, target) }));
 	}
 	// The near and far distance of a depth video are the shot's own: one pre-pass over its frames, drawn with the curve
-	// the video will have (the nearness curve resolves the near end finely, where it spends its greys).
+	// the video will have, counts how much surface stands at each distance (render-passes.js).
 	async function shotDepthRange(job, startFrame, endFrame, depthCurve) {
-		const near = shotCamRef.current.near, samples = [];
+		const near = shotCamRef.current.near, counts = new Uint32Array(256);
 		for (let frame = startFrame; frame <= endFrame; frame += 1) {
 			job.controller.signal.throwIfAborted();
 			const depth = withExportFrame(frame, () => renderPass(job.capture, job.capture.scene, shotCamRef.current, "depth", null, { depthCurve }));
 			if (!depth) throw Object.assign(new Error("Depth capture failed"), { exportFailureCode: "render_failed" });
-			samples.push(depthRangeFromPixels(depth, near, DEPTH_RANGE_M, depthCurve));
+			countDepthGreys(depth, counts);
 			updateExportStatus(job, "preparing", { stage: "depth", completedFrames: frame - startFrame + 1, frameCount: endFrame - startFrame + 1, cancellable: true });
 			await exportBoundary(job);
 		}
-		return depthRangeFromFrames(samples, near, DEPTH_RANGE_M);
+		return depthRangeFromCounts(counts, near, DEPTH_RANGE_M, depthCurve);
 	}
-	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "inverse", depthSoften = DEPTH_SOFTEN_PX, fileName = null, decorate = undefined } = {}, job = null) {
+	async function runShotExport({ startFrame = 0, endFrame, download = true, passKind = null, depthRange = null, depthCurve = "log", depthSoften = DEPTH_SOFTEN_PX, fileName = null, decorate = undefined } = {}, job = null) {
 		const resolvedEndFrame = endFrame ?? Math.max(0, currentRecordFrameCount() - 1);
 		// Preserve the download-free browser seam, without a nested lifecycle.
 		if (!job) return executeExportRequest(exportRequest(passKind === "depth" ? "depth_video" : "video",

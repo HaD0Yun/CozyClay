@@ -47,10 +47,10 @@ for (const chunk of ["common", "skinning_pars_vertex", "skinbase_vertex", "begin
 assert.match(depthRig.seen[0].vertexShader, /vec4\(transformed, 1\.0\)/);
 const inverseRig = stubCapture(scene);
 renderPass(inverseRig, scene, camera, "depth", null, { depthCurve: "inverse" });
-assert.equal(inverseRig.seen[0].uniforms.uInverse.value, true);
-assert.equal(depthRig.seen[0].uniforms.uInverse.value, false);
+assert.equal(inverseRig.seen[0].uniforms.uCurve.value, 1, "the nearness curve");
+assert.equal(depthRig.seen[0].uniforms.uCurve.value, 0, "a still pass keeps the linear curve");
 assert.equal(depthRig.seen[0].fog, false, "the stage fog does not tint the depth plate");
-assert.match(depthRig.seen[0].fragmentShader, /1\.0 - normalized/, "near reads white, far reads black");
+assert.match(depthRig.seen[0].fragmentShader, /return 1\.0 - clamp\(\(d - near\)/, "near reads white, far reads black");
 assert.equal(scene.overrideMaterial, null, "the depth override is taken back off the scene");
 assert.deepEqual([...depthBuffer], [1, 2, 3, 255], "without a converter the raw read-back comes back");
 
