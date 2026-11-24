@@ -183,7 +183,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-update-check.mjs", "test/verify-update-routes.mjs", "test/verify-update-client.mjs", "test/verify-star-prompt.mjs",
 	"test/verify-usd-camera.mjs",
 	"test/verify-zip-store.mjs",
-	"test/verify-render-passes.mjs",
+	"test/verify-render-passes.mjs", "test/verify-depth-plate.mjs",
 	"mcp/verify.mjs",
 	"mcp/verify-http-origin.mjs",
 	"mcp/verify-live.mjs",
