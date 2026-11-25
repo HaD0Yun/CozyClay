@@ -131,6 +131,10 @@ const launched = await session();
 expect("the first launch's project has a name and no previs mode", typeof launched?.name === "string" && launched.name.length > 0 && launched?.previsMode === undefined, JSON.stringify(launched));
 expect("the first launch's project casts Hybrid", (await castStyle()) === "hybrid");
 
+// --- The empty first stage: every mode tab is safe to press (#1362) -----------
+for (const key of ["4", "3", "5", "2", "1"]) await click(`[data-mode-key="${key}"]`);
+expect("every mode tab keeps the empty stage up", await waitFor("document.querySelector('.app')?.dataset.workflowMode === 'scene' && !document.querySelector('.crash-screen')", 5000), await evaluate("document.body.innerText.slice(0, 200)"));
+
 // --- File > New on it: name + Create only -------------------------------------
 await click("[data-testid=menu-file]");
 expect("File shows New on the first launch's project", await waitFor("!!document.querySelector('[data-testid=menubar-new]')"));

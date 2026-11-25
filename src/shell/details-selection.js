@@ -26,7 +26,7 @@ export function detailsSelection({ selectedHierarchyId: id, selectedSceneObject,
 		return { name: HIERARCHY_INSPECTOR_TITLES[rigSelection.token] ?? kind, type: index >= 0 ? `${kind} · ${characterTitle(index)}` : kind };
 	}
 	if (id === "camera") return { name: HIERARCHY_INSPECTOR_TITLES.camera, type: `${ko("Camera", "카메라")} · ${shot.focalMm}mm` };
-	if (id.startsWith("character:")) {
+	if (typeof id === "string" && id.startsWith("character:")) {
 		const index = characterIndexForRow(id, characters);
 		const model = CHARACTER_MODEL_LABELS[characters[index]?.model];
 		return { name: characterTitle(Math.max(index, 0)), type: model ? `${ko("Character", "인물")} · ${model}` : ko("Character", "인물") };
