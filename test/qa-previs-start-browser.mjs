@@ -5,11 +5,13 @@
 // Run through tools/qa-browser.mjs with QA_URL pointing at `/app/`.
 
 import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SCENES_STORAGE_KEY, PREVIOUS_SCENES_STORAGE_KEY } from "../src/scenes.js";
 
 const port = Number(process.env.CDP_PORT || 9222);
-const out = process.env.QA_OUT || "/Users/yun/CozyClay/.omo/evidence/previs-modes/previs-modes-r1/shots";
+// The default is the OS scratch directory: a path on one machine stopped this suite at its first line on every other (#1362).
+const out = process.env.QA_OUT || join(tmpdir(), "cozyclay-qa-previs-start");
 const SESSION_KEY = "cozyclay.project-session.v1";
 await mkdir(out, { recursive: true });
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
