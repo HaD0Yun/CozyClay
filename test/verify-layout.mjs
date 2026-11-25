@@ -253,10 +253,11 @@ expect(
 	app.includes('ko("Stage position — does not change the take", "무대 위치 — 테이크는 바꾸지 않습니다")'),
 );
 // Entering Motion selects the active character's ROW: the placement gizmo only
-// renders for a specific cast member, never for the group.
+// renders for a specific cast member, never for the group. An empty stage has no
+// row to select, so it lands on the scene row instead of on nothing (#1362).
 expect(
-	"Motion mode lands on a character the gizmo can draw",
-	app.includes("setSelectedHierarchyId(rowIdForCharIndex(activeCharIndex));"),
+	"Motion mode lands on a character the gizmo can draw, or on the scene when there is none",
+	app.includes('setSelectedHierarchyId(rowIdForCharIndex(activeCharIndex) ?? "shot");'),
 );
 expect(
 	"the character gizmo no longer caps lift at 4 m",

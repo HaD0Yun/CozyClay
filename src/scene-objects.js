@@ -290,7 +290,7 @@ export function sceneObjectHierarchyId(id) {
 }
 
 export function sceneObjectIdFromHierarchy(hierarchyId) {
-	return hierarchyId.startsWith("object:") ? hierarchyId.slice("object:".length) : null;
+	return typeof hierarchyId === "string" && hierarchyId.startsWith("object:") ? hierarchyId.slice("object:".length) : null;
 }
 
 /**

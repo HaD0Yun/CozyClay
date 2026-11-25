@@ -5,11 +5,13 @@
 // Run through tools/qa-browser.mjs with QA_URL pointing at `/app/`.
 
 import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SCENES_STORAGE_KEY, PREVIOUS_SCENES_STORAGE_KEY } from "../src/scenes.js";
 
 const port = Number(process.env.CDP_PORT || 9222);
-const out = process.env.QA_OUT || "/Users/yun/CozyClay/.omo/evidence/previs-modes/previs-modes-r1/shots";
+// The default is the OS scratch directory: a path on one machine stopped this suite at its first line on every other (#1362).
+const out = process.env.QA_OUT || join(tmpdir(), "cozyclay-qa-previs-start");
 const SESSION_KEY = "cozyclay.project-session.v1";
 await mkdir(out, { recursive: true });
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
@@ -130,6 +132,10 @@ expect("a first launch goes straight to the editor", await waitFor(`${editorOpen
 const launched = await session();
 expect("the first launch's project has a name and no previs mode", typeof launched?.name === "string" && launched.name.length > 0 && launched?.previsMode === undefined, JSON.stringify(launched));
 expect("the first launch's project casts Hybrid", (await castStyle()) === "hybrid");
+
+// --- The empty first stage: every mode tab is safe to press (#1362) -----------
+for (const key of ["4", "3", "5", "2", "1"]) await click(`[data-mode-key="${key}"]`);
+expect("every mode tab keeps the empty stage up", await waitFor("document.querySelector('.app')?.dataset.workflowMode === 'scene' && !document.querySelector('.crash-screen')", 5000), await evaluate("document.body.innerText.slice(0, 200)"));
 
 // --- File > New on it: name + Create only -------------------------------------
 await click("[data-testid=menu-file]");
