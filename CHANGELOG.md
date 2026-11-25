@@ -1,5 +1,77 @@
 # Changelog
 
+## 3.3.2 - 2026-11-26
+
+Pressing Motion on an empty stage no longer takes the Studio down, the shot camera gets a straight top-down angle and a choice of easing between its keys, a scene can hide its floor, and a host app gets a contract a release keeps.
+
+Fixes
+
+- Pressing Motion on a stage with no character took the whole Studio to the
+  "The studio hit a render error" screen. Since 3.3.0 a first open lands on
+  an empty stage, so a new project was one click away from it. Motion now
+  opens with the scene selected and the Details panel shows its hint.
+  (#1363)
+
+Camera
+
+- A shot camera can look straight down or straight up. Its keys and exact
+  framings reach a pitch of ±90°, from the gizmo, the numeric pitch field
+  and the agent. At that angle the key's yaw is the screen's up direction,
+  and a move to or from such a key turns the yaw along the shortest arc
+  instead of flipping. Flying the viewport and the follow camera keep their
+  85° limit. (#1338)
+- A camera key can say how the move that starts at it is eased: ease-in-out
+  (as before, and for every key that does not say), linear, ease-in or
+  ease-out. `shot.setKeyEase` sets it through the agent, the CLI or MCP, it
+  can be undone, and it stays with the key through cuts, shot copies and
+  saved projects. The timeline has no control for it yet. The "camera halts
+  here" warning lists a key only when the moves on both sides of it slow to
+  a stop. (#1335)
+
+Stage
+
+- A scene can hide the stage floor. With the stage field `floor` set to
+  false the lit deck is left out of the shot preview, captures and exports,
+  so a black sky with a back light gives a clean void instead of a grey band
+  where the deck catches the light. `stage.set` sets it through the agent,
+  the CLI or MCP. Shadows on the floor go with it. Scenes that do not set it
+  are unchanged. (#1339)
+
+Agent
+
+- An `object.path` patch accepts the route's speed curve (`timing`), in the
+  shape the scene context already reads back, so the agent or a script can
+  hold a prop at the start of its route or pause it midway. (#1329)
+
+Host apps
+
+- An app that launches the Studio and shows it in its own window (the
+  desktop app) has a versioned contract. With `COZYCLAY_DESKTOP=1` the
+  launcher prints one JSON ready line (`url`, `version`, `contract`,
+  `capabilities`) before the usual one, `GET /__cozyclay/contract` answers
+  the same facts, and the flags the host passes stay accepted from release
+  to release. When the host provides `window.cozyclayHost.projectFiles`,
+  Open, Save, Save As, the recent projects and the restore after a reload go
+  through the host's dialogs and files. In a browser nothing changes.
+  (#1320)
+- The capability `agent-brief`: a host hands the Studio's agent a job
+  through `window.cozyclayHost.agentBrief`, as text and up to four pictures,
+  optionally bound to a project it opened and saved to its file when the
+  turn is done. It reads back `started`, then exactly one of `done`,
+  `failed` or `stopped`. A brief runs as one plain turn in the Agent pane.
+  (#1324)
+
+Telemetry
+
+- An event the Studio sends while the analytics library is still loading is
+  held until it has loaded, where it was dropped. The one lost was the first
+  project of a session (`scene:created`), which 3.3.1 makes as the Studio
+  opens. With telemetry off nothing is held and nothing is sent. (#1365)
+- The agent's tool events say which family of Studio tool ran (`scene_read`,
+  `view`, `motion`, `planning`, `scripting`) where almost all of them said
+  `other`. Tool names, arguments and results are still not sent, and the
+  privacy page lists the new values. (#1365)
+
 ## 3.3.1 - 2026-11-24
 
 The Studio opens straight on the stage with the Agent pane open, the Export menu lists three items, the model picker lists what the signed-in account can run, and depth exports keep the detail of the stage.
