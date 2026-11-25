@@ -12,14 +12,10 @@ export const MCP_TOOL_NAMES = Object.freeze([
 	"sculpt_object", "compare_sculpt", "group_objects", "update_object", "remove_object", "apply_batch", "add_scene",
 	"switch_scene", "open_project", "capture_frame", "studio_commands", "studio_run", "other",
 ]);
+// The Studio agent's families follow the Workflow ones (bin/agent/turn-telemetry.mjs agentToolCategory).
 export const AGENT_TOOL_CATEGORIES = Object.freeze([
-	"workflow_read",
-	"workflow_write",
-	"workflow_run",
-	"frame_capture",
-	"image_generate",
-	"scene_write",
-	"other",
+	"workflow_read", "workflow_write", "workflow_run", "frame_capture", "image_generate", "scene_write",
+	"scene_read", "view", "motion", "planning", "scripting", "other",
 ]);
 
 export const EXECUTION_TELEMETRY_EVENTS = Object.freeze([
@@ -830,7 +826,10 @@ export async function initAnalytics({ lite = false } = {}) {
 
 export function track(event, props = {}) {
 	// The allowlist is the gate: an event it does not name is never sent.
-	if (!initialized || !enabled || !posthog || !Object.hasOwn(EVENT_PROPERTIES, event)) return;
+	if (!Object.hasOwn(EVENT_PROPERTIES, event)) return;
+	// The first project is made at mount, before the SDK has loaded: the event waits for it (#1364).
+	if (!initialized) return void initPromise?.then(() => { if (initialized) track(event, props); });
+	if (!enabled || !posthog) return;
 	try {
 		if (getAnalyticsOptOut()) return;
 		const sanitized = sanitizeProps(event, props);
