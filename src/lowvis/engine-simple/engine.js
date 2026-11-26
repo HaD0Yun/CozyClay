@@ -22,6 +22,18 @@
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.
+//     sit / stand / kneel / idle {feet?, lead?, lag?}, the two legs: feet {L?: [left, forward], R?: [..]} = those feet
+//     first step that far from where they stand (body frame; no further than the legs reach), one after the other, 11
+//     frames each, and stay planted there until a walk, run, push, turn, launch or lie moves them; the pelvis goes
+//     half as far with each (seated or kneeling: when the body next stands up). The change then takes the rest of
+//     over (12 frames at least, or over if that is fewer; past over if it must); over 0: at once, the feet on their
+//     spots; a stand from a kneel rises first and steps after. lead "L" | "R" = the leg that goes first: its foot
+//     steps first, its side of the pelvis lowers (rising: lifts) first and its knee folds (straightens) ahead of the
+//     other's; lag = frames the other follows by (0 = together; at most half the change). Default: the foot further
+//     back leads, else the right, the other 0.12 of the change later. kneel: each leg's knee goes to the floor,
+//     except one whose foot stands over about 0.66 m (times the body's scale) ahead of the other: it stays flat, its
+//     knee up; from a kneel it goes on to the kneel its feet now give.
+//     stand after a kneel rises from it, the knee that went down last first.
 //     on: propId, on any body action: the body goes with that prop however it is moved (moves: true). Its places and
 //     headings are written as if the prop stood where the scene puts it. Getting on, and off with the next action
 //     without that `on`, goes on from where the body is (over 12 frames where the prop has risen or tipped).
@@ -156,11 +168,11 @@ function buildOnce(written, def, carrier) {
 	}]));
 	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };
 	const ground = (x, z, step = 0.3) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= step && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
-	const seats = [], walks = []; // every sit on a prop: how far its hips end from the seat top, how many feet stand inside the prop; walks: a count not walked as written (gait.js told)
+	const seats = [], walks = [], legs = []; // every sit on a prop: how far its hips end from the seat top, how many feet stand inside the prop; walks: a count not walked as written (gait.js told); legs: each posture change's legs (legs.js)
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
-		return (upper => ({ id: c.id, s, travels: travelSpans(acts, F), body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt), lower: lowerOf(upper.keys.hip) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body, lower: how far the hip keys lower it (air.js)
+		return (upper => ({ id: c.id, s, travels: travelSpans(acts, F), body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), legs: e => legs.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt), lower: lowerOf(upper.keys.hip) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body, lower: how far the hip keys lower it (air.js)
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}, props[p.id].shownKeys.length ? { shown: [] } : {}) })); // by: what carries a moving prop on each frame, shown: whether it is drawn (clip.js)
@@ -173,7 +185,7 @@ function buildOnce(written, def, carrier) {
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
-	const flights = chars.flatMap(c => [...new Set(c.body.map(B => B.air).filter(Boolean))].map(fl => ({ who: c.id, ...fl }))); if (flights.length) aux.flights = flights; // launches (air.js)
+	const flights = chars.flatMap(c => [...new Set(c.body.map(B => B.air).filter(Boolean))].map(fl => ({ who: c.id, ...fl }))); if (flights.length) aux.flights = flights; if (legs.length) aux.legs = legs; // launches (air.js), posture changes (legs-told.js)
 	const walls = Object.values(props).filter(o => !o.moves && o.c[1] + o.size[1] / 2 > 0.3);
 	const fly = p => {
 		const r = p.size[1] / 2, b = p.fly.bounce, n = Math.max(1, Math.ceil(len(p.vel) / 0.03)), sp = Math.hypot(p.vel[0], p.vel[2]);

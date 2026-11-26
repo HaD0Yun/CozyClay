@@ -83,8 +83,10 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	const withoutLaunch = text => text.replace(/\n {4}launch \{to\?[^]*?where they left the ground\)\./, "").replace(/\n- air: [^\n]*/, "");
 	// and the SPEC words for a hand target held into a travel and the TILT words for a shift alone (held-swing.js), taken out
 	const withoutHeld = text => text.replace(/; an \[x,y,z\]\n\s*keyed before a walk[^]*?an elbow target on that arm/, "").replace(" or shift (a shift alone keeps the tilt and about)", "");
+	// and the SPEC words for the two legs of a posture change (legs.js), taken out
+	const withoutLegs = text => text.replace(/\n {4}sit \/ stand \/ kneel \/ idle \{feet\?[^]*?the knee that went down last first\./, "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutHeld(withoutLaunch(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant))))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutLegs(withoutHeld(withoutLaunch(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant)))))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");

@@ -12,6 +12,7 @@ const sizedB = (B, k) => ({ ...B, p: by(B.p, k), feet: B.feet.map(f => ({ ...f, 
 const sizedOptions = (o, k) => ({
 	...o, ...(Array.isArray(o.to) ? { to: by(o.to, k) } : {}), ...(Array.isArray(o.at) ? { at: by(o.at, k) } : {}), ...(Number.isFinite(o.height) ? { height: o.height * k } : {}),
 	...(o.end ? { end: Object.fromEntries(Object.entries(o.end).map(([side, v]) => [side, by(v, k)])) } : {}),
+	...(o.feet && typeof o.feet === "object" ? { feet: Object.fromEntries(Object.entries(o.feet).map(([side, v]) => [side, Array.isArray(v) ? by(v, k) : v])) } : {}),
 });
 
 /** buildBody (spec-layers.js) for a character of scale s: the frames of its body layer, in world metres. */
@@ -22,7 +23,8 @@ export function buildBodySized(c, acts, F, ctx, s = 1) {
 	const note = ctx.note && (e => ctx.note({ ...e, off: e.off * s }));
 	const walked = ctx.walked && (e => ctx.walked({ ...e, to: by(e.to, s), distance: e.distance * s, step: e.step * s, stepPlan: e.stepPlan * s, longest: e.longest * s, far: e.far && e.far * s, reach: e.reach * s, split: e.split && { ...e.split, step: e.split.step * s, far: e.split.far * s, longest: e.split.longest * s, reach: e.split.reach * s, own: e.split.own && e.split.own * s, was: e.split.was && e.split.was * s }, as: e.as && { ...e.as, under: e.as.under && e.as.under * s } }));
 	const unitPose = p => ({ c: by(p.c, k), q: p.q }), carrier = ctx.carrier && { ids: ctx.carrier.ids, scene: id => unitPose(ctx.carrier.scene(id)), at: (id, f) => unitPose(ctx.carrier.at(id, f)) }; // carry.js
-	return reachTogether(buildBody({ ...c, at: by(c.at, k) }, unit, F, { props, ground: (x, z) => ctx.ground(x * s, z * s) * k, note, walked, carrier, lift: ctx.lift && ((f, b) => by(ctx.lift(f, b), k)), lower: ctx.lower && (f => ctx.lower(f) * k) })).map(B => sizedB(B, s));
+	const spots = o => o && Object.fromEntries(Object.entries(o).map(([side, g]) => [side, by(g, s)])), legs = ctx.legs && (e => ctx.legs({ ...e, feet: spots(e.feet), ...(e.set ? { set: spots(e.set) } : {}) }));
+	return reachTogether(buildBody({ ...c, at: by(c.at, k) }, unit, F, { props, ground: (x, z) => ctx.ground(x * s, z * s) * k, note, walked, legs, carrier, lift: ctx.lift && ((f, b) => by(ctx.lift(f, b), k)), lower: ctx.lower && (f => ctx.lower(f) * k) })).map(B => sizedB(B, s));
 }
 
 /** solve (solve.js) for a body of scale s: B, the points of U and the result are in world metres. */

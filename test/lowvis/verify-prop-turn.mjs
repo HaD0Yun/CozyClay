@@ -61,7 +61,7 @@ const BEFORE = {
 	// demo push sum 16378.90072069702 abs 16937.86911301625; carry it sum 1299.1545993132574 abs 2678.462190854703;
 	// push it sum 644.6375135840353 abs 1815.2169889187685
 	"demo locomotion": { n: 17136, sum: 28145.690798960924, abs: 28414.872381650166 },
-	"demo sit": { n: 19590, sum: 16988.250627292415, abs: 17318.571651827428 },
+	"demo sit": { n: 19590, sum: 16974.846905918093, abs: 17308.935221001095 }, // was sum 16988.250627292415 abs 17318.571651827428 before its sit, stand and kneel had a leading leg and a pelvis roll (legs.js)
 	"demo object": { n: 40323, sum: 55094.20210882394, abs: 55319.29469014716 },
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs); were sum 33296.306707722404,
 	// 8217.462717724167, 24537.719764461508 and abs 34465.81906765248, 8963.464780009705, 35987.17491706315; again with its
@@ -77,7 +77,7 @@ const BEFORE = {
 	// bowl again for the same reason (each pin's slide starts from its full 90-degree tip; was sum 24536.379817133275,
 	// abs 35988.71533513136)
 	"demo bowl": { n: 22179, sum: 24527.15826499436, abs: 35993.919021946815 },
-	"sit on it": { n: 4899, sum: 1932.92509540655, abs: 2080.8489820194295 },
+	"sit on it": { n: 4899, sum: 1930.868605705632, abs: 2084.0869309493337 }, // was sum 1932.92509540655 abs 2080.8489820194295 before legs.js (the same)
 	"carry it": { n: 5184, sum: 1299.053980120142, abs: 2683.7438334524904 },
 	"push it": { n: 5184, sum: 626.6632761275832, abs: 1803.9555336199014 },
 };

@@ -27,6 +27,10 @@ assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by se
 const OLD_RUN = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
 const NEW_RUN = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
 assert.ok(NOTES.includes(NEW_RUN), "the clip's notes say what a run follows");
+// and the kneel note, said again when the two legs of a posture change came apart (legs.js)
+const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
+const KNEEL_NOW = NOTES.find(n => n.startsWith("with the feet side by side a kneel's two knees"));
+assert.ok(KNEEL_NOW, "the clip's notes say how far apart a kneel's knees come down");
 
 // pinned again when a walk's sway changed (a walk's sway grows with its walking share, unless the walk begins the clip;
 // upper-layer keys flow on into the next; push the same): was
@@ -41,7 +45,7 @@ assert.ok(NOTES.includes(NEW_RUN), "the clip's notes say what a run follows");
 // were object 247e8822..., duo 9245a20f..., push 06c15ee4..., chop 5744cf77..., bowl 1370d146...
 const BEFORE = {
 	locomotion: "f816b718a98c94b12dea76873eeb260711e5b2ca8f87c9980dd80fe206c0d8da",
-	sit: "4bcdb0fe7e6ba70339a7d2abb9c8b15ed8af508704bfbd3e7dd254b20f3b9baf",
+	sit: "f3d848e6349284f559671dd57d62ecf74b1ca99b2c29b2749781b23fcd0ba85f", // was 4bcdb0fe... before its sit, stand and kneel had a leading leg and a pelvis roll (legs.js)
 	object: "b101a21bb5db73c128ba4c77a774f05c6b9d1e2bfe5c86d5d470e7a1c8516395", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
 	duo: "b572757bcd0d5eaa1743dae46acfde4e8aea54652978d0bd4f04c921804143f8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
@@ -55,7 +59,8 @@ for (const demo of DEMO_IDS) {
 	const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 	const { clip, aux: { seats, walks, ...aux } } = buildClip(spec); // aux.seats came later (verify-body-start.mjs pins it), aux.walks too (verify-counted-walk.mjs)
 	assert.ok(Array.isArray(seats) && Array.isArray(walks), `${demo}: aux.seats and aux.walks are lists`);
-	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n === NEW_RUN ? OLD_RUN : n));
+	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n === NEW_RUN ? OLD_RUN : n === KNEEL_NOW ? KNEEL_WAS : n));
+	delete aux.legs; // each posture change's legs came later (legs-told.js)
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	now[demo] = createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex");
 }

@@ -43,12 +43,13 @@ const KNEE_NOW = "the side a knee bends to is the engine's: no spec word sets it
 // and so does the run note, said again when a run came to move by captured runs (gait-data.js); these specs have no run
 const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
 const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
+const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
 const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]]) => {
 	const { clip, aux: { rides, walks, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride); aux.walks came with the counted walk
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
 	assert.ok(clip.notes.includes(KNEE_NOW), `${name}: the clip's notes have the knee note of now`);
 	assert.ok(clip.notes.includes(RUN_NOW), `${name}: the clip's notes have the run note of now`);
-	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n === RUN_NOW ? RUN_WAS : n));
+	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n === RUN_NOW ? RUN_WAS : n.startsWith("with the feet side by side a kneel's two knees") ? KNEEL_WAS : n)); // the kneel note, said again with legs.js
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));

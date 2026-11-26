@@ -7,6 +7,7 @@ import { PAD, across, offBox } from "./prop-frame.js";
 import { carriedFrames, carryState } from "./carry.js";
 import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
 import { fly, launch, raised } from "./air.js";
+import { STEP, beyond, legTiming, settled, stepFeet } from "./legs.js";
 
 export { partBoxes, resolveParts } from "./parts.js";
 export { lowerOf, shiftOf } from "./air.js";
@@ -34,6 +35,7 @@ export function buildBody(c, acts, F, ctx) {
 		if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
 		if (moved) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
 		let r;
+		if (st.owed && a.verb !== "idle" && !POSTURE.has(a.verb)) st = settled(st); // legs.js: it moves on from between its feet
 		if (moving(a)) {
 			const segs = [seg(a, N)];
 			while (moving(list[i + 1]) && on(list[i + 1]) === frame && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
@@ -48,12 +50,29 @@ export function buildBody(c, acts, F, ctx) {
 		else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
 		else if (POSTURE.has(a.verb)) { // over: frames of the change (default: the whole span), then the posture holds; 0 = at once
 			if (a.o.over != null && !(Number.isFinite(a.o.over) && a.o.over >= 0)) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: over wants a number of frames >= 0, got ${JSON.stringify(a.o.over)}`);
-			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over));
-			r = posture(c, a, st, a.o.over == null ? N : Math.max(1, T), prop, ctx);
-			if (a.o.over != null) r.frames = [...r.frames.slice(0, T), ...hold(r.st, N - T)];
-		} else { // idle: hold the posture, breathe
-			r = { frames: hold(st, N), st };
-			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
+			legWords(c, a);
+			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over)), n0 = a.o.over == null ? N : Math.max(1, T), once = a.o.over != null && T === 0;
+			const rise = a.verb === "stand" && !!st.knelt, named = a.o.feet ? ["L", "R"].filter(k => a.o.feet[k]).length : 0; // from a kneel the feet step after it rises
+			const n = Math.max(1, n0 - named * STEP, Math.min(n0, 12)), first = legTiming(a.o, st, n); // the steps come first; the change keeps 12 frames (over's, if fewer), past over if it must
+			if (rise && a.o.lead == null) first.lead = 1 - st.knelt.lead; // the knee that went down last comes up first
+			let pre, notes, legs = first; // feet set further than the legs reach in the posture step less far (legs.js beyond)
+			for (let k = 1, tries = 0; ; k *= 0.85, tries++) {
+				notes = []; pre = named && !rise ? stepFeet(st, a.o.feet, first.lead, k) : null;
+				if (pre) legs = legTiming(a.o, pre.st, n); // the leg that leads the change: as the feet stand once they have stepped
+				r = posture(c, a, pre ? pre.st : st, n, prop, { ...ctx, note: e => notes.push(e) }, legs);
+				if (!pre || !r.st.lastB || beyond(r.st.lastB) <= 0 || tries >= 12) break;
+			}
+			notes.forEach(e => ctx.note?.(e));
+			const post = named && rise ? stepFeet(r.st, a.o.feet, legs.lead) : null, all = once ? [] : [...(pre?.frames ?? []), ...r.frames, ...(post?.frames ?? [])], end = Math.min(all.length, named ? N : T); // over 0: in it at once, the feet on their spots
+			if (post) r.st = post.st;
+			r.frames = [...(all.length > N ? squeezed(all, N) : all.slice(0, end)), ...hold(r.st, N - end)];
+			ctx.legs?.({ f: a.f, f1: a.f + end, verb: a.verb, lead: legs.lead, lag: Math.round(legs.D * n), ...(named ? spots((pre ?? post).asked, r.st, frame) : { feet: null }), cut: all.length > N });
+		} else { // idle: hold the posture, breathe (feet: the named feet step first)
+			legWords(c, a);
+			const pre = a.o.feet ? stepFeet(st, a.o.feet, legTiming(a.o, st, N).lead) : null, steps = !pre ? [] : pre.frames.length > N ? squeezed(pre.frames, N) : pre.frames;
+			if (pre) { st = pre.st; ctx.legs?.({ f: a.f, f1: a.f + steps.length, verb: a.verb, ...spots(pre.asked, st, frame), cut: pre.frames.length > N }); }
+			r = { frames: [...steps, ...hold(st, N - steps.length)], st };
+			r.frames.forEach((B, k) => { if (k >= steps.length) B.lean += 0.012 * Math.sin(2 * Math.PI * (k - steps.length) / 84) * smoothEdge(k - steps.length, N - steps.length); });
 		}
 		out.push(...r.frames); st = r.st;
 		if (prop?.parts && a.verb !== "lie") for (let f = first; f < out.length; f++) stands[f] = { prop, seated: a.verb === "sit" || !!st.seat };
@@ -90,6 +109,17 @@ export function bodyCarriers(spec, def) {
 	return new Set(def.characters.flatMap(c => (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => BODY.has(a?.[1]) && moving.has(a[2]?.on)).map(a => a[2].on)));
 }
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
+/** Steps and a change that want more frames than their action has, played in its n frames (every frame the nearest of theirs; the last is their last). */
+const squeezed = (frames, n) => Array.from({ length: n }, (_, i) => frames[Math.round((i + 1) * frames.length / n) - 1]);
+/** For legs-told.js: feet = the floor spots `feet` wrote, set = where the body layer set those feet, on = the moving prop it is on. */
+const spots = (asked, st, on) => ({ feet: asked, set: Object.fromEntries(Object.keys(asked).map(k => [k, st.feet[k === "L" ? 0 : 1].g])), on });
+/** The leg words of a posture row or idle (legs.js): feet {L?, R?: [left, forward]}, lead "L" | "R", lag frames >= 0. */
+function legWords(c, a) {
+	const at = `engine-simple: ${c.id} ${a.verb} at frame ${a.f}`, { feet, lead, lag } = a.o, spot = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+	if (feet != null && !(typeof feet === "object" && Object.keys(feet).length && Object.entries(feet).every(([k, v]) => (k === "L" || k === "R") && spot(v)))) throw new Error(`${at}: feet wants {L?: [left, forward], R?: [left, forward]} (metres), got ${JSON.stringify(feet)}`);
+	if (lead != null && lead !== "L" && lead !== "R") throw new Error(`${at}: lead wants "L" or "R", got ${JSON.stringify(lead)}`);
+	if (lag != null && !(Number.isFinite(lag) && lag >= 0)) throw new Error(`${at}: lag wants a number of frames >= 0, got ${JSON.stringify(lag)}`);
+}
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);
 const flat = (p, x, z) => { const d = offBox(p, [x, p.c[1], z]); return Math.hypot(d[0], d[2]); }; // floor-plane distance to a prop's footprint
 
@@ -108,19 +138,19 @@ function drawnSeat(p, seat, st, back) {
 
 /** One posture change of n frames from state st. A sit on a prop tells ctx.note how far its hips end from the seat's
  *  top and how many feet stand inside the prop's footprint. */
-function posture(c, a, st, n, prop, ctx) {
+function posture(c, a, st, n, prop, ctx, legs) {
 	if (a.verb === "sit") {
 		if (!prop && !Number.isFinite(a.o.height)) throw new Error(`engine-simple: ${c.id} sit at frame ${a.f}: wants {on: propId} or {height}`);
 		// a part to sit on (its centre is where the hips go back toward); with drawn parts the seat is the drawn top under the hips
 		const seat = prop && a.o.part != null ? partOf(prop.parts, a.o.part, prop.id, `${c.id} sit at frame ${a.f}`) : null, toward = seat ? ownToWorld(prop, seat.c) : prop?.c;
 		const d = prop ? Math.hypot(toward[0] - st.p[0], toward[2] - st.p[1]) : 0.33, back = Math.min(0.35, d);
 		const top = Number.isFinite(a.o.height) ? a.o.height : prop.parts ? drawnSeat(prop, seat, st, back) : prop.c[1] + prop.size[1] / 2;
-		const r = sit(st, n, { y: top, back }), h = r.frames.at(-1)?.p;
+		const r = sit(st, n, { y: top, back }, legs), h = r.frames.at(-1)?.p;
 		if (prop && h) ctx.note?.({ f: a.f, verb: "sit", prop: prop.id, off: flat(prop, h[0], h[2]), feetIn: st.feet.filter(ft => flat(prop, ft.g[0], ft.g[1]) === 0).length });
 		return r;
 	}
-	if (a.verb === "stand") return st.seat ? stand(st, n) : { frames: hold(st, n), st };
-	if (a.verb === "kneel") return kneel(st, n, ctx.ground);
+	if (a.verb === "stand") return stand(st, n, legs, ctx.ground) ?? { frames: hold(st, n), st };
+	if (a.verb === "kneel") return kneel(st, n, ctx.ground, legs);
 	if (!prop && !Array.isArray(a.o.at)) throw new Error(`engine-simple: ${c.id} lie at frame ${a.f}: wants {on: propId} or {at: [x, z]}`);
 	const head = rad(a.o.head ?? c.heading), at = prop ? [prop.c[0] + Math.sin(head) * 0.1, prop.c[2] + Math.cos(head) * 0.1] : a.o.at;
 	return lie(st, n, { at, head, floor: ctx.ground(at[0], at[1]) });

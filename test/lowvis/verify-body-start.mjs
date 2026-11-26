@@ -11,12 +11,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
+import { NOTES, buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip, validateClip } from "../../src/lowvis/clip.js";
 import { DEMO_IDS } from "../../src/lowvis/demos.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
 
 const hash = text => createHash("sha256").update(text).digest("hex").slice(0, 16);
+// the kneel note, said again when the two legs of a posture change came apart (legs.js), goes back to its text of then
+const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
+const KNEEL_NOW = NOTES.find(n => n.startsWith("with the feet side by side a kneel's two knees"));
 const hipsY = (clip, f, c = 0) => clip.characters[c].pos[(f * JOINT_COUNT + J.Hips) * 3 + 1];
 const pose = (clip, f) => Array.from(clip.characters[0].pos.slice(f * JOINT_COUNT * 3, (f + 1) * JOINT_COUNT * 3));
 const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
@@ -51,12 +54,13 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// 9822cd9f58deade4, object 9099578f0aa12435, duo e577d20d50c20b28, push ff755b870529e06d
 	// object, duo, push, chop and bowl again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase);
 	// were object aaf885032f862635, duo d0449834e7919d7a, push f76161ac170ff467, chop d0ba3462c327a127, bowl f40598adcca6642a
-	const BEFORE = { locomotion: "25befceded8c9fdc", sit: "84d6a8d4032f4b35", object: "f80816d6d9d79b1e", duo: "56a74df97ef6e8cb", push: "04f8b34932c751ed", chop: "efe2085789d85493", bowl: "d2f2ce56d3fe5889" };
+	// sit again when its sit, stand and kneel came to have a leading leg and a pelvis roll (legs.js); was 84d6a8d4032f4b35
+	const BEFORE = { locomotion: "25befceded8c9fdc", sit: "12338d4e5742f546", object: "f80816d6d9d79b1e", duo: "56a74df97ef6e8cb", push: "04f8b34932c751ed", chop: "efe2085789d85493", bowl: "d2f2ce56d3fe5889" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 		const { clip } = buildClip(structuredClone(spec));
-		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n === RUN_NOW ? RUN_WAS : n));
+		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n === RUN_NOW ? RUN_WAS : n === KNEEL_NOW ? KNEEL_WAS : n));
 		for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}
