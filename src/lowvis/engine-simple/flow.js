@@ -8,6 +8,7 @@
 // the blend (h.flow): the reach assist follows the blend without it, so the body bends and lowers as the targets ask.
 import { INDEX as J } from "../rig17.js";
 import { clamp, qRotate, qY, sub } from "./math.js";
+export { heldSwing, swungBefore, travelSpans } from "./held-swing.js"; // a hand held into a travel moves with the gait's arm
 
 /** The part of a blend at u (0..1) over T frames that the start speed m0 and the end speed m1 (per frame) add. */
 export function flowAdd(m0, m1, u, T) {

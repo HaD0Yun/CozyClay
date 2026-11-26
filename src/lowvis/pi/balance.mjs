@@ -93,8 +93,8 @@ export function balanceRows(clip, aux, spec, scene) {
 		// the corners of a sole that are down: those within 20 mm x scale of the lowest one, the lowest first
 		const sole = (f, side) => { const j = J[`${LR[side]}Foot`], pts = SOLES[side].map(o => { const d = qRotate(rot(f, j), o); return at(f, j).map((v, k) => v + d[k] * s); }).sort((a, b) => a[1] - b[1]); return pts.filter(p => p[1] <= pts[0][1] + 0.02 * s); };
 		const acts = (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => Array.isArray(a) && Number.isInteger(a[0])).slice().sort((a, b) => a[0] - b[0]);
-		const tilts = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined);
-		const tilted = f => { const k = tilts.findLast(a => a[0] <= f); if (!k) return false; const t = k[2].tilt ?? []; return [t[0], t[1], ...(k[2].shift ?? [])].some(v => Number(v ?? 0)) || f < k[0] + (k[2].over ?? 12); }; // read as the engine reads it (spec-layers.js buildUpper)
+		const tilts = acts.filter(a => a[1] === "pose" && (a[2]?.tilt !== undefined || a[2]?.shift !== undefined));
+		const tilted = f => { const i = tilts.findLastIndex(a => a[0] <= f), k = tilts[i]; if (!k) return false; const t = k[2].tilt ?? tilts.slice(0, i).findLast(a => a[2].tilt !== undefined)?.[2].tilt ?? []; return [t[0], t[1], ...(k[2].shift ?? [])].some(v => Number(v ?? 0)) || f < k[0] + (k[2].over ?? 12); }; // read as the engine reads it (spec-layers.js buildUpper: a shift alone keeps the tilt before it)
 		// the body layer: where its pelvis stands and turns and where its feet are, frame by frame (not the pelvis's height
 		// and lean, which the engine smooths over action boundaries and an idle breathes with)
 		const layer = buildBodySized(scene.characters.find(x => x.id === c.id), (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), F, { props: layerProps, ground: () => 0 }, s);

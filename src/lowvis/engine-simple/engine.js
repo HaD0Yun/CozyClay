@@ -51,7 +51,10 @@
 //       aim: the hand that holds a prop turns so the prop's long z axis points that way, body frame; the object form
 //         points the prop's own axes (those of its size: y = its height) instead, in the body frame or with world:true
 //         the world; one axis given: the hand stays as near the forearm as it can
-//       hand target: "rest" | [x,y,z] in the body frame from the Hips joint (x = own left, z = forward)
+//       hand target: "rest" | [x,y,z] in the body frame from the Hips joint (x = own left, z = forward); an [x,y,z]
+//                      keyed before a walk or run begins moves through it as the gait moves a free hand: fully where
+//                      a free hand hangs and swings, not at all from 0.15 m off that (times the body's scale), with a
+//                      prop in that hand or an elbow target on that arm
 //                    | {prop:id} | {prop:id, face:true, y, w} | {meet:id} | {chest:id} | {world:[x,y,z]}
 //                    | {joint:name, at?:[x,y,z], of?:characterId}   a place on the own body (of: on that character's
 //                      body) that follows that joint; at = offset in the joint's own frame (the body frame at rest).
@@ -133,7 +136,7 @@ import { carriersOf, moveRiders, propKey, ridesOf } from "./ride.js";
 import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shareEvent, startFrame } from "./share.js";
 import { reachEntry } from "./reach.js";
 import { inHand, settleHold } from "./take.js";
-import { flowAdd, handsMoved, startHand, startScalar } from "./flow.js";
+import { flowAdd, handsMoved, heldSwing, startHand, startScalar, swungBefore, travelSpans } from "./flow.js";
 export { NOTES, expandRepeats };
 
 const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
@@ -157,7 +160,7 @@ function buildOnce(written, def, carrier) {
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
-		return (upper => ({ id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt), lower: lowerOf(upper.keys.hip) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body, lower: how far the hip keys lower it (air.js)
+		return (upper => ({ id: c.id, s, travels: travelSpans(acts, F), body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt), lower: lowerOf(upper.keys.hip) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body, lower: how far the hip keys lower it (air.js)
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}, props[p.id].shownKeys.length ? { shown: [] } : {}) })); // by: what carries a moving prop on each frame, shown: whether it is drawn (clip.js)
@@ -264,20 +267,20 @@ function buildOnce(written, def, carrier) {
 					const at = q => (q.to === "rest" ? null : q.to === "keep" ? (q.place ? toLocal(target(c, i, q.place, f), B) : here) : toLocal(target(c, i, q.to, f), B)); // a keep that a later key of its frame hid: its place, else where the hand is
 					const local = prev ? at(prev) : here;
 					k.from = !prev && c.rest[i] ? null : local;
-					if (k.to === "keep") { k.to = k.place ? at(k) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; } startHand(list, k, prev, c.handVel?.[i], 0.12 * c.s, at, here ?? qRotate(qY(-B.yaw), qRotate(B.q, B.hands[i]))); // flow.js
+					if (k.to === "keep") { k.to = k.place ? at(k) : (swungBefore(c, i, f) > 0 ? here : local) ?? "rest"; k.keptUp = c.up[i] > 0.5; } startHand(list, k, prev, c.handVel?.[i], 0.12 * c.s, at, here ?? qRotate(qY(-B.yaw), qRotate(B.q, B.hands[i]))); // flow.js
 				}
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u), on = k.over > 0 && u < 1 && flowAdd(k.m0, k.m1, u, k.over);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f, by: k.by ?? k.f, done: u >= 1 };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.to?.joint || k.to?.on) h.self = k.to; // a target that follows something: measured again as it ended (share.js)
-				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0]; if (on) h.flow = qRotate(qY(B.yaw), on); // flow.js
+				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0]; const sw = heldSwing(c, i, k, w, f, B, props); if (sw) { h.swing = sw; h.offset = h.offset ? add(h.offset, sw) : sw; } if (on) h.flow = qRotate(qY(B.yaw), on); // flow.js, held-swing.js
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;
 				c.restNext[i] = k.to === "rest" && w >= 1;
 			} else c.restNext[i] = true;
 			if (first) c.up[i] += (upTo - c.up[i]) * 0.3;
 			h.up = c.up[i];
-			if (c.pose && !k?.fast) h.prev = add(B.p, qRotate(qY(B.yaw), qRotate(qY(-c.prevB.yaw), sub(c.pose.pos[HAND[i]], c.prevB.p))));
+			if (c.pose && (!k?.fast || (h.swing && h.done))) { const on = p => add(B.p, qRotate(qY(B.yaw), qRotate(qY(-c.prevB.yaw), sub(p, c.prevB.p)))); h.prev = on(c.pose.pos[HAND[i]]); if (h.swing) h.led = on(c.pose.lead[i]); } // led: where the reach assist had the hand without the gait's arm (solve.js)
 			U.hands.push(h);
 		});
 		// Feet: a foot key replaces the body layer's foot (it is not planted) until a "plant" key has blended back
@@ -363,7 +366,7 @@ function buildOnce(written, def, carrier) {
 			c.poseNow = tilted(c.tilt, c.solved);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c, f);
 			if (pass === 1) aux.reach[c.id].push(ownReach(c, f, U, [
-				...U.hands.map((h, i) => h.to && h.done ? reachEntry(c, i, h.key, h.offset ? add(h.to, h.offset) : h.to, { slow: c.solved.slow[i] }) : null),
+				...U.hands.map((h, i) => h.to && h.done && !h.swing ? reachEntry(c, i, h.key, h.offset ? add(h.to, h.offset) : h.to, { slow: c.solved.slow[i] }) : null), // not a hand the gait moves (held-swing.js)
 				...U.feet.map((ft, i) => ft?.to && ft.done ? reachEntry(c, 2 + i, ft.key, ft.to, { floor: c.solved.lift[i] > 0.001 && c.solved.lift[i] }) : null),
 			], { target }));
 		}

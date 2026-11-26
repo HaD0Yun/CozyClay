@@ -159,6 +159,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 				const H = (n, i) => (ga ? ga * curve(WALK_CURVES[n], hp) : 0) + (gr && gr * (runCurve(n, v, hp) + runCurve(n, v) - WALK_WRIST[i]));
 				return [s * (0.22 + H("wristX", 0)), -0.13 + 0.03 * Math.abs(w) * (1 - act * (1 - pw)) * (1 - r) + H("wristY", 1), 0.02 + H("wristZ", 2)];
 			}),
+			...(gl > 0 && { swingZ: swingZ(ga, gr, v) }), // how far the free hands swing fore and aft (held-swing.js)
 		});
 	}
 	// lands: every plant as it lands, in order: its ankle, the other ankle (in the air: where it last landed), the hips, and
@@ -168,6 +169,13 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 		return { side, t: s.t1, g: [a[0], a[2]], other: o.planted ? [o.a[0], o.a[2]] : null, hip: [B.p[0], B.p[2]], ...(s.home && { home: [s.home[0] + dx, s.home[1] + dz] }) };
 	})).sort((x, y) => x.t - y.t).map(e => { e.other ??= lastAt[1 - e.side]; lastAt[e.side] = e.g; return e; });
 	return { frames, st: { p: posAt(T), yaw: yawAt(T), feet: cur }, lands };
+}
+
+/** The least and the most of the fore-aft part of a hand's swing in a gait frame (the wristZ of the hands' H above
+ *  without its mean) over 8 phases of the cycle: how far the free hand swings behind and ahead of its mean (m). */
+function swingZ(ga, gr, v) {
+	const z = Array.from({ length: 8 }, (_, j) => (ga ? ga * curve(WALK_CURVES.wristZ, j / 8) : 0) + (gr && gr * runCurve("wristZ", v, j / 8)));
+	return [Math.min(...z), Math.max(...z)];
 }
 
 function firstSide(st, D, dyaw) {

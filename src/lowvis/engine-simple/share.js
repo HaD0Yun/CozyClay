@@ -143,7 +143,7 @@ export function onPlaces(props, c, U, f, toBody) {
 		if (g.c !== c) continue;
 		const h = U.hands[g.i], to = toBody(add(p.c, qRotate(p.q, g.g)));
 		const own = g.kept > PAD * c.s && g.took.f !== f && h.done && h.key >= (g.since ?? g.key) ? h.to ?? "rest" : null;
-		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, flow: undefined, lead: h.flow && c.solvedF === f ? c.solved.lead[g.i] : undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, tookWhy: g.took.f === f ? g.took.why : null, prop: p.id, own, ownKey: h.by ?? h.key });
+		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, swing: undefined, flow: undefined, lead: h.flow && c.solvedF === f ? c.solved.lead[g.i] : undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, tookWhy: g.took.f === f ? g.took.why : null, prop: p.id, own, ownKey: h.by ?? h.key });
 	}
 }
 

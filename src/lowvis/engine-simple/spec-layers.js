@@ -157,6 +157,7 @@ export function buildUpper(id, acts, props, s = 1) {
 			if (o.aim !== undefined) keys.aim.push({ ...k, to: o.aim });
 			if (o.hip !== undefined) keys.hip.push({ ...k, to: o.hip });
 			if (o.tilt !== undefined) keys.tilt.push({ ...k, to: [rad(o.tilt[0] ?? 0), rad(o.tilt[1] ?? 0), ...(o.shift ?? [0, 0, 0])], about: o.about ?? "hips" });
+			else if (o.shift !== undefined) { const was = keys.tilt.findLast(q => q.f <= f); keys.tilt.push({ ...k, to: [...(was?.to.slice(0, 2) ?? [0, 0]), ...o.shift], about: o.about ?? was?.about ?? "hips" }); } // a shift alone keeps the tilt and about before it
 			if (o.look !== undefined || o.nod) keys.look.push({ ...k, to: o.look ?? keys.look.at(-1)?.to ?? "fwd", nod: o.nod });
 		} else throw new Error(`engine-simple: unknown verb "${verb}"`);
 	}

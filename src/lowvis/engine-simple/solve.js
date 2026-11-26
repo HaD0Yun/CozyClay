@@ -7,6 +7,9 @@
 //       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint,
 //       reach: the mark of a travel's frame (leg-reach.js) }
 // U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
+//                          swing: the part of offset that the gait's arm adds to a held hand (held-swing.js), led: where
+//                          the frame before had that hand without it, carried with the body (the reach assist
+//                          follows the hand as its key alone would have it),
 //                          flow: what the flow between keys adds to the blend, lead: that blend's point without it
 //                          when the caller has it (else worked out here); the reach assist follows the lead,
 //                          aim: world direction of the hand's thumb side, aimW: 0..1, or axes: { a, b, w } two
@@ -153,10 +156,10 @@ export function solve(B, U = {}) {
 			if (!h) return (lead[i] = rest);
 			let t = h.line ? mixV(h.from ?? rest, h.to ?? rest, h.w) : arc(h.from ?? rest, h.to ?? rest, h.w, sh0?.[i] ?? sh[i]); // about the shoulder of the unbent body
 			if (h.offset) t = add(t, h.offset);
-			lead[i] = h.lead ?? (h.flow && h.prev && !turned[i] ? capped(t, h.prev, sh[i])[0] : t); // the blend without its flow: what the reach assist follows
+			lead[i] = h.lead ?? (h.swing ? (h.led && !turned[i] ? capped(sub(t, h.swing), h.led, sh[i])[0] : sub(t, h.swing)) : h.flow && h.prev && !turned[i] ? capped(t, h.prev, sh[i])[0] : t); // the blend without its flow and without the gait's arm: what the reach assist follows
 			if (h.flow) t = add(t, h.flow);
 			if (h.prev && !turned[i]) [t, slow[i]] = capped(t, h.prev, sh[i]); // a turned wrist is held to its speed where it ends
-			return h.flow || h.lead ? t : (lead[i] = t);
+			return h.flow || h.lead || h.swing ? t : (lead[i] = t);
 		});
 		return { hips, qP, q1, q2, hand, lead, sh, slow };
 	};
