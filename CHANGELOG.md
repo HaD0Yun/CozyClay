@@ -1,5 +1,85 @@
 # Changelog
 
+## 3.3.3 - 2026-11-27
+
+Runs and jumps move like captured people, the two legs of a body fold apart, a scene can hold a rope, and a request to the Studio agent finishes sooner and costs less.
+
+Motion
+
+- A run follows captured runners of its speed: step rate, stride, the share
+  of each cycle in the air, the pelvis path, the chest's turn and the arm
+  swing come from gait curves by speed, the way a walk already works. A
+  straight jog or run no longer dips the hips on single frames. (#1361)
+- A body can leave the ground under gravity. `launch`, the word a prop
+  already flies by, works for a body: a jump, a hop, a leap or a drop
+  follows the path gravity gives from the frame the body leaves the ground
+  to the place it comes down, and the frames before and after take the
+  speed up and down. A walk, run or push written straight before a launch
+  does not stop first: one foot pushes off and the legs stride in the air.
+  A landing never puts the body under the floor. (#1361)
+- `sit`, `stand`, `kneel` and `idle` take `feet`, `lead` and `lag`: a foot
+  steps to a new place and stays planted, one leg folds or straightens
+  first and the other follows. The same words give one knee down, a lunge,
+  a tucked foot or a crouch with one foot ahead. With nothing written, one
+  leg leads and the other follows a little later with a small pelvis roll.
+  A `stand` after a `kneel` rises from it. (#1361)
+- A scene prop can be a line (a rope, a cable, a strap):
+  `{ id, line: { length, thick }, at }`. The engine solves its chain of
+  segments on every frame; `tie`, `over`, `untie`, `hide`, `show` and a
+  hand's `hold` key it. The Studio shows it as one object per segment and
+  reads the scene back as one line. (#1361)
+- A hand keyed in the body's frame before a walk or run keeps swinging with
+  the gait when it lies on the line a hanging hand swings over. A pose
+  key's `inout` blend follows the minimum-jerk curve, so a move between two
+  keys starts and ends softer and peaks higher in the middle. (#1361)
+- The motion tool's answer tells more of what the clip does: an `air` block
+  for every launch (frames in the air, height, take-off and landing speeds,
+  where it landed), a `legs` block (which knee came to the floor and when)
+  and a `lines` block (taut or slack per span, a fastening that jumped).
+  (#1361)
+
+Agent
+
+- A request to the Studio agent is shorter and cheaper. On 8 new requests
+  run twice on each version, a request took 255 s where it took 324 s and
+  cost 1.55 USD where it cost 2.09 USD; two runs of the same request on the
+  same version differ by 66 s and 0.52 USD, and without one request that
+  was long on the old version the time is 233 s against 262 s. (#1367)
+- A script answers with the pictures of what it made or checked (up to 8),
+  where each picture needed a call of its own. Each line of a script's
+  result keeps its warnings, missing paths and the place of a refusal.
+  (#1367)
+- Every tool refusal has one form: which argument, what was sent, what is
+  allowed, and whether anything changed. When a call on something a running
+  motion holds could not be undone, the refusal says that the change is
+  unknown instead of saying that nothing changed. (#1367)
+- The motion tool's first answer names the characters and props the motion
+  holds, other tools' answers carry the motion's state while it runs, and
+  the draft and the result carry the facts of the compile: who does what at
+  which frame, where the hips are and where they face. (#1367)
+- A finished clip survives a refused install and can be installed again, a
+  transient error on the motion writer's model request is retried, and the
+  props of the writer's first scene appear as placeholders at once. (#1367)
+- The motion writer is told only real differences. A value the engine gives
+  when nothing is wrong (a prop held in one hand with no drift and no turn)
+  is no longer a row, a row lists the other places of its kind so they
+  surface together, and a row's "was" mark compares a place with itself.
+  The writer rewrote 50 times in 16 runs where it rewrote 92 times. (#1367)
+- A call of the motion writer caches only what is new. Before, every call
+  from the third on stored about 6,000 tokens again that the next call
+  could not read, about a fifth of the writer's cost. (#1367)
+
+Known limits
+
+- Above about 5 m/s a run spends more of each cycle with both feet off the
+  ground than before, and a landing after a drop still stops the pelvis
+  harder than a person's.
+- The motion writer's first call (about 72 s) and its closing report (about
+  10 s) are as long as before.
+- A clip written before this version with an `inout` pose key, a walk or
+  run straight into a jump, or a sit, stand or kneel builds a different
+  clip when it is compiled again.
+
 ## 3.3.2 - 2026-11-26
 
 Pressing Motion on an empty stage no longer takes the Studio down, the shot camera gets a straight top-down angle and a choice of easing between its keys, a scene can hide its floor, and a host app gets a contract a release keeps.
