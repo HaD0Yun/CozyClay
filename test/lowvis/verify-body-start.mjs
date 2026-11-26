@@ -11,12 +11,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
+import { NOTES, buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip, validateClip } from "../../src/lowvis/clip.js";
 import { DEMO_IDS } from "../../src/lowvis/demos.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
 
 const hash = text => createHash("sha256").update(text).digest("hex").slice(0, 16);
+// the kneel note, said again when the two legs of a posture change came apart (legs.js), goes back to its text of then
+const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
+const KNEEL_NOW = NOTES.find(n => n.startsWith("with the feet side by side a kneel's two knees"));
 const hipsY = (clip, f, c = 0) => clip.characters[c].pos[(f * JOINT_COUNT + J.Hips) * 3 + 1];
 const pose = (clip, f) => Array.from(clip.characters[0].pos.slice(f * JOINT_COUNT * 3, (f + 1) * JOINT_COUNT * 3));
 const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
@@ -39,12 +42,25 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// clip; upper-layer keys that flow on into the next) (push the same); were locomotion 2d1a6d6afc122219, sit 69ae9ec17d853bb6, object 800f6742b10944e6, duo c856198951e663f2, push ff755b870529e06d, chop 6577f662ae05285a, bowl d85e95275202dc36)
 	// chop and bowl again when a prop key starts where the key before has the prop on its frame (were chop 598b98622653d95a,
 	// bowl a0b912519da349db), and again when a hand takes a prop as it lies (were chop 74ac71e5e65d558b, bowl 6d8e8f512143c0b1)
-	const BEFORE = { locomotion: "4c58c177f5cba59f", sit: "f2ddb31cc94c2acd", object: "9099578f0aa12435", duo: "e577d20d50c20b28", push: "ff755b870529e06d", chop: "d0ba3462c327a127", bowl: "b6fda58a89c2aece" };
+	// and so is the run note, said again when a run came to move by captured runs (gait-data.js)
+	const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
+	const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
+	// locomotion, sit and bowl pinned again with that run (locomotion: its run) and when a plant of any travel came to stay
+	// in the air until the pelvis is within a steady pace's reach of it (sit and bowl: the last steps of a walk that ends
+	// fast); were locomotion 4c58c177f5cba59f, sit f2ddb31cc94c2acd, bowl b6fda58a89c2aece
+	// locomotion, sit, object, duo and push again when a walk, run or push along a path came to lower its pelvis over the
+	// frames around a planted foot's reach (leg-reach.js: hips down only, by at most 61, 56, 2, 2 and 46 mm, on frames
+	// 97-208, 0-251, 0-2, 0-2 and 1-51; chop and bowl are the same clips); were locomotion 6f0eb4a5a4fd90c8, sit
+	// 9822cd9f58deade4, object 9099578f0aa12435, duo e577d20d50c20b28, push ff755b870529e06d
+	// object, duo, push, chop and bowl again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase);
+	// were object aaf885032f862635, duo d0449834e7919d7a, push f76161ac170ff467, chop d0ba3462c327a127, bowl f40598adcca6642a
+	// sit again when its sit, stand and kneel came to have a leading leg and a pelvis roll (legs.js); was 84d6a8d4032f4b35
+	const BEFORE = { locomotion: "25befceded8c9fdc", sit: "12338d4e5742f546", object: "f80816d6d9d79b1e", duo: "56a74df97ef6e8cb", push: "04f8b34932c751ed", chop: "efe2085789d85493", bowl: "d2f2ce56d3fe5889" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 		const { clip } = buildClip(structuredClone(spec));
-		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n));
+		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n === RUN_NOW ? RUN_WAS : n === KNEEL_NOW ? KNEEL_WAS : n));
 		for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}

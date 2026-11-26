@@ -59,7 +59,7 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	// and the SPEC words for a wrist an elbow target turns (its arm turns with it, its key's fast), put back to the old lines
 	const withoutTurned = text => text.replace(/; a wrist with no target of its own goes with it:[^]*?so the elbow points at the target/, "").replace(/ unless fast\n *\(a wrist an elbow key turns: unless that key or its hand's key says fast\)\./, " unless fast.");
 	// and the SPEC words on a written step count and its longest step (verify-counted-walk.mjs), put back to the old lines
-	const withoutSteps = text => text.replace("    With `steps` (the feet's plants; the last one brings the feet together): `stepFrames` = frames per step (default:\n    at most 13, then it stands), `ease` = how the pelvis covers the distance (\"in\" = it speeds up, so each step is\n    longer than the one before; default: a steady speed with a speed-up and a slow-down of half a second each, a\n    little more than that when steps are slower than 13 frames, so the steps between are the same length). Steps\n    longer than the gait's longest at that pace (a walk 0.75 m ahead or back, 0.44 m to the side; a run 1.2 m; a\n    push 0.4 m; times the body's scale), or a pace that puts a foot further from the hips than a steady pace of those\n    steps does (one that stops or starts at full speed), become the fewest steps that fit; the `end` spots are not\n    fitted to. A run with `facing` or of under 0.5 m times the body's scale steps as a walk. The travel line says\n    what was walked.",
+	const withoutSteps = text => text.replace("    With `steps` (the feet's plants; the last one brings the feet together): `stepFrames` = frames per step (default:\n    at most 13, then it stands), `ease` = how the pelvis covers the distance (\"in\" = it speeds up, so each step is\n    longer than the one before; default: a steady speed with a speed-up and a slow-down of half a second each, a\n    little more than that when steps are slower than 13 frames, so the steps between are the same length). Steps\n    longer than the gait's longest at that pace (a walk 0.75 m ahead or back, 0.44 m to the side; a run 1.42 m; a\n    push 0.4 m; times the body's scale), or a pace that puts a foot further from the hips than a steady pace of those\n    steps does (one that stops or starts at full speed), become the fewest steps that fit; the `end` spots are not\n    fitted to. A run with `facing` or of under 0.5 m times the body's scale steps as a walk. The travel line says\n    what was walked.",
 		"    With `steps`: `stepFrames` = frames per step (default: at most 13, then it stands), `ease` = how the pelvis\n    covers the distance (\"in\" = it speeds up, so each step is longer than the one before; default: a steady speed\n    with a speed-up and a slow-down of at most half a second each, so the steps between are the same length).");
 	// and the SPEC sentence on the balance, which later named the balance row (verify-balance-row.mjs), put back to the old one; the studio variant with that row off
 	const withoutBalance = text => text.replace("nothing moves a body to keep its balance (where\n      the tool has a balance row, that row says what it measures of a body at rest).", "nothing checks the balance.");
@@ -79,8 +79,16 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 		.replace(/ parts \(told by the Studio's scene and the tool[^\n]*?tells you when they change\./, "").replace(/\n- to the drawn: [^\n]*/, "");
 	// and the words for a body's drawn parts and the rows against them (verify-body-parts.mjs), taken out
 	const withoutBodyParts = text => text.replace(/ A body's drawn parts, named for their joints,[^\n]*?x negated\./, "").replace(/\n {19}\| \{on:characterId, part, at\?\}[^\n]*\n[^\n]*/, "").replace("(a place on a prop or a body as for a hand)", "(a place on a prop as for a hand)").replace(/\n- on a drawn body: [^\n]*/, "");
+	// and the SPEC words for a body off the ground (launch) and the air rows (verify-launch.mjs), taken out
+	const withoutLaunch = text => text.replace(/\n {4}launch \{to\?[^]*?where they left the ground\)\./, "").replace(/\n- air: [^\n]*/, "");
+	// and the SPEC words for a hand target held into a travel and the TILT words for a shift alone (held-swing.js), taken out
+	const withoutHeld = text => text.replace(/; an \[x,y,z\]\n\s*keyed before a walk[^]*?an elbow target on that arm/, "").replace(" or shift (a shift alone keeps the tilt and about)", "");
+	// and the SPEC words for the two legs of a posture change (legs.js), taken out
+	const withoutLegs = text => text.replace(/\n {4}sit \/ stand \/ kneel \/ idle \{feet\?[^]*?the knee that went down last first\./, "");
+	// and the words for a line (engine-simple/line.js, verify-line.mjs), taken out
+	const withoutLine = text => text.replace(/\n {2}Lines: a scene prop[^]*?no knots, coils or wraps\./, "").replace(" A prop with line: { length, thick } in place of size is a line (SPEC, Lines).", "").replace("a plain box, ball or line.", "a plain box or ball.").replace(/\n- lines: [^\n]*/, "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutLine(withoutLegs(withoutHeld(withoutLaunch(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant))))))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");
@@ -89,9 +97,10 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	assert.ok(!systemPrompt("studio", ["body"]).includes("tint"), "with the step off the manual has no word of it");
 	// the tool's parameters: 1695 characters (description and schema) before; a character's scale and tint add to them.
 	// 1902 since look takes a joint focus and props "outline" (verify-frame-jumps.mjs): +207
+	// 2018 since a prop may be a line: size optional, line { length, thick } (engine-simple/line.js, verify-line.mjs): +116
 	const chars = async off => (await runScene({ name: "body-schema", request: "x", variant: "studio", off, env: {}, outDir: join(TMP, "schema") })).prompt.toolChars;
-	assert.equal(await chars(["body"]), 1902, "with the step off the tool's schema is the one of before");
-	assert.ok(await chars([]) > 1902, "with it a character has the two fields");
+	assert.equal(await chars(["body"]), 2018, "with the step off the tool's schema is the one of before");
+	assert.ok(await chars([]) > 2018, "with it a character has the two fields");
 	console.log("ok manual: every variant without the body step is byte for byte the manual of before; with it the scene has scale and tint");
 }
 

@@ -14,6 +14,7 @@ import { add, cross, dot, len, mul, norm, qConj, qMul, qRotate, qY, sub, wrap } 
 import { PAD } from "./prop-frame.js";
 import { jointFrame, moveRiders } from "./ride.js";
 import { ARM_LEN } from "./solve.js";
+import { LINES, linePoint } from "./line-point.js";
 
 const HAND = [J.LeftHand, J.RightHand], ARM = [J.LeftArm, J.RightArm], SIDE = ["L", "R"];
 const END = [J.LeftHand, J.RightHand, J.LeftFoot, J.RightFoot, J.LeftForeArm, J.RightForeArm]; // the joint of each reach slot
@@ -29,6 +30,7 @@ export function startFrame(props, f, byId) {
 /** A world point on prop `id` ({on, at}), as the current pass reads the prop; final: as it ended this frame. */
 export function onPoint(props, to, final = false) {
 	const p = props[to.on];
+	if (!p && props[LINES]?.has(to.on)) return linePoint(props[LINES].get(to.on), to.at); // a line: at = metres along it (line-point.js)
 	if (!p) throw new Error(`engine-simple: {on: ${JSON.stringify(to.on)}} wants a prop id; props: ${Object.keys(props).join(", ")}`);
 	const s = final ? p : p.at1 ?? p.at0 ?? p;
 	return add(s.c, qRotate(s.q, to.at ?? [0, 0, 0]));
@@ -143,7 +145,7 @@ export function onPlaces(props, c, U, f, toBody) {
 		if (g.c !== c) continue;
 		const h = U.hands[g.i], to = toBody(add(p.c, qRotate(p.q, g.g)));
 		const own = g.kept > PAD * c.s && g.took.f !== f && h.done && h.key >= (g.since ?? g.key) ? h.to ?? "rest" : null;
-		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, flow: undefined, lead: h.flow && c.solvedF === f ? c.solved.lead[g.i] : undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, tookWhy: g.took.f === f ? g.took.why : null, prop: p.id, own, ownKey: h.by ?? h.key });
+		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, swing: undefined, flow: undefined, lead: h.flow && c.solvedF === f ? c.solved.lead[g.i] : undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, tookWhy: g.took.f === f ? g.took.why : null, prop: p.id, own, ownKey: h.by ?? h.key });
 	}
 }
 

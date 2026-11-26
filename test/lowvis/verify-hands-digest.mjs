@@ -23,19 +23,35 @@ assert.ok(NOTES.includes(NEW_NOTE), "the clip's notes say that an elbow can be g
 const OLD_HELD = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
 const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it";
 assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by several hands does");
+// and so does the run note, said again when a run came to move by captured runs (gait-data.js)
+const OLD_RUN = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
+const NEW_RUN = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
+assert.ok(NOTES.includes(NEW_RUN), "the clip's notes say what a run follows");
+// and the kneel note, said again when the two legs of a posture change came apart (legs.js)
+const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
+const KNEEL_NOW = NOTES.find(n => n.startsWith("with the feet side by side a kneel's two knees"));
+assert.ok(KNEEL_NOW, "the clip's notes say how far apart a kneel's knees come down");
 
 // pinned again when a walk's sway changed (a walk's sway grows with its walking share, unless the walk begins the clip;
 // upper-layer keys flow on into the next; push the same): was
 // locomotion 4b102ce7..., sit 1da2ec2b..., object 45d87982..., duo 45330261..., push 4f65ce12..., chop a773f584..., bowl 75232c8f...
+// locomotion, sit and bowl pinned again when a run came to move by captured runs (locomotion: its run, frames 153-313)
+// and a plant of any travel came to stay in the air until the pelvis is within a steady pace's reach of it (sit: frames
+// 231-245, bowl: 70-83; the other four demos are the same clips): were locomotion bdc5009b..., sit 3bcc2356..., bowl c3bd1854...
+// locomotion, sit, object, duo and push again when a walk, run or push along a path came to lower its pelvis over the
+// frames around a planted foot's reach (leg-reach.js; chop and bowl are the same clips): were locomotion dadc255a...,
+// sit 052113b9..., object 4732cdec..., duo 14533d7f..., push 4f65ce12...
+// object, duo, push, chop and bowl again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase);
+// were object 247e8822..., duo 9245a20f..., push 06c15ee4..., chop 5744cf77..., bowl 1370d146...
 const BEFORE = {
-	locomotion: "bdc5009bcbe6f6dd392e76c2aee19ef8f58210b15300f1ce453d56a19cd6f0a6",
-	sit: "3bcc2356b75a7599c6cf1fb65047162ad6e80e5ed61ce750c778f7280817937c",
-	object: "4732cdec73934c15f3f530726e1c10a24a394d587d57d559d0aa5798cb75304f", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
+	locomotion: "f816b718a98c94b12dea76873eeb260711e5b2ca8f87c9980dd80fe206c0d8da",
+	sit: "f3d848e6349284f559671dd57d62ecf74b1ca99b2c29b2749781b23fcd0ba85f", // was 4bcdb0fe... before its sit, stand and kneel had a leading leg and a pelvis roll (legs.js)
+	object: "b101a21bb5db73c128ba4c77a774f05c6b9d1e2bfe5c86d5d470e7a1c8516395", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
-	duo: "14533d7f3f331bdca598f72e971af64c2743a796e85ed4078c89e8f4a3c6f3d8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
-	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
-	chop: "5744cf7780906abaf219774b5eb6b3f1552795ec685c747e52cc227a10c90a78", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
-	bowl: "c3bd185499566c735bbb7e5b0e6c4f37e44d3e80ab2e54398fea3eed4bb9c786", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
+	duo: "b572757bcd0d5eaa1743dae46acfde4e8aea54652978d0bd4f04c921804143f8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
+	push: "e13803c6ccef3e8bf94120e54428089365d1e892caebc7a7be2d22a290094074",
+	chop: "a0bb8b42e83fdae8297d4efc4485f8d05a6aeff68db50ba7dcb8dc14f6cfb7bd", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
+	bowl: "aec263557dd327bd0c8e4d669765ab6066577336c3f7164baa2847c843d1eadd", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};
@@ -43,7 +59,8 @@ for (const demo of DEMO_IDS) {
 	const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 	const { clip, aux: { seats, walks, ...aux } } = buildClip(spec); // aux.seats came later (verify-body-start.mjs pins it), aux.walks too (verify-counted-walk.mjs)
 	assert.ok(Array.isArray(seats) && Array.isArray(walks), `${demo}: aux.seats and aux.walks are lists`);
-	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n));
+	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n === NEW_RUN ? OLD_RUN : n === KNEEL_NOW ? KNEEL_WAS : n));
+	delete aux.legs; // each posture change's legs came later (legs-told.js)
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	now[demo] = createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex");
 }

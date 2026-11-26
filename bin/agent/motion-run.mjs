@@ -40,6 +40,7 @@ export function beforeOf(entry, studio) {
 	}
 	for (const p of entry.scene.props ?? []) {
 		const now = studio.scene.props.find(o => o.id === p.id);
+		if (p.line) continue; // a line has no size or place to compare: the Studio tells it back with the motion's own length and thickness (scene.js)
 		tell(p.id, !now ? (p.moves ? [] : ["not in it"]) : [near(p.size, now.size, NEAR) ? null : "size", Math.abs((p.turn ?? 0) - (now.turn ?? 0)) <= 0.5 ? null : "turn", p.moves || near(p.at, now.at, NEAR) ? null : "place"].filter(Boolean));
 	}
 	return { scene: entry.scene, spec: entry.spec, differs };
@@ -78,7 +79,7 @@ const NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters
 // What becomes of what the motion writer adds; DRESSED only when the Studio agent called (it dresses the set after)
 const ADDED = "What your scene adds becomes Studio content: a new character a figure, a new prop a plain object named by its id, at the place, size and turn you give.";
 // said while the kinds step is on: what the Studio does with a new prop (it never makes an object of another kind)
-const PLAIN = "A new prop is only ever a plain box or ball, never an object of another kind: when the request needs one the scene does not list with its kind, say so in the Missing line.";
+const PLAIN = "A new prop is only ever a plain box, ball or line, never an object of another kind: when the request needs one the scene does not list with its kind, say so in the Missing line.";
 // said while the body step is on (motion-engine.mjs motionOff): what a character's scale and tint are in the Studio
 const BODIES = "A character's scale and tint are the Studio character's own scale and tint: the ones your scene gives are set on it, one it leaves out stays as the Studio has it.";
 const DRESSED = "After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
@@ -292,6 +293,6 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 		rememberBodies(key, got);
 		if (result.bodies?.length) try { onBodies(result.bodies); } catch { /* a failing view never fails the run */ }
 		const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the rig figure (model x-bot-tpose): ${switched.join(", ")}.` : record.report;
-		return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(key), travelOf(clip)), ...(carried.length ? { carried } : {}), ...(attached.length ? { attached } : {}), ...(motionFit ? { motionFit } : {}), ...(propsSet ? { propsSet } : {}), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}), installed: true, undo: result.undo };
+		return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(key), travelOf(clip)), ...(result.lines ? { lines: Object.fromEntries(Object.entries(result.lines).map(([id, made]) => [id, made.length])) } : {}), ...(carried.length ? { carried } : {}), ...(attached.length ? { attached } : {}), ...(motionFit ? { motionFit } : {}), ...(propsSet ? { propsSet } : {}), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}), installed: true, undo: result.undo };
 	}
 }

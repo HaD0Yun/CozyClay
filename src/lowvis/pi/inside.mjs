@@ -21,6 +21,7 @@ import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildUpper } from "../engine-simple/spec-layers.js";
 import { partBoxes } from "../engine-simple/parts.js";
+import { LINES } from "../engine-simple/line-point.js";
 import { LOOK_SOLIDS as LOOKS } from "../looks/solids.js";
 import { seenFrames } from "./prompt.mjs";
 
@@ -127,6 +128,7 @@ function partDepth(o, s, b, stop) {
 function contacts(spec, aux, F, def, chars) {
 	const out = {}, put = (key, e) => (out[key] ??= []).push(e);
 	const props = Object.fromEntries((def?.props ?? []).map(p => [p.id, { size: p.size, turn: 0 }]));
+	if (def?.lines?.length) props[LINES] = new Map(def.lines.map(l => [l.id, { id: l.id, L: l.line.length }])); // a hold of a line (engine-simple/line.js)
 	for (const c of chars) {
 		const acts = (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => Array.isArray(a) && Number.isInteger(a[0])).slice().sort((x, y) => x[0] - y[0]), body = acts.filter(a => BODY.has(a[1]));
 		body.forEach((a, i) => {

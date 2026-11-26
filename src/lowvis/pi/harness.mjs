@@ -33,7 +33,7 @@ const MOTION_PARAMETERS = Type.Object({
 	scene: Type.Optional(Type.Object({
 		frames: Type.Number(),
 		characters: Type.Array(Type.Object({ id: Type.String(), at: Type.Array(Type.Number()), heading: Type.Number() })),
-		props: Type.Optional(Type.Array(Type.Object({ id: Type.String(), size: Type.Array(Type.Number()), at: Type.Array(Type.Number()), turn: Type.Optional(Type.Number()), moves: Type.Optional(Type.Boolean()), shape: Type.Optional(Type.String()) }))),
+		props: Type.Optional(Type.Array(Type.Object({ id: Type.String(), size: Type.Optional(Type.Array(Type.Number())), line: Type.Optional(Type.Object({ length: Type.Number(), thick: Type.Number() })), at: Type.Array(Type.Number()), turn: Type.Optional(Type.Number()), moves: Type.Optional(Type.Boolean()), shape: Type.Optional(Type.String()) }))),
 	}, { description: "The scene. Send it in the first call and again only when it changes." })),
 	spec: Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "The motion spec: { <characterId or propId>: [[frame, verb, options], ...] }. Send the whole spec when it changes." })),
 	look: Type.Optional(Type.Object({

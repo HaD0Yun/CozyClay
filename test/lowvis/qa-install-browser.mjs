@@ -4,7 +4,7 @@
 // models are scripted: the Studio agent's (a faux provider) and the motion writer's (a local server that speaks the
 // proxy's wire format), so no model or proxy runs. Driven with real key and pointer events (CDP Input).
 //   node test/lowvis/qa-install-browser.mjs   (ports: QA_PORT 5196, QA_LIVE_PORT 5396, QA_CDP_PORT 9343; QA_OUT dir;
-//   QA_LOCALE en | ko; COZYCLAY_FIGURE as the Studio is launched; QA_PROBE contacts | contact-frames | worn: that probe instead)
+//   QA_LOCALE en | ko; COZYCLAY_FIGURE as the Studio is launched; QA_PROBE contacts | contact-frames | worn | line: that probe instead)
 // Every scene and spec here is made up for this check.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -21,6 +21,7 @@ import { scenarios } from "./qa-install-scenarios.mjs";
 import { scenarios as contactScenarios } from "./qa-contacts-scenarios.mjs";
 import { scenarios as contactFrameScenarios } from "./qa-contact-frames-scenarios.mjs";
 import { scenarios as wornScenarios } from "./qa-worn-scenarios.mjs";
+import { scenarios as lineScenarios } from "./qa-line-scenarios.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const port = Number(process.env.QA_PORT || 5196), livePort = Number(process.env.QA_LIVE_PORT || 5396), cdpPort = Number(process.env.QA_CDP_PORT || 9343);
@@ -204,7 +205,7 @@ try {
 	report.start = { characters: start.characters.map(c => c.id), objects: start.objects.length };
 
 	// QA_PROBE: one of this folder's probes in place of this check's scenarios; QA_SCENARIOS: another module's scenarios(t)
-	const probes = { contacts: contactScenarios, "contact-frames": contactFrameScenarios, worn: wornScenarios };
+	const probes = { contacts: contactScenarios, "contact-frames": contactFrameScenarios, worn: wornScenarios, line: lineScenarios };
 	await (probes[process.env.QA_PROBE] ?? (process.env.QA_SCENARIOS ? (await import(process.env.QA_SCENARIOS)).scenarios : scenarios))({ ID, hub, turn, stop, act, snapshot, last, writer, agent, gate, sleep, click, say, idle, waitFor, evaluate, shot, panelShot, pass, report, wants, assert, send, locale, press });
 	assert.deepEqual(errors, [], "no page error");
 	report.checks = checks;

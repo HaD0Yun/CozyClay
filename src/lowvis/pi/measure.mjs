@@ -21,6 +21,7 @@ import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
 import { bodyRows } from "./bodies.mjs";
 export { bodyText } from "./bodies.mjs";
+export { airLines } from "../engine-simple/air-told.js"; // a body off the ground, for the tool's text
 import { insideRows } from "./inside.mjs";
 import { gapRows } from "./gaps.mjs";
 import { JUMP, RIDE_TURN, groupJumps } from "../jumps.js";
@@ -235,7 +236,7 @@ export function checkValue(key, c) {
 		headTurn: c.headTurn, elbow: c.elbow * 100, wrist: c.wrist * 100 }[key];
 }
 
-const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie", "launch"]);
 const m2 = v => v.toFixed(2);
 /** How a written count or stepFrames of a walk (aux.walks, gait.js fitCount) differs from what it walked, as the writer reads it. */
 const toldText = w => {

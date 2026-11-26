@@ -29,19 +29,27 @@ const CASES = {
 		plank: [[20, "move", { to: [-0.8, 0.9, 0.6], axis: [0, 1, 0], deg: 60, over: 40 }]], can: [[0, "ride", { on: "plank" }], [80, "tip", { pivot: [-0.8, 0.88, 0.6], axis: [1, 0, 0], deg: 30, over: 12 }]] }],
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
+// all three again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase); were rideCarry
+// 0616df4b..., holdShare 417da90d..., rollKey 40e3f44e...; rideCarry once more (was 82262d13...) when a hand's blend to
+// rest came to take that curve only as far as the most a hand moves per frame allows (its frames 131 to 141 differ)
 const BEFORE = {
-	rideCarry: "e91d7ea82c2cb1d226f3812001a34ca1d18c6e2e6050977bb8e404222bbd7f9d", // pinned again when a walk's sway changed (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies)
-	holdShare: "417da90d1512687047bbdc1bc6ea02c1f3ef1b420bb1ef8bee4ee26e8d773af1", // was a301a50f... (before aux.grips said the frame a hand took hold; the clip is the same)
-	rollKey: "40e3f44ed85bb5dfa238aa78f2d21716486d0f12ce6cce6136507bbbbef91aed", // was 18b0abf9... (before a hand took a prop as it lies)
+	rideCarry: "afd0634dc639320c0705535723899df9a06740db3b92b6412386a02ee4df232c", // pinned again when a walk's sway changed (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies), then e91d7ea8... (before a walk along a path lowered its pelvis over the frames around a planted foot's reach)
+	holdShare: "fb77dcc7645ce91157a527d59f080161e9ec70ed29e8070c562903a3c5740fa5", // was a301a50f... (before aux.grips said the frame a hand took hold; the clip is the same)
+	rollKey: "ceeabb828dd608a71de329015e54e22bddf1b8c3205288ad68fd1fce98293e3d", // was 18b0abf9... (before a hand took a prop as it lies)
 };
 // the knee note said again when a knee's side came from knee.js (notes.js, stored in every clip) goes back to its text of then
 const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
 const KNEE_NOW = "the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target";
+// and so does the run note, said again when a run came to move by captured runs (gait-data.js); these specs have no run
+const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
+const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
+const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
 const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]]) => {
 	const { clip, aux: { rides, walks, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride); aux.walks came with the counted walk
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
 	assert.ok(clip.notes.includes(KNEE_NOW), `${name}: the clip's notes have the knee note of now`);
-	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n));
+	assert.ok(clip.notes.includes(RUN_NOW), `${name}: the clip's notes have the run note of now`);
+	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n === RUN_NOW ? RUN_WAS : n.startsWith("with the feet side by side a kneel's two knees") ? KNEEL_WAS : n)); // the kneel note, said again with legs.js
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));

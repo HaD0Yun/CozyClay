@@ -1,10 +1,15 @@
 // Effector-level pose solver: a body state B plus upper-body overrides U become the 17 world positions and
-// rotations of the clip convention. Arms and legs are analytic two-bone IK; time comes in only as the frame before's values in U.
+// rotations of the clip convention. Arms and legs are analytic two-bone IK; time comes in only as the frame before's
+// values in U and, for a frame of a travel, as the frames around it in B.reach.
 //
 // B = { p: Hips world position, q: pelvis world quaternion, yaw: heading (rad), lean, twist: chest relative to the
 //       pelvis (rad), feet: [L, R] of { a: ankle world position, q: foot world quaternion, planted, floor },
-//       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint }
+//       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint,
+//       reach: the mark of a travel's frame (leg-reach.js) }
 // U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
+//                          swing: the part of offset that the gait's arm adds to a held hand (held-swing.js), led: where
+//                          the frame before had that hand without it, carried with the body (the reach assist
+//                          follows the hand as its key alone would have it),
 //                          flow: what the flow between keys adds to the blend, lead: that blend's point without it
 //                          when the caller has it (else worked out here); the reach assist follows the lead,
 //                          aim: world direction of the hand's thumb side, aimW: 0..1, or axes: { a, b, w } two
@@ -16,6 +21,7 @@
 //       assist: the previous frame's { bend, drop } of the reach assist, knee: the previous frame's knee [L, R] (knee.js) }
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS, qAxisAngle } from "../rig17.js";
 import { kneePole } from "./knee.js";
+import { reachAround } from "./leg-reach.js";
 import { X, Y, Z, add, clamp, cross, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
 
 const SIDES = [
@@ -96,6 +102,29 @@ function limb(root, target, pole, jm, je, restPole) {
 	};
 }
 
+/** B's feet with the toe tip and the heel on or over the floor: [{ q, a, lift: metres it was raised }]. */
+const onFloor = B => B.feet.map(f => {
+	const low = Math.min(0, qRotate(f.q, TOE)[1], qRotate(f.q, SOLE)[1]);
+	return { q: f.q, a: [f.a[0], Math.max(f.a[1], (f.floor ?? 0) - low), f.a[2]], lift: Math.max(0, (f.floor ?? 0) - low - f.a[1]) };
+});
+/** The Hips at `hips` with the pelvis turned qP against B's planted feet (as onFloor has them) -> { lower: metres down
+ *  until they are in reach, most: metres the pelvis is over their reach before that (under 0: room left; null: none planted) }. */
+function inReach(hips, qP, B, feet) {
+	let lower = 0, most = null;
+	SIDES.forEach((S, i) => {
+		if (!B.feet[i].planted) return;
+		const hj = add(hips, qRotate(qP, OFFSET[S.up])), a = feet[i].a, R = 0.998 * LEG_LEN;
+		const over = hj[1] - lower - a[1] - Math.sqrt(Math.max(0, R * R - (hj[0] - a[0]) ** 2 - (hj[2] - a[2]) ** 2));
+		most = Math.max(most ?? -Infinity, over + lower);
+		if (over > 0) lower += over;
+	});
+	return { lower, most };
+}
+/** The pelvis of a body state: B.roll tips it (rad, + = left side up). */
+const pelvisOf = B => (B.roll ? qMul(B.q, qZ(B.roll)) : B.q);
+/** The Hips' height over the floor of a body state as the body layer made it. */
+const highOf = B => B.p[1] - Math.max(...B.feet.map(f => f.floor ?? 0));
+
 export function solve(B, U = {}) {
 	const yawQ = qY(B.yaw), fwd = qRotate(yawQ, Z), H = U.hands ?? [];
 	const hips0 = add(B.p, qRotate(yawQ, U.hip ?? [0, 0, 0]));
@@ -127,10 +156,10 @@ export function solve(B, U = {}) {
 			if (!h) return (lead[i] = rest);
 			let t = h.line ? mixV(h.from ?? rest, h.to ?? rest, h.w) : arc(h.from ?? rest, h.to ?? rest, h.w, sh0?.[i] ?? sh[i]); // about the shoulder of the unbent body
 			if (h.offset) t = add(t, h.offset);
-			lead[i] = h.lead ?? (h.flow && h.prev && !turned[i] ? capped(t, h.prev, sh[i])[0] : t); // the blend without its flow: what the reach assist follows
+			lead[i] = h.lead ?? (h.swing ? (h.led && !turned[i] ? capped(sub(t, h.swing), h.led, sh[i])[0] : sub(t, h.swing)) : h.flow && h.prev && !turned[i] ? capped(t, h.prev, sh[i])[0] : t); // the blend without its flow and without the gait's arm: what the reach assist follows
 			if (h.flow) t = add(t, h.flow);
 			if (h.prev && !turned[i]) [t, slow[i]] = capped(t, h.prev, sh[i]); // a turned wrist is held to its speed where it ends
-			return h.flow || h.lead ? t : (lead[i] = t);
+			return h.flow || h.lead || h.swing ? t : (lead[i] = t);
 		});
 		return { hips, qP, q1, q2, hand, lead, sh, slow };
 	};
@@ -150,17 +179,15 @@ export function solve(B, U = {}) {
 	// straighten up gradually when the target comes back into reach
 	if (U.assist && !U.noAssist) { bend = Math.max(bend, U.assist.bend - 0.09); drop = Math.max(drop, U.assist.drop - 0.035); T = torso(); }
 	// Feet: keep the toe tip and the heel on or over the floor, then lower the pelvis until planted feet are in reach.
-	const feet = B.feet.map(f => {
-		const low = Math.min(0, qRotate(f.q, TOE)[1], qRotate(f.q, SOLE)[1]);
-		return { q: f.q, a: [f.a[0], Math.max(f.a[1], (f.floor ?? 0) - low), f.a[2]], lift: Math.max(0, (f.floor ?? 0) - low - f.a[1]) };
-	});
-	let lower = 0;
-	SIDES.forEach((S, i) => {
-		if (!B.feet[i].planted) return;
-		const hj = add(T.hips, qRotate(T.qP, OFFSET[S.up])), a = feet[i].a, R = 0.998 * LEG_LEN;
-		const over = hj[1] - lower - a[1] - Math.sqrt(Math.max(0, R * R - (hj[0] - a[0]) ** 2 - (hj[2] - a[2]) ** 2));
-		if (over > 0) lower += over;
-	});
+	const feet = onFloor(B);
+	let { lower } = inReach(T.hips, T.qP, B, feet);
+	if (B.reach?.set) {
+		// a frame of a travel is lowered over the frames around a need as well (leg-reach.js): each of them with this
+		// frame's layers on it, its hips moved as far in its own heading and its pelvis turned as much
+		const move = sub(T.hips, B.p), turn = U.hipTurn ?? 0, b = bend + (U.bow ?? 0), plain = !turn && !b && !move.some(v => Math.abs(v) > 1e-12);
+		const overOf = N => inReach(plain ? N.p : add(N.p, qRotate(qY(N.yaw - B.yaw), move)), plain ? pelvisOf(N) : qMul(qMul(qY(turn), pelvisOf(N)), qX(0.6 * b)), N, onFloor(N)).most;
+		lower = Math.max(lower, reachAround(B.reach, overOf, plain, highOf));
+	}
 	if (lower > 0) T = torso(lower);
 
 	const quat = new Array(JOINT_COUNT), pos = new Array(JOINT_COUNT);

@@ -4,6 +4,7 @@ import { JOINT_COUNT } from "../rig17.js";
 import { handGrips } from "../grip.js";
 import { DEFAULT_TINT, LOOKS, sizedLook } from "../looks/index.js";
 import { clayMaterial } from "../looks/parts.js";
+import { lineSegments } from "../studio/line-objects.js";
 
 export const BACKGROUND = "#e8e5df";
 const TINTS = [DEFAULT_TINT, "#8fa8c2", "#a9bf98", "#c79aa6"]; // character a, b, c, d
@@ -107,7 +108,7 @@ function createClipGroup(clip, look) {
 		const grip = handGrips(clip, i); // which hand holds a prop at each frame; a look may close it into a fist
 		actors.push(f => body.setPose(c.pos, c.quat, f, { Left: grip.Left[f], Right: grip.Right[f] }));
 	});
-	for (const p of clip.props ?? []) {
+	for (const p of [...(clip.props ?? []), ...(clip.lines ?? []).flatMap(l => lineSegments(l, clip.frameCount))]) { // a line: one box per segment, as the Studio draws it
 		const mesh = new THREE.Mesh(p.shape === "sphere" ? new THREE.SphereGeometry(p.size[0] / 2, 24, 16) : new THREE.BoxGeometry(...p.size), clayMaterial(PROP_TINT));
 		mesh.castShadow = mesh.receiveShadow = true;
 		group.add(mesh);

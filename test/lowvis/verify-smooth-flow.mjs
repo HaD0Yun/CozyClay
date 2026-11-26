@@ -24,7 +24,8 @@ const flowing = chain(0), held = chain(1);
 const lowAt = (c, f) => Math.min(speed(c, f - 1, J.RightHand), speed(c, f, J.RightHand));
 for (const f of [12, 24]) {
 	const peak = Math.max(...[...Array(10)].map((_, k) => speed(flowing, f - 10 + k, J.RightHand)));
-	check(lowAt(flowing, f) > 0.4 * peak, `chained keys: the hand passes frame ${f} at ${lowAt(flowing, f).toFixed(2)} m/s, over 40% of the ${peak.toFixed(2)} m/s before it`);
+	// 30%, was 40% while the inout blend was the cubic: the minimum-jerk blend's own peak is 1.875 times its mean, not 1.5
+	check(lowAt(flowing, f) > 0.3 * peak, `chained keys: the hand passes frame ${f} at ${lowAt(flowing, f).toFixed(2)} m/s, over 30% of the ${peak.toFixed(2)} m/s before it`);
 	check(lowAt(held, f + f / 12) < 0.1, `with a frame between the keys the hand stops at frame ${f + f / 12} (${lowAt(held, f + f / 12).toFixed(3)} m/s)`);
 }
 // the field is on each target on the frame its key ends, as without the flow (the wrist on the asked place, within 1 mm)

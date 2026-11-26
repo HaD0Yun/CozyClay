@@ -6,10 +6,18 @@ import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across, offBox } from "./prop-frame.js";
 import { carriedFrames, carryState } from "./carry.js";
 import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
+import { fly, launch, raised } from "./air.js";
+import { STEP, beyond, legTiming, settled, stepFeet } from "./legs.js";
+import { lineHold } from "./line.js";
+import { LINES } from "./line-point.js";
 
 export { partBoxes, resolveParts } from "./parts.js";
+export { lowerOf, shiftOf } from "./air.js";
 
-export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie", "launch"]);
+/** The body actions that start from the speed the body has (air.js launch: the speed along the ground of the frames
+ *  before it): a walk, run or push straight into one hands its speed on instead of stopping (gait.js travel `onward`). */
+const ONWARD = new Set(["launch"]);
 
 export function buildBody(c, acts, F, ctx) {
 	const yaw = rad(c.heading), list = acts.filter(a => BODY.has(a[1])).map(([f, verb, o = {}]) => ({ f, verb, o }));
@@ -18,29 +26,55 @@ export function buildBody(c, acts, F, ctx) {
 	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run" || a.verb === "push");
 	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
 	if (moving(list[0])) st.full = true; // gait.js: a move that begins the clip
-	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
+	const stops = a => a.o.steps != null || a.o.facing != null || a.o.end != null, special = a => stops(a) || a.o.first != null; // stops: its count, facing or end spots end it standing
 	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
 	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
+	const flights = []; // every launch: its frames in the air (air.js)
+	const lower = ctx.lower && (f => (f < F ? ctx.lower(f) : 0)); // how far the hip keys lower the hips on a frame of the clip (air.js give)
 	const stands = []; // per frame of an action on a prop with drawn parts: that prop, and whether the body sits (parts.js standOnParts)
 	for (let i = 0; i < list.length; i++) {
-		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length;
+		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on], first = out.length, moved = !!ctx.carrier && on(a) !== frame;
 		if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
-		if (ctx.carrier && on(a) !== frame) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
+		if (moved) { ({ st, rest } = carryState(st, ctx.carrier, frame, on(a), a.f, rest)); frame = on(a); }
 		let r;
+		if (st.owed && a.verb !== "idle" && !POSTURE.has(a.verb)) st = settled(st); // legs.js: it moves on from between its feet
 		if (moving(a)) {
 			const segs = [seg(a, N)];
 			while (moving(list[i + 1]) && on(list[i + 1]) === frame && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
+			segs.at(-1).onward = ONWARD.has(list[i + 1]?.verb) && !stops(list[i]);
 			r = locomote(st, segs);
 			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
-		} else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
+		} else if (a.verb === "launch") { // air.js; with no frame on the ground before it (frame 0, or the frame the flight before it comes down on) it stands one first
+			const lo = flights.at(-1)?.f1 ?? 0, from = ctx.props[list[i - 1]?.o.on], up = from?.parts && from !== prop ? topOn(from, st.p) : 0; // the drawn top it stood on and leaves
+			r = launch(st, N, { ...a.o, heading: a.o.heading == null ? null : rad(a.o.heading) }, { out, before: moved ? hold(st, 1)[0] : null, s: c.scale ?? 1, f0: a.f, lo, was: flights.at(-1), up, wait: a.f === lo ? 1 : 0, lift: ctx.lift, lower });
+			if (r.flight) flights.push(r.flight);
+		}
+		else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
 		else if (POSTURE.has(a.verb)) { // over: frames of the change (default: the whole span), then the posture holds; 0 = at once
 			if (a.o.over != null && !(Number.isFinite(a.o.over) && a.o.over >= 0)) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: over wants a number of frames >= 0, got ${JSON.stringify(a.o.over)}`);
-			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over));
-			r = posture(c, a, st, a.o.over == null ? N : Math.max(1, T), prop, ctx);
-			if (a.o.over != null) r.frames = [...r.frames.slice(0, T), ...hold(r.st, N - T)];
-		} else { // idle: hold the posture, breathe
-			r = { frames: hold(st, N), st };
-			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
+			legWords(c, a);
+			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over)), n0 = a.o.over == null ? N : Math.max(1, T), once = a.o.over != null && T === 0;
+			const rise = a.verb === "stand" && !!st.knelt, named = a.o.feet ? ["L", "R"].filter(k => a.o.feet[k]).length : 0; // from a kneel the feet step after it rises
+			const n = Math.max(1, n0 - named * STEP, Math.min(n0, 12)), first = legTiming(a.o, st, n); // the steps come first; the change keeps 12 frames (over's, if fewer), past over if it must
+			if (rise && a.o.lead == null) first.lead = 1 - st.knelt.lead; // the knee that went down last comes up first
+			let pre, notes, legs = first; // feet set further than the legs reach in the posture step less far (legs.js beyond)
+			for (let k = 1, tries = 0; ; k *= 0.85, tries++) {
+				notes = []; pre = named && !rise ? stepFeet(st, a.o.feet, first.lead, k) : null;
+				if (pre) legs = legTiming(a.o, pre.st, n); // the leg that leads the change: as the feet stand once they have stepped
+				r = posture(c, a, pre ? pre.st : st, n, prop, { ...ctx, note: e => notes.push(e) }, legs);
+				if (!pre || !r.st.lastB || beyond(r.st.lastB) <= 0 || tries >= 12) break;
+			}
+			notes.forEach(e => ctx.note?.(e));
+			const post = named && rise ? stepFeet(r.st, a.o.feet, legs.lead) : null, all = once ? [] : [...(pre?.frames ?? []), ...r.frames, ...(post?.frames ?? [])], end = Math.min(all.length, named ? N : T); // over 0: in it at once, the feet on their spots
+			if (post) r.st = post.st;
+			r.frames = [...(all.length > N ? squeezed(all, N) : all.slice(0, end)), ...hold(r.st, N - end)];
+			ctx.legs?.({ f: a.f, f1: a.f + end, verb: a.verb, lead: legs.lead, lag: Math.round(legs.D * n), ...(named ? spots((pre ?? post).asked, r.st, frame) : { feet: null }), cut: all.length > N });
+		} else { // idle: hold the posture, breathe (feet: the named feet step first)
+			legWords(c, a);
+			const pre = a.o.feet ? stepFeet(st, a.o.feet, legTiming(a.o, st, N).lead) : null, steps = !pre ? [] : pre.frames.length > N ? squeezed(pre.frames, N) : pre.frames;
+			if (pre) { st = pre.st; ctx.legs?.({ f: a.f, f1: a.f + steps.length, verb: a.verb, ...spots(pre.asked, st, frame), cut: pre.frames.length > N }); }
+			r = { frames: [...steps, ...hold(st, N - steps.length)], st };
+			r.frames.forEach((B, k) => { if (k >= steps.length) B.lean += 0.012 * Math.sin(2 * Math.PI * (k - steps.length) / 84) * smoothEdge(k - steps.length, N - steps.length); });
 		}
 		out.push(...r.frames); st = r.st;
 		if (prop?.parts && a.verb !== "lie") for (let f = first; f < out.length; f++) stands[f] = { prop, seated: a.verb === "sit" || !!st.seat };
@@ -48,15 +82,27 @@ export function buildBody(c, acts, F, ctx) {
 	}
 	if (stands.length) standOnParts(out, stands);
 	// soften pelvis height and lean so action boundaries have no kinks (the solver still guarantees leg reach)
+	// (a frame in the air, air.js, is a clip's end to the frames beside it: the ground before and after a flight keep their heights)
+	const air = out.map((_, f) => flights.some(fl => f >= fl.f0 && f < fl.f1)), beside = (f, k) => (k < 0 || k >= F || air[k] ? f : k);
 	const blur = (get, set) => {
 		for (let pass = 0; pass < 3; pass++) {
 			const v = out.map(get);
-			out.forEach((B, f) => set(B, 0.25 * v[Math.max(0, f - 1)] + 0.5 * v[f] + 0.25 * v[Math.min(F - 1, f + 1)]));
+			out.forEach((B, f) => set(B, 0.25 * v[beside(f, f - 1)] + 0.5 * v[f] + 0.25 * v[beside(f, f + 1)]));
 		}
 	};
 	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
 	blur(B => B.lean, (B, v) => { B.lean = v; });
-	return ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
+	const world = ctx.carrier ? carriedFrames(out, ctx.carrier) : out; // carry.js: each frame to where its prop is
+	if (!flights.length) return world;
+	// the hips fly from where they are in the world to where they stand in it: a pose's shift counted (air.js shiftOf),
+	// after a flight has come down as the key in effect then leaves it
+	const shift = world.map((_, f) => ctx.lift?.(f)), held = shift.slice();
+	flights.forEach((fl, i) => { for (let f = fl.f1; f < (flights[i + 1]?.f0 ?? F); f++) held[f] = ctx.lift?.(f, fl.f1); });
+	const lifted = (by, sign) => world.forEach((B, f) => { if (by[f]?.some(Boolean)) world[f] = raised(B, by[f], sign); });
+	lifted(held, 1);
+	fly(world, flights, c.scale ?? 1, lower);
+	lifted(shift, -1);
+	return world;
 }
 
 /** The ids of the props that move (scene `moves: true`) on which some body-layer action of a character is done (`on`). */
@@ -65,9 +111,22 @@ export function bodyCarriers(spec, def) {
 	return new Set(def.characters.flatMap(c => (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(a => BODY.has(a?.[1]) && moving.has(a[2]?.on)).map(a => a[2].on)));
 }
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
+/** Steps and a change that want more frames than their action has, played in its n frames (every frame the nearest of theirs; the last is their last). */
+const squeezed = (frames, n) => Array.from({ length: n }, (_, i) => frames[Math.round((i + 1) * frames.length / n) - 1]);
+/** For legs-told.js: feet = the floor spots `feet` wrote, set = where the body layer set those feet, on = the moving prop it is on. */
+const spots = (asked, st, on) => ({ feet: asked, set: Object.fromEntries(Object.keys(asked).map(k => [k, st.feet[k === "L" ? 0 : 1].g])), on });
+/** The leg words of a posture row or idle (legs.js): feet {L?, R?: [left, forward]}, lead "L" | "R", lag frames >= 0. */
+function legWords(c, a) {
+	const at = `engine-simple: ${c.id} ${a.verb} at frame ${a.f}`, { feet, lead, lag } = a.o, spot = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+	if (feet != null && !(typeof feet === "object" && Object.keys(feet).length && Object.entries(feet).every(([k, v]) => (k === "L" || k === "R") && spot(v)))) throw new Error(`${at}: feet wants {L?: [left, forward], R?: [left, forward]} (metres), got ${JSON.stringify(feet)}`);
+	if (lead != null && lead !== "L" && lead !== "R") throw new Error(`${at}: lead wants "L" or "R", got ${JSON.stringify(lead)}`);
+	if (lag != null && !(Number.isFinite(lag) && lag >= 0)) throw new Error(`${at}: lag wants a number of frames >= 0, got ${JSON.stringify(lag)}`);
+}
 const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);
 const flat = (p, x, z) => { const d = offBox(p, [x, p.c[1], z]); return Math.hypot(d[0], d[2]); }; // floor-plane distance to a prop's footprint
 
+/** How high over the floor the drawn top of prop p is that a body at floor point [x, z] stands on (parts.js standOnParts: a top up to 0.5 m up); 0: none. */
+const topOn = (p, [x, z]) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn), y = topUnder(p.parts, (x - p.c[0]) * cs - (z - p.c[2]) * sn, (x - p.c[0]) * sn + (z - p.c[2]) * cs, 0.5 - p.c[1]); return y == null ? 0 : p.c[1] + y; };
 const ownToWorld = (p, v) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn); return [p.c[0] + v[0] * cs + v[2] * sn, p.c[1] + v[1], p.c[2] - v[0] * sn + v[2] * cs]; };
 /** The seat top (world y) of a sit on prop p with drawn parts: over the point the hips end on (st moved back by `back`),
  *  the top of part `seat` there (at its centre when the hips end off it), else the highest drawn top under the hips (the
@@ -81,19 +140,19 @@ function drawnSeat(p, seat, st, back) {
 
 /** One posture change of n frames from state st. A sit on a prop tells ctx.note how far its hips end from the seat's
  *  top and how many feet stand inside the prop's footprint. */
-function posture(c, a, st, n, prop, ctx) {
+function posture(c, a, st, n, prop, ctx, legs) {
 	if (a.verb === "sit") {
 		if (!prop && !Number.isFinite(a.o.height)) throw new Error(`engine-simple: ${c.id} sit at frame ${a.f}: wants {on: propId} or {height}`);
 		// a part to sit on (its centre is where the hips go back toward); with drawn parts the seat is the drawn top under the hips
 		const seat = prop && a.o.part != null ? partOf(prop.parts, a.o.part, prop.id, `${c.id} sit at frame ${a.f}`) : null, toward = seat ? ownToWorld(prop, seat.c) : prop?.c;
 		const d = prop ? Math.hypot(toward[0] - st.p[0], toward[2] - st.p[1]) : 0.33, back = Math.min(0.35, d);
 		const top = Number.isFinite(a.o.height) ? a.o.height : prop.parts ? drawnSeat(prop, seat, st, back) : prop.c[1] + prop.size[1] / 2;
-		const r = sit(st, n, { y: top, back }), h = r.frames.at(-1)?.p;
+		const r = sit(st, n, { y: top, back }, legs), h = r.frames.at(-1)?.p;
 		if (prop && h) ctx.note?.({ f: a.f, verb: "sit", prop: prop.id, off: flat(prop, h[0], h[2]), feetIn: st.feet.filter(ft => flat(prop, ft.g[0], ft.g[1]) === 0).length });
 		return r;
 	}
-	if (a.verb === "stand") return st.seat ? stand(st, n) : { frames: hold(st, n), st };
-	if (a.verb === "kneel") return kneel(st, n, ctx.ground);
+	if (a.verb === "stand") return stand(st, n, legs, ctx.ground) ?? { frames: hold(st, n), st };
+	if (a.verb === "kneel") return kneel(st, n, ctx.ground, legs);
 	if (!prop && !Array.isArray(a.o.at)) throw new Error(`engine-simple: ${c.id} lie at frame ${a.f}: wants {on: propId} or {at: [x, z]}`);
 	const head = rad(a.o.head ?? c.heading), at = prop ? [prop.c[0] + Math.sin(head) * 0.1, prop.c[2] + Math.cos(head) * 0.1] : a.o.at;
 	return lie(st, n, { at, head, floor: ctx.ground(at[0], at[1]) });
@@ -101,11 +160,14 @@ function posture(c, a, st, n, prop, ctx) {
 
 /** s: the size of the body (size.js): the pad between a wrist and what it holds grows with the hand. */
 export function buildUpper(id, acts, props, s = 1) {
-	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
+	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [], lineEvents = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
 		const k = { f, over: o.over ?? (verb === "hold" && o.at === undefined ? 0 : 12), ease: o.ease ?? "inout", fast: o.fast }; // a hold with no at: at once
-		if (verb === "carry") {
+		const line = props[LINES]?.get(o.prop);
+		if (line && (verb === "hold" || verb === "release")) lineHold(id, verb, o, k, keys, lineEvents, line); // line.js
+		else if (line) throw new Error(`engine-simple: ${id} ${verb} at frame ${f}: ${o.prop} is a line; a hand takes it with hold and lets go with release`);
+		else if (verb === "carry") {
 			const half = across(props[o.prop]) / 2 + PAD * s, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
@@ -130,11 +192,12 @@ export function buildUpper(id, acts, props, s = 1) {
 			if (o.aim !== undefined) keys.aim.push({ ...k, to: o.aim });
 			if (o.hip !== undefined) keys.hip.push({ ...k, to: o.hip });
 			if (o.tilt !== undefined) keys.tilt.push({ ...k, to: [rad(o.tilt[0] ?? 0), rad(o.tilt[1] ?? 0), ...(o.shift ?? [0, 0, 0])], about: o.about ?? "hips" });
+			else if (o.shift !== undefined) { const was = keys.tilt.findLast(q => q.f <= f); keys.tilt.push({ ...k, to: [...(was?.to.slice(0, 2) ?? [0, 0]), ...o.shift], about: o.about ?? was?.about ?? "hips" }); } // a shift alone keeps the tilt and about before it
 			if (o.look !== undefined || o.nod) keys.look.push({ ...k, to: o.look ?? keys.look.at(-1)?.to ?? "fwd", nod: o.nod });
 		} else throw new Error(`engine-simple: unknown verb "${verb}"`);
 	}
 	for (const list of Object.values(keys)) list.sort((a, b) => a.f - b.f || (a.auto ? 0 : 1) - (b.auto ? 0 : 1)); // a key the engine adds comes before the spec's own at the same frame
-	return { keys, events };
+	return { keys, events, ...(lineEvents.length ? { lineEvents } : {}) };
 }
 
 /** A hold: each hand's place on the prop is `at`, else where the hand is when the hold begins or the point of the prop

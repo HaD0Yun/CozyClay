@@ -26,6 +26,13 @@ export const EASE = {
 	out: t => 1 - (1 - clamp(t)) ** 2,
 	over: t => { t = clamp(t); const c = 1.70158; return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2; },
 };
+const minJerk = t => { t = clamp(t); return t * t * t * (10 + t * (6 * t - 15)); };
+/** The ease of a body's pose key (hands, trunk, hips, head, feet): inout is the minimum-jerk curve, a person's move from
+ *  rest to rest (no speed and no acceleration at either end, the fastest frame 1.875 times the mean), as far as a = 0..1
+ *  of the way from the cubic. */
+export const poseEase = (name, a = 1) => (name === "inout" && a > 0 ? t => smooth(t) + a * (minJerk(t) - smooth(t)) : EASE[name]);
+/** How far (0..1) an inout blend whose mean step is mean may go toward the minimum-jerk curve with no step over most. */
+export const toJerk = (mean, most) => clamp((most / mean - 1.5) / 0.375);
 
 export const qX = a => qAxisAngle(X, a);
 export const qY = a => qAxisAngle(Y, a);

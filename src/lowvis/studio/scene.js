@@ -11,6 +11,7 @@
 import { TRACK_RIG } from "./take.js";
 import { qRotate } from "../rig17.js";
 import { propParts } from "./parts.js";
+import { studioLines } from "./line-objects.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
 /** Rig models whose skeleton the clip can drive at scale 1; any but TRACK_RIG is changed to TRACK_RIG by the install. */
@@ -46,14 +47,14 @@ function kindOf(row, rows) {
  *  gave, as the Studio keeps them: ids.as: Map(<Studio character id> -> the id its take records, install.js `as`), and
  *  ids.props: the prop ids of the scenes the takes keep (the install names an object it makes by its prop's id). */
 function takeMoved(describe) {
-	const doc = describe?.document, open = Array.isArray(doc?.scenes) ? doc.scenes.find(scene => scene?.id === doc.activeSceneId) : null, ids = Object.assign(new Set(), { as: new Map(), props: new Set() });
+	const doc = describe?.document, open = Array.isArray(doc?.scenes) ? doc.scenes.find(scene => scene?.id === doc.activeSceneId) : null, ids = Object.assign(new Set(), { as: new Map(), props: new Set(), lines: new Map() });
 	const staged = Array.isArray(open?.stage?.characters) ? open.stage.characters : [], listed = new Set(staged.map(row => row?.id));
 	for (const row of [...staged, ...(Array.isArray(describe?.characters) ? describe.characters : []).filter(row => !listed.has(row?.id))]) {
 		const objects = row?.motionTake?.spec?.raw?.objects;
 		if (objects && typeof objects === "object" && !Array.isArray(objects)) for (const id of Object.keys(objects)) ids.add(id);
 		const kept = row?.motionTake?.spec?.lowvis;
 		if (typeof kept?.as === "string" && kept.as) ids.as.set(row.id, kept.as);
-		for (const prop of Array.isArray(kept?.scene?.props) ? kept.scene.props : []) if (typeof prop?.id === "string") ids.props.add(prop.id);
+		for (const prop of Array.isArray(kept?.scene?.props) ? kept.scene.props : []) if (typeof prop?.id === "string") { ids.props.add(prop.id); if (prop.line && Number.isFinite(prop.line.length) && Number.isFinite(prop.line.thick)) ids.lines.set(prop.id, prop); } // a line: its segments (line-objects.js)
 	}
 	return ids;
 }
@@ -121,7 +122,9 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		if (body) (ids.bodies ??= {})[row.id] = { scale, tint };
 		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)), ...(body && scale !== 1 ? { scale } : {}), ...(body && tint ? { tint } : {}) });
 	}
-	const rows = Array.isArray(describe?.objects) ? describe.objects : [], parents = new Set(rows.map(row => row?.parent).filter(Boolean));
+	const all = Array.isArray(describe?.objects) ? describe.objects : [], lines = studioLines(all, moved.lines), rows = all.filter(row => !lines.rows.has(row)), parents = new Set(rows.map(row => row?.parent).filter(Boolean));
+	for (const p of lines.props) taken.add(p.id); // a line made of segments is one prop, outside the counts below
+	if (lines.props.length) ids.lines = lines.ids;
 	// an object a take moves is offered whatever the count, its size or its tilt, beside what is offered without the take:
 	// every object keeps the id and the slot of the count it has in describe's order, so an id names the same object on
 	// the call before a take moves it and on the call after
@@ -170,5 +173,6 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 		if (drawn) { props.at(-1).parts = drawn.centre; (ids.shapes ??= {})[id] = { h: props.at(-1).size[1], parts: drawn.base }; }
 		else if (tops && !row.parts?.length) (ids.unmeasured ??= []).push(id); // nothing of it was measured (not mounted, or it draws no mesh): its shape is not known
 	}
+	props.push(...lines.props);
 	return { scene: { characters, props, others, ...(attached.length ? { attached } : {}), ...(Object.keys(studioIds).length ? { studioIds } : {}), ...(leaning.length ? { tilted: leaning } : {}) }, ids };
 }
