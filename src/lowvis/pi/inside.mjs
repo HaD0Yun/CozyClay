@@ -24,6 +24,7 @@ import { partBoxes } from "../engine-simple/parts.js";
 import { LINES } from "../engine-simple/line-point.js";
 import { LOOK_SOLIDS as LOOKS } from "../looks/solids.js";
 import { seenFrames } from "./prompt.mjs";
+import { runsOf, spanTag } from "./instances.mjs";
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -191,7 +192,7 @@ export function insideRows(clip, aux, { def, spec, look }) {
 		if (d <= limit) return;
 		const e = cases.get(key) ?? cases.set(key, { key, who, prop, part, value: 0, frame: f, frames: 0, first: f, last: -1, limit }).get(key);
 		if (e.last !== f) e.frames++;
-		e.last = f; e.limit = Math.min(e.limit, limit);
+		e.last = f; e.limit = Math.min(e.limit, limit); (e.byF ??= new Map()).set(f, Math.max(e.byF.get(f) ?? 0, d));
 		if (d > e.value) Object.assign(e, { value: d, frame: f, part });
 	};
 	const hidden = (p, f) => p.shown?.[f] === 0; // a prop the clip hides on that frame (clip.js shown)
@@ -243,9 +244,10 @@ export function insideRows(clip, aux, { def, spec, look }) {
 			}
 		}
 	}
-	// a pair past the limit on fewer frames than last a tenth of a second is not told, unless they hold the clip's first or last frame
+	// a pair past the limit on fewer frames than last a tenth of a second is not told, unless they hold the clip's first or last frame;
+	// inst: its runs of frames past the limit (instances.mjs), frames apart by less than a tenth of a second being one run
 	const seen = seenFrames(clip.fps);
-	return [...cases.values()].filter(e => e.frames >= seen || e.first === 0 || e.last === F - 1).map(e => ({ ...e, key: `inside:${e.who ?? e.part}>${e.prop}`, value: e.value * 1000, limit: e.limit * 1000 }));
+	return [...cases.values()].filter(e => e.frames >= seen || e.first === 0 || e.last === F - 1).map(({ byF, ...e }) => ({ ...e, key: `inside:${e.who ?? e.part}>${e.prop}`, value: e.value * 1000, limit: e.limit * 1000, inst: runsOf(byF, seen).map(r => ({ ...r, value: r.value * 1000, tag: spanTag(r) })) }));
 }
 
 /** What the inside lines measure and leave out, said once in a session (compile-tool.mjs): look, the look the bodies

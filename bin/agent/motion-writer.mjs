@@ -32,17 +32,27 @@ export async function modelRefused(error) {
 
 const LISTED_MS = 60_000;
 const DEFAULT_MODEL = "gpt-6-astra"; // the model a turn that names none runs on (agent-runner.mjs DEFAULT_MODEL)
-const listed = new Map(); // "<v1 base> <model id>" -> { at, ok }: a proxy's model list, asked once a minute
+const listed = new Map(); // "<v1 base> <key>" -> { at, entries } or { at, error }: a proxy's model list, asked once a minute
 const refusals = new Set(); // "<conversation> <provider>/<model>": the sign-in refused the model for the account
 
-/** Whether the proxy at v1Base with apiKey lists the model id; the answer is kept for a minute. */
+/** The entry ({ id, owned_by? }) of the model id in the model list of the proxy at v1Base with apiKey, or null. The
+ *  answer (a failed fetch too, which throws) is kept for a minute, so the writer's run (harness.mjs) reads the list its
+ *  route was chosen by instead of asking again. again: a kept failure is asked again (a run does not fail on a
+ *  request that failed before it started). */
+export async function proxyListed(v1Base, apiKey, id, { again = false } = {}) {
+	const key = `${v1Base} ${apiKey}`;
+	let known = listed.get(key);
+	if (!known || Date.now() - known.at >= LISTED_MS || (again && known.error)) {
+		try { known = { at: Date.now(), entries: (await fetchModelList(v1Base, apiKey, "CLIProxyAPI")).map(entry => (typeof entry === "string" ? { id: entry } : entry)) }; } catch (error) { known = { at: Date.now(), error }; }
+		listed.set(key, known);
+	}
+	if (known.error) throw known.error;
+	return known.entries.find(entry => entry?.id === id) ?? null;
+}
+
+/** Whether the proxy at v1Base with apiKey lists the model id (proxyListed); a failed fetch: false. */
 async function proxyLists(v1Base, apiKey, id) {
-	const key = `${v1Base} ${id}`, known = listed.get(key);
-	if (known && Date.now() - known.at < LISTED_MS) return known.ok;
-	let ok;
-	try { ok = (await fetchModelList(v1Base, apiKey, "CLIProxyAPI")).some(entry => (typeof entry === "string" ? entry : entry?.id) === id); } catch { ok = false; }
-	listed.set(key, { at: Date.now(), ok });
-	return ok;
+	try { return Boolean(await proxyListed(v1Base, apiKey, id)); } catch { return false; }
 }
 
 /** Whether the environment's CLIProxyAPI (CLIPROXY_BASE_URL and CLIPROXY_API_KEY, which the harness reads) lists the motion model; a value that is no address: false. */

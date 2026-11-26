@@ -206,8 +206,11 @@ const toolCommands = () => commands.filter(command => command.name !== "resolve_
 	assert.deepEqual(invokedCalls.slice(-5), Array(5).fill("script-1"), "the bus gives each action context.callId");
 	assert.ok(!JSON.stringify(result).includes("dataUrl"), "no dataUrl anywhere in the script result");
 	assert.ok(!raw.includes("data:image/"), "no image bytes anywhere in the SSE stream");
-	// the system message holds the prompt and tool declarations, which name data:image/ URLs in prose
-	assert.ok(!JSON.stringify(modelCalls.at(-1).messages.filter(message => message.role !== "system")).includes("data:image/"), "no image bytes reach the model");
+	// The nested verify_result's picture comes back with the script: one image part in the script's result, its row names it.
+	assert.equal(result.calls[6].picture, 1, "the verify_result row names its picture");
+	const scriptResult = modelCalls.at(-1).messages.find(message => message.role === "toolResult" && message.toolName === "script");
+	assert.deepEqual(scriptResult.content.filter(part => part.type === "image").map(part => part.data), [png.split(",")[1]], "the picture reaches the model as image content");
+	assert.ok(!scriptResult.content.find(part => part.type === "text").text.includes("data:image/"), "and not as text");
 	const placed = objects.read().slice(preTurn.objects.length);
 	assert.equal(placed.length, 5);
 	assert.ok(placed.every(object => Math.abs(Math.hypot(object.x, object.z) - 3) < 0.01), "positions were computed on a 3 m circle");

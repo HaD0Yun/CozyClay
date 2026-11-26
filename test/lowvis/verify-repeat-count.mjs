@@ -39,7 +39,9 @@ try {
 
 	const fixed = tool.call({ spec: spec(0.7) });
 	assert.doesNotMatch(fixed.text, /in a row/, `a place within reach is no spike and has no count:\n${fixed.text}`);
-	assert.match(fixed.text, /^- carry: widest wrist gap to the prop: 30\.0 mm .*\[same\]$/m, "a hand on the carried prop stays [same], no count");
+	// a hand on the carried prop at the pad the engine keeps (prop-frame.js PAD) is no difference: measured, not told (told.mjs)
+	assert.doesNotMatch(fixed.text, /^- carry: /m, "a hand on the carried prop at the pad is not told");
+	assert.equal(fixed.rows.find(r => r.key === "carryGap")?.value.toFixed(1), "30.0", "the carry row is still measured, at the pad");
 	const again = tool.call({ spec: spec(2.5) });
 	assert.match(place(again.text), /\[was \d+\.\d, worse\]$/, `the spike that comes back starts again at 1:\n${again.text}`);
 

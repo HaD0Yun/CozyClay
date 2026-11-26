@@ -69,7 +69,7 @@ const latest = JSON.parse(/^<studio-context>\n(.*)\n<\/studio-context>$/s.exec(p
 assert.equal(latest.revision.scene, 43, "the kept studio context is the latest turn's");
 assert.ok(systemPrompt.includes("<actions>"), "the system prompt carries the actions block");
 const actions = JSON.parse(/\n<actions>\n(.*)\n<\/actions>$/s.exec(systemPrompt)[1]);
-assert.deepEqual(actions, actionIndex, "the actions block is the context's actionIndex");
+assert.deepEqual(actions, actionIndex.map(({ timeoutMs: _timeoutMs, ...row }) => row), "the actions block is the context's actionIndex without the sidecar's timeoutMs");
 for (const { id } of actionIndex) assert.ok(systemPrompt.includes(id), `the system prompt names ${id}`);
 // The motion reference sits after the rules and before the actions, and the prompt prefix is the same bytes on every request.
 const reference = await motionReference();

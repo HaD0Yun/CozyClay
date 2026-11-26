@@ -35,7 +35,7 @@ const events = list => list.map(event => `${event.type ? `event: ${event.type}\n
  * motion call, then a report). served: the model ids it lists; servedAs: the name its answers give the model;
  * refuse: { at | model, status, body }: it refuses the model request of that position (1-based), or every request for that model.
  */
-async function provider({ served = [], servedAs = null, refuse = null } = {}) {
+async function provider({ served = [], servedAs = null, refuse = null, call = null } = {}) {
 	const requests = [];
 	const server = createServer(async (req, res) => {
 		const chunks = [];
@@ -49,6 +49,22 @@ async function provider({ served = [], servedAs = null, refuse = null } = {}) {
 		res.writeHead(200, { "content-type": "text/event-stream" });
 		if (path.endsWith("/messages")) {
 			const step = body.messages.filter(message => message.role === "assistant").length;
+			// call: { parts: [text, text], pauseMs }: the motion call's arguments stream in two parts with a pause between them
+			if (call && !step) {
+				res.write(events([
+					{ type: "message_start", message: { id: "msg-0", type: "message", role: "assistant", content: [], model: body.model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 100, output_tokens: 0 } } },
+					{ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "w-1", name: "motion", input: {} } },
+					{ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: call.parts[0] } },
+				]));
+				await new Promise(resolve => setTimeout(resolve, call.pauseMs));
+				res.end(events([
+					{ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: call.parts[1] } },
+					{ type: "content_block_stop", index: 0 },
+					{ type: "message_delta", delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 5 } },
+					{ type: "message_stop" },
+				]));
+				return;
+			}
 			res.end(events([
 				{ type: "message_start", message: { id: `msg-${step}`, type: "message", role: "assistant", content: [], model: servedAs ?? body.model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 100, output_tokens: 0, cache_read_input_tokens: step ? 80 : 0, cache_creation_input_tokens: step ? 5 : 80 } } },
 				{ type: "content_block_start", index: 0, content_block: step ? { type: "text", text: "" } : { type: "tool_use", id: "w-1", name: "motion", input: {} } },
@@ -215,9 +231,31 @@ function reached(server, run, { key, model, count = 2 }) {
 	console.log("PASS the answer's writer: the route, and the name the provider gave what it served when it is another one");
 }
 
+// the scene of a motion call is handed over as soon as it has streamed whole, while the rest of the call still streams
+// (pi/harness.mjs onSceneSent): once per call, the scene as sent, before that call's compile
+{
+	const scene = { frames: 24, characters: [{ id: "c1", at: [0, 0], heading: 0 }], props: [{ id: "box", size: [0.4, 0.4, 0.4], at: [1, 0.2, 1] }] }, text = JSON.stringify({ scene, spec: { c1: [[0, "idle"]] } }), cut = text.indexOf("[[0"); // the first part ends inside the spec
+	const server = await provider({ served: ["claude-opus-5-5"], call: { parts: [text.slice(0, cut), text.slice(cut)], pauseMs: 250 } });
+	signedIn({ credential: ["cliproxy", { type: "api_key", key: "stored-proxy-key", env: { CLIPROXY_BASE_URL: server.base } }] });
+	const route = await writerRoute({ env: {}, models: await registry(), picked: "cliproxy/claude-opus-5-5" }), sent = [], compiled = [];
+	const run = await runScene({ name: "scene-sent", request: "c1 waits by a box.", variant: "studio", model: route.model, effort: route.effort, env: {}, outDir: outDir(), writer: { models: route.models, model: route.piModel, provider: route.provider, via: route.via, secrets: route.secrets }, onSceneSent: ({ scene: got, atMs }) => sent.push({ got, atMs, at: performance.now() }), onCompiled: ({ n }) => compiled.push({ n, at: performance.now() }) });
+	assert.deepEqual([sent.map(s => s.got), compiled.map(c => c.n), run.infraError], [[scene], [1], null], "one hand-over of the scene as sent, then its compile");
+	assert.ok(compiled[0].at - sent[0].at >= 200 && run.firstCompileMs - run.sceneSentMs >= 200 && run.sceneSentMs === sent[0].atMs, `the scene comes while the call still streams: ${run.sceneSentMs} ms, compile ${run.firstCompileMs} ms`);
+	await server.close();
+}
+
 // 5. a sign-in that fails: the failure names the writer; no key and no address in the message or the run's files
 {
-	for (const [status, type, message] of [[401, "authentication_error", "invalid x-api-key"], [429, "rate_limit_error", "This request would exceed the rate limit."], [404, "not_found_error", "model: claude-opus-5-5"]]) {
+	// a rate limit is retried as the Studio agent's requests are (agent-stream.mjs): the second request answers and the run goes on
+	{
+		const server = await provider({ served: ["claude-opus-5-5"], refuse: { at: 1, status: 429, body: { type: "error", error: { type: "rate_limit_error", message: "This request would exceed the rate limit." } } } });
+		signedIn({ credential: ["cliproxy", { type: "api_key", key: "stored-proxy-key", env: { CLIPROXY_BASE_URL: server.base } }] });
+		const models = await registry(), answer = await motion(await writerRoute({ env: {}, models, picked: "cliproxy/claude-opus-5-5" }), outDir());
+		assert.ok(server.requests.length >= 2 && JSON.stringify(server.requests[0]) === JSON.stringify(server.requests[1]), "the refused request is sent again as it was");
+		assert.equal(answer.installed, false, "and the run ends as the provider answered it");
+		await server.close();
+	}
+	for (const [status, type, message] of [[401, "authentication_error", "invalid x-api-key"], [404, "not_found_error", "model: claude-opus-5-5"]]) {
 		const server = await provider({ served: ["claude-opus-5-5"], refuse: { at: 1, status, body: { type: "error", error: { type, message } } } });
 		signedIn({ credential: ["cliproxy", { type: "api_key", key: "stored-proxy-key", env: { CLIPROXY_BASE_URL: server.base } }] });
 		const models = await registry(), folder = outDir();

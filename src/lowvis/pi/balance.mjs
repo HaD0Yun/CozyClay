@@ -39,6 +39,7 @@ import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, REST, TIPS } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { buildBodySized } from "../engine-simple/size.js";
 import { partBoxes } from "../engine-simple/parts.js";
+import { runsOf } from "./instances.mjs";
 
 // metres at scale 1 (frames: a count). heel: a human heel reaches behind the ankle joint; the block look draws it 60 mm behind, the cube look further
 export const BALANCE = Object.freeze({ still: 0.002, frames: 12, outside: 0.03, foot: 0.09, heel: 0.06, near: 0.1, on: 0.01 });
@@ -156,21 +157,22 @@ export function balanceRows(clip, aux, spec, scene) {
 			return pts.length ? { pts, names } : null;
 		};
 		let worst = null;
-		const off = [];
+		const off = [], byF = new Map();
 		for (let f = 0; f < F; f++) {
 			if (!rest[f]) continue;
 			const sup = supports(f);
 			if (!sup) continue;
 			const m = coms[f], o = outsideHull([m[0], m[2]], sup.pts.map(q => [q[0], q[2]]));
 			if (o.d <= BALANCE.outside * s) continue;
-			off.push(f);
+			off.push(f); byF.set(f, o.d * MM);
 			if (!worst || o.d > worst.d) worst = { f, d: o.d, v: [m[0] - o.near[0], m[2] - o.near[1]], names: sup.names };
 		}
 		if (!worst) continue;
 		const held = clip.props.filter(p => String(aux.holders?.[p.id]?.[worst.f] ?? "").split("+").some(h => h.split(":")[0] === c.id)).map(p => p.id);
 		const l = at(worst.f, J.LeftUpLeg), r = at(worst.f, J.RightUpLeg), lx = l[0] - r[0], lz = l[2] - r[2], n = Math.hypot(lx, lz) || 1; // the body's left, from its hip joints
 		const side = way((worst.v[0] * -lz + worst.v[1] * lx) / n, (worst.v[0] * lx + worst.v[1] * lz) / n, posture(worst.f)?.[1] === "lie" ? ["feet", "head"] : ["front", "back"]);
-		rows.push({ key: `balance:${c.id}`, label: "at rest: centre of mass outside its supports", short: "off balance", value: worst.d * MM, unit: "mm", frame: worst.f, who: c.id, worse: 1, spike: BALANCE.outside * s * MM,
+		// inst: its spans at rest off balance, each at its worst (instances.mjs); the note names them already (listed)
+		rows.push({ key: `balance:${c.id}`, label: "at rest: centre of mass outside its supports", short: "off balance", value: worst.d * MM, unit: "mm", frame: worst.f, who: c.id, worse: 1, spike: BALANCE.outside * s * MM, inst: runsOf(byF), listed: true,
 			note: `toward its ${side}; over ${Math.round(BALANCE.outside * s * MM)} mm on ${off.length} frame${off.length === 1 ? "" : "s"} at rest (${spans(off).slice(0, 4).join(", ")}${spans(off).length > 4 ? ", ..." : ""}); supports at f${worst.f}: ${worst.names.join(", ")}${held.length ? `; it holds ${held.join(" and ")}, not weighed and not a support` : ""}` });
 	}
 	return rows;

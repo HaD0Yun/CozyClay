@@ -568,12 +568,12 @@ function registerTests() {
 		const call = (name, args) => { const tool = tools.find(t => t.name === name); return validateToolArguments(tool, { name, arguments: tool.prepareArguments(args) }); };
 		// run3 turn 2, the first motion.compile: characterId beside args, not inside it
 		assert.throws(() => call("run_action", { action: "motion.compile", characterId: "char-a", args: { characterId: "char-a", base: "spec-12350683d8db", install: false } }),
-			{ message: 'Validation failed for tool "run_action": root has unknown field "characterId"; allowed: action, args, confirmationToken. The action\'s own inputs go inside args: { "action": "<id>", "args": { ... } }.' });
+			{ message: 'INVALID_ARGUMENT: root has unknown field "characterId"; allowed: action, args, confirmationToken. The action\'s own inputs go inside args: { "action": "<id>", "args": { ... } }.\n{"tool":"run_action","at":"characterId","asked":"char-a","changed":false}' });
 		assert.throws(() => call("inspect_studio", { section: "selection" }),
-			{ message: 'Validation failed for tool "inspect_studio": root has unknown field "section"; allowed: scope, ids, select, query, cursor, limit; missing required: scope.' });
+			{ message: 'INVALID_ARGUMENT: root has unknown field "section"; allowed: scope, ids, select, query, cursor, limit; missing required: scope.\n{"tool":"inspect_studio","at":"section","asked":"selection","changed":false}' });
 		// run3 turn 1: ids as JSON text is taken as the array it encodes, and still validated
 		assert.deepEqual(call("inspect_studio", { scope: "actions", ids: '["motion.compile", "motion.describe"]' }), { scope: "actions", ids: ["motion.compile", "motion.describe"] });
-		assert.throws(() => call("inspect_studio", { scope: "actions", ids: '["bad id"]' }), /ids\.0: expected to match /);
+		assert.throws(() => call("inspect_studio", { scope: "actions", ids: '["bad id"]' }), /INVALID_ARGUMENT: Invalid arguments for inspect_studio: pattern: .*\n\{"tool":"inspect_studio","at":"ids\[0\]","asked":"bad id","changed":false\}$/s);
 		assert.deepEqual(call("run_action", { action: "motion.compile", args: { characterId: "char-a" } }), { action: "motion.compile", args: { characterId: "char-a" } });
 	});
 	test("HTTP stale epoch/token fences use authoritative injected state before execution", async()=>{

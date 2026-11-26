@@ -106,7 +106,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 		return { door, frames, result: door.with([]).find(tool => tool.name === "motion_result") };
 	};
 	const first = turn("t1");
-	assert.deepEqual(await first.door.handler({ request: "she waves" }, { toolCallId: "m1", emit: () => {} }), { ok: true, started: true });
+	assert.deepEqual((({ held: _held, ...rest }) => rest)(await first.door.handler({ request: "she waves" }, { toolCallId: "m1", emit: () => {} })), { ok: true, started: true });
 	assert.equal(await first.door.unfinished({ failed: true }), null, "a stopped turn hands nothing over");
 	assert.equal(aborted, false, "and does not stop the writer");
 	release();
@@ -275,7 +275,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 	try {
 		// turn a1 starts a motion and is stopped; a2 leaves it; the user edits a2's message: the motion is a1's and stays
 		const a1 = await turn("conv-a", "a1");
-		assert.deepEqual(await a1.handler({ request: "she waves" }, {}), { ok: true, started: true });
+		assert.deepEqual((({ held: _held, ...rest }) => rest)(await a1.handler({ request: "she waves" }, {})), { ok: true, started: true });
 		await a1.unfinished({ failed: true });
 		const a2 = await turn("conv-a", "a2");
 		assert.match(a2.note(), RUNNING);
@@ -291,7 +291,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 		await tick();
 		assert.deepEqual([b2.note(), stopped], [null, ["words of b1"]], "the motion of the message the user replaced is stopped");
 		await assert.rejects(b2.with([]).find(tool => tool.name === "motion_result").handler({}, {}), error => error.code === "NO_MOTION");
-		assert.deepEqual(await b2.handler({ request: "he hops" }, {}), { ok: true, started: true }, "and the corrected message starts its own");
+		assert.deepEqual((({ held: _held, ...rest }) => rest)(await b2.handler({ request: "he hops" }, {})), { ok: true, started: true }, "and the corrected message starts its own");
 		await b2.with([]).find(tool => tool.name === "motion_result").handler({ stop: true }, {}).catch(() => {});
 		await a3.with([]).find(tool => tool.name === "motion_result").handler({ stop: true }, {}).catch(() => {});
 	} finally { proxy.close(); }

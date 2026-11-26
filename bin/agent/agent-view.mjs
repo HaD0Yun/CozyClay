@@ -75,7 +75,8 @@ export function turnAgentView({ env = process.env, value, current, invoke }) {
 	};
 	return {
 		tools: list => list.map(tool => {
-			if (check[tool.name]) return { ...tool, handler: async (args, call) => { await check[tool.name](args); return tool.handler(args, call); } };
+			// A refusal's schema (studio-tools.mjs: the action's input, on its first refused args) is an action read too: the same view.
+			if (check[tool.name]) return { ...tool, handler: async (args, call) => { await check[tool.name](args); try { return await tool.handler(args, call); } catch (error) { if (isRecord(error?.schema)) error.schema = blockOnly(error.schema); throw error; } } };
 			if (tool.name !== "inspect_studio") return tool;
 			return { ...tool, handler: async (args, call) => {
 				const result = await tool.handler(args, call);

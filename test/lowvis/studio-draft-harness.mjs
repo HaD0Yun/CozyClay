@@ -104,20 +104,27 @@ export const stage = (props, frames = 60) => ({ frames, characters: [{ id: "a1",
  * next compile (or ends the run once all ran). end: "report" (the model's report), "infra" (the proxy fails), "none"
  * (no scene, no report). The scenes it read: requests.
  */
-export function scriptedWriter(compiles, { end = "report" } = {}) {
+export function scriptedWriter(compiles, { end = "report", scenes = false } = {}) {
 	const requests = [], files = new Map();
 	let gate = null, started = null;
 	const ready = new Promise(resolve => { started = resolve; });
 	const wait = () => new Promise(resolve => { gate = resolve; });
-	const runScene = async ({ request, log, onCompiled, signal }) => {
+	// scenes: each call's scene streams whole one step before its compile (pi/harness.mjs onSceneSent); a compile
+	// { scene } with no clip is a call whose scene streams and whose compile is then rejected
+	const runScene = async ({ request, log, onCompiled, onSceneSent, signal }) => {
 		requests.push(request);
 		started();
 		let last = null, n = 0;
 		for (const work of compiles) {
+			if (scenes && work?.scene) {
+				await Promise.race([wait(), new Promise(resolve => signal?.addEventListener("abort", resolve, { once: true }))]);
+				if (signal?.aborted) break;
+				onSceneSent?.({ scene: structuredClone(work.scene), atMs: 0 });
+			}
 			await Promise.race([wait(), new Promise(resolve => signal?.addEventListener("abort", resolve, { once: true }))]);
 			if (signal?.aborted) break;
 			n++;
-			if (!work) { log?.(`  motion ${n}: rejected (bad spec)`); continue; }
+			if (!work?.clip) { log?.(`  motion ${n}: rejected (bad spec)`); continue; }
 			files.set(`clip-${n}.json`, work.clip);
 			log?.(`  motion ${n}: ok, build 1 ms, render 1 ms, 1 image(s)`);
 			last = { n, work };

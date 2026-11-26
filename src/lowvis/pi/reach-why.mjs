@@ -9,7 +9,8 @@ import { MAX_STEP } from "../engine-simple/solve.js";
 
 const mm = v => `${Math.round(v * 1000)} mm`, m = v => `${v.toFixed(2)} m`;
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-const NAMED = 0.005, TOLD = 0.01; // m: a fact under NAMED is not named; a part of the miss over TOLD that no fact accounts for is
+// m: a fact under NAMED is not named; a part of the miss over TOLD that no fact accounts for is, and a settled miss (settledBy) that has moved by more is told again
+const NAMED = 0.005, TOLD = 0.01;
 
 /** The facts of entry e as [{ v: metres of the miss it accounts for, text }]; e0 is the limb's first entry of the action. */
 function facts(e, e0, first, S, s) {
@@ -21,9 +22,9 @@ function facts(e, e0, first, S, s) {
 		const moved = e0?.r && e.r ? dist(e.r, e0.r) : 0, b0 = e0?.bend ?? 0, b = e.bend ?? 0, d0 = e0?.drop ?? 0, d1 = e.drop ?? 0;
 		const assisted = Math.abs(b - b0) >= 0.01 || Math.abs(d1 - d0) >= 0.005; // the reach assist moved the body in between
 		const since = moved > TOLD ? `; the ${S.from} is ${mm(moved)} from where it was at f${first}, the first frame after the blend${assisted ? `, and the reach assist moved the body in between (hinge ${b0.toFixed(2)} to ${b.toFixed(2)} rad, hips lowered ${mm(d0)} to ${mm(d1)})` : ""}` : "";
-		out.push({ v: off, text: `on that frame the target is ${where}${since}${e.spent ? "; the reach assist was hinged at the hips as far as it goes" : ""}` });
+		out.push({ v: off, length: !!S.exact, text: `on that frame the target is ${where}${since}${e.spent ? "; the reach assist was hinged at the hips as far as it goes" : ""}` });
 	}
-	if (e.circle > NAMED) out.push({ v: e.circle, text: `the wrist's own target holds the elbow: with the wrist there the elbow comes no nearer than ${mm(e.circle)}` });
+	if (e.circle > NAMED) out.push({ v: e.circle, own: true, text: `the wrist's own target holds the elbow: with the wrist there the elbow comes no nearer than ${mm(e.circle)}` });
 	if (e.slow > NAMED) out.push({ v: e.slow, text: S.exact ? `late: this elbow turns its free wrist with it, a wrist moves at most ${mm(MAX_STEP * s)} a frame in the body frame unless the key says fast, and that held the elbow ${mm(e.slow)} from where its blend had it on that frame`
 		: `late: a wrist moves at most ${mm(MAX_STEP * s)} a frame in the body frame unless its key says fast, and on that frame it was still ${mm(e.slow)} short of where its blend had it` });
 	if (e.floor > NAMED) out.push({ v: e.floor, text: `the floor holds the foot: the target is ${mm(e.floor)} lower than the floor lets the ankle go` });
@@ -43,4 +44,22 @@ export function reachWhy(list, f, slot, s = 1) {
 	const why = `why: ${all.map(x => x.text).join("; also: ")}`;
 	if (rest <= TOLD) return why;
 	return rest > top ? `engine limit: no fact the engine knows accounts for ${mm(rest)} of the ${mm(e.d)}; ${why}` : `${why}; ${mm(rest)} of the ${mm(e.d)} no fact the engine knows accounts for`;
+}
+
+/** Whether one action of a limb (k: byAction's record, from instances.mjs) ends where the spec's own order of targets puts
+ *  it: on every frame it is over TOLD off, the facts are only that the same arm's wrist target holds the elbow (the
+ *  nearest the elbow can come with the wrist there and the upper arm its length) and that the target is off the sphere
+ *  the upper arm's length gives, and the first accounts for the miss to within TOLD. The SPEC text gives that order
+ *  (engine.js, elbowL|elbowR: the elbow "lies on it when the wrist's place and the arm's length allow"), so such a miss
+ *  is what the two targets ask together. Never for a hand or a foot: no target of theirs yields to another.
+ *  -> false, or TOLD in millimetres: how far such a miss may move before it is told again (told.mjs). */
+export function settledBy(list, k, slot, s = 1) {
+	const S = LIMBS[slot], first = list.findIndex(x => x && x.key === k.key);
+	for (let f = k.a; f <= k.b; f++) {
+		const e = list[f];
+		if (!e || e.key !== k.key || e.d <= TOLD) continue;
+		const all = facts(e, list[first], first, S, s), own = all.find(x => x.own);
+		if (!own || all.some(x => !x.own && !x.length) || e.d - own.v > TOLD) return false;
+	}
+	return TOLD * 1000;
 }

@@ -107,7 +107,7 @@ try {
 	const sit = written(stage([prop("stool", [0.4, 0.45, 0.4], [0, 0, -0.3]), prop("crate", [0.5, 0.5, 0.5], [3, 0, 3])]), { a1: [[0, "sit", { on: "stool", over: 0 }]] });
 	const studio = studioEditor(), writer = scriptedWriter([sit, sit]), { door, hub, value, asked } = turnOf(studio, writer, "conv-c");
 	const door1 = await door, tools = door1.with([]), result = () => tools.find(tool => tool.name === "motion_result").handler({}, {});
-	assert.deepEqual(await door1.handler({ request: "sit on the stool" }, {}), { ok: true, started: true });
+	assert.deepEqual((({ held: _held, ...rest }) => rest)(await door1.handler({ request: "sit on the stool" }, {})), { ok: true, started: true });
 	const early = result();
 	await writer.step();
 	const draft = await early, stool = studio.named("stool")[0].id, crate = studio.named("crate")[0].id;

@@ -33,7 +33,8 @@ function toolLabel(action, args = {}, who = "Agent") {
 	return `${who} is running ${action}`;
 }
 
-const shortError = error => String(error ?? "").replace(/\s*\(inspect, do not retry\)\s*$/, "").slice(0, 140);
+// a refusal's first line (bin/agent/refusal.mjs: the facts line after it is the model's)
+const shortError = error => String(error ?? "").split("\n")[0].replace(/\s*\(inspect, do not retry\)\s*$/, "").slice(0, 140);
 
 const isAsyncIterable = value => value && typeof value[Symbol.asyncIterator] === "function";
 const commandName = event => event?.action ?? event?.command ?? (event?.commandId ? event?.name : undefined) ?? event?.name ?? event?.id;

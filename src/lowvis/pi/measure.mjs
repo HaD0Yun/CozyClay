@@ -14,17 +14,20 @@
 //   short: the row's name on a sheet label
 //   worse: 1 = a higher value is worse, -1 = a value below zero is worse, 0 = neither
 //   spike: the value past which the row counts as a spike (compile-tool.mjs then shows the frames around `frame`)
+//   normal?: the value the engine gives when nothing differs from what the spec asked (told.mjs tells no row at it)
+//   inst?: the row's instances, the worst first (instances.mjs): told.mjs tells them together and marks each against itself
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qMul, qRotate } from "../engine-simple/math.js";
 import { MAX_STEP, SOLE, TOE } from "../engine-simple/solve.js";
 import { PAD } from "../engine-simple/prop-frame.js";
-import { reachWhy } from "./reach-why.mjs";
+import { reachWhy, settledBy } from "./reach-why.mjs";
+import { byAction, runsOf, spanTag } from "./instances.mjs";
 import { bodyRows } from "./bodies.mjs";
 export { bodyText } from "./bodies.mjs";
 export { airLines } from "../engine-simple/air-told.js"; // a body off the ground, for the tool's text
 import { insideRows } from "./inside.mjs";
 import { gapRows } from "./gaps.mjs";
-import { JUMP, RIDE_TURN, groupJumps } from "../jumps.js";
+import { JUMP, RIDE_TURN, groupJumps, jumpsOf } from "../jumps.js";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
 const MM = 1000, DEG = 180 / Math.PI;
@@ -100,11 +103,15 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 			turn = best(turn, { v: Math.asin(Math.min(1, Math.hypot(axis[1] * ref.axis[2] - axis[2] * ref.axis[1], axis[2] * ref.axis[0] - axis[0] * ref.axis[2], axis[0] * ref.axis[1] - axis[1] * ref.axis[0]))), f, who: c.id, prop: p.id, note: p.id });
 		}
 	}
-	row("carryGap", "carry: widest wrist gap to the prop", carryMax, "mm", MM, { short: "carry gap", worse: 1, spike: 80 });
-	row("carryIn", "carry: closest wrist to the prop", carryMin, "mm", MM, { short: "hand inside", worse: -1, spike: 50 });
+	// normal: the value the engine gives when nothing differs from what the spec asked (told.mjs tells no row at it): a
+	// carrying wrist keeps the pad off the prop's surface (prop-frame.js PAD, times the body's scale); a prop in one hand
+	// stays where it lay in the hand when the hand took it (drift and turn 0)
+	const pad = rec => rec && PAD * (clip.characters.find(c => c.id === rec.who)?.scale ?? 1) * MM;
+	row("carryGap", "carry: widest wrist gap to the prop", carryMax, "mm", MM, { short: "carry gap", worse: 1, spike: 80, normal: pad(carryMax) });
+	row("carryIn", "carry: closest wrist to the prop", carryMin, "mm", MM, { short: "hand inside", worse: -1, spike: 50, normal: pad(carryMin) });
 	if (clip.props.some(p => p.pos.length > 3)) row("freeTravel", "travel of a prop nothing holds or keys", { v: free, f: freeAt?.f, prop: freeAt?.prop }, "mm", MM, { short: "prop drifts", worse: 1, spike: 1 });
-	row("gripDrift", "prop in one hand: drift", drift, "mm", MM, { short: "grip drift", worse: 1, spike: 5 });
-	row("gripTurn", "prop in one hand: turn", turn, "deg", DEG, { short: "grip turn", worse: 1, spike: 2 });
+	row("gripDrift", "prop in one hand: drift", drift, "mm", MM, { short: "grip drift", worse: 1, spike: 5, normal: 0 });
+	row("gripTurn", "prop in one hand: turn", turn, "deg", DEG, { short: "grip turn", worse: 1, spike: 2, normal: 0 });
 	// a keyed prop starts to move while a prop is in a hand (the cut): distance from the held prop's long axis to it
 	aux.keyStarts.forEach((k, n) => {
 		for (const p of clip.props) {
@@ -112,7 +119,7 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 			const target = clip.props.find(t => t.id === k.prop), { c, q } = propAt(p, k.f);
 			let d = Infinity;
 			for (let i = 0; i <= 40; i++) { const o = qRotate(q, [0, 0, (i / 40 - 0.5) * p.size[2]]); d = Math.min(d, toBox([c[0] + o[0], c[1] + o[1], c[2] + o[2]], target, k.f)); }
-			rows.push({ key: `cut:${p.id}>${k.prop}#${n}`, label: `cut: ${p.id} to ${k.prop} when it starts to move`, short: "cut gap", value: Math.max(0, d) * MM, unit: "mm", frame: k.f, who: aux.grips[p.id][k.f].c, prop: k.prop, note: d < 0 ? `inside it by ${(-d * MM).toFixed(0)} mm` : "not touching", worse: 1, spike: 30, raw: d });
+			rows.push({ key: `cut:${p.id}>${k.prop}#${n}`, label: `cut: ${p.id} to ${k.prop} when it starts to move`, short: "cut gap", value: Math.max(0, d) * MM, unit: "mm", frame: k.f, who: aux.grips[p.id][k.f].c, prop: k.prop, note: d < 0 ? `inside it by ${(-d * MM).toFixed(0)} mm` : "not touching", worse: 1, spike: 30, raw: d, normal: 0 }); // 0: the blade touches it
 		}
 	});
 	row("headTurn", "fastest head turn", head, "deg/frame", DEG, { short: "head turn", worse: 1, spike: 12 });
@@ -137,7 +144,7 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 	// a place: how far the prop is from its target on the frame the place ends; who placed it, whether they held it, who holds it on
 	for (const p of aux.placed) {
 		const on = aux.holders?.[p.prop]?.[p.f], who = p.who?.join(" and "), note = [p.held === false && `${who} did not hold ${p.prop}, so the place did not move it`, on && `${on} hold it on`].filter(Boolean).join("; ");
-		rows.push({ key: `place:${p.prop}`, label: p.held === false ? `place: ${p.prop} is this far from its target` : `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, ...(note ? { note } : {}), worse: 1, spike: 30 });
+		rows.push({ key: `place:${p.prop}`, label: p.held === false ? `place: ${p.prop} is this far from its target` : `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, ...(note ? { note } : { normal: 0 }), worse: 1, spike: 30 }); // normal 0: on its target (share.js placed), let go by hands that held it
 	}
 	// a ride (aux.rides, ride.js) that never began: a key of the prop written after it on its frame drives the prop, or
 	// hands held it on every frame from the key to its next key or the end (who, on which frames, as the clip has it);
@@ -164,7 +171,7 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
 	// a body or a moving prop inside another prop past the limit: one row per pair, at its deepest frame
-	for (const e of inside ? insideRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who ? `${e.who}'s body` : e.part} inside ${e.prop}`, short: "inside", value: e.value, unit: "mm", frame: e.frame, who: e.who ?? undefined, prop: e.prop, note: `${e.who ? `deepest part: ${e.part}; ` : ""}deeper than ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1 });
+	for (const e of inside ? insideRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who ? `${e.who}'s body` : e.part} inside ${e.prop}`, short: "inside", value: e.value, unit: "mm", frame: e.frame, who: e.who ?? undefined, prop: e.prop, note: `${e.who ? `deepest part: ${e.part}; ` : ""}deeper than ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1, inst: e.inst });
 	// a contact the spec asks for with a prop whose drawn parts are known, past the gap (gaps.mjs): one row per body, limb and prop
 	for (const e of inside ? gapRows(clip, aux, inside) : []) rows.push({ key: e.key, label: `${e.who}'s ${e.limb} to the drawn ${e.prop}`, short: "off drawn", value: Math.abs(e.value), unit: "mm", frame: e.frame, who: e.who, prop: e.prop, note: `${e.part == null ? `${e.value > 0 ? "floats over" : "sinks into"} the drawn top under the hips` : `nearest part ${e.part}${e.limb === "seat" ? ", none drawn under the hips" : ""}`}; past ${num1(e.limit)} mm on ${e.frames} frame${e.frames === 1 ? "" : "s"}, from f${e.first} to f${e.last}`, worse: 1 });
 	if (inside?.bodies) rows.push(...bodyRows(clip, aux, inside)); // against the drawn bodies: one row per body, limb and body, riding prop and body, body and body
@@ -173,24 +180,30 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
 	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point nearest the hand ${Math.round(PAD * s * MM)} mm off the surface of ${prop}`,
 		w?.slow > 0.005 && `late: a wrist moves at most ${Math.round(MAX_STEP * s * MM)} mm a frame in the body frame unless its key says fast, and that held it ${Math.round(w.slow * MM)} mm short of its place on that frame`,
 		w?.beyond > 0.005 && `the place was ${Math.round(w.beyond * MM)} mm beyond the arm's reach from the shoulder`].filter(Boolean).map(t => `; ${t}`).join("");
+	// each of these reach rows also lists its instances, one per action (instances.mjs; told.mjs tells them together)
+	const each = (list, value, least, noteAt, more = () => ({})) => byAction(list, value, least).map(k => ({ a: k.a, b: k.b, value: k.v * MM, frame: k.f, tag: `action f${k.key}`, note: noteAt(k), ...more(k) }));
 	for (const c of clip.characters) [0, 1].forEach(i => {
 		let worst = null;
-		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.took > (worst?.v ?? 0.01)) worst = { v: at[i].took, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand, the action at f${at[i].key}${tookWhy(at[i].tookWhy, c.scale ?? 1, at[i].prop)}` }; });
-		row(`reach:${c.id}:${i}:took`, "hand took hold short of its place; the prop was pulled to the hand", worst, "mm", MM, { short: "pulled", worse: 1, spike: 60 });
+		const list = (aux.reach?.[c.id] ?? []).map(at => at[i] ?? null), tookNote = e => `${SIDE[i]} hand, the action at f${e.key}${tookWhy(e.tookWhy, c.scale ?? 1, e.prop)}`;
+		list.forEach((e, f) => { if (e?.took > (worst?.v ?? 0.01)) worst = { v: e.took, f, who: c.id, prop: e.prop, note: tookNote(e) }; });
+		row(`reach:${c.id}:${i}:took`, "hand took hold short of its place; the prop was pulled to the hand", worst, "mm", MM, { short: "pulled", worse: 1, spike: 60, inst: each(list, e => e.took ?? 0, 0.01, k => tookNote(list[k.f])) });
 		// a hand kept on its place on a prop that more hands hold, off where its own action (the hold or a later pose) puts it
 		// by more than the pad a holding wrist keeps off the prop's surface
 		let kept = null;
-		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.held > (kept?.v ?? PAD * (c.scale ?? 1))) kept = { v: at[i].held, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand; the action at f${at[i].key} has it hold ${at[i].prop}, which ${aux.holders?.[at[i].prop]?.[f]} hold on that frame, so it stays on its place on it, off where the action at f${at[i].heldKey} puts it` }; });
-		row(`reach:${c.id}:${i}:held`, "hand kept on its place on a prop that more hands hold, off where its own action puts it", kept, "mm", MM, { short: "held off", worse: 1, spike: 60 });
+		const heldNote = (e, f) => `${SIDE[i]} hand; the action at f${e.key} has it hold ${e.prop}, which ${aux.holders?.[e.prop]?.[f]} hold on that frame, so it stays on its place on it, off where the action at f${e.heldKey} puts it`;
+		list.forEach((e, f) => { if (e?.held > (kept?.v ?? PAD * (c.scale ?? 1))) kept = { v: e.held, f, who: c.id, prop: e.prop, note: heldNote(e, f) }; });
+		row(`reach:${c.id}:${i}:held`, "hand kept on its place on a prop that more hands hold, off where its own action puts it", kept, "mm", MM, { short: "held off", worse: 1, spike: 60, inst: each(list, e => e.held ?? 0, PAD * (c.scale ?? 1), k => heldNote(list[k.f], k.f)) });
 	});
 	// a hand or a foot off the target its action gave it, after that action's blend has ended: the worst frame of each limb
 	const LIMB = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], PART = ["hand", "foot", "elbow"]; // elbows only for a character with elbow keys
 	for (const c of clip.characters) LIMB.forEach((limb, i) => {
 		let worst = null, frames = 0;
 		const list = (aux.reach?.[c.id] ?? []).map(at => at[i] ?? null);
+		const noteOf = (key, n, f, v) => `${limb}, the action at f${key}; over 10 mm off on ${n} frame${n === 1 ? "" : "s"}${v > 0.01 ? `; ${reachWhy(list, f, i, c.scale ?? 1)}` : ""}`;
 		list.forEach((e, f) => { if (!e) return; if (e.d > 0.01) frames++; if (e.d > (worst?.v ?? 0.001)) worst = { v: e.d, f, who: c.id, key: e.key }; });
-		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}${worst.v > 0.01 ? `; ${reachWhy(list, worst.f, i, c.scale ?? 1)}` : ""}`;
-		if (worst) row(`reach:${c.id}:${i}`, `${PART[i >> 1]} off its target`, worst, "mm", MM, { short: `${PART[i >> 1]} off`, worse: 1, spike: 60 });
+		if (worst) worst.note = noteOf(worst.key, frames, worst.f, worst.v);
+		const inst = each(list, e => e.d, 0.001, k => noteOf(k.key, k.frames, k.f, k.v), k => ({ settled: settledBy(list, k, i, c.scale ?? 1) }));
+		if (worst) row(`reach:${c.id}:${i}`, `${PART[i >> 1]} off its target`, worst, "mm", MM, { short: `${PART[i >> 1]} off`, worse: 1, spike: 60, inst });
 	});
 	if (spec) rows.push(...jumpRows(clip, spec, rows.filter(r => r.short === "ride jump")));
 	return rows;
@@ -202,15 +215,17 @@ export function measure(clip, aux, { stretch = 0, inside = null, spec = null } =
  *  the spec's words can change something. Not on the frame of a key of its own id written with over 0 or 1, or the
  *  frame after it: that key asks for the step. Nor a prop's jump onto the place of its ride, which has its own row. */
 function jumpRows(clip, spec, rides) {
-	const F = clip.frameCount, cm = v => (v * 100).toFixed(1), out = [], near = new Set(), asked = {};
+	const F = clip.frameCount, cm = v => (v * 100).toFixed(1), out = [], near = new Map(), asked = {}; // near: frame -> the action whose key it is within a frame of
 	for (const r of rides) (asked[r.prop] ??= new Set()).add(r.frame); // told as its own row
 	for (const [id, acts] of Object.entries(spec)) for (const [f, , o] of Array.isArray(acts) ? acts : []) {
-		for (const k of o?.over > 0 ? [f, f + o.over] : [f]) for (const d of [-1, 0, 1]) near.add(k + d);
+		for (const k of o?.over > 0 ? [f, f + o.over] : [f]) for (const d of [-1, 0, 1]) if (!near.has(k + d)) near.set(k + d, `${id} f${f}`);
 		if (o?.over === 0 || o?.over === 1) (asked[id] ??= new Set()).add(f).add(f + 1);
 	}
 	const add = (key, tracks, min, tag) => {
-		const g = groupJumps(tracks, F, min, (t, f) => near.has(f) && !asked[t.id]?.has(f));
-		if (g) out.push({ key, label: "jump between two frames", short: "jump", value: g.size * 100, unit: "cm", frame: g.f, ...tag(g), worse: 1, spike: min * 100,
+		const told = (t, f) => near.has(f) && !asked[t.id]?.has(f), g = groupJumps(tracks, F, min, told), at = new Map();
+		// its instances: the runs of frames with a told jump, each at its largest and of the action it is near (instances.mjs)
+		if (g) for (const t of tracks) for (const j of jumpsOf(t.at, F, min)) if (told(t, j.f)) at.set(j.f, Math.max(at.get(j.f) ?? 0, j.size * 100));
+		if (g) out.push({ key, label: "jump between two frames", short: "jump", value: g.size * 100, unit: "cm", frame: g.f, ...tag(g), worse: 1, spike: min * 100, inst: runsOf(at).map(r => ({ ...r, tag: spanTag(r), of: near.get(r.frame) })),
 			note: `${g.part}; steps into f${g.f - 1}, f${g.f}, f${g.f + 1}: ${g.steps.map(cm).join(", ")} cm${g.frames > 1 ? `; ${g.frames} frames with one, f${g.first}-f${g.last}` : ""}${g.parts.length > 1 ? `, props ${g.parts.slice(0, 4).join(", ")}${g.parts.length > 4 ? ` and ${g.parts.length - 4} more` : ""}` : ""}` });
 	};
 	for (const c of clip.characters) add(`jump:${c.id}`, [{ part: "Hips", id: c.id, at: f => Array.from(c.pos.slice(f * JOINT_COUNT * 3, f * JOINT_COUNT * 3 + 3)) }], JUMP * (c.scale ?? 1), () => ({ who: c.id }));

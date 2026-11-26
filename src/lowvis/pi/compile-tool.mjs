@@ -10,7 +10,8 @@ import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINTS, JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats, isLine, lineLines, lineProblems, splitLines } from "../engine-simple/engine.js"; import { legLines } from "../engine-simple/legs-told.js";
-import { airLines, badness, bodyText, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
+import { airLines, badness, bodyText, checkValue, isSpike, measure, travel } from "./measure.mjs";
+import { checkLines, streakOf, toldRows } from "./told.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
 import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
 import { insideText } from "./inside.mjs";
@@ -24,7 +25,6 @@ import { runFiles } from "../../../bin/agent/motion-files.mjs";
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:|ride:|balance:|jump:|gap:|body:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -151,15 +151,6 @@ function stateTable(clip, frames) {
 	return [head, ...lines].map(l => l.map((v, k) => v.padEnd(width[k])).join("  ").trimEnd()).join("\n");
 }
 
-const rowText = r => `${r.label}: ${num(r.value, r.unit === "m/s" ? 2 : 1)} ${r.unit}${r.frame != null ? ` @f${r.frame}` : ""}${r.who ? ` ${r.who}` : ""}${r.note ? ` (${r.note})` : ""}`;
-/** " (was X)" and whether the row got worse, against the same row of the previous compile. */
-function against(row, prev) {
-	if (!prev) return { text: " [new]", worse: false };
-	if (Math.abs(row.value - prev.value) < 0.05) return { text: " [same]", worse: false };
-	const worse = badness(row) - badness(prev) > Math.max(0.05, 0.05 * badness(prev));
-	return { text: ` [was ${num(prev.value, row.unit === "m/s" ? 2 : 1)}${worse ? `, ${row.word ?? "worse"}` : ""}]`, worse };
-}
-
 /** The spikes to show: up to three rows, the worst first, one per neighbourhood of frames. */
 function spikes(rows, F) {
 	const picked = [];
@@ -191,7 +182,7 @@ function travelLines(clip, aux, spec) {
 export function createCompileTool({ name, outDir = runFiles(name, { prune: true }).outDir, clipFile = runFiles(name).clipFile, variant = "base", off = [], bodies = {}, figure = figureOf(), kept = null, shapes = null }) {
 	// about: what a kind of told line measures and leaves out, said once in a session, in the answer where such a line first appears (rowsSaid)
 	const seed = isObject(kept?.spec) ? structuredClone({ scene: isObject(kept.scene) ? kept.scene : null, spec: kept.spec }) : null;
-	const body = lookBody(figure), feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, shapes, said: toldOf(shapes), calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT, "body:": bodyText(figure) };
+	const body = lookBody(figure), feature = features(variant, off), state = { scene: seed?.scene ?? null, spec: seed?.spec ?? null, kept: !!seed, shapes, said: toldOf(shapes), calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", rowsSaid: new Set(), settledSaid: new Map(), last: null }, about = { "inside:": insideText(figure, CLIP_FPS), "balance:": BALANCE_TEXT, "body:": bodyText(figure) };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
@@ -201,8 +192,8 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 		// an edit is applied to the kept spec; when the call is rejected the spec goes back to what it was before the edit
 		const before = state.spec, edited = sent.edit !== undefined && sent.edit !== null ? applyEdit(state.spec, sent.edit) : null;
 		if (edited?.spec) state.spec = edited.spec;
-		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did, kept: state.kept };
-		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
+		const held = ["scene", "spec"].filter(k => isObject(sent[k])), base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did, kept: state.kept };
+		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? `The edit was not kept${held.includes("spec") ? "." : ": the spec is as it was before this call."}` : "", held.length ? `The tool keeps this call's ${held.join(" and ")} as sent, though nothing compiled.` : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
 		if (edited?.error) return reject(edited.error, [edited.error]);
 		const bad = problems(state.scene, state.spec, { turn: !!feature.turn, body: !!feature.body, hollow: !!feature.inside, parts: !state.shapes }); if (bad.length) return reject(bad[0], bad.slice(0, 8));
 		const look = isObject(sent.look) ? sent.look : null;
@@ -238,8 +229,9 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${named.join(" and ")}` : "the whole scene in frame"}${look.props === "outline" ? ", props as outlines" : ""}` });
 			shown.push({ frames: asked.frames, view, focus: named ?? [] });
 		}
-		// the reach rows: measured for every variant (the run record keeps them), told only where the variant has them and over 10 mm
-		const told = rows.filter(r => r.key.startsWith("inside:") ? !!feature.inside : feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && r.key.startsWith("reach:") && r.value > 10) : !r.key.startsWith("reach:"));
+		// the told rows (told.mjs): measured for every variant (the run record keeps them), told where they are a difference;
+		// a call that changed nothing (a look, the same scene and spec again) tells what the compile before it told
+		const told = changed || !state.prevRows ? toldRows(rows, feature, state.settledSaid) : state.prevRows;
 		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));
@@ -250,10 +242,7 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 		const renderMs = Math.round((performance.now() - t1) * 10) / 10;
 
 		// in a row: compiles of a changed scene or spec in a row with the same difference past its spike value (a look alone does not count)
-		const streak = changed || !state.streak ? inARow(told, state.streak) : state.streak, row = told.map(r => streak[rowId(r)]), many = row.filter(k => k > 1);
-		const prev = state.prevRows && Object.fromEntries(state.prevRows.map(r => [r.key, r])), marks = told.map(r => prev ? against(r, prev[r.key]) : { text: "", worse: false });
-		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length, fresh = Object.keys(about).filter(k => !state.rowsSaid.has(k) && told.some(r => r.key.startsWith(k)));
-		marks.forEach((m, k) => { if (row[k] > 1) m.text = m.text.replace(/\]$/, `; spike ${row[k]} compiles in a row]`); });
+		const streak = changed || !state.streak ? streakOf(told, state.streak) : state.streak, checks2 = checkLines(told, state.prevRows, streak.counts), fresh = Object.keys(about).filter(k => !state.rowsSaid.has(k) && told.some(r => r.key.startsWith(k)));
 		const text = [
 			`motion ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
 			edited?.said ?? "",
@@ -262,8 +251,7 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			bodiesText(def, body) !== state.bodiesSaid ? bodiesText(def, body) || "bodies: every character at scale 1, none with a tint" : "",
 			...shapeLines(def, state.shapes, state.said),
-			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
-			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)), ...fresh.map(k => about[k]),
+			...checks2.lines, ...fresh.map(k => about[k]),
 			...(feature.pace ? [...travelLines(parsed, aux, asBuilt), ...airLines(parsed, aux), ...legLines(parsed, aux)] : []), ...lineLines(parsed, aux), // air: engine-simple/air-told.js, legs: legs-told.js; lines: line-told.js (none without a line)
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
@@ -271,9 +259,8 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 		].filter(Boolean).join("\n");
 		state.notesSaid = true; fresh.forEach(k => state.rowsSaid.add(k)); state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def, body); state.prevRows = told; state.streak = streak; state.compiles++;
 		state.last = { key, scene: def, spec: state.spec, rows, frames: F, buildMs };
-		// told: the rows this call tells, each as its line, whether the previous compile told it too (was) and got worse
-		const toldLines = told.map((r, k) => ({ key: r.key, line: `- ${rowText(r)}${marks[k].text}`, was: Boolean(prev?.[r.key]), worse: marks[k].worse }));
-		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, told: toldLines, shown, ms: performance.now() - t0 };
+		// told: the rows this call tells, each as its line, whether the previous compile told the same difference (was) and it got worse
+		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, told: checks2.told, shown, ms: performance.now() - t0 };
 	}
 	return { call, state, clipFile, outDir, setShapes: next => { if (next && typeof next === "object") state.shapes = { ...state.shapes, ...next }; } };
 }

@@ -965,7 +965,9 @@ console.log("agent routes verified");
 	const modelError = output.content.find((part) => part.type === "text").text;
 	assert.match(modelError, /STALE_TARGET/);
 	assert.match(modelError, /Target incarnation changed; re-read the scene\./);
-	assert.match(modelError, /inspect, do not retry/, "the model sees the recovery hint");
+	// The refusal form (bin/agent/refusal.mjs): the receipt's facts, no constant hint.
+	assert.deepEqual(JSON.parse(modelError.split("\n")[1]), { tool: "arrange_objects", changed: false }, "the model sees whether the scene changed");
+	assert.ok(!/inspect, do not retry/.test(modelError), "no hint the cause does not give");
 	assert.equal(rejEvents.some((event) => event.type === "error"), false, "a rejected tool call does not fail the turn; the model continues");
 	rejServer.close();
 	console.log("PASS Studio tool rejections surface the receipt's code, message and recovery");

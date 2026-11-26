@@ -16,7 +16,8 @@ const look = recipe(part("seat", [1.2, 0.05, 0.4], [0, 0.4, 0]), part("legA", [0
 
 // a motion that fails after the draft: the proxy, a stop, the Studio's refusal of the install
 for (const how of ["infra", "stop", "refused"]) {
-	const studio = studioEditor({ refuse: action => how === "refused" && action === "motion.v4.install" });
+	let refusing = true;
+	const studio = studioEditor({ refuse: action => how === "refused" && refusing && action === "motion.v4.install" });
 	const writer = scriptedWriter([two], { end: how === "infra" ? "infra" : "report" });
 	const t = turn({ studio, writer, key: `fail-${how}` });
 	await t.call;
@@ -42,7 +43,12 @@ for (const how of ["infra", "stop", "refused"]) {
 		assert.deepEqual([studio.named("bench").map(row => row.id), studio.named("crate").length, studio.rows().length], [[bench], 1, 2], `the offered install uses the shaped stand-in: ${JSON.stringify(studio.rows().map(row => row.name))}`);
 	} else if (error) {
 		assert.equal(error.code, "studio");
-		assert.ok(error.message.endsWith(` The draft's stand-ins: removed ${crate} (not changed since the draft); left ${bench} (changed meanwhile).`), error.message);
+		assert.ok(error.message.endsWith(` The draft's stand-ins: removed ${crate} (not changed since the draft); left ${bench} (changed meanwhile). The compiled motion is kept: motion_result with install: true installs it.`), error.message);
+		// the refused install keeps its compiled motion offered: once the Studio takes it, it goes in without the writer
+		refusing = false;
+		const put = await t.door.with([]).find(tool => tool.name === "motion_result").handler({ install: true });
+		assert.equal(put.installed, true, "the kept motion installs on request");
+		assert.deepEqual([studio.named("bench").map(row => row.id), studio.named("crate").length], [[bench], 1], "on the stand-in the agent shaped");
 	}
 }
 console.log("PASS draft edges: a motion that fails, is stopped or is refused after the draft removes its untouched stand-ins and says what it removed and left");
@@ -159,3 +165,86 @@ console.log("PASS draft edges: a refused draft is rolled back and the motion ins
 	assert.deepEqual(studio.rows().map(row => row.id).sort(), [...ids, studio.named("step")[0].id].sort());
 }
 console.log("PASS draft edges: a second motion drafts only what the scene lacks; the agent's earlier object is not moved; an uncollected motion hands over the installed result");
+
+// the writer's first scene, streamed whole before its compile: its stand-ins are made ahead and the agent is not told;
+// the first compile answers the draft with them (its contacts and floor, as without a scene ahead), and its facts once;
+// a later tool answer carries the motion's state when it changed; the result names its compile and what differs since
+{
+	const studio = studioEditor(), writer = scriptedWriter([two, written(stage([prop("bench", [1.2, 0.45, 0.4], [1.3, 0, 1]), prop("crate", [0.5, 0.3, 0.4], [-1, 0, 1])]), idle)], { scenes: true }), t = turn({ studio, writer, key: "scene-first" });
+	assert.deepEqual((await t.call).held, ["a1"]);
+	let draft = null;
+	const early = t.result().then(value => { draft = value; });
+	await writer.step();
+	const ahead = studio.rows().map(row => row.id);
+	assert.deepEqual([studio.rows().map(row => row.name), draft], [["bench", "crate"], null], "the stand-ins are in the scene; no draft is answered before a compile");
+	await writer.step();
+	await early;
+	assert.deepEqual([draft.compile, draft.standIns.map(line => line.split(" (")[0]), studio.rows().map(row => row.id)], [1, ["bench", "crate"], ahead], "the first compile answers the draft with the stand-ins made ahead");
+	assert.match(draft.used, /The bodies cross the floor within/);
+	assert.deepEqual([draft.facts.compile, /^f0 hips \[.+\] facing \d+; f59 hips \[/.test(draft.facts.bodies.a1), draft.facts.rows], [1, true, undefined], "with that compile's facts");
+	const bench = studio.named("bench")[0].id;
+	assert.equal((await t.tools.sculpt({ id: bench, recipe: look })).motion, undefined, "nothing new to tell: the draft said the state");
+	await writer.step(); await writer.step();
+	assert.deepEqual((await t.tools.sculpt({ id: bench, recipe: look })).motion, { state: "being written, not installed: compile 2 went through" }, "the state, when it changed; the facts were told");
+	assert.equal((await t.tools.sculpt({ id: bench, recipe: look })).motion, undefined, "told once until the state changes");
+	await writer.step();
+	const done = await t.result();
+	assert.deepEqual([done.installed, done.facts, done.factsSince], [true, { compile: 2 }, { compile: 1, same: true }], "the bench moved, the body did not: the facts are not told again");
+	assert.equal(studio.rows().length, 2, "no second stand-in of either prop");
+}
+// a first call whose compile is rejected, then another scene: the draft is the first compile's, as without a scene
+// ahead: a stand-in made ahead that is no longer that compile's box is made again, one whose prop is gone is removed,
+// and one another caller changed meanwhile stays as it is
+for (const touch of [false, true]) {
+	const first = stage([prop("bench", [1.2, 0.45, 0.4], [1, 0, 1]), prop("crate", [0.5, 0.3, 0.4], [-1, 0, 1]), prop("post", [0.1, 1, 0.1], [2, 0, 2])]);
+	const second = written(stage([prop("bench", [1.6, 0.5, 0.4], [1, 0, 1]), prop("crate", [0.5, 0.3, 0.4], [-1, 0, 1]), prop("mat", [0.6, 0.02, 0.4], [0, 0, -1])]), idle);
+	const studio = studioEditor(), writer = scriptedWriter([{ scene: first }, second], { scenes: true }), t = turn({ studio, writer, key: `scene-rejected-${touch}` });
+	await t.call;
+	let draft = null;
+	const early = t.result().then(value => { draft = value; });
+	await writer.step(); await writer.step();
+	assert.deepEqual([studio.rows().map(row => row.name), draft], [["bench", "crate", "post"], null], "a rejected call answers no draft");
+	const crate = studio.named("crate")[0].id, bench = studio.named("bench")[0].id;
+	if (touch) studio.outside(rows => rows.map(row => (row.id === bench ? { ...row, color: "#123456" } : row)));
+	await writer.step(); await writer.step();
+	await early;
+	const size = name => shapeOf(studio.named(name)[0]).size.map(r2);
+	assert.deepEqual([draft.compile, studio.rows().map(row => row.name).sort(), studio.named("crate")[0].id, size("bench")], [2, ["bench", "crate", "mat"], crate, touch ? [1.2, 0.45, 0.4] : [1.6, 0.5, 0.4]], `touched ${touch}: the draft is compile 2's: ${JSON.stringify(draft.standIns)}`);
+	assert.ok(draft.standIns.some(line => line.startsWith("bench (") && line.includes(touch ? "1.2 x 0.45 x 0.4 m" : "1.6 x 0.5 x 0.4 m")), "and names each stand-in as the Studio holds it");
+	await writer.step();
+	assert.equal((await t.result()).installed, true);
+	assert.deepEqual(studio.rows().map(row => row.name).sort(), ["bench", "crate", "mat"], "one stand-in of each prop of the motion");
+}
+// a tool call of the agent that runs while the first compile goes through, after stand-ins were made ahead: it ends,
+// and so does the motion (the watch of the stand-ins never waits for the draft's own steps)
+{
+	const studio = studioEditor({ slow: action => (action === "object.update" ? 30 : 0) }), writer = scriptedWriter([two, two], { scenes: true }), t = turn({ studio, writer, key: "scene-busy" });
+	await t.call;
+	await writer.step();
+	const slow = t.tools.update({ id: studio.named("crate")[0].id, patch: { name: "crate" } });
+	await writer.step();
+	const ended = await Promise.race([slow.then(() => "ended"), new Promise(resolve => setTimeout(() => resolve("hangs"), 2000))]);
+	assert.equal(ended, "ended", "the call in flight at the first compile returns");
+	assert.equal((await t.result()).compile, 1);
+	await writer.step(); await writer.step(); await writer.step();
+	assert.equal((await t.result()).installed, true);
+}
+{
+	const studio = studioEditor(), writer = scriptedWriter([written(stage([]), idle)], { scenes: true }), t = turn({ studio, writer, key: "scene-none" });
+	await t.call;
+	await writer.step();
+	assert.equal(studio.rows().length, 0);
+	await writer.step();
+	assert.equal((await t.result()).compile, 1, "a scene of no new prop: nothing is made ahead");
+}
+// a motion that ends before any compile owns what was made ahead: the stand-ins not changed since are removed and named
+{
+	const studio = studioEditor(), writer = scriptedWriter([{ scene: two.scene }], { scenes: true, end: "infra" }), t = turn({ studio, writer, key: "scene-fail" });
+	await t.call;
+	await writer.step();
+	const ids = studio.rows().map(row => row.id);
+	await writer.step(); await writer.step();
+	const error = await t.result().then(answer => answer, e => e);
+	assert.deepEqual([error.code, error.message, studio.rows().length], ["upstream", `The model or the proxy failed: the proxy failed. The draft's stand-ins: removed ${ids.join(", ")} (not changed since the draft).`, 0]);
+}
+console.log("PASS draft edges: the first scene's stand-ins are made ahead and the first compile answers the draft with them; a rejected first call, a call in flight and an early failure leave what the baseline leaves; state and facts reach the agent once");

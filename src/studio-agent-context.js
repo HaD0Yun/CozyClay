@@ -34,12 +34,14 @@ export function validateStudioCursor(cursor, context) {
 }
 
 /** The compact command index the turn carries: id and label for every
- * registered command, plus the declared generation and hub timeout. The
- * description and input schema stay out; the agent reads them on request. */
+ * command an agent may call, plus the declared generation, hub timeout and look.
+ * A ui-only command is refused to every caller but the Studio UI (command-bus.js
+ * exposure), so it is not listed. The description and input schema stay out;
+ * the agent reads them on request. */
 export function studioActionIndex(actions) {
-	const available = actions.filter(action => !action.agentHidden);
-	return available.map(({ id, label, generation, timeoutMs }) => ({ id, ...(label ? { label: [...label].slice(0, 120).join("") } : {}),
-		...(generation ? { generation } : {}), ...(timeoutMs === undefined ? {} : { timeoutMs }) }));
+	const available = actions.filter(action => !action.agentHidden && action.exposure !== "ui-only");
+	return available.map(({ id, label, generation, timeoutMs, look }) => ({ id, ...(label ? { label: [...label].slice(0, 120).join("") } : {}),
+		...(generation ? { generation } : {}), ...(timeoutMs === undefined ? {} : { timeoutMs }), ...(look ? { look } : {}) }));
 }
 
 // Caller supplies a projection of authoritative refs, not the project document,

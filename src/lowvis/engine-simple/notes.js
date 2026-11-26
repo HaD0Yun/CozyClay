@@ -8,7 +8,7 @@ export const NOTES = [
 	"a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do",
 	"a held prop has no weight and pulls no body: it goes where the hands that hold it put it",
 	"a pushed prop slides with the hands; friction and weight are in the gait's timing, not simulated",
-	"a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand",
+	"a keyed prop follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand",
 	"a released prop keeps the hand's velocity exactly, so a swing that is not straight sends it off line",
 	"the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target",
 ];

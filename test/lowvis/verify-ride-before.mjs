@@ -28,6 +28,9 @@ const CASES = {
 	{ p: [[0, "hold", { prop: "ball", hand: "R" }], [10, "pose", { R: [-0.2, 0.3, 0.5], over: 14, fast: true }], [26, "release", { prop: "ball", roll: true }]],
 		plank: [[20, "move", { to: [-0.8, 0.9, 0.6], axis: [0, 1, 0], deg: 60, over: 40 }]], can: [[0, "ride", { on: "plank" }], [80, "tip", { pivot: [-0.8, 0.88, 0.6], axis: [1, 0, 0], deg: 30, over: 12 }]] }],
 };
+// the keyed-prop note no longer names one demo's objects (engine-simple/notes.js): put back to its old text before hashing
+const KEYED_WAS = "a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand";
+const KEYED_NOW = "a keyed prop follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand";
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 // all three again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase); were rideCarry
 // 0616df4b..., holdShare 417da90d..., rollKey 40e3f44e...; rideCarry once more (was 82262d13...) when a hand's blend to
@@ -49,7 +52,7 @@ const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]])
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
 	assert.ok(clip.notes.includes(KNEE_NOW), `${name}: the clip's notes have the knee note of now`);
 	assert.ok(clip.notes.includes(RUN_NOW), `${name}: the clip's notes have the run note of now`);
-	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n === RUN_NOW ? RUN_WAS : n.startsWith("with the feet side by side a kneel's two knees") ? KNEEL_WAS : n)); // the kneel note, said again with legs.js
+	clip.notes = clip.notes.map(n => (n === KEYED_NOW ? KEYED_WAS : n === KNEE_NOW ? KNEE_WAS : n === RUN_NOW ? RUN_WAS : n.startsWith("with the feet side by side a kneel's two knees") ? KNEEL_WAS : n)); // the kneel note, said again with legs.js
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));
