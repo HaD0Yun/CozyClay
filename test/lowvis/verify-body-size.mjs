@@ -85,8 +85,10 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	const withoutHeld = text => text.replace(/; an \[x,y,z\]\n\s*keyed before a walk[^]*?an elbow target on that arm/, "").replace(" or shift (a shift alone keeps the tilt and about)", "");
 	// and the SPEC words for the two legs of a posture change (legs.js), taken out
 	const withoutLegs = text => text.replace(/\n {4}sit \/ stand \/ kneel \/ idle \{feet\?[^]*?the knee that went down last first\./, "");
+	// and the words for a line (engine-simple/line.js, verify-line.mjs), taken out
+	const withoutLine = text => text.replace(/\n {2}Lines: a scene prop[^]*?no knots, coils or wraps\./, "").replace(" A prop with line: { length, thick } in place of size is a line (SPEC, Lines).", "").replace("a plain box, ball or line.", "a plain box or ball.").replace(/\n- lines: [^\n]*/, "");
 	// the inside rows (verify-inside.mjs) are switched off in the variants that have them, and the studio's kinds (verify-attach-bone.mjs)
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutLegs(withoutHeld(withoutLaunch(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant)))))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutLine(withoutLegs(withoutHeld(withoutLaunch(withoutJumps(withoutReach(withoutCarry(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(withoutSteps(withoutBalance(withoutFlow(withoutOrder(withoutParts(withoutBodyParts(systemPrompt(variant, variant === "studio" ? ["body", "inside", "balance", "kinds"] : variant === "base" ? ["inside"] : [])))))))))))))), variant))))))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");
@@ -95,9 +97,10 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	assert.ok(!systemPrompt("studio", ["body"]).includes("tint"), "with the step off the manual has no word of it");
 	// the tool's parameters: 1695 characters (description and schema) before; a character's scale and tint add to them.
 	// 1902 since look takes a joint focus and props "outline" (verify-frame-jumps.mjs): +207
+	// 2018 since a prop may be a line: size optional, line { length, thick } (engine-simple/line.js, verify-line.mjs): +116
 	const chars = async off => (await runScene({ name: "body-schema", request: "x", variant: "studio", off, env: {}, outDir: join(TMP, "schema") })).prompt.toolChars;
-	assert.equal(await chars(["body"]), 1902, "with the step off the tool's schema is the one of before");
-	assert.ok(await chars([]) > 1902, "with it a character has the two fields");
+	assert.equal(await chars(["body"]), 2018, "with the step off the tool's schema is the one of before");
+	assert.ok(await chars([]) > 2018, "with it a character has the two fields");
 	console.log("ok manual: every variant without the body step is byte for byte the manual of before; with it the scene has scale and tint");
 }
 

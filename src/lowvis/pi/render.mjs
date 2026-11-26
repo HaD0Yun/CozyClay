@@ -13,6 +13,7 @@ import { paintLabel } from "../../motion-v4/render/font.js";
 import { JOINT_COUNT, qMul, qRotate } from "../rig17.js";
 import { jointPoints, propEdges } from "./outline.mjs";
 import { FIGURE_PARTS } from "./figure.mjs";
+import { lineBoxes } from "../studio/line-objects.js";
 
 const FOV = 26; // the viewer's (src/lowvis/viewer/main.js), with its view directions
 export const VIEWS = {
@@ -71,6 +72,7 @@ function framePoints(clip, frames, focus) {
 			for (let k = 0; k < 8; k++) pts.push(c[0] + (k & 1 ? r : -r), Math.max(0, c[1] + (k & 2 ? r : -r)), c[2] + (k & 4 ? r : -r));
 		}
 	}
+	for (const l of clip.lines ?? []) if (want(l.id)) for (const f of fs) for (let i = 0; i <= l.segments; i += 4) { const o = (f * (l.segments + 1) + i) * 3; pts.push(l.points[o], l.points[o + 1], l.points[o + 2]); }
 	if (!pts.length) pts.push(-1, 0, -1, 1, 0, 1, 0, 1.8, 0);
 	return pts;
 }
@@ -142,6 +144,7 @@ function sceneAt(clip, f) {
 		}
 	});
 	for (const p of clip.props ?? []) if (p.shown?.[f] !== 0) list.push({ ...propAt(p, f), size: p.size, color: PROP, ball: p.shape === "sphere", prop: true }); // not on the frames the clip hides it
+	for (const l of clip.lines ?? []) if (l.shown?.[f] !== 0) list.push(...lineBoxes(l, f, 0.02).map(b => ({ ...b, color: PROP, prop: true }))); // at least 2 cm thick, so a thin line shows
 	return list;
 }
 

@@ -22,6 +22,7 @@ import { qConj, qMul, qRotate } from "../rig17.js";
 import { TRACK_RIG, clipTrack } from "./take.js";
 import { attachOf, eulerXYZ, turnOnBone } from "./attach.js";
 import { scaleOf } from "./figure.js";
+import { lineSegments } from "./line-objects.js";
 
 /** Ids of the cast members a clip made: "lowvis-<clip character id>". */
 export const LOWVIS_ID = /^lowvis-/;
@@ -173,7 +174,7 @@ export function placeSetLater(before, id, known) {
 export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false, drafted = null, body: look = 1, source = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, tracks = {}, owners = {}, rides = [], attached = [], F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
+	const objectIds = [], characterIds = [], switched = [], bodies = [], moved = [], placed = {}, lines = {}, tracks = {}, owners = {}, rides = [], attached = [], F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
 	for (const prop of clip.props ?? []) {
 		const known = existing?.props?.[prop.id], point = Boolean(known?.point), at = pivot(prop, 0, point), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS;
 		const own = turned && prop.shape !== "sphere" && !point; // the clip box is the object's own, turned as it is
@@ -225,6 +226,24 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			owners[id] = ownerOf(clip, prop);
 		} else if (vis) { tracks[id] = { vis }; owners[id] = ride ? ride.index : ownerOf(clip, prop); }
 	}
+	// a line: one box object per segment (line-objects.js), each on a track of the take of the character that holds it
+	// most; the segments a listed line already has are moved again when they are as many and of that length and
+	// thickness (their boxes then fit), else taken out and made anew
+	for (const line of clip.lines ?? []) {
+		const segs = lineSegments(line, F), had = existing?.lines?.[line.id], fits = had?.ids.length === segs.length && Math.abs(had.length - line.length) < 1e-6 && Math.abs(had.thick - line.thick) < 1e-6, reuse = fits ? had.ids : null;
+		if (had && !reuse && !await run("object.remove", { ids: had.ids })) return stop();
+		lines[line.id] = [];
+		for (const [k, seg] of segs.entries()) {
+			const id = reuse?.[k] ?? await addStandIn(seg, run);
+			if (!id) return stop();
+			if (!reuse) objectIds.push(id);
+			lines[line.id].push(id);
+			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
+			for (let f = 0; f < F; f++) { const p = pivot(seg, f); pos.set(p.pos, f * 3); quat.set(p.quat, f * 4); }
+			tracks[id] = { pos, quat, ...(seg.shown && Array.from(seg.shown).some(v => !v) ? { vis: Uint8Array.from(seg.shown) } : {}) };
+			owners[id] = ownerOf(clip, seg);
+		}
+	}
 
 	for (const [index, figure] of clip.characters.entries()) {
 		const known = existing?.characters?.[figure.id], characterId = known ?? `lowvis-${safe(figure.id ?? index)}`;
@@ -261,5 +280,5 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80), ...(kept ? { lowvis: kept } : {}) })) return stop();
 	}
 	const moving = Object.keys(tracks).filter(id => tracks[id].pos);
-	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}), ...(attached.length ? { attached } : {}) };
+	return { characterIds, objectIds, switched, placed, ok: true, ...(Object.keys(lines).length ? { lines } : {}), ...(bodies.length ? { bodies } : {}), ...(moved.length ? { moved } : {}), ...(moving.length ? { moving } : {}), ...(attached.length ? { attached } : {}) };
 }

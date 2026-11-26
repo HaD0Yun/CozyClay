@@ -8,6 +8,8 @@ import { carriedFrames, carryState } from "./carry.js";
 import { partOf, standOnParts, topAt, topUnder } from "./parts.js";
 import { fly, launch, raised } from "./air.js";
 import { STEP, beyond, legTiming, settled, stepFeet } from "./legs.js";
+import { lineHold } from "./line.js";
+import { LINES } from "./line-point.js";
 
 export { partBoxes, resolveParts } from "./parts.js";
 export { lowerOf, shiftOf } from "./air.js";
@@ -158,11 +160,14 @@ function posture(c, a, st, n, prop, ctx, legs) {
 
 /** s: the size of the body (size.js): the pad between a wrist and what it holds grows with the hand. */
 export function buildUpper(id, acts, props, s = 1) {
-	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
+	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [], lineEvents = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
 		const k = { f, over: o.over ?? (verb === "hold" && o.at === undefined ? 0 : 12), ease: o.ease ?? "inout", fast: o.fast }; // a hold with no at: at once
-		if (verb === "carry") {
+		const line = props[LINES]?.get(o.prop);
+		if (line && (verb === "hold" || verb === "release")) lineHold(id, verb, o, k, keys, lineEvents, line); // line.js
+		else if (line) throw new Error(`engine-simple: ${id} ${verb} at frame ${f}: ${o.prop} is a line; a hand takes it with hold and lets go with release`);
+		else if (verb === "carry") {
 			const half = across(props[o.prop]) / 2 + PAD * s, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
@@ -192,7 +197,7 @@ export function buildUpper(id, acts, props, s = 1) {
 		} else throw new Error(`engine-simple: unknown verb "${verb}"`);
 	}
 	for (const list of Object.values(keys)) list.sort((a, b) => a.f - b.f || (a.auto ? 0 : 1) - (b.auto ? 0 : 1)); // a key the engine adds comes before the spec's own at the same frame
-	return { keys, events };
+	return { keys, events, ...(lineEvents.length ? { lineEvents } : {}) };
 }
 
 /** A hold: each hand's place on the prop is `at`, else where the hand is when the hold begins or the point of the prop

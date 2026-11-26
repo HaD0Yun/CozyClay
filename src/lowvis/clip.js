@@ -14,7 +14,10 @@
 //                                                    // it, else the character (a joint) or the prop it rides; [] none
 //                                                    // optional shown (a prop with hide / show keys): per frame of the
 //                                                    // clip (F entries, also for a static prop), 1 drawn, 0 hidden
-//   stats: { buildMs, ... }                          // free form; buildMs = time to compute the clip
+//   lines: [{ id, length, thick, segments: n, points: [F*(n+1)*3], by: [F lists], shown? }] // optional: a bending line,
+//                                                    // its n + 1 points per frame from one end to the other (WORLD),
+//                                                    // by: per frame what holds or ties it (ids), shown as for a prop
+//   stats: { buildMs, ... }                        // free form; buildMs = time to compute the clip
 //   notes: [strings]                                 // what the engine could not do, in plain words
 // }
 import { JOINTS, JOINT_COUNT, PARENT, REST } from "./rig17.js";
@@ -58,6 +61,7 @@ export function serializeClip(clip) {
 		...clip,
 		characters: clip.characters.map(c => ({ id: c.id, ...((c.scale ?? 1) === 1 ? {} : { scale: c.scale }), ...(c.tint ? { tint: c.tint } : {}), pos: round(c.pos), quat: round(c.quat) })),
 		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat), ...(p.by ? { by: p.by } : {}), ...(p.shown ? { shown: Array.from(p.shown) } : {}) })),
+		...(clip.lines ? { lines: clip.lines.map(l => ({ id: l.id, length: l.length, thick: l.thick, segments: l.segments, points: round(l.points), by: l.by, ...(l.shown ? { shown: Array.from(l.shown) } : {}) })) } : {}),
 	});
 }
 
@@ -95,6 +99,11 @@ export function validateClip(clip, { maxStretch = 0.005 } = {}) {
 		const n = p.pos?.length / 3;
 		if (p.size?.length !== 3 || (n !== 1 && n !== F) || p.quat?.length !== n * 4 || (p.by !== undefined && (!Array.isArray(p.by) || p.by.length !== n))) errors.push(`prop ${p.id}: size/pos/quat/by lengths`);
 		if (p.shown !== undefined && (p.shown?.length !== F || !Array.from(p.shown).every(v => v === 0 || v === 1))) errors.push(`prop ${p.id}: shown wants ${F} entries of 0 or 1`);
+	}
+	for (const l of clip?.lines ?? []) {
+		const n = l.segments;
+		if (!(Number.isInteger(n) && n > 0 && l.length > 0 && l.thick > 0) || l.points?.length !== F * (n + 1) * 3 || !Array.from(l.points).every(Number.isFinite)) errors.push(`line ${l.id}: wants length, thick, segments and ${F} * (segments + 1) * 3 finite points`);
+		if ((l.by !== undefined && l.by?.length !== F) || (l.shown !== undefined && (l.shown?.length !== F || !Array.from(l.shown).every(v => v === 0 || v === 1)))) errors.push(`line ${l.id}: by / shown want ${F} entries`);
 	}
 	return { ok: errors.length === 0, errors, stretch };
 }

@@ -129,9 +129,28 @@ Studio with the agent sidecar (live hub on its own port, sidecar files in `lowvi
 `COZYCLAY_MOTION_DIRECT=on` unless `--no-direct`. Requests go through the Studio's Agent box; there is no separate
 request panel.
 
+## Lines
+
+A scene prop `{ id, line: { length, thick }, at, turn? }` is a line (`engine-simple/line.js`): a chain of up to 64
+segments of about 0.1 m solved after each frame's bodies and props (gravity, fixed segment length, the floor and the
+solid props' boxes or drawn parts, a little friction where it lies), fastened by its own keys `tie`, `over`, `untie` and
+by the hands of a `hold` of it. Before frame 0 it is laid from what frame 0 fastens (straight between two fastened
+points, the slack let out as it settles), so those fastenings drag it through no prop. The clip stores it as `lines`
+(`clip.js`: every point of every frame). The tool tells each span between fastened points as taut or slack
+(`engine-simple/line-told.js`); the sheets and the viewer draw it as boxes along it. The Studio gets one thin box
+object per segment, named `<id>~<k>`, each on a track of the take of the character that holds it most
+(`studio/line-objects.js`, `install.js`: a listed line's boxes are moved again when they are as many and of that
+length and thickness, else made anew); `studio/scene.js` tells them back as one line, outside the 40 props it lists
+(the line of a playing take's scene, or, for a whole set no take plays, the length and thickness read off the boxes).
+The Studio agent's answer counts them as `lines`. One-way: a line moves nothing it is fastened to; it does not touch
+bodies; no knots, coils, wraps, cloth or stiff rods. A box keeps its length, so a span drawn longer than the line's
+thickness over its segment length (0.04 m on 0.1 m: 40 %) shows gaps between its boxes in the Studio.
+
 ## Not done
 
 - Fingers and wrists: the hand is one piece.
+- A line as one Studio object (a tube along its points); a line that pulls what it is tied to; a hand that lets a line
+  run through it under tension.
 - Collisions between bodies and props, other than what an action aims at.
 - Attaching a prop to a body point, doors, support by a body point, stepping onto heights, pre-roll, elbow and knee
   direction.

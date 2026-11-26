@@ -132,6 +132,19 @@
 //       that place in `over` frames (default 12, or the fewer frames to its next key or since its key before; 0, 1,
 //       frame 0: at once). Until a later key of its own or a hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
 //     hide | show   from this frame the prop is not drawn / drawn again; nothing else about it changes
+//   Lines: a scene prop { id, line: { length, thick }, at, turn? } (no size) is a line: a rope, cable, strap. The engine
+//     solves its shape each frame: it hangs, swings and settles under gravity, lies on the floor and on props
+//     (their drawn parts), and between two fastened points further apart than its length it is pulled straight and drawn longer.
+//     Before frame 0 it lies straight along X (turned by turn) with its middle at `at`, goes to what frame 0 fastens
+//     (straight between two fastened points) and settles. A place on it is metres along it, 0 at one end, length at
+//     the other. Its keys:
+//     tie {at, to, over?}   from this frame its point at is fastened to `to`: {on: propId, part?, at?}, {joint, of, at?}
+//       or {world: [x,y,z]}; over: frames to get there (default 0) | over {to}   it passes over that point and slides
+//       along it | untie {at?, to?}   ends the tie at that place or to that target (neither: all) | hide | show
+//     A hand: hold {prop: lineId, hand, at?: metres | {L, R}, over?} takes it there (no at: where it is nearest the
+//     hand, at once) until release; a hand target {on: lineId, at: metres} is that point as the frame before left it,
+//     a look at lineId its middle.
+//     It pulls nothing (what holds or ties it never feels it) and touches no body; no knots, coils or wraps.
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
@@ -149,7 +162,8 @@ import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shar
 import { reachEntry } from "./reach.js";
 import { inHand, settleHold } from "./take.js";
 import { flowAdd, handsMoved, heldSwing, startHand, startScalar, swungBefore, travelSpans } from "./flow.js";
-export { NOTES, expandRepeats };
+import { LINES, isLine, lineLines, lineMiddle, lineProblems, linesOut, makeLines, solveLines, splitLines } from "./line.js";
+export { NOTES, expandRepeats, isLine, lineLines, lineProblems, splitLines };
 
 const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 
@@ -158,7 +172,7 @@ const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
  *  aux.reach[characterId][frame] = [L hand, R hand, L foot, R foot], each null or { key, d }: d metres between the limb
  *  and the target the action of frame `key` gave it, on the frames after that action's blend has ended. A spec with a
  *  body on a prop that moves is built again with that body carried (carry.js; aux.carried where the two do not settle). */
-export function buildClip(written, def = DEMOS[written.demo]) { return carriedBuild(written, def, buildOnce, bodyCarriers(written, def)); }
+export function buildClip(written, def = DEMOS[written.demo]) { def = splitLines(def); return carriedBuild(written, def, buildOnce, bodyCarriers(written, def)); }
 function buildOnce(written, def, carrier) {
 	const repeat = expandRepeats(written, def.frames), spec = resolveParts(repeat.spec, def); // a place on a drawn part as the prop's own (parts.js)
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
@@ -166,7 +180,7 @@ function buildOnce(written, def, carrier) {
 		id: p.id, size: p.size, parts: partBoxes(p), c: p.at.slice(), turn: rad(p.turn ?? 0), yaw: rad(p.turn ?? 0), q: p.turn ? qY(rad(p.turn)) : [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
 		...propKeys(spec[p.id] ?? []), // keys, shownKeys (prop-keys.js)
 	}]));
-	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };
+	const hollow = new Set(def.props.filter(p => p.hollow).map(p => p.id)); if (def.lines?.length) props[LINES] = makeLines(def.lines, spec); const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; }; // lines: line.js
 	const ground = (x, z, step = 0.3) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= step && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
 	const seats = [], walks = [], legs = []; // every sit on a prop: how far its hips end from the seat top, how many feet stand inside the prop; walks: a count not walked as written (gait.js told); legs: each posture change's legs (legs.js)
 	const chars = def.characters.map(c => {
@@ -174,7 +188,7 @@ function buildOnce(written, def, carrier) {
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
 		return (upper => ({ id: c.id, s, travels: travelSpans(acts, F), body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }), walked: e => walks.push({ who: c.id, ...e }), legs: e => legs.push({ who: c.id, ...e }), carrier, lift: shiftOf(upper.keys.tilt), lower: lowerOf(upper.keys.hip) }, s), ...upper, out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null }))(buildUpper(c.id, acts, props, s)); // lift: where the tilt keys' shift moves the body, lower: how far the hip keys lower it (air.js)
 	});
-	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
+	const byId = Object.fromEntries(chars.map(c => [c.id, c])); for (const c of chars) for (const e of c.lineEvents ?? []) props[LINES].get(e.prop).events.push(e); // holds of a line (line.js lineHold)
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}, p.moves ? { by: [] } : {}, props[p.id].shownKeys.length ? { shown: [] } : {}) })); // by: what carries a moving prop on each frame, shown: whether it is drawn (clip.js)
 	const aux = { contacts: Object.fromEntries(chars.map(c => [c.id, []])), holders: Object.fromEntries(def.props.map(p => [p.id, []])), placed: [] };
 	Object.assign(aux, {
@@ -185,8 +199,7 @@ function buildOnce(written, def, carrier) {
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
-	const flights = chars.flatMap(c => [...new Set(c.body.map(B => B.air).filter(Boolean))].map(fl => ({ who: c.id, ...fl }))); if (flights.length) aux.flights = flights; if (legs.length) aux.legs = legs; // launches (air.js), posture changes (legs-told.js)
-	const walls = Object.values(props).filter(o => !o.moves && o.c[1] + o.size[1] / 2 > 0.3);
+	const flights = chars.flatMap(c => [...new Set(c.body.map(B => B.air).filter(Boolean))].map(fl => ({ who: c.id, ...fl }))); if (flights.length) aux.flights = flights; if (legs.length) aux.legs = legs; const walls = Object.values(props).filter(o => !o.moves && o.c[1] + o.size[1] / 2 > 0.3); // launches (air.js), posture changes (legs-told.js)
 	const fly = p => {
 		const r = p.size[1] / 2, b = p.fly.bounce, n = Math.max(1, Math.ceil(len(p.vel) / 0.03)), sp = Math.hypot(p.vel[0], p.vel[2]);
 		let floor = 0;
@@ -323,7 +336,7 @@ function buildOnce(written, def, carrier) {
 			let t = level;
 			if (k.to !== "fwd") {
 				const o = byId[k.to], pr = props[k.to];
-				t = angles(sub(toBody(c.tilt, o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56 * o.s, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to), neck));
+				t = angles(sub(toBody(c.tilt, o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56 * o.s, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : lineMiddle(props, k.to) ?? k.to), neck)); // a line: its middle (line-point.js)
 			}
 			const u = clamp(prog(k, f));
 			U.look = c.cur.look = mixV(k.from, t, poseEase(k.ease, toJerk(Math.max(...t.map((v, n) => Math.abs(v - k.from[n]))) / Math.max(1, k.over), 0.3))(u)); // within the neck's 0.3 rad a frame
@@ -389,13 +402,13 @@ function buildOnce(written, def, carrier) {
 			setPose(c.out, f, c.world);
 			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted && !c.tilt && c.bodyNow.on == null)); // a tilted figure, or one on a moving prop, does not stand on the floor
 		}
-		for (const { p, out } of outProps) {
+		solveLines(props, f, { props, byId, F, hollow }); for (const { p, out } of outProps) { // the lines first (line.js): they read the props as they ended the frame
 			p.h2 = p.h1; p.h1 = p.c.slice(); out.by?.push(carriersOf(p)); out.shown?.push(shownAt(p, f));
 			aux.holders[p.id].push(p.holder); aux.grips[p.id].push(p.holder && p.hand != null ? { c: p.holder, hand: p.hand, from: p.takenAt } : null); // from: the frame it took hold
 			if (out.pos.length === 3 && f > 0) continue;
 			out.pos.set(p.c, out.pos.length === 3 ? 0 : f * 3); out.quat.set(p.q, out.pos.length === 3 ? 0 : f * 4);
 		}
 	}
-	clip.notes.push(...NOTES);
+	if (props[LINES]) { const ln = linesOut(props, hollow); clip.lines = ln.clip; Object.assign(aux, ln.aux); } clip.notes.push(...NOTES);
 	return { clip, aux };
 }

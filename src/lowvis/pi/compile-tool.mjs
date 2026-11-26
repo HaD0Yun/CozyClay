@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINTS, JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
-import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js"; import { legLines } from "../engine-simple/legs-told.js";
+import { NOTES, buildClip, expandRepeats, isLine, lineLines, lineProblems, splitLines } from "../engine-simple/engine.js"; import { legLines } from "../engine-simple/legs-told.js";
 import { airLines, badness, bodyText, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
 import { BALANCE_TEXT, balanceRows } from "./balance.mjs";
@@ -50,7 +50,7 @@ function problems(scene, spec, { turn = false, body = false, hollow = false, par
 				if (!Number.isFinite(e.heading)) out.push(`${where}.heading: want degrees, got ${JSON.stringify(e.heading)}`);
 				if (body && e.scale !== undefined && !(Number.isFinite(e.scale) && e.scale >= BODY_SCALE.min && e.scale <= BODY_SCALE.max)) out.push(`${where}.scale: want a number from ${BODY_SCALE.min} to ${BODY_SCALE.max}, got ${JSON.stringify(e.scale)}`);
 				if (body && e.tint !== undefined && !/^#[0-9a-fA-F]{6}$/.test(e.tint)) out.push(`${where}.tint: want "#rrggbb", got ${JSON.stringify(e.tint)}`);
-			} else {
+			} else if (isLine(e)) out.push(...lineProblems(e, where)); else { // a line (engine-simple/line.js)
 				if (!pair(e.size, 3) || e.size.some(v => v <= 0)) out.push(`${where}.size: want [w, h, d] over 0, got ${JSON.stringify(e.size)}`);
 				if (!pair(e.at, 3)) out.push(`${where}.at: want the centre [x, y, z], got ${JSON.stringify(e.at)}`);
 				if (e.turn !== undefined && !turn && e.turn !== 0) out.push(`${where}.turn: a prop stands square to the axes here; give the box around it with turn left out`);
@@ -81,7 +81,7 @@ function withMovers(scene, spec) {
 		if (scene.props?.some(p => p.id === key) && acts.some(a => a?.[1] !== "hide" && a?.[1] !== "show")) moved.add(key); // hide / show move nothing
 		for (const a of acts) if (MOVERS.has(a[1]) && typeof a[2]?.prop === "string") moved.add(a[2].prop);
 	}
-	const set = (scene.props ?? []).filter(p => moved.has(p.id) && !p.moves).map(p => p.id);
+	const set = (scene.props ?? []).filter(p => moved.has(p.id) && !p.moves && !isLine(p)).map(p => p.id);
 	return { def: { ...scene, props: (scene.props ?? []).map(p => set.includes(p.id) ? { ...p, moves: true } : p) }, set };
 }
 
@@ -213,7 +213,7 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 		if (focus?.some(e => !ids.includes(e) && !joint(e))) return reject("look.focus", [`look.focus: want ids or { joint, of } of a character's joint, got ${JSON.stringify(look.focus)} (scene ids: ${ids.join(", ")}; joints: ${JOINTS.join(" ")})`]);
 		if (look?.props !== undefined && !["solid", "outline"].includes(look.props)) return reject("look.props", [`look.props: want "solid" or "outline", got ${JSON.stringify(look.props)}`]);
 
-		const moved = withMovers(withFigure(withBodies(withShapes(state.scene, state.shapes), bodies, !!feature.body), state.spec, figure), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, world = inWorld(def, body), built = compile(state.spec, world, name);
+		const moved = withMovers(withFigure(withBodies(withShapes(state.scene, state.shapes), bodies, !!feature.body), state.spec, figure), state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, world = splitLines(inWorld(def, body)), built = compile(state.spec, world, name);
 		if (built.error) {
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, world, name)]);
 		}
@@ -264,7 +264,7 @@ export function createCompileTool({ name, outDir = runFiles(name, { prune: true 
 			...shapeLines(def, state.shapes, state.said),
 			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)), ...fresh.map(k => about[k]),
-			...(feature.pace ? [...travelLines(parsed, aux, asBuilt), ...airLines(parsed, aux), ...legLines(parsed, aux)] : []), // air: engine-simple/air-told.js, legs: legs-told.js
+			...(feature.pace ? [...travelLines(parsed, aux, asBuilt), ...airLines(parsed, aux), ...legLines(parsed, aux)] : []), ...lineLines(parsed, aux), // air: engine-simple/air-told.js, legs: legs-told.js; lines: line-told.js (none without a line)
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,

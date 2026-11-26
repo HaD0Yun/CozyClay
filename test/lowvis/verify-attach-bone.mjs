@@ -191,7 +191,7 @@ for (const r of report) console.log(`ok scale ${r.s}: ${r.prop} on ${r.bone}: wo
 		deps: { studioScene, installClip, runScene: async options => { request = options.request; return { wallMs: 0, compiles: 1, report: "Done.\nMissing: none", missing: "none", final: { clip: "c.json", scene: {}, spec: {} } }; }, readClip: () => clip } });
 	assert.match(request, /"kind":"effect smoke","hollow":true/, "the scene JSON gives the effect's kind");
 	assert.match(request, /These objects ride a bone of a character \(attached in the Studio[^]*Cap \(size \[0\.2,0\.2,0\.2\]\) on a's head/, "the attached cap is told, with its size and its bone");
-	assert.match(request, /A new prop is only ever a plain box or ball, never an object of another kind/);
+	assert.match(request, /A new prop is only ever a plain box, ball or line, never an object of another kind/);
 	assert.deepEqual(done.carried, [{ id: "effect", kind: "effect smoke" }, { id: "effect-2", kind: "effect exhale" }]);
 	assert.deepEqual(done.attached.map(a => `${a.id}:${a.bone}`).sort(), ["effect-2:head", "effect:rightHand", "obj-object.add:rightHand"].sort());
 	assert.equal(/effect/.test(done.used ?? ""), false, "the effects are not boxes the body meets: used does not name them");
