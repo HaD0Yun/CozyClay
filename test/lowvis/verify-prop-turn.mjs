@@ -50,6 +50,9 @@ for (const [name, c] of Object.entries(CASES)) {
 // came to stay in the air until the pelvis is within a steady pace's reach of it (sit, bowl); were demo locomotion sum
 // 28130.083676914313 abs 28399.302929434976; demo sit sum 16990.66750680106 abs 17321.00111858535; demo bowl sum
 // 24528.879504649638 abs 35990.91364999904
+// object, duo, push, chop, bowl, carry it and push it again when a pose key's inout blend became the minimum-jerk curve
+// (math.js poseEase); were sums 55092.73264245062, 33153.92550688254, 16377.092472123106, 8232.0546934057,
+// 24527.38707116872, 1297.0721141404108, 625.4388854867284
 const BEFORE = {
 	// locomotion, sit, object, duo, push, carry it and push it again when a walk, run or push along a path came to lower
 	// its pelvis over the frames around a planted foot's reach (leg-reach.js; chop and bowl are the same clips); were demo
@@ -59,24 +62,24 @@ const BEFORE = {
 	// push it sum 644.6375135840353 abs 1815.2169889187685
 	"demo locomotion": { n: 17136, sum: 28145.690798960924, abs: 28414.872381650166 },
 	"demo sit": { n: 19590, sum: 16988.250627292415, abs: 17318.571651827428 },
-	"demo object": { n: 40323, sum: 55092.73264245062, abs: 55317.82535021019 },
+	"demo object": { n: 40323, sum: 55094.20210882394, abs: 55319.29469014716 },
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs); were sum 33296.306707722404,
 	// 8217.462717724167, 24537.719764461508 and abs 34465.81906765248, 8963.464780009705, 35987.17491706315; again with its
 	// repairs (were sum 33293.887403702, 8220.99382688072, 24526.158710004675); duo again when a burst was fitted to how
 	// far its feet trail the hips (was sum 33295.85354092025, abs 34465.521872106176)
-	"demo duo": { n: 36720, sum: 33153.92550688254, abs: 34322.21700049706 },
-	"demo push": { n: 18144, sum: 16377.092472123106, abs: 16936.047848933686 },
+	"demo duo": { n: 36720, sum: 33154.93825697568, abs: 34323.22670673315 },
+	"demo push": { n: 18144, sum: 16378.467786742383, abs: 16937.96261878052 },
 	// chop again when a prop key starts where the key before has the prop on its frame (the falling trunk turns its full
 	// 64 + 26 degrees; was sum 8220.211771645767, abs 8964.167562102726)
 	// chop and bowl again when a hand takes a prop as it lies instead of moving it into the hand (were sum
 	// 8219.719542958957, 24534.552170557406, abs 8963.675333415917, 35987.46752835132)
-	"demo chop": { n: 17787, sum: 8232.0546934057, abs: 8978.06813223084 },
+	"demo chop": { n: 17787, sum: 8231.602989234045, abs: 8976.793913811078 },
 	// bowl again for the same reason (each pin's slide starts from its full 90-degree tip; was sum 24536.379817133275,
 	// abs 35988.71533513136)
-	"demo bowl": { n: 22179, sum: 24527.38707116872, abs: 35992.187527195056 },
+	"demo bowl": { n: 22179, sum: 24527.15826499436, abs: 35993.919021946815 },
 	"sit on it": { n: 4899, sum: 1932.92509540655, abs: 2080.8489820194295 },
-	"carry it": { n: 5184, sum: 1297.0721141404108, abs: 2675.871253721443 },
-	"push it": { n: 5184, sum: 625.4388854867284, abs: 1800.5264645627944 },
+	"carry it": { n: 5184, sum: 1299.053980120142, abs: 2683.7438334524904 },
+	"push it": { n: 5184, sum: 626.6632761275832, abs: 1803.9555336199014 },
 };
 const now = {};
 for (const demo of DEMO_IDS) {

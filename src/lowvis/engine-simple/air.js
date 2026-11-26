@@ -4,7 +4,7 @@
 // their speed along the ground goes over to the flight's; over the frames after it they give into a crouch with the
 // speed they come down with and rise again, while the speed along the ground goes over to the next action's. Lengths
 // and speeds here are the rig body's (size.js divides them by the body's scale); gravity is 9.8 m/s2 in the world.
-import { EASE, clamp, mix, mixV, qRotate, qSlerp, qY, smooth, wrap } from "./math.js";
+import { clamp, mix, mixV, poseEase, qRotate, qSlerp, qY, smooth, wrap } from "./math.js";
 import { flowAdd, startScalar } from "./flow.js";
 import { STAND_Y, footPose, hold, home, standB } from "./gait.js";
 import { LEG_LEN, SOLE } from "./solve.js";
@@ -172,26 +172,26 @@ export function fly(out, flights, s, lower = null) {
  *  value it ends on, at the end of its blend or on the frame before the next key (the body comes down where that key
  *  brings it, and the rest of its blend is the flight's). null with no tilt key. */
 export function shiftOf(keys) {
-	const at = keyed(keys, [0, 0, 0, 0, 0]);
+	const at = keyed(keys, [0, 0, 0, 0, 0], 0);
 	return at && ((f, b) => at(f, b).slice(2, 5));
 }
 /** How far the spec's hip keys lower the hips on frame f (m, world; 0 where they raise them), as engine.js blends them. null with no hip key. */
 export function lowerOf(keys) {
-	const at = keyed(keys, [0, 0, 0]);
+	const at = keyed(keys, [0, 0, 0], 1);
 	return at && (f => Math.max(0, -(at(f)[1] ?? 0)));
 }
 /** The value of a vector field's keys on frame f as engine.js blends it (its scalar(): each key from where the field is, by
- *  its ease, with the flow of keys that pass each other, flow.js); with b (shiftOf), from b on as the key in effect on b
- *  ends. null with no key. */
-function keyed(keys, zero) {
+ *  its ease, with the flow of keys that pass each other, flow.js; mj as scalar() has it for the field: 0 for tilt, 1 for
+ *  hip); with b (shiftOf), from b on as the key in effect on b ends. null with no key. */
+function keyed(keys, zero, mj) {
 	if (!keys?.length) return null;
 	const ks = keys.map(k => ({ ...k })), seen = []; // copies (a key's start is written on it); seen[f]: the value on frame f
 	const value = f => {
 		for (let g = seen.length; g <= f; g++) {
 			const k = ks.findLast(x => x.f <= g);
-			if (k && k.from === undefined) startScalar(ks, k, g, seen[g - 1] ?? undefined, seen[g - 2] ?? undefined, zero);
-			const u = k && (k.over > 0 ? (g - k.f) / k.over : 1), on = k && k.over > 0 && flowAdd(k.m0, k.m1, u, k.over);
-			seen.push(k ? mixV(k.from, k.to, (EASE[k.ease] ?? EASE.inout)(u)).map((x, n) => (on ? x + on[n] : x)) : null);
+			if (k && k.from === undefined) startScalar(ks, k, g, seen[g - 1] ?? undefined, seen[g - 2] ?? undefined, zero, mj);
+			const u = k && (k.over > 0 ? (g - k.f) / k.over : 1), on = k && k.over > 0 && flowAdd(k.m0, k.m1, u, k.over, mj);
+			seen.push(k ? mixV(k.from, k.to, (poseEase(k.ease, mj) ?? poseEase("inout", mj))(u)).map((x, n) => (on ? x + on[n] : x)) : null);
 		}
 		return seen[f];
 	};

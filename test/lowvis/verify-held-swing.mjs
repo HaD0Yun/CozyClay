@@ -55,11 +55,13 @@ assert.deepEqual(differ(elbow.clip, elbowStill.clip).filter(n => n.startsWith("L
 console.log("ok held hands: a holding hand and an arm with an elbow target hold");
 
 // what begins in the travel goes on from where the hand is: a carry, an elbow key and a let-go make no jump of the hand
+// beyond what the same key makes of a hand held still through the walk (the key's own blend: math.js poseEase)
 const steady = pop(held.clip, "Left", 86, 100);
 const jumps = { carry: [[90, "carry", { prop: "box", at: [0, 0.1, 0.3] }]], "elbow key": [[90, "pose", { elbowL: [0.4, 0.2, -0.1] }]] };
 for (const [name, more] of Object.entries(jumps)) {
-	const p = pop(built([[30, "pose", STANCE], walk, ...more], [{ id: "box", at: [0, 0.3, 2.5], size: [0.3, 0.3, 0.3], moves: true }]).clip, "Left", 88, 94);
-	assert.ok(p < steady + 0.01, `a ${name} that begins in the walk makes no jump of the hand: ${p.toFixed(3)} m beside ${steady.toFixed(3)} m of the swing`);
+	const box = [{ id: "box", at: [0, 0.3, 2.5], size: [0.3, 0.3, 0.3], moves: true }];
+	const p = pop(built([[30, "pose", STANCE], walk, ...more], box).clip, "Left", 88, 94), still = pop(built([[30, "pose", STANCE], [60, "pose", { ...STANCE, over: 0 }], walk, ...more], box).clip, "Left", 88, 94);
+	assert.ok(p < still + 0.01, `a ${name} that begins in the walk makes no jump of the hand: ${p.toFixed(3)} m beside ${still.toFixed(3)} m held still (the swing's own ${steady.toFixed(3)} m)`);
 }
 const letGo = built([[5, "hold", { prop: "stick", hand: "R" }], [30, "pose", STANCE], walk, [90, "release", { prop: "stick" }]], [stick]);
 assert.ok(foreAft(letGo.clip, "Right") < 0.06, `a hand that held a prop into the walk and lets go in it stays as keyed (${foreAft(letGo.clip, "Right").toFixed(3)} m)`);

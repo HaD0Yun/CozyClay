@@ -29,10 +29,13 @@ const CASES = {
 		plank: [[20, "move", { to: [-0.8, 0.9, 0.6], axis: [0, 1, 0], deg: 60, over: 40 }]], can: [[0, "ride", { on: "plank" }], [80, "tip", { pivot: [-0.8, 0.88, 0.6], axis: [1, 0, 0], deg: 30, over: 12 }]] }],
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
+// all three again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase); were rideCarry
+// 0616df4b..., holdShare 417da90d..., rollKey 40e3f44e...; rideCarry once more (was 82262d13...) when a hand's blend to
+// rest came to take that curve only as far as the most a hand moves per frame allows (its frames 131 to 141 differ)
 const BEFORE = {
-	rideCarry: "0616df4bd085b190027db894832ba2bc68d2b875621a0d65f05eaec71378b169", // pinned again when a walk's sway changed (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies), then e91d7ea8... (before a walk along a path lowered its pelvis over the frames around a planted foot's reach)
-	holdShare: "417da90d1512687047bbdc1bc6ea02c1f3ef1b420bb1ef8bee4ee26e8d773af1", // was a301a50f... (before aux.grips said the frame a hand took hold; the clip is the same)
-	rollKey: "40e3f44ed85bb5dfa238aa78f2d21716486d0f12ce6cce6136507bbbbef91aed", // was 18b0abf9... (before a hand took a prop as it lies)
+	rideCarry: "afd0634dc639320c0705535723899df9a06740db3b92b6412386a02ee4df232c", // pinned again when a walk's sway changed (its walks: the sway by the walking share); was de27b72fcc147fb4..., then 89e7e80c... (before a hand took a prop as it lies), then e91d7ea8... (before a walk along a path lowered its pelvis over the frames around a planted foot's reach)
+	holdShare: "fb77dcc7645ce91157a527d59f080161e9ec70ed29e8070c562903a3c5740fa5", // was a301a50f... (before aux.grips said the frame a hand took hold; the clip is the same)
+	rollKey: "ceeabb828dd608a71de329015e54e22bddf1b8c3205288ad68fd1fce98293e3d", // was 18b0abf9... (before a hand took a prop as it lies)
 };
 // the knee note said again when a knee's side came from knee.js (notes.js, stored in every clip) goes back to its text of then
 const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";

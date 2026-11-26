@@ -49,7 +49,9 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// frames around a planted foot's reach (leg-reach.js: hips down only, by at most 61, 56, 2, 2 and 46 mm, on frames
 	// 97-208, 0-251, 0-2, 0-2 and 1-51; chop and bowl are the same clips); were locomotion 6f0eb4a5a4fd90c8, sit
 	// 9822cd9f58deade4, object 9099578f0aa12435, duo e577d20d50c20b28, push ff755b870529e06d
-	const BEFORE = { locomotion: "25befceded8c9fdc", sit: "84d6a8d4032f4b35", object: "aaf885032f862635", duo: "d0449834e7919d7a", push: "f76161ac170ff467", chop: "d0ba3462c327a127", bowl: "f40598adcca6642a" };
+	// object, duo, push, chop and bowl again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase);
+	// were object aaf885032f862635, duo d0449834e7919d7a, push f76161ac170ff467, chop d0ba3462c327a127, bowl f40598adcca6642a
+	const BEFORE = { locomotion: "25befceded8c9fdc", sit: "84d6a8d4032f4b35", object: "f80816d6d9d79b1e", duo: "56a74df97ef6e8cb", push: "04f8b34932c751ed", chop: "efe2085789d85493", bowl: "d2f2ce56d3fe5889" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);

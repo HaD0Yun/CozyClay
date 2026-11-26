@@ -37,15 +37,17 @@ assert.ok(NOTES.includes(NEW_RUN), "the clip's notes say what a run follows");
 // locomotion, sit, object, duo and push again when a walk, run or push along a path came to lower its pelvis over the
 // frames around a planted foot's reach (leg-reach.js; chop and bowl are the same clips): were locomotion dadc255a...,
 // sit 052113b9..., object 4732cdec..., duo 14533d7f..., push 4f65ce12...
+// object, duo, push, chop and bowl again when a pose key's inout blend became the minimum-jerk curve (math.js poseEase);
+// were object 247e8822..., duo 9245a20f..., push 06c15ee4..., chop 5744cf77..., bowl 1370d146...
 const BEFORE = {
 	locomotion: "f816b718a98c94b12dea76873eeb260711e5b2ca8f87c9980dd80fe206c0d8da",
 	sit: "4bcdb0fe7e6ba70339a7d2abb9c8b15ed8af508704bfbd3e7dd254b20f3b9baf",
-	object: "247e88224a5bef9adf10d259c4ca32ff57371be4cdb0617983194e140127a298", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
+	object: "b101a21bb5db73c128ba4c77a774f05c6b9d1e2bfe5c86d5d470e7a1c8516395", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
-	duo: "9245a20f66c385a85a39473c475fb57a3c0b06c49f55351203f6e773f4986fdc", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
-	push: "06c15ee43956e322e28563b2e6c3ac8038ee19767d9a057c690a0ad696a99ab4",
-	chop: "5744cf7780906abaf219774b5eb6b3f1552795ec685c747e52cc227a10c90a78", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
-	bowl: "1370d146155d08d55634251120102837414bf9020f505352e422740e2587103c", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
+	duo: "b572757bcd0d5eaa1743dae46acfde4e8aea54652978d0bd4f04c921804143f8", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
+	push: "e13803c6ccef3e8bf94120e54428089365d1e892caebc7a7be2d22a290094074",
+	chop: "a0bb8b42e83fdae8297d4efc4485f8d05a6aeff68db50ba7dcb8dc14f6cfb7bd", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
+	bowl: "aec263557dd327bd0c8e4d669765ab6066577336c3f7164baa2847c843d1eadd", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};

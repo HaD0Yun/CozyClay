@@ -124,7 +124,7 @@
 import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
 import { addCharacter, addProp, createClip, setPose } from "../clip.js";
-import { EASE, add, clamp, dot, len, mix, mixV, mul, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
+import { add, poseEase, toJerk, clamp, dot, len, mix, mixV, mul, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
 import { keyPose, propKeys, shownAt } from "./prop-keys.js";
 import { carriedBuild } from "./carry.js";
 import { arcSized, buildBodySized, solveSized } from "./size.js";
@@ -235,8 +235,8 @@ function buildOnce(written, def, carrier) {
 	const scalar = (c, name, f, zero) => {
 		const k = active(c.keys[name], f);
 		if (!k) return zero;
-		if (k.from === undefined) startScalar(c.keys[name], k, f, c.last[name], c.last2?.[name], zero); // flow.js
-		const w = EASE[k.ease](prog(k, f)), on = k.over > 0 && flowAdd(k.m0, k.m1, prog(k, f), k.over), v = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w);
+		const mj = name === "tilt" ? 0 : 1; if (k.from === undefined) startScalar(c.keys[name], k, f, c.last[name], c.last2?.[name], zero, mj); // flow.js; the whole figure's tilt keeps the cubic (as air.js shiftOf reads it)
+		const w = poseEase(k.ease, mj)(prog(k, f)), on = k.over > 0 && flowAdd(k.m0, k.m1, prog(k, f), k.over, mj), v = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w);
 		return (c.cur[name] = !on ? v : Array.isArray(zero) ? v.map((x, n) => x + on[n]) : v + on);
 	};
 	// Tilt: the whole figure, as it is posed, turned about one point and then moved. The pose is solved untilted;
@@ -263,13 +263,13 @@ function buildOnce(written, def, carrier) {
 			let h = { from: null, to: null, w: 1 }, upTo = 0;
 			if (k) {
 				if (k.from === undefined) {
-					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p)), here = c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
+					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p)), here = c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null, hang = qRotate(qY(-B.yaw), qRotate(B.q, B.hands[i]));
 					const at = q => (q.to === "rest" ? null : q.to === "keep" ? (q.place ? toLocal(target(c, i, q.place, f), B) : here) : toLocal(target(c, i, q.to, f), B)); // a keep that a later key of its frame hid: its place, else where the hand is
 					const local = prev ? at(prev) : here;
 					k.from = !prev && c.rest[i] ? null : local;
-					if (k.to === "keep") { k.to = k.place ? at(k) : (swungBefore(c, i, f) > 0 ? here : local) ?? "rest"; k.keptUp = c.up[i] > 0.5; } startHand(list, k, prev, c.handVel?.[i], 0.12 * c.s, at, here ?? qRotate(qY(-B.yaw), qRotate(B.q, B.hands[i]))); // flow.js
+					if (k.to === "keep") { k.to = k.place ? at(k) : (swungBefore(c, i, f) > 0 ? here : local) ?? "rest"; k.keptUp = c.up[i] > 0.5; } startHand(list, k, prev, c.handVel?.[i], 0.12 * c.s, at, here ?? hang, add(U.hip, hang)); // flow.js
 				}
-				const u = clamp(prog(k, f)), w = EASE[k.ease](u), on = k.over > 0 && u < 1 && flowAdd(k.m0, k.m1, u, k.over);
+				const u = clamp(prog(k, f)), w = poseEase(k.ease, k.mj)(u), on = k.over > 0 && u < 1 && flowAdd(k.m0, k.m1, u, k.over, k.mj);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f, by: k.by ?? k.f, done: u >= 1 };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.to?.joint || k.to?.on) h.self = k.to; // a target that follows something: measured again as it ended (share.js)
@@ -287,7 +287,7 @@ function buildOnce(written, def, carrier) {
 		U.feet = [c.keys.footL, c.keys.footR].map((list, i) => {
 			const k = active(list, f), bf = B.feet[i];
 			if (!k) return null;
-			const w = EASE[k.ease](prog(k, f));
+			const w = poseEase(k.ease)(prog(k, f));
 			if (k.to === "plant" && w >= 1) return null;
 			const at = t => t === "plant" ? bf : t.q ? t : { a: t.place ? target(c, i, t.place, f) : t.world ? toBody(c.tilt, t.world) : add([B.p[0], B.air ? B.p[1] - c.body[B.air.f0 - 1].p[1] : 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
@@ -314,7 +314,7 @@ function buildOnce(written, def, carrier) {
 				t = angles(sub(toBody(c.tilt, o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56 * o.s, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to), neck));
 			}
 			const u = clamp(prog(k, f));
-			U.look = c.cur.look = mixV(k.from, t, EASE[k.ease](u));
+			U.look = c.cur.look = mixV(k.from, t, poseEase(k.ease, toJerk(Math.max(...t.map((v, n) => Math.abs(v - k.from[n]))) / Math.max(1, k.over), 0.3))(u)); // within the neck's 0.3 rad a frame
 			if (k.nod) U.look = [U.look[0], U.look[1] + 0.2 * Math.sin(2 * Math.PI * k.nod * u)];
 		}
 		if (c.last.head) U.look = U.look.map((v, n) => c.last.head[n] + clamp(v - c.last.head[n], -0.3, 0.3)); // the neck turns at most 0.3 rad a frame
