@@ -1,7 +1,7 @@
 import { validateStudioCommand, validateStudioIdentity, STUDIO_TOOL_SCHEMAS, STUDIO_TOOLS, StudioProtocolError } from "../../src/studio-agent-protocol.js";
 import { MAX_COMMAND_TIMEOUT_MS } from "../../mcp/live-hub.mjs";
 import { createRebaser } from "./studio-rebase.mjs";
-import { withSculptLook } from "./sculpt-look.mjs";
+import { withActionLook } from "./action-look.mjs";
 import { splitPatchByDomain } from "./patch-domains.mjs";
 import { NOT_READY_WAIT_MS, waitWhileNotReady } from "./wait-not-ready.mjs";
 
@@ -14,7 +14,9 @@ const PRIMITIVE_BOX_M = { cube: [1, 1, 1], sphere: [1, 1, 1], capsule: [0.7, 1.4
 const OBJECT_SIZE_NOTE = ` At scale 1 a primitive's box is [x, y, z] m: ${Object.entries(PRIMITIVE_BOX_M).map(([kind, box]) => `${kind} [${box.join(", ")}]`).join(", ")}; scale multiplies each axis. In an agent turn or task, a "completed" receipt (kind mutation, job or document; no nextHost) states in output.sizeM, for each object whose id the scene did not have before the command or whose size changed, [x, y, z] m: footprint width, height and footprint depth, each times its scale, the same however it is turned. When the 8 KiB receipt cannot hold them all, a SIZES_TRUNCATED warning counts those left out. A "partial" receipt in its place has no output: a SIZES_INLINE warning carries them, or SIZES_OMITTED their count. A receipt with no room for that warning states no size.`;
 const OBJECT_TOOLS = new Set(["arrange_objects", "patch_elements", "run_action"]);
 const STUDIO_MUTATION_TOOLS = new Set(["operate_studio", "arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "verify_result", "undo_edit", "run_action"]);
-const schema = name => ({ type: "function", name, description: `Studio ${name.replaceAll("_", " ")} command.${name === "verify_result" ? " Pass exactly one of receiptId or targets (not both). An earlier receipt stays verifiable after later edits: it answers stale: true with evidenceRevision (the revision that receipt describes) beside revision (the current one), and a requested frame is captured from the current scene; report the evidence as stale, never as current." : ""}${name === "inspect_studio" ? `${STUDIO_INSPECT_NOTE} scope "actions" lists the editor actions for run_action with their availability (the reason when unavailable); with ids it answers those actions' descriptions and input schemas.` : ""}${name === "run_action" ? " Run one editor action by id (actionIndex in the context lists them) with args matching its input schema; read the schema first with inspect_studio scope \"actions\" and ids instead of guessing. A mutating action answers with a receipt (action, summary, delta) that undo_edit reverts; a job action answers status \"started\", or \"completed\" with its output when it runs to its end. A document action (scenes, the project file) answers status \"completed\" and is not undoable; when it opens another scene, its host names that scene and later commands are admitted there." : ""}${name === "patch_elements" ? " Ops of several target kinds run as one command per kind, each with its own receipt and undo entry; the answer then has splitByDomain: true and commands[] { kind, opIndices, receipt | error }." : ""}${STUDIO_MUTATION_TOOLS.has(name) ? STUDIO_TOOL_RECEIPT_NOTE : ""}${OBJECT_TOOLS.has(name) ? OBJECT_SIZE_NOTE : ""}`, parameters: STUDIO_TOOL_SCHEMAS[name] });
+// run_action's confirmationToken only the trusted UI can mint (src/command-bus.js confirm), so the model's copy of the schema leaves it out.
+const modelSchema = name => (name === "run_action" ? { ...STUDIO_TOOL_SCHEMAS[name], properties: Object.fromEntries(Object.entries(STUDIO_TOOL_SCHEMAS[name].properties).filter(([key]) => key !== "confirmationToken")) } : STUDIO_TOOL_SCHEMAS[name]);
+const schema = name => ({ type: "function", name, description: `Studio ${name.replaceAll("_", " ")} command.${name === "verify_result" ? " Pass exactly one of receiptId or targets (not both). An earlier receipt stays verifiable after later edits: it answers stale: true with evidenceRevision (the revision that receipt describes) beside revision (the current one), and a requested frame is captured from the current scene; report the evidence as stale, never as current." : ""}${name === "inspect_studio" ? `${STUDIO_INSPECT_NOTE} scope "actions" lists the editor actions for run_action with their availability (the reason when unavailable); with ids it answers those actions' descriptions and input schemas.` : ""}${name === "run_action" ? " Run one editor action by id (actionIndex in the context lists them) with args matching its input schema; inspect_studio scope \"actions\" with ids reads it, and a turn's first refusal of an action's args carries it unless the turn has read it. A mutating action answers with a receipt (action, summary, delta) that undo_edit reverts; a job action answers status \"started\", or \"completed\" with its output when it runs to its end. A document action (scenes, the project file) answers status \"completed\" and is not undoable; when it opens another scene, its host names that scene and later commands are admitted there." : ""}${name === "patch_elements" ? " Ops of several target kinds run as one command per kind, each with its own receipt and undo entry; the answer then has splitByDomain: true and commands[] { kind, opIndices, receipt | error }." : ""}${STUDIO_MUTATION_TOOLS.has(name) ? STUDIO_TOOL_RECEIPT_NOTE : ""}${OBJECT_TOOLS.has(name) ? OBJECT_SIZE_NOTE : ""}`, parameters: modelSchema(name) });
 
 export function createStudioTools({ liveHub, workspaceHandle, session, resolveImage } = {}) {
   if (!liveHub?.command || !workspaceHandle) throw new StudioProtocolError("LIVE_HUB_UNAVAILABLE", "An exact Studio workspace is required.");
@@ -74,8 +76,27 @@ export function createStudioTools({ liveHub, workspaceHandle, session, resolveIm
 	const availableTools = STUDIO_TOOLS;
 	// A patch_elements across domains runs as one command per domain (patch-domains.mjs); a target still loading is waited for (wait-not-ready.mjs).
 	const run = splitPatchByDomain(waitWhileNotReady(rebaser.run, { signal: session?.signal, ...(session?.sleep ? { sleep: session.sleep } : {}) }));
-	// A sculpt the model ran itself answers with a closeup of it attached (sculpt-look.mjs).
-	const tools = availableTools.map(name => ({ ...schema(name), handler: async (args, call = {}) => withSculptLook(name, args, call, await run(name, args, call.callId ?? call.toolCallId), { invoke: rebaser.run, resolveImage: tools.resolveImage }) }));
+	// An action that declares a look answers with that picture of what it changed attached (action-look.mjs).
+	const lookOf = id => (typeof id === "string" ? declared.get(id)?.look ?? null : null);
+	// The first refusal of an action's arguments in this turn carries the action's input schema, read from the editor's own
+	// declaration; not for an action whose declaration this turn already read (inspect_studio scope "actions" with ids).
+	const schemaSent = new Set();
+	const withSchema = async (args, error) => {
+		const id = args?.action;
+		if (error?.code !== "INVALID_ARGUMENT" || typeof id !== "string" || schemaSent.has(id) || !declared.has(id)) return error;
+		schemaSent.add(id);
+		try {
+			const input = (await liveHub.command("inspect_studio", { scope: "actions", ids: [id] }, workspaceHandle))?.actions?.find(row => row?.id === id)?.input;
+			if (input && typeof input === "object") error.schema = input;
+		} catch { /* the refusal stands without it */ }
+		return error;
+	};
+	const tools = availableTools.map(name => ({ ...schema(name), handler: async (args, call = {}) => {
+		let result;
+		try { result = await run(name, args, call.callId ?? call.toolCallId); } catch (error) { throw name === "run_action" ? await withSchema(args, error) : error; }
+		if (name === "inspect_studio" && args?.scope === "actions" && Array.isArray(args.ids)) for (const row of result?.actions ?? []) if (row?.input) schemaSent.add(row.id);
+		return withActionLook(name, args, call, result, { invoke: rebaser.run, resolveImage: tools.resolveImage, lookOf });
+	} }));
   tools.resolveImage = async (imageId, correlation = {}) => {
     if (typeof resolveImage !== "function") return { visualStatus: "unavailable", reason: "image resolver unavailable" };
     try {

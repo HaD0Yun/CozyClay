@@ -209,7 +209,8 @@ function studioContextDiet({ messages, systemPrompt }) {
 	});
 	return {
 		messages: edited,
-		systemPrompt: actionIndex ? `${systemPrompt}\n<actions>\n${JSON.stringify(actionIndex)}\n</actions>` : systemPrompt,
+		// timeoutMs is the sidecar's hub deadline (studio-tools.mjs reads its own copy), nothing a model can use: the block leaves it out.
+		systemPrompt: actionIndex ? `${systemPrompt}\n<actions>\n${JSON.stringify(actionIndex.map(({ timeoutMs: _timeoutMs, ...row }) => row))}\n</actions>` : systemPrompt,
 	};
 }
 
@@ -319,7 +320,8 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 		const adapters = async (input) => {
 			const { toAgentTools } = await import("./pi-tools.mjs");
 			const activeTools = input?.tools || tools;
-			return toAgentTools(activeTools, { signal: state.lastInput?.signal, emit: (event) => state.lastInput?.emit?.(event) });
+			// The refusal form is the Studio tools' (refusal.mjs); the Workflow surface keeps its errors as they were.
+			return toAgentTools(activeTools, { signal: state.lastInput?.signal, emit: (event) => state.lastInput?.emit?.(event), plain: surface !== "studio" });
 		};
 
 		// The Workflow surface's ONE quota frame per turn, sent as early as

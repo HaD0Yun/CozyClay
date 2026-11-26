@@ -370,7 +370,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	};
 	const handleStudioTurn = async (req, res, value, path) => {
 		const { StudioProtocolError, validateStudioContextFreshness } = await import("../../src/studio-agent-protocol.js");
-		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool, scriptEditedBeforeFailing }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
+		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool, scriptEditedBeforeFailing, withoutPictures }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
 			import("./studio-tools.mjs"), import("../../src/studio-agent-context.js"), import("./script-tool.mjs"), import("./supervisor.mjs"), import("./plan-tool.mjs"), import("./studio-review.mjs"), import("./supervisor-followup.mjs"),
 		]);
 		const hubDeps = await runtime; const hub = hubDeps.liveHub || liveHub;
@@ -493,8 +493,9 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				await turnTransaction.mark();
 				const result = await script.handler(args, options);
 				if (!scriptEditedBeforeFailing(result)) return result;
+				// The pictures showed edits the rollback took back: they leave with them (script-tool.mjs withoutPictures).
 				const rollback = await turnTransaction.rollback();
-				return rollback ? { ...result, rollback: { status: "rolled_back", receiptId: rollback.receiptId, revision: rollback.revision, affectedIds: rollback.affectedIds.slice(0, 8) } } : result;
+				return rollback ? { ...withoutPictures(result), rollback: { status: "rolled_back", receiptId: rollback.receiptId, revision: rollback.revision, affectedIds: rollback.affectedIds.slice(0, 8) } } : result;
 			},
 		};
 		let frameObservation;
@@ -525,7 +526,9 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			if (record && frame.ok && frame.result?.ok && frame.result?.authored) telemetry.applied();
 			if (!frame.ok) {
 				toolFailed = true;
-				if (typeof frame.error === "string" && frame.error.startsWith("Validation failed for tool ")) frame.error = "INVALID_ARGUMENT: Unexpected field.";
+				// The panel shows a refusal's first line; the facts line after it is the model's (refusal.mjs). The sidecar's own
+				// unknown-field refusal (tool-arguments.mjs) is shortened as before; the editor's ("$.args has ...") stays whole.
+				if (typeof frame.error === "string") frame.error = /^INVALID_ARGUMENT: [^$\s]\S* has unknown fields? /.test(frame.error) ? "INVALID_ARGUMENT: Unexpected field." : frame.error.split("\n")[0];
 			}
 			// A command the sidecar re-sent once (stale revision, busy gesture) is
 			// marked on the frame itself; the receipt carries autoRebased and a warning.

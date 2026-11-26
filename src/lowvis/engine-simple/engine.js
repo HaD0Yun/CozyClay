@@ -1,7 +1,7 @@
 // engine-simple: a small deterministic motion engine for the 17-joint figure. Pure JS on rig17.js; Node and browser.
 //
 // SPEC FORMAT. A spec is { demo, <characterId>: [[frame, verb, options], ...] }. The scene (start positions,
-// props, frame count) comes from demos.js. An action lasts until the next action of the same layer.
+// props, frame count) is given with it. An action lasts until the next action of the same layer.
 //   Body layer (feet and pelvis):
 //     idle | walk {to:[x,z], heading?, facing?, steps?, burst?, first?:"L"|"R", end?:{L:[left,fwd],R:[..]}, stepFrames?, ease?} | run {to} | push {to} | turn {heading}
 //     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
@@ -123,7 +123,7 @@
 //     launch {vel:[x,y,z] m/s, bounce?: 0.5, friction?: 1.5}   a kicked / thrown prop: it is still in place on the key's
 //       frame and flies from the next one under gravity, bounces off the floor and off static props (as a ball of
 //       diameter size[1]; bounce = speed kept), rolls with `friction` (m/s2) and stops. A later key of the prop ends it.
-//       The frame is written by hand; checks.js measures how far the nearest foot is from the prop on that frame.
+//       The frame is written by hand.
 //     ride {on:propId, part?} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?, over?, ease?   from this frame the
 //       prop keeps its place and turn on that prop, however that one is carried, held or keyed, or on that joint of that
 //       body (joints as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as

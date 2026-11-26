@@ -57,7 +57,7 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	assert.ok(inside >= 2, `model requests between motion start and end: ${inside}`);
 	assert.ok(at("light") > at("motion.start") && at("light") < at("motion.end"), "a tool ran while the motion was written");
 	const started = frames.find(frame => frame.type === "tool.done" && frame.callId === "m1"), result = frames.find(frame => frame.type === "tool.done" && frame.callId === "r1");
-	assert.deepEqual(started.result, { ok: true, started: true });
+	assert.deepEqual((({ held: _held, ...rest }) => rest)(started.result), { ok: true, started: true });
 	assert.deepEqual(result.result, ANSWER, "motion_result answers what the waiting tool answered");
 	assert.ok(frames.at(-1).type === "done" && !frames.some(frame => frame.type === "error"));
 	assert.deepEqual(tx.calls, ["mark", "mark"], "the light call and the install each ran under a mark; nothing was rolled back");
@@ -96,7 +96,7 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	const edit = { name: "edit", handler: async ({ id, wait }) => { if (wait) await new Promise(resolve => { slow = resolve; }); return { ok: true, affectedIds: [id] }; } };
 	const script = { name: "script", handler: async () => ({ ok: true, calls: [{ ok: true, affectedIds: ["sky"] }, { ok: true, affectedIds: ["c1"] }] }) };
 	const [guarded, scripted, , resultTool] = door.with([edit, script]);
-	assert.deepEqual(await door.handler({ request: "c1 sits" }), { ok: true, started: true });
+	assert.deepEqual((({ held: _held, ...rest }) => rest)(await door.handler({ request: "c1 sits" })), { ok: true, started: true });
 	await assert.rejects(door.handler({ request: "again" }), error => error.code === "MOTION_RUNNING");
 	await assert.rejects(guarded.handler({ id: "bench" }), error => error.code === "MOTION_RUNNING" && /bench/.test(error.message) && /undone/.test(error.message));
 	await assert.rejects(scripted.handler({}), error => error.code === "MOTION_RUNNING" && /c1/.test(error.message));

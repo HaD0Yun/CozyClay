@@ -1,25 +1,32 @@
 #!/usr/bin/env node
-// The look after a sculpt (bin/agent/sculpt-look.mjs): a run_action object.sculpt the model calls itself answers with
-// a verify_result closeup of that object as image content; a script's nested call, another action, a refusal and a
-// failed look get none, and a failed look never fails the sculpt. Through the real Studio tools and pi adapter, with a
-// fake editor.
+// The look after an action (bin/agent/action-look.mjs): a run_action of an action whose declaration names a look
+// (object.sculpt: closeup, carried in the turn's action index) answers with that verify_result visual of the object as
+// image content, the model's own call and a script's nested call alike; an action without a look, a call with no call
+// id (quick_edit), a refusal and a failed look get none, and a failed look never fails the action. Through the real
+// Studio tools and pi adapter, with a fake editor.
 import assert from "node:assert/strict";
-import { sculptLookTarget } from "../bin/agent/sculpt-look.mjs";
+import { lookTarget } from "../bin/agent/action-look.mjs";
 import { createStudioTools } from "../bin/agent/studio-tools.mjs";
 import { toAgentTools } from "../bin/agent/pi-tools.mjs";
+import { commandDeclarations } from "../src/commands/index.js";
 
 const jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
 const receipt = (id = "obj-pot") => ({ ok: true, status: "applied", action: "object.sculpt", receiptId: "r-1", affectedIds: [id], revision: { before: 3, after: 4 }, summary: "Sculpted Pot" });
 
+// ---- the declaration ----
+const looks = commandDeclarations().filter(entry => entry.look).map(entry => [entry.id, entry.look]);
+assert.deepEqual(looks, [["object.sculpt", "closeup"]], "object.sculpt declares its closeup; no other action declares a look");
+
 // ---- the rule ----
+const lookOf = id => (id === "object.sculpt" ? "closeup" : null);
 const direct = { toolCallId: "call-1" }, nested = { callId: "call-1" };
-assert.equal(sculptLookTarget("run_action", { action: "object.sculpt", args: { recipe: {} } }, direct, receipt()), "obj-pot", "a new sculpt: the receipt's first id");
-assert.equal(sculptLookTarget("run_action", { action: "object.sculpt", args: { id: "obj-vase", edits: [{}] } }, direct, receipt("obj-vase")), "obj-vase", "edits: the sculpt named");
-assert.equal(sculptLookTarget("run_action", { action: "object.sculpt", args: {} }, nested, receipt()), null, "inside a script: no picture");
-assert.equal(sculptLookTarget("run_action", { action: "object.sculpt", args: {} }, {}, receipt()), null, "a call with no model call id (quick_edit): no picture");
-assert.equal(sculptLookTarget("run_action", { action: "object.add", args: {} }, direct, receipt()), null, "another action");
-assert.equal(sculptLookTarget("verify_result", { action: "object.sculpt" }, direct, receipt()), null, "another tool");
-assert.equal(sculptLookTarget("run_action", { action: "object.sculpt", args: {} }, direct, { ok: false, code: "INVALID_ARGUMENT" }), null, "a refused sculpt");
+assert.equal(lookTarget("run_action", { action: "object.sculpt", args: { recipe: {} } }, direct, receipt(), lookOf), "obj-pot", "a new sculpt: the receipt's first id");
+assert.equal(lookTarget("run_action", { action: "object.sculpt", args: { id: "obj-vase", edits: [{}] } }, direct, receipt("obj-vase"), lookOf), "obj-vase", "edits: the sculpt named");
+assert.equal(lookTarget("run_action", { action: "object.sculpt", args: {} }, nested, receipt(), lookOf), "obj-pot", "inside a script: the picture too");
+assert.equal(lookTarget("run_action", { action: "object.sculpt", args: {} }, {}, receipt(), lookOf), null, "a call with no call id (quick_edit): no picture");
+assert.equal(lookTarget("run_action", { action: "object.add", args: {} }, direct, receipt(), lookOf), null, "an action with no declared look");
+assert.equal(lookTarget("verify_result", { action: "object.sculpt" }, direct, receipt(), lookOf), null, "another tool");
+assert.equal(lookTarget("run_action", { action: "object.sculpt", args: {} }, direct, { ok: false, code: "INVALID_ARGUMENT" }, lookOf), null, "a refused sculpt");
 
 // ---- through the tools ----
 function fakeHub({ closeup = "ok" } = {}) {
@@ -38,9 +45,11 @@ function fakeHub({ closeup = "ok" } = {}) {
 		},
 	};
 }
-async function run(hub, args, { inScript = false } = {}) {
-	const tools = createStudioTools({ liveHub: hub, workspaceHandle: "handle-1", resolveImage: (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }) });
+const actionIndex = [{ id: "object.sculpt", label: "Sculpt a clay prop from a recipe", look: "closeup" }, { id: "object.add", label: "Add object" }];
+async function run(hub, args, { inScript = false, call } = {}) {
+	const tools = createStudioTools({ liveHub: hub, workspaceHandle: "handle-1", session: { actionIndex }, resolveImage: (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }) });
 	const tool = tools.find(t => t.name === "run_action");
+	if (call) return { details: await tool.handler(args, call) };
 	if (inScript) return { details: await tool.handler(args, { callId: "call-7" }) };
 	const [agentTool] = toAgentTools([tool]);
 	return agentTool.execute("call-7", args);
@@ -57,8 +66,12 @@ assert.equal(out.details.dataUrl, undefined, "the text half carries no image byt
 assert.match(out.content[0].text, /"look":\{"status":"attached","visual":"closeup","imageId":"img-1"/);
 
 hub = fakeHub(); out = await run(hub, sculpt, { inScript: true });
-assert.deepEqual(hub.commands.map(c => c.name), ["run_action"], "a script's nested sculpt: no look");
-assert.equal(out.details.dataUrl, undefined);
+assert.deepEqual(hub.commands.map(c => c.name), ["run_action", "verify_result", "resolve_studio_image"], "a script's nested sculpt: the look too");
+assert.equal(out.details.dataUrl, jpeg, "the nested result carries the picture for the script to send back");
+
+hub = fakeHub(); out = await run(hub, sculpt, { call: {} });
+assert.deepEqual(hub.commands.map(c => c.name), ["run_action"], "no call id (quick_edit): no look");
+assert.equal(out.details.look, undefined);
 
 hub = fakeHub({ closeup: "refuse" }); out = await run(hub, sculpt);
 assert.equal(out.content.some(part => part.type === "image"), false);
@@ -71,6 +84,6 @@ assert.deepEqual(hub.commands.map(c => c.name), ["run_action", "verify_result", 
 assert.equal(out.details.look.status, "attached");
 
 hub = fakeHub(); out = await run(hub, { action: "object.add", args: {} });
-assert.deepEqual(hub.commands.map(c => c.name), ["run_action"], "another action: no look");
+assert.deepEqual(hub.commands.map(c => c.name), ["run_action"], "an action without a look: none");
 assert.equal(out.content.some(part => part.type === "image"), false);
-console.log("sculpt look: ok");
+console.log("action look: ok");

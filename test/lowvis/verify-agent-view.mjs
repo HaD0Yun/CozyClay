@@ -76,6 +76,14 @@ const refused = (promise, pattern) => assert.rejects(promise, error => error.cod
 	await viewed.run_action.handler({ action: "character.add", args: { character: { model: "x-bot-tpose" } } });
 	await viewed.run_action.handler({ action: "character.update", args: { characterId: "cap-1", patch: { x: 1 } } });
 	assert.deepEqual(ran, ["character.add", "character.update"], "a block figure is added; a capsule figure already there is still moved");
+	// A refusal that carries the action's input schema (studio-tools.mjs) shows the same view of it as the actions read.
+	const withSchema = view.tools([{ name: "run_action", handler: async () => { throw Object.assign(new Error("$.args.character: missing required field \"model\"."), { code: "INVALID_ARGUMENT", schema: decl["character.add"].input }); } }])[0];
+	await assert.rejects(withSchema.handler({ action: "character.add", args: { character: {} } }), error => {
+		assert.doesNotMatch(JSON.stringify(error.schema), /proxy-figure|posture|castStyle/, "the refusal's schema has no capsule model, posture or cast style");
+		assert.equal(JSON.stringify(error.schema), JSON.stringify(current.actionIndex.find(row => row.id === "character.add").input), "it is the schema the actions read answers");
+		return true;
+	});
+	assert.match(JSON.stringify(decl["character.add"].input), /proxy-figure/);
 	const old = { context: { scene: { castStyle: "hybrid" } } };
 	turnAgentView({ env: { COZYCLAY_MOTION_ENGINE: "old" }, value: old, current: {} });
 	assert.equal(old.context.scene.castStyle, "hybrid", "the old engine keeps the cast style");

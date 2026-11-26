@@ -27,7 +27,7 @@ const sizeOf = p => (p.shape === "sphere" ? [p.size[0], p.size[0], p.size[0]] : 
 	const later = written(stage([prop("stool", [0.45, 0.5, 0.42], [1.2, 0, 0.8], { turn: 20 }), prop("crate", [0.55, 0.3, 0.4], [-1, 0, 1.1], { turn: 30 }), prop("mat", [0.6, 0.02, 0.4], [0, 0, -1]), prop("rail", [1.2, 0.9, 0.1], [0, 0, 3])]), { a1: [[0, "idle"]] });
 	const writer = scriptedWriter([null, first, later]);
 	const t = turn({ studio, writer });
-	assert.deepEqual(await t.call, { ok: true, started: true });
+	assert.deepEqual(await t.call, { ok: true, started: true, held: ["a1"] });
 	let draft = null;
 	const early = t.result().then(value => { draft = value; });
 	await writer.step(); // compile 1 fails

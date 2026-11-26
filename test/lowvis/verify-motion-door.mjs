@@ -237,7 +237,7 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	const tool = createMotionDoor({ background: true, mark: async () => null, rollback: async () => null,
 		run: ({ onScene }) => { onScene({ characters: { c1: "c1" }, props: {} }); return new Promise(resolve => { end = () => resolve(DONE); }); },
 		refit: async () => { refits++; return { ok: true, refit: [], kept: [], skipped: [] }; } });
-	assert.deepEqual(await tool.handler({ request: "she waves" }), { ok: true, started: true });
+	assert.deepEqual(await tool.handler({ request: "she waves" }), { ok: true, started: true, held: ["c1"] }, "started names the ids the motion is written against");
 	await assert.rejects(tool.handler({}), error => error.code === "MOTION_RUNNING" && /a refit is another motion call after that/.test(error.message));
 	assert.equal(refits, 0);
 	end();

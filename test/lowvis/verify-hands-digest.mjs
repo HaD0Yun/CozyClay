@@ -53,13 +53,16 @@ const BEFORE = {
 	chop: "a0bb8b42e83fdae8297d4efc4485f8d05a6aeff68db50ba7dcb8dc14f6cfb7bd", // was 623cc406..., then 3b131397..., then 7edaa06c... (before a prop key started where the key before has the prop), then 721996eb... (before a hand took a prop as it lies)
 	bowl: "aec263557dd327bd0c8e4d669765ab6066577336c3f7164baa2847c843d1eadd", // was 9cda1765..., then 8b1243fc..., then 11ba09d1... (before a prop key started where the key before has the prop), then cff65983... (before a hand took a prop as it lies)
 };
+// the keyed-prop note no longer names one demo's objects (engine-simple/notes.js): put back to its old text before hashing
+const KEYED_WAS = "a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand";
+const KEYED_NOW = "a keyed prop follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand";
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};
 for (const demo of DEMO_IDS) {
 	const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 	const { clip, aux: { seats, walks, ...aux } } = buildClip(spec); // aux.seats came later (verify-body-start.mjs pins it), aux.walks too (verify-counted-walk.mjs)
 	assert.ok(Array.isArray(seats) && Array.isArray(walks), `${demo}: aux.seats and aux.walks are lists`);
-	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n === NEW_RUN ? OLD_RUN : n === KNEEL_NOW ? KNEEL_WAS : n));
+	clip.notes = clip.notes.map(n => (n === KEYED_NOW ? KEYED_WAS : n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n === NEW_RUN ? OLD_RUN : n === KNEEL_NOW ? KNEEL_WAS : n));
 	delete aux.legs; // each posture change's legs came later (legs-told.js)
 	for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 	now[demo] = createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex");

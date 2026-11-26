@@ -46,6 +46,7 @@ export function beforeOf(entry, studio) {
 	return { scene: entry.scene, spec: entry.spec, differs };
 }
 
+const KEPT = "The compiled motion is kept: motion_result with install: true installs it.";
 const INSTALL_NO = /^\s*Install:\s*no\b/im; // the writer's report line that keeps its last compile out of the Studio (prompt.mjs)
 /** Why the writer's last compiled motion (`what`) is not installed: { text, offer } (offer: it can still be installed on
  *  request), or null when the writer answered for it with its report. A run that ended before its report (a safety
@@ -147,10 +148,14 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * drafting(steps), onDraft(answer): the draft (motion-draft.mjs), made only when drafting is given (the motion door's
  * plain turn): the stand-ins of the writer's first compile enter the scene then, the install takes them as the props,
  * and propsSet says per object what the install changed since the draft (motion-props.mjs). The writer is told nothing of it.
+ * Its stand-ins are made ahead, from the writer's first scene as soon as that has streamed whole, where it has props the
+ * Studio lacks; onDraft(null, watch) then hands over their watch only.
+ * onFacts({ n, facts }): with drafting only, after each compile that went through, its facts (motion-facts.mjs factsOf).
+ * A Studio that refused the first install throws "studio" with install(): the compiled motion, installed on request.
  * inbox: a steer inbox (steer-inbox.mjs) for what the user sends while the motion writer works (the direct key).
  * deps: { runScene, installClip, addStandIn, standInOf, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, inbox = null, writer = null, deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), drafting = null, onDraft = () => {}, onFacts = () => {}, inbox = null, writer = null, deps = null }) {
 	const { runScene, installClip, addStandIn, standInOf, studioScene, readClip, placeSetLater = () => false, eulerXYZ = null, sceneShapes = () => ({}) } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`, key = memoryKey ?? name;
@@ -182,7 +187,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			}
 		}
 	};
-	const draft = draftOf({ hold: drafting, onDraft, key, known: studio.ids.props, boxed, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn: async (prop, step) => { const id = await addStandIn(prop, step); if (id) standIns.set(id, prop.id); return id; }, standInOf });
+	const draft = draftOf({ hold: drafting, onDraft, onFacts, key, known: studio.ids.props, characters: studio.ids.characters, boxed, run, describe: () => hub.command("describe", {}, workspaceHandle), readClip, addStandIn: async (prop, step) => { const id = await addStandIn(prop, step); if (id) standIns.set(id, prop.id); return id; }, standInOf });
 	// the motion a take plays now, with the writer's scene and spec kept with it; this conversation's last one first
 	const open = openScene(read), takes = keptTakes(read), playing = memoryKey == null ? null : keptMotion(takes.kept, studio.ids.characters, last.get(`${open} ${memoryKey}`) ?? null);
 	// an attached object whose place on its bone was set by hand (install.js placeSetLater) is told with that place and
@@ -207,7 +212,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const write = () => runScene({ name, request, ...asked(), variant: MOTION_VARIANT, off, images, shapes: tops ? { ...held, ...shapesOf(studio) } : {}, reshape, ...(Object.keys(has).length ? { bodies: has } : {}), ...(before ? { kept: before.differs.length ? { spec: before.spec } : { scene: before.scene, spec: before.spec } } : {}), env, signal, inbox, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
-	}, onCompiled: draft.onCompiled });
+	}, onCompiled: draft.onCompiled, onSceneSent: draft.onScene });
 	let record = await write();
 	// a sign-in that refuses the motion model for the account at the first call (motion-writer.mjs modelRefused; never a
 	// rate limit, an expired sign-in, a server error or the network): once, the route after it writes, and the answer and
@@ -257,7 +262,10 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			// kept out, not failed: stopped before the install, or another scene is open than the motion's (motion-door.mjs)
 			if (error?.code === "kept") return keptOut(error.message);
 			if (error?.code === "scene") return keptOut(`${error.message}, so ${what} is not installed.`);
-			throw await draft.failed(error);
+			const failed = await draft.failed(error);
+			// a refused install keeps the compiled motion: it can be installed on request (motion-door.mjs install: true)
+			if (failed?.code === "studio") Object.assign(failed, { message: `${failed.message.replace(/\.?$/, ".")} ${KEPT}`, install: () => install(false) });
+			throw failed;
 		}
 		return answered(result);
 	};

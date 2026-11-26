@@ -203,11 +203,14 @@ cases['context'] = async () => {
     // The agent's turn context: an id/label row for every registered command.
     const context = f.binding.context();
     assert.ok(Array.isArray(context.actionIndex), 'the turn context carries the command index');
-    assert.deepEqual(context.actionIndex.map(row => row.id), f.registry.list().filter(row => !row.agentHidden).map(row => row.id));
+    // A ui-only command is refused to every agent call (command-bus.js exposure), so the index leaves it out.
+    assert.deepEqual(context.actionIndex.map(row => row.id), f.registry.list().filter(row => !row.agentHidden && row.exposure !== 'ui-only').map(row => row.id));
+    assert.ok(f.registry.list().some(row => row.exposure === 'ui-only'), 'the fixture registers ui-only commands');
     const row = context.actionIndex.find(entry => entry.id === STAMP.id);
     assert.deepEqual({ id: row.id, label: row.label }, { id: STAMP.id, label: STAMP.label });
-    const allowed = new Set(['id', 'label', 'generation', 'timeoutMs']);
+    const allowed = new Set(['id', 'label', 'generation', 'timeoutMs', 'look']);
     assert.ok(context.actionIndex.every(row => Object.keys(row).every(key => allowed.has(key))), 'index rows carry no schema, description or availability');
+    assert.deepEqual(context.actionIndex.filter(entry => entry.look).map(entry => [entry.id, entry.look]), [['object.sculpt', 'closeup']], 'the index carries a declared look for the sidecar');
     const encoded = encodeStudioContext(context);
     assert.ok(!encoded.includes(STAMP.description), 'no description is inlined');
     assert.ok(!encoded.includes('"additionalProperties"'), 'no input schema is inlined');
@@ -320,11 +323,15 @@ cases['milestone'] = async () => {
     assert.deepEqual({ action: done[1].result.action, status: done[1].result.status, output: done[1].result.output }, { action: STAMP.id, status: 'completed', output: { note: 'agent' } });
     const seen = faux.calls[0].messages.flatMap(message => Array.isArray(message.content) ? message.content : []).map(part => part.text ?? '').join('\n');
     const actions = JSON.parse(/\n<actions>\n(.*)\n<\/actions>$/s.exec(getCurrentSystemPrompt(faux.calls[0].messages))[1]);
-    assert.deepEqual(actions.find(row => row.id === STAMP.id), { id: STAMP.id, label: STAMP.label, timeoutMs: STAMP.timeoutMs }, 'the model sees the command in its index');
+    // timeoutMs is the sidecar's hub deadline: the model's block leaves it out (agent-runner.mjs).
+    assert.deepEqual(actions.find(row => row.id === STAMP.id), { id: STAMP.id, label: STAMP.label }, 'the model sees the command in its index');
     assert.ok(!seen.includes(STAMP.description), 'and not its description or schema');
     // MCP and the CLI: the same command, listed and run.
     const listed = await callTool('studio_commands', {}, s.handle);
     assert.deepEqual(listed.value.actions.filter(row => row.id === STAMP.id).map(row => row.label), [STAMP.label]);
+    // The look is the Studio sidecar's: what MCP and the CLI list, and the declarations they read by id, carry none.
+    const sculpt = await callTool('studio_commands', { ids: ['object.sculpt'] }, s.handle);
+    assert.deepEqual([listed.value.actions.some(row => 'look' in row), sculpt.value.actions.map(row => [row.id, 'look' in row])], [false, [['object.sculpt', false]]]);
     const viaMcp = await callTool('studio_run', { action: STAMP.id, args: { note: 'mcp' } }, s.handle);
     assert.deepEqual(viaMcp.value.output, { note: 'mcp' });
     const commands = await cli(['commands'], s);

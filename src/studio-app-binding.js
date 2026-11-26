@@ -340,7 +340,8 @@ export function createStudioAppBinding(ports) {
 			// exposure and availability (the reason when unavailable). Schemas are on
 			// request: ids answer those actions' full declarations, input included.
 			if (command.args.scope === "actions") {
-				const actions = (ports.actions?.()?.list() ?? []).filter(row => !row.agentHidden);
+				// look is the Studio sidecar's (the context's actionIndex carries it, bin/agent/action-look.mjs): this answer, which MCP and the CLI read too, stays as it was.
+				const actions = (ports.actions?.()?.list() ?? []).filter(row => !row.agentHidden).map(({ look: _look, ...row }) => row);
 				// task.requestScope is a bus control a task's action list names: described by id, never listed as a command.
 				return { ...head, actions: command.args.ids ? [...actions, { ...TASK_SCOPE_ACTION, available: true }].filter(row => command.args.ids.includes(row.id)) : actions.map(({ input, description, ...row }) => row) };
 			}

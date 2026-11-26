@@ -16,6 +16,9 @@ import { serializeClip, validateClip } from "../../src/lowvis/clip.js";
 import { DEMO_IDS } from "../../src/lowvis/demos.js";
 import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
 
+// the keyed-prop note no longer names one demo's objects (engine-simple/notes.js): put back to its old text before hashing
+const KEYED_WAS = "a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand";
+const KEYED_NOW = "a keyed prop follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand";
 const hash = text => createHash("sha256").update(text).digest("hex").slice(0, 16);
 // the kneel note, said again when the two legs of a posture change came apart (legs.js), goes back to its text of then
 const KNEEL_WAS = "kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent";
@@ -60,7 +63,7 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 		const { clip } = buildClip(structuredClone(spec));
-		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n === RUN_NOW ? RUN_WAS : n === KNEEL_NOW ? KNEEL_WAS : n));
+		clip.notes = clip.notes.map(n => (n === KEYED_NOW ? KEYED_WAS : n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n === RUN_NOW ? RUN_WAS : n === KNEEL_NOW ? KNEEL_WAS : n));
 		for (const p of clip.props) delete p.by; // what carries a moving prop on each frame came later (verify-prop-owner.mjs)
 		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}
