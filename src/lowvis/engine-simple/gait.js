@@ -84,7 +84,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 	for (let t = 0; t < T; t++) { const a = posAt(t), b = posAt(t + 1), [ys, yc] = dir2(yawAt(t + 0.5)), dx = b[0] - a[0], dz = b[1] - a[1]; fw += dx * ys + dz * yc; sd += Math.abs(dx * yc - dz * ys); }
 	const back = fw < -sd;
 	plan.forEach((s, k) => {
-		const nxt = plan[k + 2], tau = nxt ? (s.t0 + s.dur + nxt.t0) / 2 : T, yaw = yawAt(tau), [sn, cs] = dir2(yaw);
+		const nxt = plan[k + 2], tau = s.tau ?? (nxt ? (s.t0 + s.dur + nxt.t0) / 2 : T), yaw = yawAt(tau), [sn, cs] = dir2(yaw);
 		const [mr, mp] = mixAt(tau), c = posAt(tau), from = cur[s.side];
 		const trail = blend([mr, mp]).trail + WALK_TRAIL * clamp(1 - mr - mp) * clamp(speed(tau) / 0.6); // only while walking: the steps that stop land home
 		const o = s.off ?? [0, 0], h = home([c[0] - sn * trail, c[1] - cs * trail], yaw, s.side ? -1 : 1); // off: [left, forward] from the home spot
@@ -104,7 +104,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 			while (t0 - 1 >= was && behind(Math.ceil(t0) - 1) > aft(Math.ceil(t0) - 1)) t0 -= 1;
 		}
 		swings[s.side].push({ t0, t1, ...((t1 !== s.t0 + s.dur || t0 !== s.t0) && { T: s.stepT }), from, to, d, sf: clamp(ahead), sb: back ? clamp(-ahead) : 0, ...(s.off && { home: h }) });
-		cur[s.side] = to;
+		if (!s.past) cur[s.side] = to; // a step past the move's end (travel `onward`) only places the plants before it
 	});
 	if (plan.length) swings[plan.at(-1).side].at(-1).fin = true; // the last plant of the move: it lands under the stopped pelvis
 	const frames = [], was = [0, 0];
@@ -200,7 +200,10 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 
 const turnFrames = (d, N) => Math.min(N >> 1, Math.round(6 + 10 * Math.abs(d) / (Math.PI / 2)));
 
-/** Walk / run chain along a curved path: segs = [{ kind, to, heading, N }]. Stops at the end of the last one. */
+/** Walk / run chain along a curved path: segs = [{ kind, to, heading, N }]. Stops at the end of the last one, unless
+ *  the last one is `onward` (spec-layers.js: the next body action starts from the speed the body has): then it hands
+ *  its speed on, with no slow-down, no step that closes the feet and no still frames: its last plant lands where the
+ *  hips are on its last frame, the middle of its stance, and the other foot swings on. */
 function travel(st, segs) {
 	segs = segs.map(s => ({ ...s }));
 	const out = [], n = segs.length, last = segs[n - 1];
@@ -227,9 +230,10 @@ function travel(st, segs) {
 		return dir2(segs[i - 1].heading ?? (dist2(pts[i - 1], pts[i + 1]) > 0.02 ? yawTo(pts[i - 1], pts[i + 1]) : legYaw(i)));
 	});
 	const path = buildPath(pts, dirs), lens = segs.map((_, i) => path.segEnd[i] - (i ? path.segEnd[i - 1] : 0));
+	const on = !!last.onward && post == null && last.steps == null && lens[n - 1] > 0.02; // a turn on the spot at the end stops it; a move of no length (a push in place) has no speed to hand on
 	let side = segs[0].first ? (segs[0].first === "R" ? 1 : 0) : firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
 	segs.forEach((s, i) => {
-		const end = i === n - 1;
+		const end = i === n - 1 && !on;
 		// a walk or a run takes the captured step length for its speed, plus the step that closes the feet at a stop
 		const steady = (a, b) => lens[i] / Math.max(1, s.N - (i === 0 ? Math.min(a, s.N / 3) / 2 : 0) - (end ? Math.min(b, s.N / 3) / 2 : 0)) * 24; // speed between speeding up and slowing down
 		const vSteady = steady(12, 12), G = s.G = gaitAt(s.kind, vSteady);
@@ -240,19 +244,25 @@ function travel(st, segs) {
 			k = fit.n; s.stepT = fit.stepT; s.fit = fit; s.use = Math.min(s.N, Math.ceil((k - 1 + G.sw) * fit.stepT + SETTLE));
 		} else if (lens[i] / k > (G.step ?? G.maxStride)) k = Math.ceil(lens[i] / (G.step ?? G.maxStride)) + (end ? 1 : 0); // a run: its speed's own step
 		else if (end && lens[i] / k < 0.3) { k = Math.max(2, Math.ceil(lens[i] / 0.45) + 1); s.use = Math.min(s.N, Math.round(k * 13)); } // too slow: arrive early, then stand
+		if (on && i === n - 1) { // handed on: its steps fill it to the middle of the last stance, each as long as its speed's own, at most the gait's longest
+			const most = G.step ?? G.maxStride, own = s.kind === "push" ? lens[i] / Math.max(1, s.N / G.stepFrames) : s.kind === "walk" ? walkStep(vSteady, G.maxStride) : most;
+			k = Math.max(1, Math.round(lens[i] / own - G.sw / 2), Math.ceil(lens[i] / most - G.sw / 2 - 1e-9));
+		}
 		s.k = k;
 	});
-	const vb = i => i <= 0 || i >= n ? 0 : (lens[i - 1] / segs[i - 1].use + lens[i] / segs[i].use) / 2;
+	const vb = i => (i >= n && on ? null : i <= 0 || i >= n ? 0 : (lens[i - 1] / segs[i - 1].use + lens[i] / segs[i].use) / 2); // null: it leaves at its steady speed (pace.js warp)
 	const S = [0], plan = [];
 	segs.forEach((s, i) => {
 		const G = s.G, F0 = S.length - 1, base = S.at(-1);
-		const stepT = s.stepT ?? (i === n - 1 ? Math.max(1, s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k), pulse = t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw));
+		const stepT = s.stepT ?? (i === n - 1 ? (on ? Math.max(1, s.use - 1) / (s.k + G.sw / 2) : Math.max(1, s.use - SETTLE) / (s.k - 1 + G.sw)) : s.use / s.k), pulse = t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw));
 		// a counted walk (alone in its chain) has its hips arrive as its last foot lands, at the pace its count was fitted to
 		const u = s.fit && pace((s.k - 1 + G.sw) * stepT, stepT, s, G), w = u ? Array.from({ length: s.use + 1 }, (_, t) => lens[i] * u(t)) : warp(s.use, lens[i], vb(i), vb(i + 1), pulse);
 		for (let j = 0; j < s.k; j++, side ^= 1) plan.push({ t0: F0 + j * stepT, dur: G.sw * stepT, stepT, side, reach: (G.step ?? G.maxStride) * (1 - G.sw / 2) + 0.05, lag: G.trail + (s.kind === "walk" ? WALK_TRAIL : 0) });
+		if (on && i === n - 1) plan.at(-1).tau = F0 + s.use - 1; // handed on: the last plant is under the hips on the last frame, the middle of its stance
 		for (let t = 1; t <= s.use; t++) S.push(base + w[t]);
 		s.F0 = F0;
 	});
+	if (on) for (let j = 0; j < 2; j++) { const { tau, ...p } = plan.at(-1); plan.push({ ...p, t0: p.t0 + p.stepT, side: p.side ^ 1, past: true }); } // the steps after it: the other foot swings on, and the plants before land in the middle of their stance
 	if (last.end && post == null) for (const s of plan.slice(-2)) s.off = last.end[s.side ? "R" : "L"] ?? [0, 0]; // the last step of each foot lands off its home spot
 	const Tm = S.length - 1, tab = (A, t) => { t = clamp(t, 0, Tm); const i = Math.min(Tm - 1, Math.floor(t)); return mix(A[i], A[i + 1], t - i); };
 	let prev = st.yaw - wrap(st.yaw - path.yaw(0));

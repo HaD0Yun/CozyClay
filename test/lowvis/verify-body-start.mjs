@@ -41,7 +41,7 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// bowl a0b912519da349db), and again when a hand takes a prop as it lies (were chop 74ac71e5e65d558b, bowl 6d8e8f512143c0b1)
 	// and so is the run note, said again when a run came to move by captured runs (gait-data.js)
 	const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
-	const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); it starts and stops in half a second, as a walk does";
+	const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
 	// locomotion, sit and bowl pinned again with that run (locomotion: its run) and when a plant of any travel came to stay
 	// in the air until the pelvis is within a steady pace's reach of it (sit and bowl: the last steps of a walk that ends
 	// fast); were locomotion 4c58c177f5cba59f, sit f2ddb31cc94c2acd, bowl b6fda58a89c2aece

@@ -39,7 +39,7 @@ const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too 
 const KNEE_NOW = "the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target";
 // and so does the run note, said again when a run came to move by captured runs (gait-data.js); these specs have no run
 const RUN_WAS = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
-const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); it starts and stops in half a second, as a walk does";
+const RUN_NOW = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
 const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]]) => {
 	const { clip, aux: { rides, walks, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride); aux.walks came with the counted walk
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);

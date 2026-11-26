@@ -8,6 +8,7 @@ import { EASE, clamp, mix, mixV, qRotate, qSlerp, qY, smooth, wrap } from "./mat
 import { flowAdd, startScalar } from "./flow.js";
 import { STAND_Y, footPose, hold, home, standB } from "./gait.js";
 import { LEG_LEN, SOLE } from "./solve.js";
+import { pushFoot, strideLegs } from "./air-legs.js";
 import { INDEX as J, OFFSET, REST } from "../rig17.js";
 
 const FPS = 24, G = 9.8 / FPS / FPS; // m per frame per frame, in the world
@@ -121,7 +122,7 @@ export function fly(out, flights, s, lower = null) {
 	flights.forEach((fl, n) => {
 		const a = fl.f0 - 1, b = fl.f1, T = b - a;
 		if (a < 0 || T < 1) return;
-		const lo = n ? flights[n - 1].f1 : 0, hi = flights[n + 1] ? flights[n + 1].f0 - 1 : F - 1, end = out[Math.min(b, F - 1)], A0 = out[a];
+		const lo = n ? flights[n - 1].f1 : 0, hi = flights[n + 1] ? flights[n + 1].f0 - 1 : F - 1, end = out[Math.min(b, F - 1)], A0 = out[a], push = pushFoot(A0);
 		const base = out.map(B => xz(B.p)), d = k => (k > 0 ? sub2(base[k], base[k - 1]) : [0, 0]); // the steps along the ground before this flight moves them
 		const P = upDown(end.p[1] - A0.p[1], T, g, acc, a - lo, room(A0), room(end), low(A0), low(end), room(end, DEEP), HARD / FPS / FPS / s), ya = A0.p[1] + P.ra;
 		const { rb, v0, v1, cUp, tUp, dip, short } = P, { cDn, tDn } = give(P, room(end, DEEP), lower, b);
@@ -151,13 +152,16 @@ export function fly(out, flights, s, lower = null) {
 			const t = k - b;
 			move(out, k, back[k], settle(t, rb, v1, cDn, tDn));
 		}
-		// the flight: the hips on the parabola; the feet go with them from where they left to where they come down
+		// the flight: the hips on the parabola; the feet go with them from where they left to where they come down (from a stride: below)
 		const L = out[Math.min(b, F - 1)], fa = out[a].feet.map(ft => sub3(ft.a, out[a].p)), fb = L.feet.map(ft => sub3(ft.a, L.p)), vx = sub2(pb, pa);
 		for (let k = a + 1; k < b && k < F; k++) {
 			const t = k - a, u = t / T, w = smooth(u), p = [pa[0] + vx[0] * u, ya + v0 * t - 0.5 * g * t * t, pa[1] + vx[1] * u];
 			out[k] = { ...out[k], p, q: qSlerp(out[a].q, L.q, w), yaw: out[a].yaw + wrap(L.yaw - out[a].yaw) * w, lean: mix(out[a].lean, L.lean, w), air: fl,
 				feet: out[k].feet.map((ft, i) => ({ ...ft, a: add3(p, mixV(fa[i], fb[i], w)), q: qSlerp(out[a].feet[i].q, L.feet[i].q, w), planted: false })) };
 		}
+		// a flight from a stride: the legs of captured flights (air-legs.js)
+		const way = Math.hypot(...vx) > 1e-3 * T ? vx : [Math.sin(out[a].yaw), Math.cos(out[a].yaw)], l = Math.hypot(...way);
+		strideLegs(out, { a, b, push, fwd: [way[0] / l, 0, way[1] / l], lo, down: tDn, hi: hi - 1, s });
 		fl.short = short;
 	});
 }

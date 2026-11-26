@@ -14,9 +14,11 @@
 //     velocity as nearly as whole frames in the air allow (to is not read), comes down where gravity brings it and
 //     stands; its next body action, if that comes first, ends the flight there, at other speeds. On frame 0, or on the
 //     frame another launch comes down, it first stands one frame. The engine makes the crouch and push before it and
-//     the give after it from the flight's speeds; the feet leave the floor and plant where it comes down. Pose keys
-//     go on in the air (a foot's at is then measured from the floor point raised as far as the hips are over
-//     where they left the ground).
+//     the give after it from the flight's speeds; the feet leave the floor and plant where it comes down. A walk, run
+//     or push straight into it does not stop first, and its legs stride on in the air (a keyed foot wins there). It
+//     stops first with steps, facing, end or a turn on the spot added at its end, under 4 frames, or as a walk or run
+//     under 0.5 m times the body's scale. Pose keys go on in the air (a foot's at is then measured from the floor
+//     point raised as far as the hips are over where they left the ground).
 //     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
 //     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
 //     from its scene `at` and `heading` as at the end of the change.

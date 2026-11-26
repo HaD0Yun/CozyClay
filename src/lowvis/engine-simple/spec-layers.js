@@ -12,6 +12,9 @@ export { partBoxes, resolveParts } from "./parts.js";
 export { lowerOf, shiftOf } from "./air.js";
 
 export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie", "launch"]);
+/** The body actions that start from the speed the body has (air.js launch: the speed along the ground of the frames
+ *  before it): a walk, run or push straight into one hands its speed on instead of stopping (gait.js travel `onward`). */
+const ONWARD = new Set(["launch"]);
 
 export function buildBody(c, acts, F, ctx) {
 	const yaw = rad(c.heading), list = acts.filter(a => BODY.has(a[1])).map(([f, verb, o = {}]) => ({ f, verb, o }));
@@ -20,7 +23,7 @@ export function buildBody(c, acts, F, ctx) {
 	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run" || a.verb === "push");
 	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
 	if (moving(list[0])) st.full = true; // gait.js: a move that begins the clip
-	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
+	const stops = a => a.o.steps != null || a.o.facing != null || a.o.end != null, special = a => stops(a) || a.o.first != null; // stops: its count, facing or end spots end it standing
 	const on = a => (ctx.carrier?.ids.has(a?.o.on) ? a.o.on : null); // carry.js: the moving prop it is done on
 	let frame = null, rest = null; // the prop it is on, and what is left of the last getting on or off (carry.js)
 	const flights = []; // every launch: its frames in the air (air.js)
@@ -34,6 +37,7 @@ export function buildBody(c, acts, F, ctx) {
 		if (moving(a)) {
 			const segs = [seg(a, N)];
 			while (moving(list[i + 1]) && on(list[i + 1]) === frame && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
+			segs.at(-1).onward = ONWARD.has(list[i + 1]?.verb) && !stops(list[i]);
 			r = locomote(st, segs);
 			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
 		} else if (a.verb === "launch") { // air.js; with no frame on the ground before it (frame 0, or the frame the flight before it comes down on) it stands one first

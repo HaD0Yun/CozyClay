@@ -25,7 +25,7 @@ const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the
 assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by several hands does");
 // and so does the run note, said again when a run came to move by captured runs (gait-data.js)
 const OLD_RUN = "run is a short-stride jog at the demo's speed (about 1.2 m/s)";
-const NEW_RUN = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); it starts and stops in half a second, as a walk does";
+const NEW_RUN = "a run's steps, pelvis, chest and arms follow captured runners of its speed, about 2 to 5 m/s for a body of scale 1 (slower or faster is not captured); its start and its stop (where it has one) take half a second, as a walk's do";
 assert.ok(NOTES.includes(NEW_RUN), "the clip's notes say what a run follows");
 
 // pinned again when a walk's sway changed (a walk's sway grows with its walking share, unless the walk begins the clip;
