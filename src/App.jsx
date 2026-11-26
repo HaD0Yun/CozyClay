@@ -1128,7 +1128,7 @@ export default function App() {
 		// The active character's ROW, not the group: the placement gizmo only
 		// renders for a specific cast member, so selecting the group used to
 		// drop the operator into Motion with nothing to drag.
-		else if (next === "motion") setSelectedHierarchyId(rowIdForCharIndex(activeCharIndex));
+		else if (next === "motion") setSelectedHierarchyId(rowIdForCharIndex(activeCharIndex) ?? "shot");
 		// Pose lands on the active character's rig: its Rig Control panel holds
 		// the IK tools that W/E/R switch between.
 		else if (next === "pose") setSelectedHierarchyId(`${rowIdForCharIndex(activeCharIndex)}.rig`);

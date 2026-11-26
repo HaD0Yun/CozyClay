@@ -1093,7 +1093,7 @@ async function runtimeFixture({
 	runtime = { distribution: "npm", telemetryEnabled: true, installationId, appVersion: "1.8.1", apiKey: "test", apiHost: "https://telemetry.invalid", internalQa: false, installKind: "npx" },
 	origin = "http://127.0.0.1:5180", search = "", store = new Map(),
 	env = { PROD: true, VITE_POSTHOG_KEY: "test", VITE_APP_VERSION: "1.8.1" },
-	dnt = false, beacon = true, sync, sessionId = "0192f0d6-3a4b-7c2d-8e9f-abcdefabcdef",
+	dnt = false, beacon = true, sync, sessionId = "0192f0d6-3a4b-7c2d-8e9f-abcdefabcdef", early,
 } = {}) {
 	const records = [], beacons = [], requests = [];
 	const listeners = new Map();
@@ -1144,7 +1144,9 @@ async function runtimeFixture({
 		.replace('await import("posthog-js/dist/posthog-recorder")', "await Promise.resolve()")
 		.replace('import("posthog-js")', "Promise.resolve({ default: globalThis.__analyticsSdkFixture })");
 	const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${++runtimeFixtureId}`);
-	await module.initAnalytics();
+	const ready = module.initAnalytics();
+	early?.(module); // what the studio sends at mount, while the SDK is still loading
+	await ready;
 	await Promise.resolve(); // settle the resolved health probe, never a timing wait
 	return {
 		module, records, beacons, requests, store, sdk, options, listeners,
@@ -1201,6 +1203,25 @@ try {
 		assert.deepEqual(sanitizeProps("app:session_ended", { duration_bucket: "1-3s", scenes_touched: 21, action_count_bucket: "lt1m", pose_edit_bucket: 2, distinct_id: "x" }), {},
 			"session end values are its own closed buckets and a capped count");
 		console.log("PASS allowlist gate drops unlisted events; session end goes through the validator with session_id");
+	}
+	{
+		// #1364: the first project is made at mount, before the SDK has loaded. Its event used to be dropped.
+		const run = await runtimeFixture({ early: (module) => {
+			module.track("scene:created", { scene_source: "startup", prompt: "private" });
+			module.track("private:unlisted", { scene_source: "startup" });
+		} });
+		const events = run.records.map((record) => record.event);
+		assert.equal(events.filter((event) => event === "scene:created").length, 1, "an event sent while the SDK loads arrives once, not zero times and not twice");
+		assert.ok(events.indexOf("scene:created") > events.indexOf("$pageview"), "and it arrives after the SDK's own first events");
+		assert.deepEqual(run.records.find((record) => record.event === "scene:created").properties.scene_source, "startup");
+		assert.equal(Object.hasOwn(run.records.find((record) => record.event === "scene:created").properties, "prompt"), false, "the held event still goes through the validator");
+		assert.equal(events.includes("private:unlisted"), false, "the allowlist still gates what waits");
+		const [ended] = await run.unload();
+		assert.equal(ended.properties.scenes_touched, 1, "the held event counts toward the session like any other");
+		const off = await runtimeFixture({ runtime: { distribution: "npm", telemetryEnabled: false, installationId: null, appVersion: "1.8.1", apiKey: "test", apiHost: "https://telemetry.invalid", internalQa: false, installKind: "npx" },
+			early: (module) => module.track("scene:created", { scene_source: "startup" }) });
+		assert.equal(off.records.length, 0, "with telemetry off nothing waits and nothing is sent");
+		console.log("PASS an event sent while the SDK loads is delivered once it has; telemetry off still sends nothing");
 	}
 	{
 		friction.reset();
@@ -1335,6 +1356,18 @@ const { mcpToolCategory, mcpToolName, startWorkflowExecution } = await import(".
 	assert.equal(mcpToolCategory("studio_commands"), "read");
 	assert.equal(mcpToolCategory("studio_run"), "other");
 }
+{
+	// #1364: the sidecar names the category and the browser's closed list has to accept it, or the frame is dropped.
+	// The sidecar cannot import src/ (minimal installs omit it), so this is what holds the two together.
+	const { agentToolCategory } = await import("../bin/agent/turn-telemetry.mjs");
+	const { STUDIO_TOOLS } = await import("../src/studio-agent-protocol.js");
+	const named = { inspect_studio: "scene_read", verify_result: "scene_read", operate_studio: "view", patch_elements: "scene_write", run_action: "other",
+		motion: "motion", motion_result: "motion", design_motion: "motion", plan: "planning", script: "scripting", capture_blocking_frame: "frame_capture", private_unlisted_tool: "other" };
+	for (const [name, category] of Object.entries(named)) assert.equal(agentToolCategory(name), category, name);
+	for (const name of [...STUDIO_TOOLS, ...Object.keys(named)]) assert.ok(analytics.AGENT_TOOL_CATEGORIES.includes(agentToolCategory(name)), `${name} lands in the closed list`);
+	assert.equal(STUDIO_TOOLS.filter(name => agentToolCategory(name) === "other").join(), "run_action", "run_action is the one Studio tool without a family");
+	console.log("PASS every Studio agent tool reports a family the analytics list accepts");
+}
 const executionId = "0123456789abcdef0123456789abcdef";
 assert.deepEqual(
 	sanitizeProps("workflow:run_requested", {
@@ -1451,7 +1484,7 @@ const executionEnums = [
 	["workflow:run_failed", "failure_code", ["aborted", "capture_failed", "generation_failed", "unknown"]],
 	["agent:turn_failed", "failure_code", ["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown"]],
 	["agent:turn_failed", "endpoint", ["local", "lan", "hosted", "unknown"]],
-	["agent:tool_executed", "tool_category", ["workflow_read", "workflow_write", "workflow_run", "frame_capture", "image_generate", "scene_write", "other"]],
+	["agent:tool_executed", "tool_category", ["workflow_read", "workflow_write", "workflow_run", "frame_capture", "image_generate", "scene_write", "scene_read", "view", "motion", "planning", "scripting", "other"]],
 	["mcp:tool_executed", "tool_category", ["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]],
 	["agent:tool_executed", "outcome", ["succeeded", "failed", "cancelled"]],
 	["mcp:tool_executed", "outcome", ["succeeded", "failed", "uncertain", "cancelled"]],

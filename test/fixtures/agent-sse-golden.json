@@ -183,7 +183,7 @@
 			"type": "execution_tool_started",
 			"turn_id": "<turn>",
 			"telemetry_id": "<telemetry>",
-			"tool_category": "other"
+			"tool_category": "scene_read"
 		},
 		{
 			"type": "tool.start",
@@ -208,7 +208,7 @@
 			"event": "agent:tool_executed",
 			"props": {
 				"turn_id": "<turn>",
-				"tool_category": "other",
+				"tool_category": "scene_read",
 				"outcome": "failed",
 				"duration_bucket": "<bucket>"
 			},
@@ -333,7 +333,7 @@
 			"type": "execution_tool_started",
 			"turn_id": "<turn>",
 			"telemetry_id": "<telemetry>",
-			"tool_category": "other"
+			"tool_category": "scene_read"
 		},
 		{
 			"type": "tool.start",
@@ -377,7 +377,7 @@
 			"event": "agent:tool_executed",
 			"props": {
 				"turn_id": "<turn>",
-				"tool_category": "other",
+				"tool_category": "scene_read",
 				"outcome": "succeeded",
 				"duration_bucket": "<bucket>"
 			},

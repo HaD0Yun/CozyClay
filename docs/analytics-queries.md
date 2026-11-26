@@ -939,7 +939,13 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
   `bin/agent/agent-failure-codes.mjs` (kept identical by
   `test/verify-agent-execution.mjs`).
 - Agent `tool_category`: `workflow_read`, `workflow_write`, `workflow_run`,
-  `frame_capture`, `image_generate`, `scene_write`, `other`.
+  `frame_capture`, `image_generate`, `scene_write`, `scene_read`, `view`,
+  `motion`, `planning`, `scripting`, `other`.
+  The Studio families (`scene_read`, `view`, `motion`, `planning`,
+  `scripting`) exist from 3.3.2; before it those calls are `other`, so
+  compare by `app_version`. `motion` is the motion tool (`motion`,
+  `motion_result`, `design_motion`). `run_action` stays `other` because its
+  kind depends on its action.
 - MCP `tool_category`: `read`, `camera`, `scene_write`, `prompt_authoring`,
   `frame_capture`, `motion_generate`, `motion_apply`, `project_io`, `other`.
   `studio_commands` counts as `read`; `studio_run` stays `other` because its

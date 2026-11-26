@@ -8,9 +8,13 @@ const telemetryId = () => advisory(() => randomBytes(16).toString("hex"), null);
 const telemetryNow = () => advisory(() => { const value = performance.now(); return Number.isFinite(value) ? value : NaN; }, NaN);
 const bucketMs = (ms) => !Number.isFinite(ms) || ms < 1000 ? "lt1s" : ms < 3000 ? "1-3s" : ms < 10000 ? "3-10s" : ms < 30000 ? "10-30s" : "gte30s";
 export const agentToolCategory = (name) => {
-	// Studio families are authored edits or reads; the analytics vocabulary has
-	// no Studio-specific category, so a write says so and everything else does not.
+	// Studio families (#1364). run_action stays "other": its kind depends on its action.
 	if (["arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "undo_edit"].includes(name)) return "scene_write";
+	if (name === "inspect_studio" || name === "verify_result") return "scene_read";
+	if (name === "operate_studio") return "view";
+	if (["motion", "motion_result", "design_motion"].includes(name)) return "motion";
+	if (name === "plan") return "planning";
+	if (name === "script") return "scripting";
 	if (name === "run_workflow") return "workflow_run";
 	if (name === "describe_workflow" || name === "focus_workflow_node") return "workflow_read";
 	if (["add_workflow_node", "update_workflow_node", "remove_workflow_node", "connect_workflow_nodes", "disconnect_workflow_nodes", "set_workflow_node_output"].includes(name)) return "workflow_write";

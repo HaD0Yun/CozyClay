@@ -74,6 +74,8 @@ expect("arbitrary object name appears in hierarchy", props.children[0].label ===
 expect("arbitrary object ID is namespaced", props.children[0].id === "object:asset-17");
 expect("hierarchy ID round-trips to object ID", sceneObjectIdFromHierarchy(sceneObjectHierarchyId("asset-17")) === "asset-17");
 expect("non-object hierarchy ID is rejected", sceneObjectIdFromHierarchy("camera") === null);
+// #1362: Motion on an empty stage once selected nothing at all, and reading that took the studio down.
+expect("a missing selection is no object", sceneObjectIdFromHierarchy(null) === null && sceneObjectIdFromHierarchy(undefined) === null);
 
 const moved = updateSceneObject(objects, "asset-17", { x: 3.25, z: -1.5, rot: 90 });
 expect("transform update returns a new collection", moved !== objects);
