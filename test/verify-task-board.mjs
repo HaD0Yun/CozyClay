@@ -8,15 +8,16 @@ import { test } from 'node:test';
 import { answerOf, runCompileJob } from '../src/motion3/compile-job.js';
 import { compileActivity, createCompileRunner, watchCompileActivity } from '../src/commands/motion3-compile.js';
 import { motionScene } from '../src/motion3/scene.js';
-import { TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, emptyBoard, modelLine, progressLine, readStoredTaskMode, reduceBoard, reduceScopes, scopeLabel, seedBoard, taskLine, taskReason } from '../src/workflow/task-board.js';
+import { TASK_MODE_ENABLED, TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, emptyBoard, modelLine, progressLine, readStoredTaskMode, reduceBoard, reduceScopes, scopeLabel, seedBoard, taskLine, taskReason } from '../src/workflow/task-board.js';
 
-test('task mode is on by default; only an explicit off turns it off', () => {
+test('task mode is disabled (#1382): off for nothing stored, an explicit off, and an old stored on', () => {
 	const store = (value) => ({ getItem: () => value });
-	assert.equal(readStoredTaskMode(store(null)), true);
+	assert.equal(TASK_MODE_ENABLED, false);
+	assert.equal(readStoredTaskMode(store(null)), false);
 	assert.equal(readStoredTaskMode(store('off')), false);
-	assert.equal(readStoredTaskMode(store('on')), true);
-	assert.equal(readStoredTaskMode({ getItem: () => { throw new Error('blocked'); } }), true);
-	assert.equal(readStoredTaskMode(null), true);
+	assert.equal(readStoredTaskMode(store('on')), false, 'a browser that stored on before #1382 sends plain turns');
+	assert.equal(readStoredTaskMode({ getItem: () => { throw new Error('blocked'); } }), false);
+	assert.equal(readStoredTaskMode(null), false);
 });
 
 const view = (taskId, status, extra = {}) => ({ taskId, title: `Task ${taskId}`, status, scope: [`object:${taskId}`], usage: { cost: 0 }, ...extra });
