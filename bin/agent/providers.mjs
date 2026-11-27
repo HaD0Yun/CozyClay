@@ -67,6 +67,9 @@ export const PROVIDERS = [
 	{ id: "anthropic-subscription", label: "Claude (Anthropic)", auth: "oauth", env: [] },
 	{ id: "openai", label: "OpenAI", auth: "api_key", env: ["OPENAI_API_KEY"] },
 	{ id: "google", label: "Google Gemini", auth: "api_key", env: ["GEMINI_API_KEY", "GOOGLE_API_KEY"] },
+	// Google AI subscription through Google's official antigravity-acp agent over ACP (google-antigravity.mjs); its
+	// Google sign-in and tokens stay inside that binary, CozyClay stores only a token-free marker.
+	{ id: "google-antigravity", label: "Gemini (Google AI subscription)", auth: "oauth", env: [] },
 	{ id: "minimax", label: "MiniMax", auth: "api_key", env: ["MINIMAX_API_KEY"] }, { id: "minimax-cn", label: "MiniMax (China)", auth: "api_key", env: ["MINIMAX_CN_API_KEY"] },
 	{ id: "openrouter", label: "OpenRouter", auth: "api_key", env: ["OPENROUTER_API_KEY"] },
 	{ id: "cliproxy", label: "CLIProxyAPI", auth: "api_key", env: ["CLIPROXY_API_KEY"] },
@@ -88,7 +91,9 @@ export async function loadProvider(id, { baseUrl, env = process.env } = {}) {
 	// API-key lane minus the OAuth login it also advertises (see anthropicLaneProvider).
 	const provider = id === "cliproxy"
 		? await cliproxyProvider({ baseUrl, env })
-		: id === OPENAI_COMPATIBLE_ID ? await openaiCompatibleProvider() : id === "anthropic" || id === "anthropic-subscription"
+		: id === OPENAI_COMPATIBLE_ID ? await openaiCompatibleProvider()
+		: id === "google-antigravity" ? await import("./google-antigravity.mjs").then((module) => module.googleAntigravityProvider({ env }))
+		: id === "anthropic" || id === "anthropic-subscription"
 			? await import("./anthropic-subscription.mjs").then((module) => module.anthropicLaneProvider(id))
 			: await import(`@earendil-works/pi-ai/providers/${id}`).then((module) => module[factories[id]]());
 	// pi 0.99 gave the API-key OpenAI lane a ChatGPT sign-in too; CozyClay's ChatGPT sign-in is the

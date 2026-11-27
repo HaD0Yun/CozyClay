@@ -17,7 +17,7 @@ const REFUSAL_CODES = new Set([...STUDIO_ERROR_CODES, "other"]);
 export const REFUSAL_FIELD_PATTERN = /^\$(?:\.[A-Za-z_][A-Za-z0-9_]{0,47}|\[\])*$/;
 // The providers CozyClay configures itself (bin/agent/providers.mjs PROVIDERS); the
 // connect funnel reports any other id the login list offers as "other".
-export const CONNECT_PROVIDERS = Object.freeze(["openai-codex", "anthropic", "anthropic-subscription", "openai", "google",
+export const CONNECT_PROVIDERS = Object.freeze(["openai-codex", "anthropic", "anthropic-subscription", "openai", "google", "google-antigravity",
 	"minimax", "minimax-cn", "openrouter", "cliproxy", "openai-compatible"]);
 
 // An openai-compatible server address's class (bin/agent/openai-compatible-provider.mjs endpointClass), never the address.

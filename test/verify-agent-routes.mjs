@@ -270,8 +270,8 @@ try {
 	// signed out, so the live codex.listModels() merge never fires here — the
 	// merge itself is exercised against providers.mjs directly below, where a
 	// signed-in double is cheap and does not need network access.
-	assert.equal(models.providers.length, 10, "all ten registry providers are listed");
-	assert.deepEqual(models.providers.map((provider) => provider.id).sort(), ["anthropic", "anthropic-subscription", "cliproxy", "google", "minimax", "minimax-cn", "openai", "openai-codex", "openai-compatible", "openrouter"]);
+	assert.equal(models.providers.length, 11, "all eleven registry providers are listed");
+	assert.deepEqual(models.providers.map((provider) => provider.id).sort(), ["anthropic", "anthropic-subscription", "cliproxy", "google", "google-antigravity", "minimax", "minimax-cn", "openai", "openai-codex", "openai-compatible", "openrouter"]);
 	assert.ok(models.providers.every((provider) => provider.signedIn === false), "no credentials are configured for this handler's auth double");
 	assert.ok(models.models.length > 0 && models.models.every((model) => typeof model.id === "string" && model.id.includes("/")), "the flat union is key-addressed: every models[].id is provider/id");
 	const codexProvider = models.providers.find((provider) => provider.id === "openai-codex");
@@ -1259,7 +1259,7 @@ for (const kind of ["replaced", "signed_out", "rotated"]) {
 		const responseNoModels16p = await fetch(`${originNoModels16p}/agent/models`, { headers: { origin: originNoModels16p } });
 		assert.equal(responseNoModels16p.status, 200, "omitting `models` from createAgentHandler still builds a real registry and answers 200");
 		const resultNoModels16p = await responseNoModels16p.json();
-		assert.equal(resultNoModels16p.providers.length, 10, "the real-registry path (no injected `models`) lists all ten providers");
+		assert.equal(resultNoModels16p.providers.length, 11, "the real-registry path (no injected `models`) lists all eleven providers");
 		console.log("PASS 16p: the real-registry path (no injected `models`) is unchanged");
 	} finally {
 		await noModelsHandler16p.close();

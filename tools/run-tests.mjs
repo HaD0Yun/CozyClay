@@ -61,7 +61,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-agent-runner-errors.mjs",
 	"test/verify-agent-steer.mjs", "test/verify-agent-review.mjs", "test/verify-studio-relations.mjs", "test/verify-closeup-framing.mjs", "test/verify-sculpt-look.mjs",
 	"test/verify-pi-tools.mjs",
-	"test/verify-agent-providers.mjs", "test/verify-agent-minimax.mjs", "test/verify-agent-login.mjs", "test/verify-agent-openai-compatible.mjs", "test/verify-anthropic-subscription.mjs",
+	"test/verify-agent-providers.mjs", "test/verify-agent-minimax.mjs", "test/verify-agent-login.mjs", "test/verify-agent-openai-compatible.mjs", "test/verify-anthropic-subscription.mjs", "test/verify-google-antigravity.mjs",
 	"test/verify-cliproxy-live-model.mjs",
 	"test/verify-schema-to-typebox.mjs",
 	"test/verify-agent-sse-golden.mjs", "test/verify-agent-text.mjs",

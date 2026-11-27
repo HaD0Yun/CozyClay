@@ -134,7 +134,7 @@ assert.ok((await envStore.list()).some((entry) => entry.providerId === "openai-c
 	console.log("PASS codex-auth status() survives a corrupt providers.json");
 
 	const corruptModels = await providers.listAgentModels({ auth, keys, env: process.env });
-	assert.equal(corruptModels.providers.length, 10, "listAgentModels still lists all ten providers with a corrupt providers.json");
+	assert.equal(corruptModels.providers.length, 11, "listAgentModels still lists all eleven providers with a corrupt providers.json");
 	assert.ok(corruptModels.providers.every((provider) => provider.id !== "anthropic" || provider.signedIn === false), "the key provider reports signed-out, not an unhandled rejection");
 	console.log("PASS listAgentModels tolerates a corrupt providers.json");
 
