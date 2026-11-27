@@ -13,7 +13,9 @@ const ENTRIES = new Set(["first_run", "failure_card", "signed_out", "menu", "oth
 // Why an attempt ended without a connection (#1044), a class the sidecar or the panel names; never its message.
 const CONNECT_FAILURE_REASONS = Object.freeze(["timeout", "callback_error", "port_busy", "user_closed", "other"]);
 const CONNECTED_KEY = "cozyclay.agentConnected";
-const OPENED_PER_SESSION = 5, MODEL_CHANGES_PER_SESSION = 10;
+const OPENED_PER_SESSION = 5, MODEL_CHANGES_PER_SESSION = 10, TESTS_PER_SESSION = 20;
+// What one connection test came back with (bin/agent/connect-test.mjs CONNECT_TEST_RESULTS); never its status line.
+const CONNECT_TEST_RESULTS = Object.freeze(["ok", "key_rejected", "unreachable", "model_not_found", "rate_limited", "timeout", "other"]);
 
 let send = track, now = () => Date.now();
 let attempt = null;
@@ -88,4 +90,9 @@ export function connectTelemetrySeam({ capture = track, clock = () => Date.now()
 	const previous = [send, now];
 	send = capture; now = clock; attempt = null; lastTurnFailed = false;
 	return () => { [send, now] = previous; attempt = null; lastTurnFailed = false; };
+}
+
+/** A connection test answered (connect-check.js): the provider and the closed result, never the model, address or line. */
+export function connectTested(providerId, result) {
+	if (admit("agent:connect_tested", TESTS_PER_SESSION)) emit("agent:connect_tested", { provider: providerOf(providerId), result: CONNECT_TEST_RESULTS.includes(result) ? result : "other" });
 }
