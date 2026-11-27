@@ -166,7 +166,7 @@ try {
 
 	// --- scale: a scene at body scale s with the switch on is the unit scene's times s ---
 	process.env[KEY] = "1";
-	for (const s of [0.5, 2]) {
+	for (const s of [0.5, 0.85, 1.6, 2]) {
 		let worst = 0;
 		for (const [name, a] of Object.entries(FIXTURES)) {
 			const unit = build({ demo: name, a }, scene(), true), big = build({ demo: name, a: sized(a, s) }, scene(s), true);
