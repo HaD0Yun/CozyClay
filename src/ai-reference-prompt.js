@@ -17,7 +17,7 @@
 // Pure string building: no DOM; runs in node tests.
 
 import { lensWordFromFocalMm } from "./shot-prompt.js";
-import { shotSceneText } from "./ai-reference-scene.js";
+import { seconds, shotSceneText } from "./ai-reference-scene.js";
 
 const round2 = (value) => Math.round(value * 100) / 100;
 
@@ -64,7 +64,9 @@ const sentence = (text) => {
 
 function shotLine(shot, first) {
 	const lens = shot.focalMm ? `, ${shot.focalMm}mm` : "";
-	const head = first ? `Shot ${shot.index}${lens}` : `Cut to shot ${shot.index}${lens}`;
+	// The shot's span in the video, so every action below it has a time.
+	const span = ` (${seconds(shot.startS)}-${seconds(shot.endS)} s)`;
+	const head = first ? `Shot ${shot.index}${span}${lens}` : `Cut to shot ${shot.index}${span}${lens}`;
 	const camera = shot.moving ? `one continuous move: ${shot.camera}` : shot.camera;
 	return [`${head}, ${camera}.`, sentence(shot.action), shotSceneText(shot.inFrame)].filter(Boolean).join(" ");
 }

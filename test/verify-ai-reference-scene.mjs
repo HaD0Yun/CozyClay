@@ -37,7 +37,7 @@ assert.ok(MIN_HEIGHT_SHARE > 0);
 
 const text = shotSceneText(scene);
 assert.match(text, /^Mina moves across the frame from left to right\./);
-assert.match(text, /Red truck enters from the right at 2(\.\d+)? s/);
+assert.match(text, /Red truck enters from the right at 2(\.\d)? s/);
 assert.match(text, /Also in frame: corner shop\.$/);
 assert.doesNotMatch(text, /cup|van/);
 
@@ -45,7 +45,7 @@ assert.doesNotMatch(text, /cup|van/);
 const facts = aiReferenceFacts({ shots: [{ startFrame: 0, endFrame: 95, caption: "Mina hurries to the shop" }], fps, shotCameras: [{ phrase: "static, locked-off shot" }], shotScenes: [scene] });
 assert.equal(facts.shots[0].inFrame.length, 3, "scene-facts.json keeps the measured spans");
 const prompt = buildAiReferencePrompt(facts);
-assert.match(prompt, /Shot 1, static, locked-off shot\. Mina hurries to the shop\. Mina moves across the frame from left to right\./);
+assert.match(prompt, /Shot 1 \(0-4 s\), static, locked-off shot\. Mina hurries to the shop\. Mina moves across the frame from left to right\./);
 // Without scene facts the prompt is exactly what it was.
 assert.doesNotMatch(buildAiReferencePrompt(aiReferenceFacts({ shots: [{ startFrame: 0, endFrame: 95 }], fps })), /in frame/i);
 
