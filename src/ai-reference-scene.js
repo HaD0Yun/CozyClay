@@ -12,6 +12,9 @@
 
 import { screenBox } from "./camera-hold-body.js";
 
+/** Seconds as a reader writes them: one decimal, no trailing zero. */
+export const seconds = (value) => String(Math.round(value * 10) / 10);
+
 /** A thing shorter than this share of the frame height is too small to name. */
 export const MIN_HEIGHT_SHARE = 0.05;
 /** Samples per second of the shot. */
@@ -104,12 +107,12 @@ const sentence = (text) => `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
 /** One span as a sentence: what the thing does in the picture, in time order. */
 function spanClause(name, span, whole) {
 	const verbs = [];
-	if (span.enters) verbs.push(span.enters === "appears" ? `appears at ${span.fromS} s` : `enters from the ${span.enters} at ${span.fromS} s`);
+	if (span.enters) verbs.push(span.enters === "appears" ? `appears at ${seconds(span.fromS)} s` : `enters from the ${span.enters} at ${seconds(span.fromS)} s`);
 	if (span.across) verbs.push(`moves across the frame from ${span.across === "left-to-right" ? "left to right" : "right to left"}`);
 	else if (span.moving && span.from !== span.to) verbs.push(`moves from the ${span.from} to the ${span.to} of the frame`);
 	else if (!span.enters) verbs.push(`is ${where(span.from)}${whole && !span.moving ? `, ${span.size} in frame, for the whole shot` : ""}`);
 	if (span.depth) verbs.push(span.depth === "toward" ? "comes toward the camera" : "moves away from the camera");
-	if (span.leaves) verbs.push(span.leaves === "disappears" ? `is gone at ${span.toS} s` : `leaves on the ${span.leaves} at ${span.toS} s`);
+	if (span.leaves) verbs.push(span.leaves === "disappears" ? `is gone at ${seconds(span.toS)} s` : `leaves on the ${span.leaves} at ${seconds(span.toS)} s`);
 	const body = verbs.length > 1 ? `${verbs.slice(0, -1).join(", ")} and ${verbs[verbs.length - 1]}` : verbs[0];
 	return `${name} ${body}`;
 }

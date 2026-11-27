@@ -36,10 +36,10 @@ assert.match(paragraphs[1], /rough placeholders; fill the place in fully/);
 assert.equal((prompt.match(/@vid1/g) ?? []).length, 1, "the video is named exactly once");
 assert.doesNotMatch(prompt, /previs|storyboard|mosaic|keyframe|guide|blockout|exactly/i, "the prompt never names the method or points at the reference's look");
 assert.equal(paragraphs[2], "New York, Lower East Side at night. The film has 4 shots, and the camera keeps moving inside each one.");
-assert.match(paragraphs[3], /^Shot 1, 50mm, one continuous move: a fast push-in \(dolly in\) from a medium shot to a close-up\. A black luxury pickup rolls toward us; the driver flicks his cigarette ash out of the window\. /);
-assert.match(paragraphs[3], /Cut to shot 2, 50mm, one continuous move: a crane down/);
-assert.match(paragraphs[3], /Cut to shot 3, 50mm, one continuous move: a tracking move, then a slow pull-out \(dolly out\) from a medium shot to a wide shot\. Cut to shot 4/, "a shot without a caption is its camera only");
-assert.match(paragraphs[3], /Cut to shot 4, 35mm, one continuous move: a slow orbit around the subject, arcing 150 degrees\.$/);
+assert.match(paragraphs[3], /^Shot 1 \(0-1\.6 s\), 50mm, one continuous move: a fast push-in \(dolly in\) from a medium shot to a close-up\. A black luxury pickup rolls toward us; the driver flicks his cigarette ash out of the window\. /);
+assert.match(paragraphs[3], /Cut to shot 2 \(1\.6-6\.7 s\), 50mm, one continuous move: a crane down/);
+assert.match(paragraphs[3], /Cut to shot 3 \(6\.7-20\.1 s\), 50mm, one continuous move: a tracking move, then a slow pull-out \(dolly out\) from a medium shot to a wide shot\. Cut to shot 4/, "a shot without a caption is its camera only");
+assert.match(paragraphs[3], /Cut to shot 4 \(20\.1-30 s\), 35mm, one continuous move: a slow orbit around the subject, arcing 150 degrees\.$/);
 assert.equal(paragraphs[4], "Real live-action footage shot on 35mm film, natural light, visible film grain. No on-screen text.");
 
 // Static shots, no cast, no setting: the shape line says nothing about moving.
@@ -52,12 +52,12 @@ const stillParagraphs = still.split("\n\n");
 assert.equal(stillParagraphs.length, 4, "no cast paragraph without a cast");
 assert.match(stillParagraphs[0], /^@vid1 is/);
 assert.equal(stillParagraphs[1], "The film has 2 shots.");
-assert.equal(stillParagraphs[2], "Shot 1, static, locked-off shot. She waits. Cut to shot 2, static, locked-off shot.", "shots are ordered by start frame");
+assert.equal(stillParagraphs[2], "Shot 1 (0-1 s), static, locked-off shot. She waits. Cut to shot 2 (1-2 s), static, locked-off shot.", "shots are ordered by start frame");
 
 // One moving shot.
 const one = buildAiReferencePrompt(aiReferenceFacts({ shots: [{ startFrame: 0, endFrame: 47 }], fps: 24, shotCameras: [{ phrase: "a slow pan to the left" }] }));
 assert.match(one, /The film is one shot, and the camera keeps moving\./);
-assert.match(one, /Shot 1, one continuous move: a slow pan to the left\./);
+assert.match(one, /Shot 1 \(0-2 s\), one continuous move: a slow pan to the left\./);
 
 // The pack carries the prompt and the facts, and its README explains the tags.
 const entries = aiReferenceEntries({
