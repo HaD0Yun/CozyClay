@@ -146,6 +146,32 @@ The Studio agent's answer counts them as `lines`. One-way: a line moves nothing 
 bodies; no knots, coils, wraps, cloth or stiff rods. A box keeps its length, so a span drawn longer than the line's
 thickness over its segment length (0.04 m on 0.1 m: 40 %) shows gaps between its boxes in the Studio.
 
+## Balance assist
+
+`LOWVIS_BALANCE_ASSIST=1` in the environment of the process that builds the clip (the agent sidecar, a tool, a test)
+switches it on for engine-simple (`engine-simple/balance.js`); unset or anything else, the engine builds what it built
+before, byte for byte. With it on, a body that stands on its feet with its centre of mass, dropped to the floor, outside
+the soles it stands on moves its pelvis sideways and forward or back over them while the clip is built: the balance
+row (`pi/balance.mjs`) then tells nothing for it.
+- The centre of mass: the shares of an adult human body's segments (the table `pi/balance.mjs` reads too). Supports:
+  the soles of the feet on the floor in the pose as the spec has it (a foot the body layer holds planted, or a keyed
+  foot down on the floor whose key's target is there too; a foot a key lifts, or one that hangs short of a target out
+  of the leg's reach, is none) and a hand on its target on the floor. The centre of mass is taken 5 mm x scale inside.
+- Only the pelvis moves, on top of the hip key's x and z. Planted feet stay; a lifted foot stays on its target (one the
+  shift takes out of the leg's reach goes with the pelvis); no bow, lean, look or twist key changes. A hand with a
+  target keeps it: the shift is cut back where a hand would end more than 1.5 mm x scale further from its target, and a
+  hand in its blend keeps its path in the world.
+- The shift eases in and out (at most 2 mm x scale of change of its speed a frame), is eased away over the 10 frames
+  before a frame it leaves alone, and waits while the centre of mass already moves back over the feet or the body comes
+  up from a bend.
+- Left alone (those frames exactly as with it off): a sit, kneel, lie or push stance, a step, turn, walk, run or push
+  and every other change of the body layer, a launch and its flight, a body on a prop (standing on its drawn parts or
+  riding it), a tilt, a hold, carry or place of a prop or line, a hand, elbow or foot on a target that is a prop, a
+  world point or another body, a deep crouch (the hips under 0.45 m x scale; it fades out from 0.52 m), and a body that
+  carries a prop riding one of its joints (all its frames).
+- Cost: on the frames it works, the last of the two solves the engine does of each frame is done twice (once as the
+  spec has it, once shifted). Test: `test/lowvis/verify-balance-assist.mjs`.
+
 ## Not done
 
 - Fingers and wrists: the hand is one piece.
