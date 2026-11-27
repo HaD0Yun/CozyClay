@@ -208,13 +208,17 @@ function refusalReason(step) {
 	const call = (step.status === "done" && Array.isArray(step.result?.calls) ? step.result.calls : []).find(entry => entry?.ok === false);
 	return call ? call.message ?? call.error?.message ?? call.code ?? "" : "";
 }
+// A refusal written for the model names the command to call next, "add a shot (shot.create)": the author has no use for
+// a command id, so a parenthesized dotted one ("(shot.create)", "(camera.addKey, motion.fill)") is cut from the note.
+const COMMAND_ID = /\s*\(\s*[a-z][A-Za-z_]*(?:\.[a-z][A-Za-z_]*)+(?:\s*(?:,|\/|or)\s*[a-z][A-Za-z_]*(?:\.[a-z][A-Za-z_]*)+)*\s*\)/g;
+const userReason = reason => String(reason).replace(/^Error:\s*/, "").replace(COMMAND_ID, "");
 /** A turn that ended done although the Studio refused a call and nothing changed: one plain line with the first
  *  refusal's reason, so a "Done" header does not read as an edit that never happened. */
 export function unchangedNote(block) {
 	if (block.live || block.end?.status !== "done" || block.receipted || authoredIn(block)) return "";
 	const reason = block.steps.map(refusalReason).find(Boolean);
 	if (!reason) return "";
-	const why = clip(String(reason).replace(/^Error:\s*/, ""));
+	const why = clip(userReason(reason));
 	return ko(`Nothing in the scene changed: ${why}`, `장면은 바뀌지 않았어요: ${why}`, `场景没有改变：${why}`);
 }
 function stoppedEdits(block) {

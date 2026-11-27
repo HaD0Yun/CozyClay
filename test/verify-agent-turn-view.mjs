@@ -134,6 +134,9 @@ test("a done turn that changed nothing after a refusal says so in one line", () 
 	const block = (steps, extra = {}) => ({ steps, end: done, live: false, ...extra });
 	assert.equal(agentTurn.unchangedNote(block([refused, { kind: "tool", status: "done", result: {} }])), "Nothing in the scene changed: Another edit is still running.");
 	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "done", result: { ok: true, calls: [{ ok: false, code: "SCOPE_DENIED", message: "That shot is locked." }] } }])), "Nothing in the scene changed: That shot is locked.");
+	const exportRefused = { kind: "tool", status: "done", result: { ok: false, code: "EXPORT_UNAVAILABLE", message: "There is nothing to record yet: add a shot (shot.create), camera keys or a motion take first." } };
+	assert.equal(agentTurn.unchangedNote(block([exportRefused])), "Nothing in the scene changed: There is nothing to record yet: add a shot, camera keys or a motion take first.", "no command id reaches the author");
+	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "failed", error: "TARGET_BUSY: Wait for it (camera.addKey, motion.fill) to finish (v1.2)." }])), "Nothing in the scene changed: Wait for it to finish (v1.2).", "only parenthesized command ids go, not other parentheses");
 	assert.equal(agentTurn.unchangedNote(block([refused, { kind: "tool", status: "done", result: { authored: true } }])), "", "the turn did change the scene");
 	assert.equal(agentTurn.unchangedNote(block([refused], { receipted: true })), "", "a receipt is a change");
 	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "failed", error: "ABORTED: Stopped." }])), "", "a stop is no refusal");
