@@ -584,7 +584,7 @@ expect("a usage limit is stated in a few words", limitedTurn.text === "Failed: p
 	expect("the client keeps the frame's provider on the paused state", client.includes('provider: typeof event.provider === "string" ? event.provider : null'));
 	expect("the paused card offers the other provider by name, and the wait or that none was given", cards.includes("Switch to ${alternative.label}") && cards.includes('ko("Wait & retry"') && cards.includes('"wait time not given"') && panel.includes("alternative={alternative}"));
 	expect("the wait left reads in minutes, then seconds", help.formatWaitLeft("1970-01-01T00:10:00.000Z", 0) === "10 min" && help.formatWaitLeft("1970-01-01T00:00:40.000Z", 0) === "40 s" && help.formatWaitLeft(undefined, 0) === null);
-	expect("every waiting-card failure class has words", ["timeout", "callback_error", "port_busy"].every((reason) => typeof help.SIGN_IN_FAILURE_COPY[reason] === "string"));
+	expect("every waiting-card failure class has words", ["timeout", "callback_error", "port_busy", "expired"].every((reason) => typeof help.SIGN_IN_FAILURE_COPY[reason] === "string"));
 }
 const settled = phase({ lastTurn: { status: "done", endedAt: 3500, durationMs: 12000, failure: null } }, 3500 + module_.ACTIVITY_TERMINAL_MS);
 expect("the terminal state gives way to a quiet Ready", settled.kind === "idle" && settled.text === "Ready" && !settled.ticking, settled.text);
@@ -603,6 +603,15 @@ const driveTurn = async (turn) => {
 	return store.getState();
 };
 
+// #1374: an expired ChatGPT sign-in (the sidecar's auth frame) goes to the sign-in card, never a Retry failure card.
+{
+	let lost = 0;
+	const store = module_.createAgentChatStore({ transport: { turn: async (_request, onEvent) => { onEvent({ type: "error", code: "auth", message: "Your ChatGPT sign-in has expired. Sign in with ChatGPT again." }); onEvent({ type: "done" }); } }, clock: () => 1000, onAuthLost: () => { lost += 1; } });
+	await store.send("do something");
+	expect("an auth frame asks the panel to sign in again", lost === 1, String(lost));
+	expect("and leaves no Retry card behind", !store.getState().items.some((item) => item.kind === "failure"), JSON.stringify(store.getState().items));
+	expect("the signed-out card is the ChatGPT sign-in, with the expired reason", panel.includes('data-agent-card="signed-out"') && panel.includes("SIGN_IN_FAILURE_COPY[account?.failure]") && panel.includes("onAuthLost: () => setAuthState(\"signed-out\")"));
+}
 const silent = await driveTurn(async () => {});
 const silentCard = silent.items.find((item) => item.kind === "failure");
 expect("a turn that ends with no output renders a failure card", silentCard?.failure.code === "no_output" && silentCard.failure.recovery.retryAllowed === true);

@@ -27,6 +27,9 @@ let open = openBrowser;
 // ran out), callback_error (the page came back refused or the code exchange failed), port_busy (no callback port was
 // free), user_closed (Cancel on the waiting card). A class only; the provider's own words stay here.
 let lastFailure = null;
+// The stored sign-in was refused when it was refreshed (#1374): status says signed out, with failure "expired", until a
+// sign-in or a refresh writes new tokens, so the panel keeps its "Sign in with ChatGPT" card instead of a dead Retry.
+let expired = false;
 
 const readTokens = () => {
 	if (tokens) return tokens;
@@ -48,6 +51,7 @@ const writeTokens = (value) => {
 	const before = identity();
 	writeSecureJson(tokenFile, value);
 	tokens = value;
+	expired = false;
 	notifyAuthChange(before);
 };
 const clearTokens = () => {
@@ -70,9 +74,10 @@ export function status() {
 	const claim = claims();
 	const auth = claim["https://api.openai.com/auth"] || {};
 	// `pending` keeps the panel on "Waiting for your browser…" while a sign-in page is open, with its link.
-	const pending = Boolean(authServer && authState) && !readTokens()?.refresh_token;
-	const signedIn = !!readTokens()?.refresh_token;
-	const failure = !signedIn && !pending && lastFailure ? { failure: lastFailure } : {};
+	const pending = Boolean(authServer && authState) && (!readTokens()?.refresh_token || expired);
+	const signedIn = !!readTokens()?.refresh_token && !expired;
+	const reason = lastFailure ?? (expired ? "expired" : null);
+	const failure = !signedIn && !pending && reason ? { failure: reason } : {};
 	return { signedIn, ...(pending ? { pending, authorizeUrl: authState.result.authorizeUrl, waitUntil: authState.result.waitUntil } : {}), ...failure, email: claim.email || null, plan: auth.chatgpt_plan_type || null, accountId: auth.chatgpt_account_id || null, expiresAt: readTokens()?.expires_at || null, providersConfigured: providersConfigured() };
 }
 export function readStored() {
@@ -106,12 +111,26 @@ async function refresh() {
 		throw error;
 	}
 }
+// A stored sign-in that cannot give a token (its refresh failed, or it came back empty) is the panel's "sign in again"
+// (#1374): before, the failure was swallowed, the request went out without a token and the turn read as upstream with a
+// Retry that could never work. A class only: the provider's answer and the tokens stay out of the message.
+const signInExpired = () => Object.assign(new Error("Your ChatGPT sign-in has expired. Sign in with ChatGPT again."), { code: "auth", status: 401 });
+/** The stored sign-in was refused on refresh (here, or by pi's own refresh in a turn, agent-runner.mjs). */
+export function markSignInExpired() { if (readTokens()?.refresh_token) expired = true; }
+/** The access token; null when there is no ChatGPT sign-in; throws `auth` when there is one that cannot be refreshed. */
 export async function getAccessToken() {
 	const current = readTokens();
-	if (!current?.access_token) return null;
-	if (Number(current.expires_at || 0) > Date.now() + 5 * 60 * 1000) return current.access_token;
+	if (!current?.access_token && !current?.refresh_token) return null;
+	if (current.access_token && Number(current.expires_at || 0) > Date.now() + 5 * 60 * 1000) return current.access_token;
 	if (!refreshLock) refreshLock = refresh().finally(() => { refreshLock = null; });
-	try { return await refreshLock; } catch { return null; }
+	let token;
+	try { token = await refreshLock; } catch (error) {
+		// No answer from the token endpoint (offline, DNS): a retry can work, so it is not "sign in again".
+		if (!Number.isInteger(error?.status)) throw Object.assign(new Error("Could not reach ChatGPT to refresh the sign-in."), { code: "network" });
+		markSignInExpired(); throw signInExpired();
+	}
+	if (!token) { markSignInExpired(); throw signInExpired(); }
+	return token;
 }
 
 /** Ends the waiting sign-in, if one is open, and remembers why (a failure class, or null for a success). */
