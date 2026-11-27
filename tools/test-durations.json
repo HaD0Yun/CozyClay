@@ -346,6 +346,7 @@
 	"test/verify-analytics.mjs": 9.6,
 	"test/verify-animation-export.mjs": 3.5,
 	"test/verify-anthropic-subscription.mjs": 0.5,
+	"test/verify-google-antigravity.mjs": 1.5,
 	"test/verify-appearance.mjs": 0.1,
 	"test/verify-asset-shelf.mjs": 4.6,
 	"test/verify-attachment-image.mjs": 0.1,

@@ -596,6 +596,7 @@ keep resolving.
 | `anthropic-subscription` | Claude (Anthropic) | Claude sign-in (OAuth); requests run through the official Claude Code binary |
 | `openai` | OpenAI | API key, `OPENAI_API_KEY` |
 | `google` | Google Gemini | API key, `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| `google-antigravity` | Gemini (Google AI subscription) | Google sign-in inside Google's official `antigravity-acp` agent; CozyClay holds no Google token |
 | `minimax` | MiniMax | API key, `MINIMAX_API_KEY` (Anthropic-compatible, `https://api.minimax.io/anthropic`) |
 | `minimax-cn` | MiniMax (China) | API key, `MINIMAX_CN_API_KEY` (Anthropic-compatible, `https://api.minimaxi.com/anthropic`) |
 | `openrouter` | OpenRouter | API key, `OPENROUTER_API_KEY` |
@@ -619,6 +620,26 @@ on `PATH`. The OAuth credential (access, refresh, expires) lives in
 window. Claude Code's own tools are disabled and CozyClay's tools are served
 as an SDK MCP server whose execution is always denied, so every tool call
 comes back to the host and runs where it always ran.
+
+The third sign-in is `google-antigravity`, a Google AI subscription (Free,
+Plus, Pro, Ultra) used through Google's official `antigravity-acp` agent, the
+one Google lists in the ACP Registry for editors such as Zed and JetBrains.
+CozyClay starts that binary unmodified, speaks the Agent Client Protocol to it,
+and picks its own `oauth-personal` method ("Log in with Google"): the binary
+opens the browser, receives Google's callback and keeps its tokens in the OS
+keyring. CozyClay never reads, stores or forwards a Google token and never calls
+a Google endpoint for this lane; `auth.json` only records a token-free marker
+that the sign-in happened. The binary resolves from
+`ANTIGRAVITY_ACP_EXECUTABLE` first, then CozyClay's cache
+(`~/.cache/cozyclay/antigravity-acp/`); when neither exists, pressing the
+sign-in downloads the archive the ACP Registry names from `dl.google.com` and
+checks it against the registry's sha256 (the binary is proprietary, so it is
+never bundled). Each turn opens a session with every Antigravity built-in tool
+off (`_meta.antigravity.enabledTools: []`) and CozyClay's tools on a loopback
+MCP server (one random bearer secret per turn) that runs nothing: a call ends
+the turn and the tool runs on the host, as in the Claude lane. Only Gemini
+models are offered. When the binary's sign-in has ended the turn fails as
+`auth` and the panel asks for the Google sign-in again (`bin/agent/google-antigravity.mjs`).
 
 ### Where the keys live
 
