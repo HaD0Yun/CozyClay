@@ -113,7 +113,7 @@ const SCENE = { frames: 120, characters: [{ id: "figure1", at: [0, 0], heading: 
 	assert.ok(r.text.includes("body lines (said once):"), "the first answer with a body line says what they measure");
 	assert.ok(C.scene.figure === undefined, "the kept scene of a spec with no part has no figure");
 	// the same intent with the word, aimed from the drawn head: hands 0 to 30 mm off its sides, the box's back on the face
-	const hw = HEAD.h.map(v => v * B), t2 = tool("word"), r2 = t2.call({ scene: structuredClone(SCENE), spec: { prop1: [[0, "ride", { on: "figure1", part: "Head", at: [0, 0.02, hw[2] + 0.015 + 0.002] }]], figure1: [[0, "idle", {}], [20, "pose", { L: { on: "figure1", part: "Head", at: [hw[0] + 0.08, 0.025, -0.013] }, R: { on: "figure1", part: "Head", at: [-hw[0] - 0.08, 0.025, -0.013] }, over: 20 }], [80, "pose", { L: "rest", R: "rest", over: 20 }]] } });
+	const hw = HEAD.h.map(v => v * B), t2 = tool("word"), r2 = t2.call({ scene: structuredClone(SCENE), spec: { prop1: [[0, "ride", { on: "figure1", part: "Head", at: [0, 0.02, hw[2] + 0.015 + 0.002] }]], figure1: [[0, "idle", {}], [20, "pose", { L: { on: "figure1", part: "Head", at: [hw[0] + 0.09, 0.025, -0.013] }, R: { on: "figure1", part: "Head", at: [-hw[0] - 0.09, 0.025, -0.013] }, over: 20 }], [80, "pose", { L: "rest", R: "rest", over: 20 }]] } });
 	assert.equal(r2.status, "ok", r2.error);
 	assert.ok(!r2.rows.some(x => x.key.startsWith("body:")), `no body row: ${r2.rows.filter(x => x.key.startsWith("body:")).map(x => x.key)}`);
 	const clip2 = JSON.parse(readFileSync(t2.clipFile, "utf8")), c2 = clip2.characters[0], g = Math.min(...handPts(c2, 60, "Left").map(p => headSd(c2, 60, p))) * 1000;
