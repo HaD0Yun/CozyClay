@@ -6,6 +6,7 @@
 // A motion task's run (value.task, bin/agent/motion-tasks.mjs) is this turn too: it animates the character the task
 // names and holds the task transaction (task.begin .. finish or cancel) around the model's run, so its installs
 // carry the task id and a cancel puts the take back.
+import { frameCodeOf } from "../agent-failure-codes.mjs";
 import { toV4AgentTools } from "./pi-tools.mjs";
 import { V4_SYSTEM_PROMPT } from "./prompt.mjs";
 import { conversationFor, promptOf, scheduleRetire } from "./studio-turn.mjs";
@@ -46,7 +47,7 @@ export async function runV4PiStudioTurn({ value, session, send, close, res, cont
 				send(frame);
 			}
 		} catch (error) {
-			if (!signal.aborted) send({ type: "error", code: typeof error?.code === "string" && error.code ? error.code : "upstream", message: String(error?.message ?? error) });
+			if (!signal.aborted) send({ type: "error", code: frameCodeOf(error), message: String(error?.message ?? error) });
 		}
 		if (!done) {
 			if (signal.aborted) send({ type: "error", code: "aborted", message: "The turn was stopped." });

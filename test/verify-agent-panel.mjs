@@ -627,6 +627,20 @@ const busyCard = busyTurn.items.find((item) => item.kind === "failure");
 expect("a busy refusal reads as plain English, not \"busy busy\"", busyCard?.failure.message === module_.ERROR_COPY.busy && /still answering/.test(busyCard.failure.message), busyCard?.failure.message);
 expect("the activity line says why in a few words", module_.describeActivity(busyTurn, { now: 3500 }).text === "Failed: agent still answering", module_.describeActivity(busyTurn, { now: 3500 }).text);
 expect("a failure card never repeats its code as its message", panel.includes("(failure.message !== failure.code && failure.message)"));
+// #1370: timeout and truncated are their own codes, with a short reason and a hint on the card; a thrown turn is not upstream.
+{
+	const { FAILURE_HINT } = await import("../src/workflow/agent-failure-hints.js");
+	const timedOut = await driveTurn(async (onEvent) => { onEvent({ type: "error", code: "timeout", message: "Request timed out." }); onEvent({ type: "done" }); });
+	expect("a timed-out turn keeps its code on the card", timedOut.items.find((item) => item.kind === "failure")?.failure.code === "timeout");
+	expect("the activity line says the model timed out", module_.describeActivity(timedOut, { now: 3500 }).text === "Failed: model timed out", module_.describeActivity(timedOut, { now: 3500 }).text);
+	const cut = await driveTurn(async (onEvent) => { onEvent({ type: "error", code: "truncated", message: "truncated" }); onEvent({ type: "done" }); });
+	expect("a truncated turn with no own words says what happened", cut.items.find((item) => item.kind === "failure")?.failure.message === module_.ERROR_COPY.truncated);
+	expect("the failure card has a hint for timeout and truncated", typeof FAILURE_HINT.timeout === "string" && typeof FAILURE_HINT.truncated === "string" && panel.includes("FAILURE_HINT[failure.code]"));
+	const thrown = await driveTurn(async () => { throw new Error("private stream broke"); });
+	expect("a thrown turn without a code reads unknown, not upstream", thrown.items.find((item) => item.kind === "failure")?.failure.code === "unknown", JSON.stringify(thrown.items.at(-1)));
+	const offline = await driveTurn(async () => { throw new TypeError("Failed to fetch"); });
+	expect("a thrown fetch TypeError reads network", offline.items.find((item) => item.kind === "failure")?.failure.code === "network", JSON.stringify(offline.items.at(-1)));
+}
 
 const attached = await driveTurn(async (onEvent) => {
 	onEvent({ type: "tool.start", callId: "c1", name: "capture_blocking_frame" });

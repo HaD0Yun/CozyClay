@@ -3,7 +3,7 @@ import { createReasoningFrames } from "./turn-frames.mjs";
 import { sanitizeUpstreamDetail } from "./agent-routes.mjs";
 import { budgetStudioRequest } from "./studio-context-budget.mjs";
 import { createRetryingStream, retryAfterMs } from "./agent-stream.mjs";
-import { NETWORK_CODES, frameCodeOf } from "./agent-failure-codes.mjs";
+import { classifyProviderError, frameCodeOf } from "./agent-failure-codes.mjs";
 import { withAnthropicCacheBreakpoints } from "./anthropic-cache.mjs";
 import { createSteerInbox } from "./steer-inbox.mjs";
 
@@ -16,15 +16,6 @@ const DEFAULT_MODEL = "gpt-6-astra";
 // SDK-level retry gives up and surfaces the error to us.
 const RETRY_MAX_DELAY_MS = 20000;
 
-const AUTH_ERROR_PATTERN = /\b(401|403)\b|unauthorized|forbidden/i;
-// "usage limit", "quota", "resource exhausted": a provider's quota refusal that names no status, e.g. pi-ai's Codex
-// adapter, which turns a 429 into "You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min." (#1043:
-// it read as upstream, so the panel never showed the quota card).
-const RATE_LIMIT_PATTERN = /\b429\b|rate.?limit|too many requests|usage limit|quota|resource.?exhausted/i;
-const OVERLOAD_PATTERN = /\b529\b|overloaded/i;
-// Checked after the three above: a request that never got an HTTP answer, when only pi-ai's folded string survives.
-const NETWORK_PATTERN = /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up|network error/i;
-
 // A numeric HTTP status, one per code. 401/403 both read as "unauthorized";
 // 529 (Anthropic's overload status) reads as "overloaded"; every other 5xx
 // (500, 502, 503, 504, ...) reads as the generic "upstream" — status always
@@ -34,20 +25,6 @@ const STATUS_CODES = { 401: "unauthorized", 403: "unauthorized", 429: "rate_limi
 function statusToCode(status) {
 	if (STATUS_CODES[status]) return STATUS_CODES[status];
 	if (Number.isInteger(status) && status >= 500 && status <= 599) return "upstream";
-}
-
-/** Classify a failed message into the runner's frozen vocabulary (unauthorized,
- * rate_limit, overloaded, network, upstream). pi folds status and code into one
- * string (`formatProviderError`), so the patterns mirror pi's retryability
- * check; `errorCode`, the structure agent-stream.mjs kept from a thrown error
- * (a socket code or "TypeError"), decides first. Message-only fallback: use
- * `classifyError` at the run_end boundary so a structured status wins first. */
-export function classifyProviderError(message, errorCode) {
-	if (errorCode === "TypeError" || NETWORK_CODES.has(errorCode)) return "network";
-	if (AUTH_ERROR_PATTERN.test(message)) return "unauthorized";
-	if (RATE_LIMIT_PATTERN.test(message)) return "rate_limit";
-	if (OVERLOAD_PATTERN.test(message)) return "overloaded";
-	return NETWORK_PATTERN.test(message) ? "network" : "upstream";
 }
 
 // 400/404/413/422 ride along so a request the provider refused as malformed (a schema it rejects, a model it does not

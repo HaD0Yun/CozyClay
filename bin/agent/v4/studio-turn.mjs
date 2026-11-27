@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { frameCodeOf } from "../agent-failure-codes.mjs";
 import { bindTurn, createV4Context, subjectOf } from "./context.mjs";
 import { createFrameMapper, historyMessages } from "./frames.mjs";
 import { createV4McpServer } from "./mcp-server.mjs";
@@ -213,7 +214,7 @@ export async function runV4StudioTurn({ value, session, send, close, res, contro
 			break;
 		}
 	} catch (error) {
-		if (!signal.aborted) report(typeof error?.code === "string" && error.code ? error.code : "upstream", String(error?.message ?? error));
+		if (!signal.aborted) report(frameCodeOf(error), String(error?.message ?? error));
 	}
 	scheduleRetire(value.sessionId);
 	if (signal.aborted) report("aborted", "The turn was stopped.");
