@@ -112,7 +112,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-hierarchy.mjs",
 	"test/verify-history.mjs",
 	"test/verify-image-versions.mjs",
-	"test/verify-keyframe-pack.mjs", "test/verify-blurmove-ref.mjs", "test/verify-ai-reference-prompt.mjs",
+	"test/verify-keyframe-pack.mjs", "test/verify-blurmove-ref.mjs", "test/verify-ai-reference-prompt.mjs", "test/verify-ai-reference-scene.mjs",
 	"test/verify-keyframe-pack-request.mjs",
 	"test/verify-korean-ui.mjs", "test/verify-chinese-ui.mjs", "test/verify-ui-copy.mjs", "test/verify-agent-panel-copy.mjs", "test/verify-app-copy.mjs",
 	"test/verify-label-tooltips.mjs",

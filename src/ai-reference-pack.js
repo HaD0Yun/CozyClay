@@ -33,12 +33,15 @@ function readmeText({ seconds, shotCount, width, height, hasPrompt = false }) {
 		lines.push(
 			"",
 			"- prompt.txt: paste it as the prompt. It names each shot's camera move,",
-			"  the cuts and the cast, read from your scene. @vid1 is this video and",
+			"  the cuts and the cast, and who and what is in frame: where, how big,",
+			"  when it enters or leaves and which way it moves, all read from your",
+			"  scene. Objects still named after their shape (Box 3) are left out, so",
+			"  name the ones that matter (Bus stop, Red truck). @vid1 is this video and",
 			"  @img1, @img2... are your character images in the order listed; swap in",
 			"  your tool's own reference tags (Krea: @vid-1, @img-1). It calls the",
 			"  video a damaged copy on purpose: that keeps the blocks and blur out of",
 			"  the result. Say it once; do not add more mentions of the video.",
-			"- scene-facts.json: the same facts as data (cuts, camera per shot, cast).",
+			"- scene-facts.json: the same facts as data (cuts, camera, cast and what is in frame per shot).",
 		);
 	}
 	if (seconds > REFERENCE_MAX_SECONDS) {
