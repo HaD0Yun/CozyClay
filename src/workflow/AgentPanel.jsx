@@ -38,7 +38,7 @@ import "./agent-panel.css";
 const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
 import { AgentProgressCard } from "./AgentProgressCard.jsx";
 import { LoginPanel } from "./LoginPanel.jsx";
-import { PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
+import { ConfirmCard, PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
 import { OfflineCard } from "./AgentOfflineCard.jsx";
 import { SIGN_IN_FAILURE_COPY, otherProviderModel, providerLabel } from "./agent-provider-help.js";
 import { TurnSteps } from "./AgentTurnSteps.jsx";
@@ -329,19 +329,20 @@ export default function AgentPanel({
 	// so a re-rendered host never rebuilds the conversation.
 	const buildContextRef = useRef(buildContext); buildContextRef.current = buildContext;
 	const imageActionRef = useRef(onImageAction); imageActionRef.current = onImageAction;
-	const receiptRef = useRef(onReceipt); receiptRef.current = onReceipt;
+	const receiptRef = useRef(onReceipt); receiptRef.current = onReceipt; const shellRef = useRef(shell); shellRef.current = shell;
 
 	const store = useMemo(() => createAgentChatStore({
-		transport,
-		surface,
-		buildContext: () => buildContextRef.current?.() ?? null,
+		transport, surface, buildContext: () => buildContextRef.current?.() ?? null,
 		// Host prop first, then the scripted mock host, then the live editor event.
 		requestImageAction: (request) => (imageActionRef.current ?? transport.applyImage?.bind(transport) ?? requestHostImageAction)(request),
 		onReceipt: (receipt) => receiptRef.current?.(receipt),
-		onAuthLost: () => setAuthState("signed-out"),
-		onSteer: (event) => queueRef.current?.steered(event),
+		onAuthLost: () => setAuthState("signed-out"), onSteer: (event) => queueRef.current?.steered(event),
+		// The user's yes on an approval card runs through the Studio's own command bus (command-bus.js runConfirmed).
+		runConfirmed: (action, args) => shellRef.current?.appContext?.bus?.runConfirmed?.(action, args),
 	}), [surface, transport]);
 	const chat = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+	// An agent request the Studio's bus refused for want of the user's yes (command-bus.js confirmation.required): its approval card.
+	useEffect(() => { const ask = (event) => { if (event.detail?.type === "confirmation.required") store.askConfirmation(event.detail); }; globalThis.addEventListener?.("cozyclay:command", ask); return () => globalThis.removeEventListener?.("cozyclay:command", ask); }, [store]);
 	// Messages typed while a turn runs (agent-queue.js): a row goes as the next turn through runTurn with what it was typed with.
 	const queueRef = useRef(null), queue = useMemo(() => createMessageQueue({ store }), [store]);
 	const queued = useSyncExternalStore(queue.subscribe, queue.getState, queue.getState);
@@ -895,6 +896,7 @@ export default function AgentPanel({
 				if (item.kind === "user") return <AgentUserBubble key={item.id} item={item} editable={item.id === editableId} running={streaming} steered={item.id === editableId && steeredAfter(items, item.id)} disabled={composerDisabled} onCheck={canEdit} onEdit={editMessage} onOpen={setLightbox} />;
 				if (item.kind === "assistant") return <Fragment key={item.id}><div className="agent-row assistant"><div className="agent-assistant-text"><ReplyText text={item.text} tail={streaming && <span className="agent-caret">▌</span>} /></div></div>{taskMode && layout[index - 1]?.type === "steps" && <TaskRows steps={layout[index - 1].steps} />}</Fragment>;
 				if (item.kind === "job") return <div className="agent-row" key={item.id}><JobCard job={item} onStop={stopTurn} onAccept={(job) => store.acceptJob(job.jobId)} /></div>;
+				if (item.kind === "confirm") return <div className="agent-row" key={item.id}><ConfirmCard item={item} onApprove={() => store.approveAction(item.id)} onDecline={() => store.declineAction(item.id)} /></div>;
 				if (item.kind === "receipt") return <div className="agent-row" key={item.id}><ReceiptCard item={item} /></div>;
 				if (item.kind === "failure") return <div className="agent-row" key={item.id}><FailureCard failure={item.failure} onRetry={() => runTurn(chat.lastPrompt, "retry_button")} onFixKey={() => openProviderKeys("failure_card")} /></div>;
 				if (item.kind === "supervisor") return <div className="agent-row" key={item.id}><SupervisorCard note={item} onSend={(text) => { store.setDraft(text); runTurn(text, "supervisor"); }} /></div>;
