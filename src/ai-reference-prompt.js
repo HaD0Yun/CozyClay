@@ -3,7 +3,9 @@
 // The engine only states facts it owns and a model cannot read back from a
 // blurred clip: where the cuts are, what each shot's camera does (classified
 // from the camera keys by camera-move.js), the lens, who is in the cast, and
-// what the operator wrote for each shot (its caption) and for the place.
+// what the operator wrote for each shot (its caption) and for the place,
+// and what each shot's picture holds (ai-reference-scene.js): who and what is
+// in frame, where, how big, when it enters or leaves and which way it moves.
 // The wording follows what held camera, cuts and look on the 2026-11-21..23
 // Seedance 2.5 tests:
 //   1. reference images get a role, and what not to take from them;
@@ -15,6 +17,7 @@
 // Pure string building: no DOM; runs in node tests.
 
 import { lensWordFromFocalMm } from "./shot-prompt.js";
+import { shotSceneText } from "./ai-reference-scene.js";
 
 const round2 = (value) => Math.round(value * 100) / 100;
 
@@ -25,12 +28,13 @@ const round2 = (value) => Math.round(value * 100) / 100;
  * @param {Array<string>} [input.cast]           cast names, in reference-image order
  * @param {Array<{ phrase?: string, focalMm?: number }>} [input.shotCameras] one per shot
  * @param {string} [input.setting]                the place and look, as the operator wrote it
+ * @param {Array<Array<object>>} [input.shotScenes] one per shot: shotScene() of ai-reference-scene.js
  */
-export function aiReferenceFacts({ shots = [], fps = 24, cast = [], shotCameras = [], setting = "" } = {}) {
+export function aiReferenceFacts({ shots = [], fps = 24, cast = [], shotCameras = [], setting = "", shotScenes = [] } = {}) {
 	const ordered = shots
-		.map((entry, index) => ({ entry, camera: shotCameras[index] ?? {} }))
+		.map((entry, index) => ({ entry, camera: shotCameras[index] ?? {}, scene: Array.isArray(shotScenes[index]) ? shotScenes[index] : [] }))
 		.sort((a, b) => a.entry.startFrame - b.entry.startFrame);
-	const facts = ordered.map(({ entry, camera }, index) => ({
+	const facts = ordered.map(({ entry, camera, scene }, index) => ({
 		index: index + 1,
 		title: typeof entry.name === "string" ? entry.name : `Shot ${index + 1}`,
 		startS: round2(entry.startFrame / fps),
@@ -40,6 +44,7 @@ export function aiReferenceFacts({ shots = [], fps = 24, cast = [], shotCameras 
 		camera: typeof camera.phrase === "string" && camera.phrase ? camera.phrase : "static, locked-off shot",
 		moving: typeof camera.phrase === "string" && camera.phrase !== "" && !/^static/.test(camera.phrase),
 		action: typeof entry.caption === "string" ? entry.caption.trim() : "",
+		inFrame: scene,
 	}));
 	return {
 		fps,
@@ -61,7 +66,7 @@ function shotLine(shot, first) {
 	const lens = shot.focalMm ? `, ${shot.focalMm}mm` : "";
 	const head = first ? `Shot ${shot.index}${lens}` : `Cut to shot ${shot.index}${lens}`;
 	const camera = shot.moving ? `one continuous move: ${shot.camera}` : shot.camera;
-	return [`${head}, ${camera}.`, sentence(shot.action)].filter(Boolean).join(" ");
+	return [`${head}, ${camera}.`, sentence(shot.action), shotSceneText(shot.inFrame)].filter(Boolean).join(" ");
 }
 
 /**
