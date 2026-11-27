@@ -1446,7 +1446,7 @@ const executionSchemas = {
 	"workflow:result_applied": ["run_id"],
 	"agent:turn_requested": ["surface", "turn_id"],
 	"agent:tool_executed": ["turn_id", "tool_category", "outcome", "duration_bucket"],
-	"agent:turn_succeeded": ["turn_id", "duration_bucket"],
+	"agent:turn_succeeded": ["turn_id", "duration_bucket", "authored", "refused_bucket"],
 	"agent:turn_failed": ["turn_id", "duration_bucket", "failure_code", "provider", "endpoint"],
 	"agent:turn_cancelled": ["turn_id", "duration_bucket", "failure_code"],
 	"agent:result_applied": ["turn_id"],
@@ -1458,7 +1458,7 @@ assert.deepEqual([...executionDisclosure.keys()].sort(), Object.keys(executionSc
 const executionProps = {
 	surface: "workflow", run_id: executionId, turn_id: executionId, request_id: executionId,
 	node_count_bucket: "1-3", tool_category: "other", tool_name: "describe_scene", outcome: "succeeded",
-	duration_bucket: "1-3s", failure_code: "unknown", provider: "openai-compatible", endpoint: "local",
+	duration_bucket: "1-3s", failure_code: "unknown", provider: "openai-compatible", endpoint: "local", authored: false, refused_bucket: "1-2",
 };
 for (const [event, properties] of Object.entries(executionSchemas)) {
 	assert.deepEqual(Object.keys(sanitizeProps(event, executionProps)).sort(), [...properties].sort(), `${event}: exact property contract`);
@@ -1468,6 +1468,7 @@ for (const event of Object.keys(executionSchemas)) {
 	assert.deepEqual(sanitizeProps(event, { ...executionProps, prompt: "private", text: "private", path: "/private", url: "https://private" }), sanitizeProps(event, executionProps));
 	for (const key of executionSchemas[event]) {
 		for (const value of ["private", "private text", "https://private", "/private", 42, true, null, {}, [], Infinity, NaN]) {
+			if (key === "authored" && typeof value === "boolean") continue;
 			assert.deepEqual(sanitizeProps(event, { [key]: value }), {}, `${event} rejects unsafe ${key}`);
 		}
 	}
@@ -1484,6 +1485,7 @@ const executionEnums = [
 	["workflow:run_failed", "failure_code", ["aborted", "capture_failed", "generation_failed", "unknown"]],
 	["agent:turn_failed", "failure_code", ["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown"]],
 	["agent:turn_failed", "endpoint", ["local", "lan", "hosted", "unknown"]],
+	["agent:turn_succeeded", "refused_bucket", ["0", "1-2", "gte3"]],
 	["agent:tool_executed", "tool_category", ["workflow_read", "workflow_write", "workflow_run", "frame_capture", "image_generate", "scene_write", "scene_read", "view", "motion", "planning", "scripting", "other"]],
 	["mcp:tool_executed", "tool_category", ["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]],
 	["agent:tool_executed", "outcome", ["succeeded", "failed", "cancelled"]],
