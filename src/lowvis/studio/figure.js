@@ -13,14 +13,14 @@
 const LOOK_RIG = "x-bot-tpose";
 
 /** The body of each look, as a share of the rig's own body (rig17.js, 1.82 m to the top of its head): a character of
- *  that look at scale 1 is that body, and its scale is times that body. cube: the owner's body (2026-11-23), 1.70 m
- *  standing with the arms down (STANDS.cube x 0.943). Any other look: the rig's own body. */
+ *  that look at scale 1 is that body, and its scale is times that body. cube: the owner's body (2026-11-23; its head 50 mm lower since
+ *  2026-11-27), 1.653 m standing with the arms down (STANDS.cube x 0.943). Any other look: the rig's own body. */
 const BODY = { cube: 0.943 };
 
 /** How tall each look stands at the rig's own body with the arms down, in metres: the top of the drawn look over the
  *  floor in the engine's stand pose, to a tenth of a millimetre (three.js bounds; test/lowvis/verify-look-body.mjs
  *  measures them again). */
-const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man: 1.7679, woman: 1.7635, cube: 1.8024 };
+const STANDS = { block: 1.7385, box: 1.8104, capsule: 1.8111, stick: 1.8046, man: 1.7679, woman: 1.7635, cube: 1.7524 };
 
 /** The look rig characters are drawn in when the launch names none. */
 const DEFAULT_LOOK = "cube";
