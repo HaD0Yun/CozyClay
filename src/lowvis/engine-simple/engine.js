@@ -152,7 +152,7 @@ import { addCharacter, addProp, createClip, setPose } from "../clip.js";
 import { add, poseEase, toJerk, clamp, dot, len, mix, mixV, mul, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
 import { keyPose, propKeys, shownAt } from "./prop-keys.js";
 import { carriedBuild } from "./carry.js";
-import { arcSized, buildBodySized, solveSized } from "./size.js";
+import { arcSized, buildBodySized, solveSized } from "./size.js"; import { balanceSolve } from "./balance.js"; // the balance assist (LOWVIS_BALANCE_ASSIST=1)
 import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
 import { bodyCarriers, buildUpper, expandRepeats, partBoxes, resolveParts, shiftOf, lowerOf } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
@@ -387,7 +387,7 @@ function buildOnce(written, def, carrier) {
 			const U = c.U = upper(c, f, pass === 0);
 			if (pass === 1) onPlaces(props, c, U, f, p => toBody(c.tilt, p));
 			c.bodyNow = U.feet.some(Boolean) ? { ...c.body[f], feet: c.body[f].feet.map((ft, i) => U.feet[i] ?? ft) } : c.body[f];
-			c.solved = solveSized(c.bodyNow, U, c.s); c.solvedF = f;
+			c.solved = balanceSolve(c, f, U, { spec, props, F, pass }); c.solvedF = f; // balance.js: solveSized, and with the switch on the pelvis over the feet
 			c.poseNow = tilted(c.tilt, c.solved);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c, f);
 			if (pass === 1) aux.reach[c.id].push(ownReach(c, f, U, [

@@ -15,7 +15,8 @@
 //                          aim: world direction of the hand's thumb side, aimW: 0..1, or axes: { a, b, w } two
 //                          lists of [hand axis, world direction] blended a to b by w (aimW still weighs them),
 //                          elbow: { from, to, w, fast } world points the elbow bends toward (null = its own direction),
-//                          prev: where the hand was last frame, carried with the body (limits its speed) },
+//                          prev: where the hand was last frame, carried with the body (limits its speed),
+//                          aimed: how much of it is not the rest pose, when the caller says (else from, to and w give it) },
 //       hipTurn: pelvis turn about Y over planted feet (rad), bow: forward hinge at the hips (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
 //       assist: the previous frame's { bend, drop } of the reach assist, knee: the previous frame's knee [L, R] (knee.js) }
@@ -130,7 +131,7 @@ export function solve(B, U = {}) {
 	const hips0 = add(B.p, qRotate(yawQ, U.hip ?? [0, 0, 0]));
 	const lean0 = B.lean + (U.lean ?? 0), twist = B.twist + (U.twist ?? 0);
 	const active = H.map(h => !!h && (!!h.from || !!h.to));
-	const aimed = H.map(h => h ? (h.from ? 1 - h.w : 0) + (h.to ? h.w : 0) : 0); // how much of the hand target is not the rest pose
+	const aimed = H.map(h => h ? h.aimed ?? (h.from ? 1 - h.w : 0) + (h.to ? h.w : 0) : 0); // how much of the hand target is not the rest pose (aimed: a caller's own, balance.js)
 	const turned = H.map((h, i) => !!h?.elbow && aimed[i] < 1); // a free wrist that an elbow target turns (freeWrist)
 	// a hand at most MAX_STEP from where it was last frame -> [point, metres the cap held it back that the arm from the
 	// shoulder sh could have gone: the part of the point past the arm's reach is not counted]
