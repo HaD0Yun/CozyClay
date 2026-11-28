@@ -32,7 +32,7 @@ import {
 	supervisorFollowUp,
 } from "./agent-client.js";
 import { TaskDetail, TaskRows, TaskStrip, readStoredTaskMode, storeTaskMode } from "./TaskInline.jsx";
-import { boardTurn } from "./task-board.js";
+import { boardTurn } from "./task-board.js"; import { FAILURE_HINT } from "./agent-failure-hints.js";
 import "./agent-panel.css";
 // The task board (task mode, parallel Studio tasks) loads only where it is used: the Studio, never the workflow page.
 const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
@@ -213,7 +213,7 @@ function FailureCard({ failure, onRetry, onFixKey }) {
 	return <div className="agent-card agent-failure-card" data-failure-code={failure.code} role="alert">
 		<div className="agent-failure-head"><FiAlertTriangle size={12} aria-hidden="true" /><span className="agent-failure-code">{failure.code}</span></div>
 		<p className="agent-failure-message">{(failure.message !== failure.code && failure.message) || "The command did not complete."}</p>
-		<p className="agent-failure-recovery">{RECOVERY_COPY[failure.recovery?.action] || RECOVERY_COPY.none}{failure.preserved?.authoredState === "unchanged" ? ko(" Nothing in the scene changed.", " 장면은 바뀌지 않았어요.", " 场景未改变。") : failure.preserved?.authoredState === "unknown" ? ko(" Whether the scene changed is unknown.", " 장면이 바뀌었는지는 알 수 없어요.", " 无法确定场景是否已改变。") : ""}</p>
+		<p className="agent-failure-recovery">{FAILURE_HINT[failure.code] ? `${FAILURE_HINT[failure.code]} ` : ""}{RECOVERY_COPY[failure.recovery?.action] || RECOVERY_COPY.none}{failure.preserved?.authoredState === "unchanged" ? ko(" Nothing in the scene changed.", " 장면은 바뀌지 않았어요.", " 场景未改变。") : failure.preserved?.authoredState === "unknown" ? ko(" Whether the scene changed is unknown.", " 장면이 바뀌었는지는 알 수 없어요.", " 无法确定场景是否已改变。") : ""}</p>
 		{failure.recovery?.retryAllowed && <div className="agent-error-actions">{failure.recovery.action === "fix_key" && onFixKey && <button type="button" className="agent-ghost-button agent-error-keys" onClick={onFixKey}>Log in again</button>}<button type="button" className="agent-ghost-button agent-error-retry" data-fid="agent_retry" onClick={onRetry}>Retry</button></div>}
 	</div>;
 }

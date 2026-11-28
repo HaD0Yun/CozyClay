@@ -255,6 +255,7 @@ const v4Root = join(tmp, "v4");
 	mapper.onMessage({ type: "result", subtype: "error_during_execution", errors: ["upstream 529"] });
 	mapper.finish(); mapper.finish();
 	expect("4 a non-success result is an error then one done", pushed.map(f => f.type).join(",") === "error,done" && pushed[0].message === "upstream 529", JSON.stringify(pushed));
+	expect("4 the SDK error result is classified from its text: a 529 is overloaded, not a blanket upstream (#1370)", pushed[0].code === "overloaded", JSON.stringify(pushed));
 }
 
 // 5: the model fallback guard.
@@ -337,7 +338,7 @@ const v4Root = join(tmp, "v4");
 	const crash = fakeSdk((_record, n) => (n === 1 ? [stream({ type: "message_start", message: { id: "c" } }), new Error("Claude Code process exited with code 1")] : textTurn("m")));
 	const crashed = await turn({ sdk: crash, sessionId: crashedId, store });
 	await turn({ sdk: crash, sessionId: crashedId, store, text: "again" });
-	expect("9 a first turn that dies is an upstream error, and the next turn resumes its session", crashed.frames.some(f => f.type === "error" && f.code === "upstream" && /exited/.test(f.message)) && crashed.frames.at(-1).type === "done" && crash.calls[1].options.resume === crashedId, JSON.stringify([crashed.frames, crash.calls[1]?.options?.resume]));
+	expect("9 a first turn that dies is an unknown error (not upstream: no provider status, #1370), and the next turn resumes its session", crashed.frames.some(f => f.type === "error" && f.code === "unknown" && /exited/.test(f.message)) && crashed.frames.at(-1).type === "done" && crash.calls[1].options.resume === crashedId, JSON.stringify([crashed.frames, crash.calls[1]?.options?.resume]));
 	const pictured = fakeSdk(() => textTurn("m"));
 	await turn({ sdk: pictured, store, attachments: [{ dataUrl: `data:image/png;base64,${pngBase64(4, 4)}`, name: "ref.png" }] });
 	const block = pictured.calls[0].prompt[0]?.message?.content?.[1];

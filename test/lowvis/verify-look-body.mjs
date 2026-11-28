@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // A character at scale 1 is the body of the look the Studio draws it in (src/lowvis/studio/figure.js lookBody): for the
-// cube look the owner's 1.70 m body (standing, arms down), for the block look the rig's own, as before.
+// cube look the owner's 1.653 m body (standing, arms down), for the block look the rig's own, as before.
 //  1. the manual: at the rig's body it is the manual of before, byte for byte, for every variant and set of switched-off
 //     names; at the cube's it states that body's sizes, each the engine's own body at scale 1 to the rounding
 //  2. the compile tool (figure cube) builds a body of scale s as the rig's times the look's body x s, tells its scale as written and
 //     its height as built, and keeps the scene as written; runScene states the look's body in the manual
-//  3. the drawn cube look at scale 1 stands 1.70 m with the arms down; standingHeight is each look's drawn height
+//  3. the drawn cube look at scale 1 stands 1.653 m with the arms down; standingHeight is each look's drawn height
 //  4. installClip: a clip body of the engine's size is the cast member's scale over the look's body; its take is of the
 //     engine's size; runMotion's request is the one of the block look
 //  5. a stage stored under a look of another body is carried over: each rig character stands as large as before, its
@@ -84,8 +84,8 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 	const top = (look, pos, quat) => { const f = look({}); f.setPose(pos, quat, 0); f.object3D.updateMatrixWorld(true); return new THREE.Box3().setFromObject(f.object3D).max.y; };
 	const c = buildClip({ demo: "stand", a: [] }, { frames: 2, characters: [{ id: "a", at: [0, 0], heading: 0 }], props: [] }).clip.characters[0];
 	const stand = top(cube, c.pos, c.quat) * B, tpose = top(cube, new Float32Array(REST.flat()), new Float32Array(REST.flatMap(() => [0, 0, 0, 1]))) * B;
-	assert.ok(Math.abs(stand - 1.7) < 0.002, `the cube look stands ${stand.toFixed(4)} m tall with the arms down at scale 1`);
-	assert.ok(Math.abs(tpose - 1.705) < 0.002, `and ${tpose.toFixed(4)} m in the T-pose`);
+	assert.ok(Math.abs(stand - 1.653) < 0.002, `the cube look stands ${stand.toFixed(4)} m tall with the arms down at scale 1`);
+	assert.ok(Math.abs(tpose - 1.658) < 0.002, `and ${tpose.toFixed(4)} m in the T-pose`);
 	// standingHeight (the closeup's stand-in, the agent's standingHeightM) is the drawn look at the body: here (node) the rig's own body
 	for (const [name, look] of Object.entries(LOOKS)) {
 		const drawn = top(look, c.pos, c.quat);
@@ -93,7 +93,7 @@ console.log("ok compile tool and runScene: the cube's scale 1 is built as the ri
 	}
 	assert.equal(standingHeight(undefined, "nope"), standingHeight(undefined, "block"), "an unknown look is drawn as the block look");
 	assert.equal(standingHeight({ model: TRACK_RIG, scale: 1.2 }, "block"), 2.086, "times the scale");
-	assert.equal(standingHeight({ model: TRACK_RIG, scale: B }, "cube"), 1.7, "the cube look's body (here a scale of the rig's own) is told as 1.7 m");
+	assert.equal(standingHeight({ model: TRACK_RIG, scale: B }, "cube"), 1.653, "the cube look's body (here a scale of the rig's own) is told as 1.653 m");
 	for (const s of [0.2, 0.5, 3]) assert.ok(Math.abs(standingHeight({ model: TRACK_RIG, scale: B * s }, "cube") - stand * s) < 0.0006, `at scale ${s} to the millimetre`);
 	assert.equal(standingHeight({ model: "y-bot-tpose", scale: 1 }), null, "no look draws another model");
 	console.log(`ok the cube look at scale 1: ${stand.toFixed(3)} m standing, ${tpose.toFixed(3)} m in the T-pose; every look's standingHeight is its drawn height`);

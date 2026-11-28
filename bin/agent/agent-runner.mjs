@@ -3,7 +3,7 @@ import { createReasoningFrames } from "./turn-frames.mjs";
 import { sanitizeUpstreamDetail } from "./agent-routes.mjs";
 import { budgetStudioRequest } from "./studio-context-budget.mjs";
 import { createRetryingStream, retryAfterMs } from "./agent-stream.mjs";
-import { NETWORK_CODES, frameCodeOf } from "./agent-failure-codes.mjs";
+import { CODEX_SIGN_IN_EXPIRED, classifyProviderError, codexSignInLost, frameCodeOf } from "./agent-failure-codes.mjs";
 import { withAnthropicCacheBreakpoints } from "./anthropic-cache.mjs";
 import { createSteerInbox } from "./steer-inbox.mjs";
 
@@ -16,15 +16,6 @@ const DEFAULT_MODEL = "gpt-6-astra";
 // SDK-level retry gives up and surfaces the error to us.
 const RETRY_MAX_DELAY_MS = 20000;
 
-const AUTH_ERROR_PATTERN = /\b(401|403)\b|unauthorized|forbidden/i;
-// "usage limit", "quota", "resource exhausted": a provider's quota refusal that names no status, e.g. pi-ai's Codex
-// adapter, which turns a 429 into "You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min." (#1043:
-// it read as upstream, so the panel never showed the quota card).
-const RATE_LIMIT_PATTERN = /\b429\b|rate.?limit|too many requests|usage limit|quota|resource.?exhausted/i;
-const OVERLOAD_PATTERN = /\b529\b|overloaded/i;
-// Checked after the three above: a request that never got an HTTP answer, when only pi-ai's folded string survives.
-const NETWORK_PATTERN = /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up|network error/i;
-
 // A numeric HTTP status, one per code. 401/403 both read as "unauthorized";
 // 529 (Anthropic's overload status) reads as "overloaded"; every other 5xx
 // (500, 502, 503, 504, ...) reads as the generic "upstream" — status always
@@ -34,20 +25,6 @@ const STATUS_CODES = { 401: "unauthorized", 403: "unauthorized", 429: "rate_limi
 function statusToCode(status) {
 	if (STATUS_CODES[status]) return STATUS_CODES[status];
 	if (Number.isInteger(status) && status >= 500 && status <= 599) return "upstream";
-}
-
-/** Classify a failed message into the runner's frozen vocabulary (unauthorized,
- * rate_limit, overloaded, network, upstream). pi folds status and code into one
- * string (`formatProviderError`), so the patterns mirror pi's retryability
- * check; `errorCode`, the structure agent-stream.mjs kept from a thrown error
- * (a socket code or "TypeError"), decides first. Message-only fallback: use
- * `classifyError` at the run_end boundary so a structured status wins first. */
-export function classifyProviderError(message, errorCode) {
-	if (errorCode === "TypeError" || NETWORK_CODES.has(errorCode)) return "network";
-	if (AUTH_ERROR_PATTERN.test(message)) return "unauthorized";
-	if (RATE_LIMIT_PATTERN.test(message)) return "rate_limit";
-	if (OVERLOAD_PATTERN.test(message)) return "overloaded";
-	return NETWORK_PATTERN.test(message) ? "network" : "upstream";
 }
 
 // 400/404/413/422 ride along so a request the provider refused as malformed (a schema it rejects, a model it does not
@@ -235,7 +212,7 @@ function studioObservationMessage(observation) {
  * and tool declarations ride in its system messages), its model and thinking
  * level, and its steering queue. Each turn is one `agent.prompt()`.
  */
-export function createAgentRunner({ models: suppliedModels, sessionStore, tools = [], systemPrompt = "", clock = () => performance.now(), fauxProvider, codexBaseUrl, cliproxyBaseUrl, auth, credentials, keys, env } = {}) {
+export function createAgentRunner({ models: suppliedModels, sessionStore, tools = [], systemPrompt = "", clock = () => performance.now(), fauxProvider, codexBaseUrl, cliproxyBaseUrl, auth, credentials, keys, env, answerDeadlineMs } = {}) {
 	const openSessions = new Map();
 	let models = suppliedModels;
 	let piModules;
@@ -406,7 +383,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				const restored = sessionStore?.read?.(sessionId);
 				state.agent = new pi.Agent({
 					initialState: { systemPrompt: activePrompt, model: selected.model, thinkingLevel: thinkingLevel ?? "off", tools: await adapters(input), messages: restored?.history ?? [] },
-					streamFn: createRetryingStream({ ai: pi.ai, models: registry, refreshAuth, onAttempt: (message) => { countAttempt(message); emitQuota(state.active?.queue, state.lastInput); } }),
+					streamFn: createRetryingStream({ ai: pi.ai, models: registry, refreshAuth, ...(answerDeadlineMs ? { answerDeadlineMs } : {}), onAttempt: (message) => { countAttempt(message); emitQuota(state.active?.queue, state.lastInput); } }),
 					transformContext: studioView,
 					// keeps the output limit this request really sent, for a turn that runs out of it (finish)
 					onPayload: (payload, model) => { if (state.active) state.active.maxTokens = payload?.max_tokens ?? payload?.max_completion_tokens ?? payload?.max_output_tokens; return model?.api === "anthropic-messages" ? withAnthropicCacheBreakpoints(payload, model) : undefined; },
@@ -499,14 +476,14 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				const quiet = status === "aborted" && state.active?.quietAbort;
 				if (status !== "completed" && !quiet) {
 					const rawMessage = last?.errorMessage || (status === "aborted" ? "The turn was aborted." : "The model or live editor could not complete this turn.");
-					const truncated = /ended before a terminal response event/i.test(rawMessage);
+					const truncated = /ended before a terminal response event/i.test(rawMessage), signInLost = status !== "aborted" && codexSignInLost(last?.provider ?? state.provider, rawMessage);
 					const classified = status === "aborted" ? { code: "aborted", status: undefined } : classifyError({ message: rawMessage, errorCode: last?.errorCode });
-					const code = status === "aborted" ? "aborted" : truncated || outOfTokens ? "truncated" : classified.code;
+					if (signInLost) auth?.markSignInExpired?.(); const code = status === "aborted" ? "aborted" : signInLost ? "auth" : truncated || outOfTokens ? "truncated" : classified.code;
 					const detail = sanitizeUpstreamDetail(JSON.stringify({ message: rawMessage }));
 					const fallback = code === "aborted" ? "The turn was aborted." : code === "truncated" ? "The model stream ended before a terminal response event." : "The model or live editor could not complete this turn.";
 					// A rate limit names its provider and, when the provider said, how long to wait (#1043): the panel's paused card.
 					const wait = code === "rate_limit" ? retryAfterMs(last) : 0, limited = code === "rate_limit" ? { provider: state.provider, ...(wait > 0 ? { retryAfterMs: wait, resetAt: new Date(Date.now() + wait).toISOString() } : {}) } : {};
-					queue.push({ type: "error", code, message: outOfTokens || detail || fallback, ...(classified.status ? { status: classified.status } : {}), ...limited });
+					queue.push({ type: "error", code, message: signInLost ? CODEX_SIGN_IN_EXPIRED : outOfTokens || detail || fallback, ...(classified.status && !signInLost ? { status: classified.status } : {}), ...limited });
 				}
 				// a steer the run ended before reading is taken back out of its queue and reported, before done (steer-inbox.mjs)
 				state.active.inbox.close(); if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });

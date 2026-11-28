@@ -584,7 +584,7 @@ expect("a usage limit is stated in a few words", limitedTurn.text === "Failed: p
 	expect("the client keeps the frame's provider on the paused state", client.includes('provider: typeof event.provider === "string" ? event.provider : null'));
 	expect("the paused card offers the other provider by name, and the wait or that none was given", cards.includes("Switch to ${alternative.label}") && cards.includes('ko("Wait & retry"') && cards.includes('"wait time not given"') && panel.includes("alternative={alternative}"));
 	expect("the wait left reads in minutes, then seconds", help.formatWaitLeft("1970-01-01T00:10:00.000Z", 0) === "10 min" && help.formatWaitLeft("1970-01-01T00:00:40.000Z", 0) === "40 s" && help.formatWaitLeft(undefined, 0) === null);
-	expect("every waiting-card failure class has words", ["timeout", "callback_error", "port_busy"].every((reason) => typeof help.SIGN_IN_FAILURE_COPY[reason] === "string"));
+	expect("every waiting-card failure class has words", ["timeout", "callback_error", "port_busy", "expired"].every((reason) => typeof help.SIGN_IN_FAILURE_COPY[reason] === "string"));
 }
 const settled = phase({ lastTurn: { status: "done", endedAt: 3500, durationMs: 12000, failure: null } }, 3500 + module_.ACTIVITY_TERMINAL_MS);
 expect("the terminal state gives way to a quiet Ready", settled.kind === "idle" && settled.text === "Ready" && !settled.ticking, settled.text);
@@ -603,6 +603,15 @@ const driveTurn = async (turn) => {
 	return store.getState();
 };
 
+// #1374: an expired ChatGPT sign-in (the sidecar's auth frame) goes to the sign-in card, never a Retry failure card.
+{
+	let lost = 0;
+	const store = module_.createAgentChatStore({ transport: { turn: async (_request, onEvent) => { onEvent({ type: "error", code: "auth", message: "Your ChatGPT sign-in has expired. Sign in with ChatGPT again." }); onEvent({ type: "done" }); } }, clock: () => 1000, onAuthLost: () => { lost += 1; } });
+	await store.send("do something");
+	expect("an auth frame asks the panel to sign in again", lost === 1, String(lost));
+	expect("and leaves no Retry card behind", !store.getState().items.some((item) => item.kind === "failure"), JSON.stringify(store.getState().items));
+	expect("the signed-out card is the ChatGPT sign-in, with the expired reason", panel.includes('data-agent-card="signed-out"') && panel.includes("SIGN_IN_FAILURE_COPY[account?.failure]") && panel.includes("onAuthLost: () => setAuthState(\"signed-out\")"));
+}
 const silent = await driveTurn(async () => {});
 const silentCard = silent.items.find((item) => item.kind === "failure");
 expect("a turn that ends with no output renders a failure card", silentCard?.failure.code === "no_output" && silentCard.failure.recovery.retryAllowed === true);
@@ -627,6 +636,20 @@ const busyCard = busyTurn.items.find((item) => item.kind === "failure");
 expect("a busy refusal reads as plain English, not \"busy busy\"", busyCard?.failure.message === module_.ERROR_COPY.busy && /still answering/.test(busyCard.failure.message), busyCard?.failure.message);
 expect("the activity line says why in a few words", module_.describeActivity(busyTurn, { now: 3500 }).text === "Failed: agent still answering", module_.describeActivity(busyTurn, { now: 3500 }).text);
 expect("a failure card never repeats its code as its message", panel.includes("(failure.message !== failure.code && failure.message)"));
+// #1370: timeout and truncated are their own codes, with a short reason and a hint on the card; a thrown turn is not upstream.
+{
+	const { FAILURE_HINT } = await import("../src/workflow/agent-failure-hints.js");
+	const timedOut = await driveTurn(async (onEvent) => { onEvent({ type: "error", code: "timeout", message: "Request timed out." }); onEvent({ type: "done" }); });
+	expect("a timed-out turn keeps its code on the card", timedOut.items.find((item) => item.kind === "failure")?.failure.code === "timeout");
+	expect("the activity line says the model timed out", module_.describeActivity(timedOut, { now: 3500 }).text === "Failed: model timed out", module_.describeActivity(timedOut, { now: 3500 }).text);
+	const cut = await driveTurn(async (onEvent) => { onEvent({ type: "error", code: "truncated", message: "truncated" }); onEvent({ type: "done" }); });
+	expect("a truncated turn with no own words says what happened", cut.items.find((item) => item.kind === "failure")?.failure.message === module_.ERROR_COPY.truncated);
+	expect("the failure card has a hint for timeout and truncated", typeof FAILURE_HINT.timeout === "string" && typeof FAILURE_HINT.truncated === "string" && panel.includes("FAILURE_HINT[failure.code]"));
+	const thrown = await driveTurn(async () => { throw new Error("private stream broke"); });
+	expect("a thrown turn without a code reads unknown, not upstream", thrown.items.find((item) => item.kind === "failure")?.failure.code === "unknown", JSON.stringify(thrown.items.at(-1)));
+	const offline = await driveTurn(async () => { throw new TypeError("Failed to fetch"); });
+	expect("a thrown fetch TypeError reads network", offline.items.find((item) => item.kind === "failure")?.failure.code === "network", JSON.stringify(offline.items.at(-1)));
+}
 
 const attached = await driveTurn(async (onEvent) => {
 	onEvent({ type: "tool.start", callId: "c1", name: "capture_blocking_frame" });
