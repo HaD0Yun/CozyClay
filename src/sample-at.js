@@ -103,7 +103,8 @@ export function sampleAt(scene, shot, frame) {
 		const block = createCameraBlock(instruction);
 		const keyedCamera = () => sharedCamera(cameraMoveAt(
 			shot.cameraKeys,
-			source.cameraAnchorTrack ? pointOnTrack(source.cameraAnchorTrack, sampledFrame) ?? { x: 0, z: 0 } : source.cameraAnchor ?? source.subject ?? { x: 0, z: 0 },
+			// The subject where it stands at each key of the move, not frame by frame (#1392).
+			source.cameraAnchorTrack ? (at) => pointOnTrack(source.cameraAnchorTrack, at) ?? { x: 0, z: 0 } : source.cameraAnchor ?? source.subject ?? { x: 0, z: 0 },
 			sampledFrame,
 			source.filmback,
 		), source);

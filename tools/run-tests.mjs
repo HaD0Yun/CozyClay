@@ -139,7 +139,7 @@ const NODE_FILES = ["test/motion3/verify-motion3-pocket.mjs", "test/motion3/veri
 	"test/verify-pwa.mjs", "test/verify-github-stars.mjs",
 	"test/verify-package-signature.mjs",
 	"test/verify-resilience.mjs",
-	"test/verify-sample-at.mjs",
+	"test/verify-sample-at.mjs", "test/verify-camera-key-sway.mjs",
 	"test/verify-scene-asset-cache.mjs", "test/verify-scene-mesh-cache-exports.mjs",
 	"test/verify-scene-assets.mjs",
 	"test/verify-scene-mesh.mjs",

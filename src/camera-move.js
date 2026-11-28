@@ -116,16 +116,16 @@ function decompose(framing, anchor, filmback = {}) {
  * @returns a framing record for time t; t=0 and t=1 reproduce A and B exactly
  */
 export function interpolateFraming(a, b, anchor, t, ease = easeInOut, filmback = {}) {
-	const k = ease(clamp01(t));
-	const A = decompose(a, anchor, filmback);
-	const B = decompose(b, anchor, filmback);
+	const k = ease(clamp01(t)), from = anchor.from ?? anchor, to = anchor.to ?? anchor; // { from, to }: the subject at each key (#1392)
+	const A = decompose(a, from, filmback);
+	const B = decompose(b, to, filmback);
 	const r = lerp(A.r, B.r, k);
 	const azimuth = A.azimuth + shortestArc(A.azimuth, B.azimuth) * k;
 	const height = lerp(A.height, B.height, k);
 	const pos = {
-		x: anchor.x + r * Math.sin(azimuth),
+		x: lerp(from.x, to.x, k) + r * Math.sin(azimuth),
 		y: height,
-		z: anchor.z + r * Math.cos(azimuth),
+		z: lerp(from.z, to.z, k) + r * Math.cos(azimuth),
 	};
 	const aim = {
 		x: lerp(A.aim.x, B.aim.x, k),
@@ -287,16 +287,17 @@ export function moveSlate(move) {
  * @param {number} frame
  * @returns a framing record, or null when there are no keys
  */
-export function cameraMoveAt(keys, anchor, frame, filmback = {}) {
+export function cameraMoveAt(keys, subject, frame, filmback = {}) {
 	if (!keys.length) return null;
 	const first = keys[0];
 	const last = keys[keys.length - 1];
 	if (frame <= first.frame) return first.framing;
 	if (frame >= last.frame) return last.framing;
 	for (let i = 0; i < keys.length - 1; i++) {
-		const a = keys[i];
-		const b = keys[i + 1];
+		const a = keys[i], b = keys[i + 1];
 		if (frame <= b.frame) {
+			// `subject` as a function of the frame: the move rides the subject where it stands at its two keys, so a running take's sway between them never shakes the camera (#1392).
+			const anchor = typeof subject === "function" ? { from: subject(a.frame), to: subject(b.frame) } : subject;
 			return interpolateFraming(a.framing, b.framing, anchor, (frame - a.frame) / (b.frame - a.frame), EASES[a.ease] ?? easeInOut, filmback);
 		}
 	}
