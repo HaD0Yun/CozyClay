@@ -9,6 +9,8 @@
 // 5. (#947) a generic model's request keeps its exact shape; a Kimi K3 model on Moonshot's host takes pi-ai's kimi-k3
 //    template (reasoning_effort, a 131072 output limit, reasoning_content sent back, efforts low/high/max); a turn that
 //    used its whole output limit before any answer is a truncated error; a 400 body stays readable.
+// 6. (#1388) a server that takes the request and never answers fails as a timeout with a plain message after one more
+//    try, not after Node's 300 s headers timeout five times; an answer that streams slowly past the deadline is not cut.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -39,7 +41,8 @@ const readAuthFile = () => { try { return JSON.parse(readFileSync(join(process.e
 
 /** A fake OpenAI-compatible server; `key` makes it refuse requests without that bearer key. `fake.ids` is its model
  * list and `fake.mode` how it answers a chat request (#947): "reply", "kimi" (a reasoning tool call, then a reasoning
- * answer), "length-empty" (reasoning only, then the output limit), "length-partial" (some text, then the limit), "400". */
+ * answer), "length-empty" (reasoning only, then the output limit), "length-partial" (some text, then the limit), "400",
+ * "silent" (takes the request and never answers), "slow" (answers at once, then streams its words over ~1 s). */
 function fakeServer({ key } = {}) {
 	const seen = [];
 	const fake = { server: null, seen, ids: ["fake-llama", "fake-qwen"], mode: "reply" };
@@ -56,6 +59,15 @@ function fakeServer({ key } = {}) {
 			return;
 		}
 		if (req.method === "POST" && req.url === "/v1/chat/completions") {
+			if (fake.mode === "silent") return;
+			if (fake.mode === "slow") {
+				res.writeHead(200, { "content-type": "text/event-stream" });
+				res.write(chunk({ role: "assistant" }));
+				for (const word of ["Slow ", "but ", "steady"]) { await new Promise((resolve) => setTimeout(resolve, 350)); res.write(chunk({ content: word })); }
+				res.write(chunk({}, "stop"));
+				res.end("data: [DONE]\n\n");
+				return;
+			}
 			if (fake.mode === "400") {
 				res.writeHead(400, { "content-type": "application/json" });
 				res.end(JSON.stringify({ error: { message: "Invalid request: tools.function.parameters is not a valid moonshot flavored json schema, details: <At path 'properties.x': type is not defined>", type: "invalid_request_error" } }));
@@ -144,8 +156,8 @@ await check("a turn on a listed model streams through openai-completions to the 
 
 const lookupTool = { name: "lookup", label: "Lookup", description: "Looks something up.", parameters: { type: "object", properties: {}, additionalProperties: false }, handler: async () => ({ found: true }) };
 /** One turn through the runner (a fresh registry unless one is given); returns its frames. */
-async function turn(model, { registry, effort, tools = [] } = {}) {
-	const runner = createAgentRunner({ models: registry ?? await providers.createModels({ auth, keys, env: {} }), tools });
+async function turn(model, { registry, effort, tools = [], answerDeadlineMs } = {}) {
+	const runner = createAgentRunner({ models: registry ?? await providers.createModels({ auth, keys, env: {} }), tools, answerDeadlineMs });
 	const session = await runner.openSession(`openai-compatible-${Math.random()}`, { surface: "workflow" });
 	const frames = [];
 	for await (const frame of session.start({ text: "hi", model, ...(effort ? { effort } : {}) })) frames.push(frame);
@@ -243,6 +255,29 @@ await check("#947: a 400 from the server shows its body in the error frame", asy
 	assert.ok(error, JSON.stringify(frames));
 	assert.match(error.message, /moonshot flavored json schema/);
 	assert.match(error.message, /At path 'properties\.x'/);
+});
+
+await check("#1388: a server that never answers fails as timeout with a plain message after one more try; a slow stream is not cut", async () => {
+	const { ANSWER_DEADLINE_MS, TIMEOUT_MESSAGE } = await import("../bin/agent/agent-stream.mjs");
+	assert.ok(ANSWER_DEADLINE_MS * 2 <= 130_000, "about 2 minutes in all for a server that never answers");
+	open.mode = "silent";
+	const before = open.seen.filter((entry) => entry.url === "/v1/chat/completions").length;
+	const started = Date.now();
+	const silent = await turn("openai-compatible/fake-llama", { answerDeadlineMs: 300 });
+	const took = Date.now() - started;
+	const tries = open.seen.filter((entry) => entry.url === "/v1/chat/completions").length - before;
+	open.mode = "slow";
+	const slow = await turn("openai-compatible/fake-llama", { answerDeadlineMs: 300 });
+	open.mode = "reply";
+	const error = silent.find((frame) => frame.type === "error");
+	assert.equal(error?.code, "timeout", JSON.stringify(silent));
+	assert.equal(error.message, TIMEOUT_MESSAGE);
+	assert.doesNotMatch(error.message, /undici|fetch failed|Headers Timeout|Connection error/i);
+	assert.ok(silent.some((frame) => frame.type === "done"));
+	assert.equal(tries, 2, "the request was sent twice: the first try and one more");
+	assert.ok(took < 5000, `gave up in ${took} ms`);
+	assert.ok(!slow.some((frame) => frame.type === "error"), JSON.stringify(slow));
+	assert.equal(slow.filter((frame) => frame.type === "text.delta").map((frame) => frame.text).join(""), "Slow but steady");
 });
 
 const locked = fakeServer({ key: "secret-1" });
