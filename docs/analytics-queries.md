@@ -2026,6 +2026,7 @@ Builds before this release have no rows (**unknown, not 0**).
 | `agent:connect_started` | `provider`, `method` (`oauth`, `api_key`, `chatgpt`) | A provider's login button, or Sign in with ChatGPT. One per attempt |
 | `agent:connect_finished` | `provider`, `method`, `outcome`, `step`, `duration` (lt10s … gte5m), `reason` (not-ok only, when known) | One per attempt, see below |
 | `agent:model_changed` | `provider`, `after_failure` (bool) | The model list. 10 per session |
+| `agent:connect_tested` | `provider`, `result` (`ok`, `key_rejected`, `unreachable`, `model_not_found`, `rate_limited`, `timeout`, `other`) | The automatic test after a key or address login finishes, a model picked for a key/address provider, or Test connection on a connected row. 20 per session |
 
 `provider` is one of the ten providers CozyClay configures itself
 (`bin/agent/providers.mjs` `PROVIDERS`) or `other`. The login list offers
@@ -2050,6 +2051,23 @@ Split `failed`/`waiting` by it to see which one to fix.
 `step` is how far the attempt got: `list` (it never started a flow),
 `waiting` (the flow ran), `prompt` (it was asking for a key, an address or a
 code), `done`.
+
+`agent:connect_tested.result` is what one small real request on a key or
+address connection came back with (list the models, then one token, 15 s):
+`ok`, `key_rejected` (401/403, or an invalid-key 400), `unreachable` (no
+answer, or the address has no models list), `model_not_found` (the server
+does not serve that model), `rate_limited` (429, 402 or a quota refusal),
+`timeout`, `other`. Unexecuted sketch, the share of tests that fail by
+provider and reason:
+
+```sql
+SELECT properties.provider AS provider, properties.result AS result, count() AS tests,
+    uniq(distinct_id) AS users
+FROM events
+WHERE event = 'agent:connect_tested' AND timestamp > now() - INTERVAL 30 DAY
+GROUP BY provider, result
+ORDER BY provider, tests DESC
+```
 
 ## 4.1 Connect funnel by provider (30 days)
 

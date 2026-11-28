@@ -37,7 +37,7 @@ import "./agent-panel.css";
 // The task board (task mode, parallel Studio tasks) loads only where it is used: the Studio, never the workflow page.
 const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
 import { AgentProgressCard } from "./AgentProgressCard.jsx";
-import { LoginPanel } from "./LoginPanel.jsx";
+import { LoginPanel } from "./LoginPanel.jsx"; import { PickedModelCheck } from "./ConnectCheck.jsx"; import { checkPickedModel } from "./connect-check.js";
 import { PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
 import { OfflineCard } from "./AgentOfflineCard.jsx";
 import { SIGN_IN_FAILURE_COPY, otherProviderModel, providerLabel } from "./agent-provider-help.js";
@@ -278,7 +278,7 @@ export default function AgentPanel({
 	// Picking a model is a preference, not a per-session decision: the key is
 	// remembered so a reload does not quietly move the next turn to another
 	// provider's model.
-	const chooseModel = useCallback((id) => { setModel(id); setEffort(null); storeModel(id); modelChanged(id); }, []);
+	const chooseModel = useCallback((id) => { setModel(id); setEffort(null); storeModel(id); modelChanged(id); checkPickedModel(id); }, []);
 	// Task mode (parallel Studio tasks): the chat talks to the main agent, which answers at once and runs tasks on the board.
 	const [taskMode, setTaskMode] = useState(() => surface === "studio" && readStoredTaskMode());
 	const toggleTaskMode = useCallback(() => setTaskMode((current) => { storeTaskMode(!current); return !current; }), []);
@@ -989,7 +989,7 @@ export default function AgentPanel({
 						</span>
 						: <button type="button" data-fid="agent_send" className="agent-send" aria-label="Send" title="Send (Enter)" disabled={composerDisabled || !draft.trim()} onClick={() => runTurn(draft)}><FiArrowUp size={14} aria-hidden="true" /></button>}
 				</div>
-				<ModelRolesLine model={model} roles={selectedModelRoles(modelRoles, model)} />
+				<ModelRolesLine model={model} roles={selectedModelRoles(modelRoles, model)} /><PickedModelCheck model={model} />
 			</div>
 		</div>}
 		{/* The hint exists to warn about image spend; a surface that cannot

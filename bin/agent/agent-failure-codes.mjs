@@ -26,7 +26,7 @@ const PROVIDER_CODES = new Set(["overloaded", "upstream", "server_error"]);
 const OWN_CODES = { timeout: "timeout", truncated: "truncated" };
 // The server took the request and its answer did not arrive in time; a connect timeout stays network.
 const TIMEOUT_CODES = new Set(["UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "TimeoutError"]);
-const NETWORK_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "EPIPE",
+export const NETWORK_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "EPIPE",
 	"ENETUNREACH", "ENETDOWN", "EHOSTUNREACH", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT"]);
 const codeOf = (value) => (typeof value?.code === "string" ? value.code : "");
 
