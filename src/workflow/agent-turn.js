@@ -153,7 +153,7 @@ export function turnLayout(items, { streaming = false } = {}) {
 			if (item.kind === "turn-end") return;
 			const step = STEP_KINDS.has(item.kind) || (item.kind === "assistant" && i < lastStep && block);
 			if (!step) { entries.push({ type: "item", item }); return; }
-			if (!block) { block = { type: "steps", id: `steps:${item.id}`, steps: [], end, live: last && streaming, last }; entries.push(block); }
+			if (!block) { block = { type: "steps", id: `steps:${item.id}`, steps: [], end, live: last && streaming, last, receipted: turn.some(entry => entry.kind === "receipt") }; entries.push(block); }
 			block.steps.push(item.kind === "assistant" ? { ...item, kind: "narration" } : item);
 		});
 	});
@@ -197,8 +197,32 @@ export function stoppedNote(block) {
 	if (started < 0 || block.steps.slice(started + 1).some(step => step.kind === "tool" && step.name === "motion_result" && (step.status === "failed" || (step.status === "done" && step.result?.draft !== true)))) return note;
 	return `${note} ${ko("The motion this turn started was not stopped: nothing more of it is installed until a later message of yours asks for it or asks to stop it.", "이 턴에서 시작한 모션 작성은 중지되지 않았어요. 다음 메시지에서 모션을 요청하거나 중지를 요청하기 전까지는 더 설치되지 않아요.", "本回合开始编写的动作没有被停止：在你之后的消息要求安装它或要求停止之前，不会再安装任何内容。")}`;
 }
+const authoredIn = block => block.steps.some(step => step.result?.authored === true || (step.result?.calls ?? []).some(call => call?.revision && call.revision.after !== call.revision.before));
+// A Studio refusal as the step holds it: "TARGET_BUSY: <why>" (bin/agent/pi-tools.mjs formatToolError), a result
+// { ok: false, code, message }, or a script's refused call. A stop is no refusal.
+function refusalReason(step) {
+	if (step.kind !== "tool") return "";
+	const coded = /^([A-Z][A-Z0-9_]*):\s*(.*)$/s.exec(step.status === "failed" ? String(step.error ?? "") : "");
+	if (coded && coded[1] !== "ABORTED") return coded[2] || coded[1];
+	if (step.status === "done" && step.result?.ok === false && typeof step.result.code === "string") return step.result.message ?? step.result.error?.message ?? step.result.code;
+	const call = (step.status === "done" && Array.isArray(step.result?.calls) ? step.result.calls : []).find(entry => entry?.ok === false);
+	return call ? call.message ?? call.error?.message ?? call.code ?? "" : "";
+}
+// A refusal written for the model names the command to call next, "add a shot (shot.create)": the author has no use for
+// a command id, so a parenthesized dotted one ("(shot.create)", "(camera.addKey, motion.fill)") is cut from the note.
+const COMMAND_ID = /\s*\(\s*[a-z][A-Za-z_]*(?:\.[a-z][A-Za-z_]*)+(?:\s*(?:,|\/|or)\s*[a-z][A-Za-z_]*(?:\.[a-z][A-Za-z_]*)+)*\s*\)/g;
+const userReason = reason => String(reason).replace(/^Error:\s*/, "").replace(COMMAND_ID, "");
+/** A turn that ended done although the Studio refused a call and nothing changed: one plain line with the first
+ *  refusal's reason, so a "Done" header does not read as an edit that never happened. */
+export function unchangedNote(block) {
+	if (block.live || block.end?.status !== "done" || block.receipted || authoredIn(block)) return "";
+	const reason = block.steps.map(refusalReason).find(Boolean);
+	if (!reason) return "";
+	const why = clip(userReason(reason));
+	return ko(`Nothing in the scene changed: ${why}`, `장면은 바뀌지 않았어요: ${why}`, `场景没有改变：${why}`);
+}
 function stoppedEdits(block) {
-	const authored = block.steps.some(step => step.result?.authored === true || (step.result?.calls ?? []).some(call => call?.revision && call.revision.after !== call.revision.before));
+	const authored = authoredIn(block);
 	if (authored) return ko("Stopped by you. What already ran stays in the scene; Cmd+Z undoes this turn.", "직접 중지했어요. 이미 실행된 편집은 장면에 남아 있고, Cmd+Z로 이번 턴을 되돌릴 수 있어요.");
 	if (block.steps.some(step => step.kind === "tool" && step.status === "cancelled")) return ko("Stopped by you while a step was running; its result is unknown.", "단계 실행 중에 직접 중지했어요. 그 단계의 결과는 알 수 없어요.");
 	return ko("Stopped by you before anything changed in the scene.", "장면이 바뀌기 전에 직접 중지했어요.");

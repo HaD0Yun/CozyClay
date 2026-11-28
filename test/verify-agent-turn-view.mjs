@@ -127,3 +127,22 @@ test("results read as product copy, never ids or JSON", () => {
 	assert.equal(thinkingLine("**Planning the walk**\n\nThe walk ends at z=0.97, three steps."), "The walk ends at z=0.97, three steps.");
 	assert.equal(thinkingLine("The walk ends at z=0.97, three steps.\n\nNow I'm"), "The walk ends at z=0.97, three steps.", "a paragraph that has only begun waits");
 });
+
+test("a done turn that changed nothing after a refusal says so in one line", () => {
+	const refused = { kind: "tool", status: "failed", error: "TARGET_BUSY: Another edit is still running." };
+	const done = { status: "done" };
+	const block = (steps, extra = {}) => ({ steps, end: done, live: false, ...extra });
+	assert.equal(agentTurn.unchangedNote(block([refused, { kind: "tool", status: "done", result: {} }])), "Nothing in the scene changed: Another edit is still running.");
+	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "done", result: { ok: true, calls: [{ ok: false, code: "SCOPE_DENIED", message: "That shot is locked." }] } }])), "Nothing in the scene changed: That shot is locked.");
+	const exportRefused = { kind: "tool", status: "done", result: { ok: false, code: "EXPORT_UNAVAILABLE", message: "There is nothing to record yet: add a shot (shot.create), camera keys or a motion take first." } };
+	assert.equal(agentTurn.unchangedNote(block([exportRefused])), "Nothing in the scene changed: There is nothing to record yet: add a shot, camera keys or a motion take first.", "no command id reaches the author");
+	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "failed", error: "TARGET_BUSY: Wait for it (camera.addKey, motion.fill) to finish (v1.2)." }])), "Nothing in the scene changed: Wait for it to finish (v1.2).", "only parenthesized command ids go, not other parentheses");
+	assert.equal(agentTurn.unchangedNote(block([refused, { kind: "tool", status: "done", result: { authored: true } }])), "", "the turn did change the scene");
+	assert.equal(agentTurn.unchangedNote(block([refused], { receipted: true })), "", "a receipt is a change");
+	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "failed", error: "ABORTED: Stopped." }])), "", "a stop is no refusal");
+	assert.equal(agentTurn.unchangedNote(block([{ kind: "tool", status: "done", result: {} }])), "", "no refusal, nothing to say");
+	assert.equal(agentTurn.unchangedNote(block([refused], { end: { status: "failed" } })), "", "a failed turn has its own card");
+	assert.equal(agentTurn.unchangedNote(block([refused], { live: true })), "");
+	const items = [{ kind: "user", id: "u", text: "move" }, { ...refused, id: "t" }, { kind: "receipt", id: "r" }, { kind: "turn-end", id: "e", status: "done" }];
+	assert.equal(turnLayout(items).find(entry => entry.type === "steps").receipted, true);
+});

@@ -453,6 +453,17 @@
 	font-size: var(--agent-font-sm);
 }
 
+/* A connection test's answer (ConnectCheck.jsx): the result line, then Test again beside it. */
+.agent-connect-check {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--agent-space-2);
+}
+.agent-connect-check > p { flex: 1 1 12rem; margin: 0; overflow-wrap: anywhere; }
+.agent-connect-check.is-compact { margin-top: var(--agent-space-1); }
+.agent-connect-ok { color: var(--agent-text); }
+
 /* Connect a model (pi's login list): group labels, a running flow, what pi asks and tells. */
 .agent-login-group,
 .agent-login-flow,

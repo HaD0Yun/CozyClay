@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { FiCheck, FiChevronRight, FiSquare, FiX } from "react-icons/fi";
 import { ko } from "../locale.js";
-import { scriptNow, stepLabel, stepResult, stepsHeader, stoppedNote, thinkingLine } from "./agent-turn.js";
+import { scriptNow, stepLabel, stepResult, stepsHeader, stoppedNote, thinkingLine, unchangedNote } from "./agent-turn.js";
 import "./agent-turn-steps.css";
 
 /** Step time: "0.6 s", "12 s", "1 m 05 s". */
@@ -66,6 +66,7 @@ export function TurnSteps({ block, now, toolLabels, formatClock, onRetry }) {
 	const open = chosen ?? (block.live || failed || stopped);
 	const header = stepsHeader(block, now, formatClock);
 	const failure = block.steps.find(step => step.failure)?.failure;
+	const unchanged = unchangedNote(block);
 	return <div className="agent-card agent-steps" data-agent-card="steps" data-steps-state={block.live ? "live" : block.end?.status ?? "done"} data-open={open ? "true" : "false"}>
 		<button type="button" className="agent-steps-head" aria-expanded={open} onClick={() => setChosen(!open)}>
 			<span className={`agent-status-dot ${header.tone}`} aria-hidden="true" />
@@ -76,6 +77,7 @@ export function TurnSteps({ block, now, toolLabels, formatClock, onRetry }) {
 			{block.steps.map((step, index) => <Step key={step.id} step={step} live={block.live} isLast={index === block.steps.length - 1} now={now} toolLabels={toolLabels} />)}
 		</ol>}
 		{stopped && <p className="agent-steps-note">{stoppedNote(block)}</p>}
+		{unchanged && <p className="agent-steps-note" data-steps-note="unchanged">{unchanged}</p>}
 		{failure && <div className="agent-error" role="alert">
 			<span>{failure.message || ko("The turn failed.", "턴이 실패했어요.")}</span>
 			<div className="agent-error-actions"><button type="button" className="agent-ghost-button agent-error-retry" onClick={onRetry}>{ko("Retry", "다시 시도")}</button></div>

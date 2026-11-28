@@ -145,6 +145,40 @@ try {
 	} finally { restore(); }
 	console.log("PASS ChatGPT sign-in wait: waitUntil, timeout, callback_error (refused page and failed exchange), user_closed, port_busy");
 }
+// #1374: a stored sign-in whose refresh fails is "sign in again" (auth), not a request sent without a token.
+{
+	const realFetch = globalThis.fetch;
+	const answer = (status, body) => async (url, init) => String(url).startsWith("https://auth.openai.com/") ? new Response(JSON.stringify(body), { status }) : realFetch(url, init);
+	try {
+		// The provider refuses the refresh with a status other than 401/invalid_grant, so the tokens stay on disk.
+		auth.writeStored({ access_token: "secret-stale-access", refresh_token: "secret-stale-refresh", expires_at: Date.now() - 1000, id_token: tokenFor("account-r") });
+		globalThis.fetch = answer(500, { error: "server_error" });
+		const refused = await auth.getAccessToken().then(() => null, (error) => error);
+		assert.equal(refused?.code, "auth", "a refused refresh fails as auth, not null");
+		assert.equal(refused.status, 401);
+		assert.equal(/secret/.test(`${refused.message} ${JSON.stringify(refused)}`), false, "the error never carries a token");
+		assert.equal(auth.status().signedIn, false, "the panel sees the sign-in as gone until it is renewed");
+		assert.equal(auth.status().failure, "expired");
+		// A refresh with no answer at all (offline) is network: a retry can work, and the sign-in is not marked expired.
+		auth.writeStored({ access_token: "secret-stale-access-2", refresh_token: "secret-stale-refresh-2", expires_at: Date.now() - 1000 });
+		assert.equal(auth.status().signedIn, true, "new tokens clear expired");
+		globalThis.fetch = async (url, init) => { if (String(url).startsWith("https://auth.openai.com/")) throw new TypeError("fetch failed"); return realFetch(url, init); };
+		const offline = await auth.getAccessToken().then(() => null, (error) => error);
+		assert.equal(offline?.code, "network");
+		assert.equal(auth.status().signedIn, true);
+		// A refresh token with no access token refreshes instead of answering null.
+		auth.writeStored({ access_token: null, refresh_token: "secret-only-refresh", expires_at: null });
+		globalThis.fetch = answer(200, { access_token: "e30.e30.e30", refresh_token: "secret-rotated", expires_in: 3600 });
+		assert.equal(await auth.getAccessToken(), "e30.e30.e30");
+		// invalid_grant clears the sign-in (as before) and still fails as auth.
+		auth.writeStored({ access_token: "secret-stale-access-3", refresh_token: "secret-stale-refresh-3", expires_at: Date.now() - 1000 });
+		globalThis.fetch = answer(400, { error: "invalid_grant" });
+		assert.equal((await auth.getAccessToken().then(() => null, (error) => error))?.code, "auth");
+		assert.equal(auth.readStored(), undefined, "invalid_grant removes the stored sign-in");
+		assert.equal(await auth.getAccessToken(), null, "no sign-in at all is still null");
+	} finally { globalThis.fetch = realFetch; auth.logout(); }
+	console.log("PASS a failed ChatGPT refresh: auth with a sticky expired status, network when unreachable, no token in the error");
+}
 } finally {
 	off();
 	rmSync(scratch, { recursive: true, force: true });

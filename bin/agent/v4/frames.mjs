@@ -3,6 +3,8 @@
 // the session store (session-store.mjs), which the panel's transcript restore and the bench log
 // reader read: assistant { content: [text, thinking, toolCall] } and toolResult { toolCallId }.
 
+import { classifyProviderError } from "../agent-failure-codes.mjs";
+
 const PREFIX = "mcp__cozyclay__";
 const FLUSH_MS = 400;
 const MIN_BATCH = 16;
@@ -153,7 +155,7 @@ export function createFrameMapper({ push, clock = Date.now }) {
 			else if (message.type === "user") onUser(message);
 			else if (message.type === "result") {
 				usage = message.usage ?? usage;
-				if (message.subtype !== "success" || message.is_error) { flush(); push({ type: "error", code: "upstream", message: resultError(message) }); }
+				if (message.subtype !== "success" || message.is_error) { flush(); const text = resultError(message); push({ type: "error", code: classifyProviderError(text), message: text }); }
 			}
 		},
 		toolName: callId => calls.get(callId)?.name,
