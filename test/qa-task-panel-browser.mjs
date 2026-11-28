@@ -129,7 +129,9 @@ try {
 	await send("Page.navigate", { url: `${origin}/app/` });
 	await waitFor("window.__cozyclay?.runStudioAction && document.querySelector('.agent-input') && !document.querySelector('.agent-input').disabled", "Studio and the agent panel ready", 120_000);
 	await evaluate("document.querySelector('.studio-agent-bar')?.click(), true");
-	// the server flag is off: the switch opts this session in
+	// the server flag is off: the switch opts this session in. Task mode is disabled (#1382) and the switch is not drawn:
+	// nothing here can run until TASK_MODE_ENABLED (src/workflow/task-board.js) is true again.
+	tasksRun: { if (await evaluate("!document.querySelector('.agent-tasks-toggle')")) { pass("SKIP Task mode is disabled (#1382): no Tasks switch"); break tasksRun; }
 	await evaluate("document.querySelector('.agent-tasks-toggle').getAttribute('aria-checked') === 'true' || document.querySelector('.agent-tasks-toggle').click(), true");
 	await waitFor("document.querySelector('.agent-tasks-toggle')?.getAttribute('aria-checked') === 'true'", "Tasks switch on");
 	const ids = [];
@@ -194,6 +196,7 @@ try {
 	await evaluate("document.querySelector('.studio-agent-bar')?.click(), true");
 	await sleep(500);
 	await shot("5-after-reload");
+	}
 	assert.deepEqual(errors, [], `page errors: ${errors.join("\n")}`);
 	pass("no page errors");
 	await writeFile(`${out}/result.json`, JSON.stringify({ checks }, null, 2));

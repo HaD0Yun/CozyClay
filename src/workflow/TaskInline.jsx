@@ -6,7 +6,7 @@ import { FiChevronDown, FiChevronLeft } from "react-icons/fi";
 import { ko } from "../locale.js";
 import { ACTIVE_STATUSES, TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, modelLine, progressLine, scopeLabel, taskLine, taskReason, taskView } from "./task-board.js";
 import "./task-board.css";
-export { readStoredTaskMode, storeTaskMode } from "./task-board.js";
+export { TASK_MODE_ENABLED, readStoredTaskMode, storeTaskMode } from "./task-board.js";
 
 const useTaskView = () => useSyncExternalStore(taskView.subscribe, taskView.get, taskView.get);
 const openTask = taskId => taskView.set({ open: taskId });

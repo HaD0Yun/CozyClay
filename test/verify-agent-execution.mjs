@@ -53,19 +53,22 @@ const close = async (server) => { const closed = bounded(server, "close"); serve
 	assert.ok(!JSON.stringify(captured).includes("private"));
 }
 
-// Task mode is on by default (nothing stored), so a studio turn goes to the main agent with the opt-in header.
+// Task mode is disabled (#1382): with nothing stored or an old stored "on", a studio turn is a plain /agent/turn. The
+// transport still takes tasks: true to the main agent with the opt-in header, so the mode can come back.
 {
 	const sent = [];
 	const transport = createHttpTransport({ surface: "studio", capture: () => {}, fetchImpl: async (url, init) => {
 		sent.push({ url: String(url), tasks: init.headers["x-cozyclay-tasks"] });
 		return new Response(encode({ type: "done" }));
 	} });
-	const tasks = readStoredTaskMode({ getItem: () => null });
 	const studioTurn = { ...request, surface: "studio", turnId: "turn-tasks", context: {} };
-	await transport.turn({ ...studioTurn, ...(tasks ? { tasks: true } : {}) }, () => {});
-	await transport.turn(studioTurn, () => {});
-	assert.ok(sent[0].url.endsWith("/agent/main") && sent[0].tasks === "on", `default task mode goes to /agent/main with x-cozyclay-tasks: on: ${JSON.stringify(sent[0])}`);
-	assert.ok(sent[1].url.endsWith("/agent/turn") && sent[1].tasks === undefined, `task mode off goes to /agent/turn without the header: ${JSON.stringify(sent[1])}`);
+	for (const stored of [null, "on"]) {
+		const tasks = readStoredTaskMode({ getItem: () => stored });
+		await transport.turn({ ...studioTurn, ...(tasks ? { tasks: true } : {}) }, () => {});
+	}
+	await transport.turn({ ...studioTurn, tasks: true }, () => {});
+	assert.ok(sent.slice(0, 2).every((entry) => entry.url.endsWith("/agent/turn") && entry.tasks === undefined), `task mode is off whatever is stored: /agent/turn without the header: ${JSON.stringify(sent)}`);
+	assert.ok(sent[2].url.endsWith("/agent/main") && sent[2].tasks === "on", `the transport keeps the task route for when it comes back: ${JSON.stringify(sent[2])}`);
 }
 
 {

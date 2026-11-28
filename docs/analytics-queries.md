@@ -2204,6 +2204,8 @@ release have no rows (**unknown, not 0**).
 | `turn_index` | count bucket from `1` | turns this page load |
 | `attached`, `task_mode` | bool | an image or the current frame attached; the send went to the task route |
 
+`task_mode` is always `false` from 3.3.4 on: Task mode is disabled and its switch hidden (#1382); the property stays for the dashboards.
+
 Only `prompt_len` and `similarity` are derived from the text; neither the text
 nor its words leave the device (see `docs/privacy.md`).
 

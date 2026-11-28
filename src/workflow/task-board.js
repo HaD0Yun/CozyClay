@@ -1,4 +1,4 @@
-// The Studio task board in the agent panel (parallel tasks, P3). Task mode is a per-browser switch, on by default (the panel's Tasks
+// The Studio task board in the agent panel (parallel tasks, P3). Task mode is a per-browser switch (the panel's Tasks
 // toggle) or the server's COZYCLAY_STUDIO_TASKS flag: the chat then talks to the main agent (POST /agent/main), which
 // answers at once and dispatches tasks; this board shows them. Pure parts here (the reducer, labels, the switch's
 // storage); the network side is createTaskBoardClient; the view is TaskBoard.jsx.
@@ -12,7 +12,12 @@ import { sidecarUrl } from "../agent-image-client.js";
 import { parseSseChunk } from "./agent-client.js";
 
 const TASKS_KEY = "cozyclay.agent.tasks";
+// Task mode is disabled for everyone (#1382): a model server that never answers ended a task-mode turn only after ~3 min
+// as "stalled" (failure_code unknown), and its sub-tasks make agent failures hard to read. Every turn is a plain turn, a
+// stored "on" included, and the panel hides the switch. The code stays: true here brings the switch and the mode back.
+export const TASK_MODE_ENABLED = false;
 export function readStoredTaskMode(storage = globalThis.localStorage) {
+	if (!TASK_MODE_ENABLED) return false;
 	try { return storage?.getItem(TASKS_KEY) !== "off"; } catch { return true; } // on unless the author turned it off
 }
 export function storeTaskMode(enabled, storage = globalThis.localStorage) {

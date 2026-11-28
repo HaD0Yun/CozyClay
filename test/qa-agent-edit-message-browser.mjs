@@ -355,7 +355,9 @@ try {
 	assert.deepEqual(await bubbles(), ["Hello there", FIXED, WINDOW, AFTER]);
 	pass("after a reload: the same messages, the last one editable; its edit says the revisions do not compare, never that nothing changed");
 
-	// 7. Tasks on: the pencil says why the message cannot be edited and stops nothing; a message sent with Tasks off is edited
+	// 7. Tasks on: the pencil says why the message cannot be edited and stops nothing; a message sent with Tasks off is edited.
+	// Task mode is disabled (#1382) and its switch is not drawn: the step ends here until it comes back.
+	tasksStep: { if (await evaluate("!document.querySelector('.agent-tasks-toggle')")) { pass("Task mode is disabled (#1382): no Tasks switch, step 7 skipped"); break tasksStep; }
 	await click(".agent-tasks-toggle");
 	await waitFor("document.querySelector('.agent-tasks-toggle')?.getAttribute('aria-checked') === 'true'", "Tasks on");
 	const TASKED = "Plan the scene [[hold]]";
@@ -385,6 +387,7 @@ try {
 	assert.ok(plain[0].texts.join("\n").includes(TASKED), "the task-mode exchange stays");
 	assert.equal((await bubbles()).at(-1), LAMP);
 	pass("Tasks on: the pencil answers 'A message sent with Tasks on cannot be edited.' and the turn runs on; a message sent with Tasks off in the same conversation is edited");
+	}
 
 	assert.deepEqual(errors, [], `page errors: ${errors.join("\n")}`);
 	pass("no page errors");

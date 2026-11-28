@@ -31,7 +31,7 @@ import {
 	shortModelId,
 	supervisorFollowUp,
 } from "./agent-client.js";
-import { TaskDetail, TaskRows, TaskStrip, readStoredTaskMode, storeTaskMode } from "./TaskInline.jsx";
+import { TASK_MODE_ENABLED, TaskDetail, TaskRows, TaskStrip, readStoredTaskMode, storeTaskMode } from "./TaskInline.jsx";
 import { boardTurn } from "./task-board.js"; import { FAILURE_HINT } from "./agent-failure-hints.js";
 import "./agent-panel.css";
 // The task board (task mode, parallel Studio tasks) loads only where it is used: the Studio, never the workflow page.
@@ -279,7 +279,7 @@ export default function AgentPanel({
 	// remembered so a reload does not quietly move the next turn to another
 	// provider's model.
 	const chooseModel = useCallback((id) => { setModel(id); setEffort(null); storeModel(id); modelChanged(id); checkPickedModel(id); }, []);
-	// Task mode (parallel Studio tasks): the chat talks to the main agent, which answers at once and runs tasks on the board.
+	// Task mode (parallel Studio tasks): the chat talks to the main agent, which answers at once and runs tasks on the board. Disabled (#1382, task-board.js).
 	const [taskMode, setTaskMode] = useState(() => surface === "studio" && readStoredTaskMode());
 	const toggleTaskMode = useCallback(() => setTaskMode((current) => { storeTaskMode(!current); return !current; }), []);
 	// One place takes `{ providers, models }` from the sidecar: the grouped list
@@ -618,7 +618,7 @@ export default function AgentPanel({
 	// `via`: how the prompt was sent, for agent:prompt_sent (prompt-telemetry.js keeps no text). `typed`: a queued row's
 	// options (model, effort, frame switch, task mode and pictures as the message was typed); the composer's otherwise.
 	const runTurn = useCallback((text, via = "typed", typed = null) => {
-		setAttachNotice(null); setSteerNotice(""); const chosen = typed ?? { attachFrame, model, effort: effort ?? undefined, tasks: taskMode };
+		setAttachNotice(null); setSteerNotice(""); const chosen = { ...(typed ?? { attachFrame, model, effort: effort ?? undefined }), tasks: TASK_MODE_ENABLED && Boolean(typed ? typed.tasks : taskMode) }; // a queued row from before #1382 sends plain too
 		// An OpenAI-compatible server's address class (local, lan, hosted), never the address (#1043).
 		const endpoint = modelProviders.find((entry) => entry.id === String(chosen.model ?? "").split("/")[0])?.endpoint;
 		// Annotation marks (Studio): one annotated picture of the view rides after the composer's pictures, the marks in the context; a message Send took clears them (right after send's synchronous start).
@@ -976,7 +976,7 @@ export default function AgentPanel({
 							{efforts.map((value, index) => <option key={value} value={value} title={index === 0 ? "Default for this model" : undefined}>{value}</option>)}
 						</select>
 					)}
-					{surface === "studio" && (
+					{TASK_MODE_ENABLED && surface === "studio" && (
 						<button type="button" className={`agent-supervisor-toggle agent-tasks-toggle${taskMode ? " is-on" : ""}`} role="switch" aria-checked={taskMode} aria-label={ko("Task mode", "작업 모드")} title={ko(taskMode ? "Task mode is on: the agent answers at once and runs your requests as parallel tasks" : "Task mode is off: one request at a time", taskMode ? "작업 모드 켜짐: 에이전트가 바로 답하고 요청을 병렬 작업으로 돌려요" : "작업 모드 꺼짐: 한 번에 요청 하나", taskMode ? "任务模式已开启：智能体会立即回答，并将请求作为并行任务运行" : "任务模式已关闭：一次只处理一个请求")} onClick={toggleTaskMode} disabled={streaming}>
 							{ko("Tasks", "작업")} {taskMode ? "ON" : "OFF"}
 						</button>
