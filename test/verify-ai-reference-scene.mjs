@@ -55,6 +55,15 @@ const exit = shotScene({ startFrame: 0, endFrame: 95, fps, cameraAt: () => camer
 ] });
 assert.equal(exit[0].spans[0].leaves, "left");
 assert.match(shotSceneText(exit), /^Jun .*leaves on the left at \d/);
+// A small far runner who crouches into a roll mid-shot shrinks below the size bar but never leaves
+// the picture: she stays one span, not "leaves on the bottom" and "enters" again (rooftop chase, 2026-11-28).
+const far = { pos: { x: 0, y: 1.6, z: 0 }, yaw: 0, pitch: 0, fovDeg: 45 };
+const roll = shotScene({ startFrame: 0, endFrame: 95, fps, cameraAt: () => far, entities: [
+	{ id: "r", name: "Mira", kind: "character", pointsAt: (f) => box(lerp(-3, 3, f / 95), -14, 0.25, f >= 40 && f < 60 ? 0.5 : 1.8) },
+] });
+assert.equal(roll[0].spans.length, 1, JSON.stringify(roll[0].spans));
+assert.equal(roll[0].spans[0].leaves, null);
+assert.doesNotMatch(shotSceneText(roll), /leaves|enters/);
 console.log("verify-ai-reference-scene: ok");
 console.log(text);
 console.log(shotSceneText(exit));

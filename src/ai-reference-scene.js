@@ -69,7 +69,10 @@ export function shotScene({ startFrame, endFrame, fps = 24, aspect = 16 / 9, cam
 	const seen = [];
 	for (const entity of entities) {
 		const samples = frames.map((frame, index) => sampleOne(cameras[index], entity.pointsAt(frame), aspect));
-		const inFrame = samples.map((sample) => !!sample && sample.share >= MIN_HEIGHT_SHARE);
+		// A thing counts once it is big enough to read, and stays counted while any of it is still in the
+		// picture: a runner who crouches into a roll shrinks below the bar without leaving the frame.
+		const inFrame = [];
+		samples.forEach((sample, index) => { inFrame.push(!!sample && (sample.share >= MIN_HEIGHT_SHARE || (index > 0 && inFrame[index - 1] && sample.share > 0))); });
 		if (!inFrame.some(Boolean)) continue;
 		const spans = [];
 		for (let i = 0; i < frames.length; i += 1) {
