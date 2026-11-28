@@ -1,5 +1,45 @@
 # Changelog
 
+## 3.3.4 - 2026-11-28
+
+The Studio agent tells you sooner and more plainly why a turn failed, tests a key or server the moment you add it, asks before it exports, and runs one turn at a time again.
+
+Agent
+
+- A model server that takes a request and never answers ends the turn in
+  about 2 minutes with "The model did not answer. Try again or pick another
+  model.", where it waited about 25 minutes and showed a raw network error.
+  An answer that has started streaming, long reasoning included, is never
+  cut. (#1389)
+- A failed turn tells a timeout, an answer cut off by the output limit and
+  an unknown error apart from the provider's own trouble, and the failure
+  card says what to try for a timeout or a cut-off answer. (#1373)
+- A ChatGPT sign-in that can no longer be refreshed asks you to sign in
+  again, with a Log in again button, instead of failing every turn with a
+  Retry that cannot work. (#1377)
+- A key, a server address or a model is tested the moment it changes: a
+  key or address login checks itself as it finishes, each connected key
+  or address has Test connection, and picking a model of such a provider
+  tests that model. The result says why it fails: key rejected,
+  unreachable, a model the server does not serve (with the ones it does),
+  rate limited, timed out, or the provider's own line. (#1376)
+- An export the agent asks for shows an Export / Cancel card. Export runs
+  it on the live scene and the agent hears your answer with your next
+  message, where every agent export was refused with nothing to press.
+  (#1379)
+- A turn that ended without changing the scene because the Studio refused
+  its calls says so under the turn, with the first refusal's reason, where
+  it said only Done. (#1372)
+- Task mode is off and its switch is hidden: every Studio turn is one plain
+  turn, with no sub-tasks or background work. A stored setting from an
+  earlier version does not turn it back on. (#1383)
+
+Studio
+
+- The cube figure's neck sits on the chest and carries the head, with no
+  gap over or under it. The joints do not move, so compiled motion is
+  unchanged; a character at scale 1 stands 1.653 m (was 1.70 m). (#1380)
+
 ## 3.3.3 - 2026-11-27
 
 Runs and jumps move like captured people, the two legs of a body fold apart, a scene can hold a rope, and a request to the Studio agent finishes sooner and costs less.
