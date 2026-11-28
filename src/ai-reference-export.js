@@ -11,7 +11,14 @@ import { buildZip } from "./zip-store.js";
 import { aiReferenceFacts, buildAiReferencePrompt } from "./ai-reference-prompt.js";
 import { classifyMove, moveSequencePhrase } from "./camera-move.js";
 import { subjectsCenter } from "./shot-subjects.js";
-import { fovToFocalMm } from "./shot.js";
+import { SUBJECT_HEIGHT_M, fovToFocalMm } from "./shot.js";
+import { shotScene, shotSceneText } from "./ai-reference-scene.js";
+import { requestShotBeats } from "./ai-reference-beats.js";
+import { castAimPoint, castBodyPoints } from "./camera-direction.js";
+import { bodyScale } from "./lowvis/studio/figure.js";
+import { objectSize } from "./object-size.js";
+import { OBJECT_MENU_ENTRIES, isEffectivelyHidden, isEmptyObject } from "./scene-objects.js";
+import { TEXT_KIND } from "./text/text-record.js";
 
 function runAiReferenceExport(app, extraEntries = null) {
 	const { shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport } = app;
@@ -68,15 +75,92 @@ function shotCameraForPrompt(app, entry) {
 	return { phrase: moving.length ? moveSequencePhrase(moving) : segs.length ? segs[0].phrase : "", focalMm };
 }
 
+const castName = (entry, index) => (typeof entry.subject === "string" && entry.subject.trim()) || `Character ${index + 1}`;
+
+/** The corners of an upright box: half-width w, from y0 to y1, round (x, z). */
+const uprightBox = (x, z, w, y0, y1) => [-1, 1].flatMap((sx) => [-1, 1].flatMap((sz) => [[x + sx * w, y0, z + sz * w], [x + sx * w, y1, z + sz * w]]));
+
+/** The names the Studio gives on its own: the create menu's labels and the
+ * imported kinds' ("Cutout", "Model", "Sculpt"), each with or without " N". */
+const CATALOG_LABELS = new Set([...OBJECT_MENU_ENTRIES.map((entry) => entry.label), "Cutout", "Model", "Sculpt"]);
+const hasCatalogName = (object) => CATALOG_LABELS.has(object.name.trim().replace(/\s+\d+$/, ""));
+
+/** A scene name as words: "N_Seoul_Tower" -> "N Seoul Tower", "TurbineVent 3" -> "Turbine Vent". */
+const spokenName = (name) => name.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\s+\d+$/, "").replace(/\s+/g, " ").trim();
+
+// Every visible character, and every top-level object or group, each with the
+// points that bound it at a frame: a character's posed joints (its take), else
+// an upright box its height round where it stands; a group's boxes are its
+// parts' boxes where their routes put them. A group speaks for its parts (a
+// building, not its parapets). Things still named after their catalogue shape,
+// empties without parts, lights and on-screen text are left out: the prompt
+// would name a shape or ask for lettering.
+function sceneEntities(app) {
+	const cast = app.sceneCast;
+	if (!cast) return [];
+	const objects = cast.objects ?? [], characters = cast.characters ?? [];
+	const byId = new Map(objects.map((object) => [object.id, object]));
+	// The cast line already carries the full subject ("Jin, a lean Korean man ..."); the picture lines name the person only.
+	const people = characters.map((entry, index) => ({ entry, name: castName(entry, index).split(",")[0].trim() }))
+		.filter(({ entry }) => !isEffectivelyHidden(entry, objects, characters))
+		.map(({ entry, name }) => ({ id: entry.id, name, kind: "character", pointsAt: (frame) => {
+			const joints = castBodyPoints(entry.id, frame, cast);
+			if (joints?.length) return joints;
+			const at = castAimPoint(entry.id, frame, cast);
+			const height = SUBJECT_HEIGHT_M * bodyScale(entry), base = entry.y ?? 0;
+			return at ? uprightBox(at.x, at.z, 0.25 * bodyScale(entry), base, base + height) : null;
+		} }));
+	const rootOf = (object) => {
+		let current = object;
+		for (let guard = 0; guard < 64 && current.parent && byId.has(current.parent); guard += 1) current = byId.get(current.parent);
+		return current;
+	};
+	const solid = (object) => !isEmptyObject(object) && object.renderer !== TEXT_KIND && !isEffectivelyHidden(object, objects, characters);
+	const groups = new Map();
+	for (const object of objects) {
+		if (!solid(object)) continue;
+		const root = rootOf(object);
+		if (!groups.has(root.id)) groups.set(root.id, { root, parts: [] });
+		groups.get(root.id).parts.push(object);
+	}
+	const boxAt = (object, frame) => {
+		const at = castAimPoint(object.id, frame, cast);
+		if (!at) return [];
+		const size = objectSize(object), half = Math.max(size.width, size.depth) / 2;
+		return uprightBox(at.x, at.z, half, at.y - size.height / 2, at.y + size.height / 2);
+	};
+	const things = [...groups.values()]
+		.filter(({ root }) => typeof root.name === "string" && !hasCatalogName(root) && spokenName(root.name))
+		.map(({ root, parts }) => ({ id: root.id, name: spokenName(root.name), kind: "object", pointsAt: (frame) => {
+			const points = parts.flatMap((part) => boxAt(part, frame));
+			return points.length ? points : null;
+		} }));
+	return [...people, ...things];
+}
+
+// What each shot's picture holds (ai-reference-scene.js), read through the
+// shot camera at the export's output aspect.
+function shotScenesForPrompt(app, contextShots, output) {
+	const entities = sceneEntities(app);
+	if (!entities.length) return contextShots.map(() => []);
+	const aspect = output?.width > 0 && output?.height > 0 ? output.width / output.height : 16 / 9;
+	return contextShots.map((entry) => shotScene({
+		startFrame: entry.startFrame, endFrame: entry.endFrame, fps: app.tlFps, aspect, entities,
+		cameraAt: (frame) => app.shotFramingAtFrame(entry, frame),
+	}));
+}
+
 // prompt.txt and scene-facts.json for the pack, from the export's own
 // snapshot of the shots and cast.
-function promptEntries(app, job, setting) {
-	const contextShots = job.request.context.shots;
+function promptEntries(app, job, setting, actions = []) {
+	// A shot's action the operator kept in the dialog (written there or by the agent) stands in for its caption.
+	const contextShots = job.request.context.shots.map((entry, index) => (actions[index]?.trim() ? { ...entry, caption: actions[index].trim() } : entry));
 	const facts = aiReferenceFacts({
 		shots: contextShots, fps: app.tlFps, setting,
 		// The name the operator typed (its subject), else the Outliner's "Character N".
-		cast: (job.request.context.characters ?? app.characters).map((entry, index) => (typeof entry.subject === "string" && entry.subject.trim()) || `Character ${index + 1}`),
+		cast: (job.request.context.characters ?? app.characters).map(castName),
 		shotCameras: contextShots.map((entry) => shotCameraForPrompt(app, entry)),
+		shotScenes: shotScenesForPrompt(app, contextShots, job.request.context.output),
 	});
 	return [
 		{ name: "prompt.txt", data: buildAiReferencePrompt(facts) + "\n" },
@@ -95,11 +179,23 @@ export function openAiReferenceDialog(app) {
 	}
 	setAiReferenceAsk({
 		shotCount: shots.length,
+		shotNames: shots.map((entry, index) => entry.name || `Shot ${index + 1}`),
 		captionCount: shots.filter((entry) => (entry.caption ?? "").trim()).length,
 		onCancel: () => setAiReferenceAsk(null),
-		onExport: (setting) => {
+		onExport: (setting, actions) => {
 			setAiReferenceAsk(null);
-			void runAiReferenceExport(app, (job) => promptEntries(app, job, setting));
+			void runAiReferenceExport(app, (job) => promptEntries(app, job, setting, actions));
+		},
+		// The agent of this Studio's conversation writes each shot's timed beats from the shot camera's pictures
+		// and the scene's own measurements (ai-reference-beats.js); the dialog shows them to edit.
+		onWriteBeats: async (setting) => {
+			const scenes = shotScenesForPrompt(app, shots, app.shotOutput);
+			const { actions } = await requestShotBeats({
+				shots, fps: app.tlFps, capture: app.captureShotFramePng, setting,
+				cast: app.characters.map(castName),
+				shotFacts: shots.map((entry, index) => ({ camera: shotCameraForPrompt(app, entry).phrase, inFrame: shotSceneText(scenes[index]) })),
+			});
+			return actions;
 		},
 	});
 }

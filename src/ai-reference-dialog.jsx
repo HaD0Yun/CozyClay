@@ -13,13 +13,21 @@ function storedSetting() {
  * cast come from the scene; each shot's caption is its action. The text is
  * remembered on this browser so a re-export does not ask again from blank.
  */
-export default function AiReferenceDialog({ open, shotCount, captionCount, onExport, onCancel }) {
+export default function AiReferenceDialog({ open, shotCount, shotNames = [], captionCount, onExport, onWriteBeats, onCancel }) {
 	// Mounted only while open, so the remembered text is read once at open.
 	const [setting, setSetting] = useState(storedSetting);
+	// Each shot's action: what happens and at which second. The agent can write them; the operator edits them.
+	const [actions, setActions] = useState(() => Array.from({ length: shotCount }, () => ""));
+	const [writing, setWriting] = useState(null);
+	const writeBeats = async () => {
+		setWriting({ busy: true });
+		try { setActions((await onWriteBeats(setting)).map((text) => text ?? "")); setWriting(null); }
+		catch (error) { setWriting({ error: error?.message || String(error) }); }
+	};
 	if (!open) return null;
 	const submit = () => {
 		try { globalThis.localStorage?.setItem(SETTING_KEY, setting); } catch { /* private mode */ }
-		onExport(setting);
+		onExport(setting, actions);
 	};
 	return (
 		<section
@@ -51,10 +59,31 @@ export default function AiReferenceDialog({ open, shotCount, captionCount, onExp
 			/>
 			<p className="ai-reference-ask-note">
 				{/* Shot documents v7 dropped the caption with the storyboard, so the caption line shows only once shots carry one again. */}
-				{ko(`Camera moves, cuts, lens and cast come from the scene (${shotCount} shot${shotCount === 1 ? "" : "s"}).${captionCount ? ` Each shot's caption is its action — ${captionCount} of ${shotCount} have one.` : ""} English works best for the video model.`,
-					`카메라 무빙·컷·렌즈·캐스트는 씬에서 읽어요 (샷 ${shotCount}개).${captionCount ? ` 샷 캡션이 그 샷의 행동이 돼요 — ${shotCount}개 중 ${captionCount}개에 캡션이 있어요.` : ""} 영상 모델에는 영어가 가장 잘 먹혀요.`,
-					`机位运动、剪辑、镜头和演员从场景读取（${shotCount} 个镜头）。${captionCount ? `每个镜头的说明就是它的动作 — ${shotCount} 个中有 ${captionCount} 个有说明。` : ""}视频模型对英文效果最好。`)}
+				{ko(`Camera moves, cuts, lens, cast and who or what is in frame when come from the scene (${shotCount} shot${shotCount === 1 ? "" : "s"}).${captionCount ? ` Each shot's caption is its action — ${captionCount} of ${shotCount} have one.` : ""} English works best for the video model.`,
+					`카메라 무빙·컷·렌즈·캐스트와 언제 누가(무엇이) 화면에 있는지는 씬에서 읽어요 (샷 ${shotCount}개).${captionCount ? ` 샷 캡션이 그 샷의 행동이 돼요 — ${shotCount}개 중 ${captionCount}개에 캡션이 있어요.` : ""} 영상 모델에는 영어가 가장 잘 먹혀요.`,
+					`机位运动、剪辑、镜头、演员以及何时谁（什么）在画面中，都从场景读取（${shotCount} 个镜头）。${captionCount ? `每个镜头的说明就是它的动作 — ${shotCount} 个中有 ${captionCount} 个有说明。` : ""}视频模型对英文效果最好。`)}
 			</p>
+			<div className="ai-reference-ask-beats">
+				<div className="ai-reference-ask-beats-head">
+					<span className="ai-reference-ask-label">{ko("What happens, and when (optional)", "언제 무슨 일이 일어나는지 (선택)", "何时发生什么（可选）")}</span>
+					{onWriteBeats && <button type="button" data-testid="ai-reference-write-beats" disabled={writing?.busy} onClick={writeBeats}>
+						{writing?.busy ? ko("The agent is writing…", "에이전트가 쓰는 중…", "智能体正在写…") : ko("Write with the agent", "에이전트로 쓰기", "让智能体写")}
+					</button>}
+				</div>
+				{writing?.error && <p className="ai-reference-ask-note" role="alert">{writing.error}</p>}
+				{actions.map((text, index) => (
+					<textarea
+						key={index}
+						aria-label={`${shotNames[index] ?? `Shot ${index + 1}`} action`}
+						data-testid="ai-reference-beat"
+						rows={3}
+						maxLength={1200}
+						value={text}
+						placeholder={`${shotNames[index] ?? `Shot ${index + 1}`}: ${ko("e.g. At 2 s Ana opens the door; at 4 s she runs out", "예: At 2 s Ana opens the door; at 4 s she runs out", "例如：At 2 s Ana opens the door; at 4 s she runs out")}`}
+						onChange={(event) => setActions((current) => current.map((entry, at) => (at === index ? event.target.value : entry)))}
+					/>
+				))}
+			</div>
 			<div className="ai-reference-ask-actions">
 				<button type="button" onClick={onCancel}>{ko("Cancel", "취소", "取消")}</button>
 				<button type="button" className="primary" data-testid="ai-reference-export" onClick={submit}>{ko("Export", "내보내기", "导出")}</button>
