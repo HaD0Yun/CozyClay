@@ -43,7 +43,7 @@ export const EXECUTION_TELEMETRY_PROPERTY_KEYS = Object.freeze({
 	"workflow:result_applied": ["run_id"],
 	"agent:turn_requested": ["surface", "turn_id"],
 	"agent:tool_executed": ["turn_id", "tool_category", "outcome", "duration_bucket"],
-	"agent:turn_succeeded": ["turn_id", "duration_bucket"],
+	"agent:turn_succeeded": ["turn_id", "duration_bucket", "authored", "refused_bucket"],
 	"agent:turn_failed": ["turn_id", "duration_bucket", "failure_code", "provider", "endpoint"],
 	"agent:turn_cancelled": ["turn_id", "duration_bucket", "failure_code"],
 	"agent:result_applied": ["turn_id"],
@@ -56,6 +56,8 @@ export const EXECUTION_TELEMETRY_VALUES = Object.freeze({
 	surface: new Set(["studio", "workflow"]),
 	node_count_bucket: new Set(["0", "1-3", "4-10", "gte11"]),
 	duration_bucket: new Set(["lt1s", "1-3s", "3-10s", "10-30s", "gte30s"]),
+	// agent:turn_succeeded: how many tool calls the Studio refused (agent-turn-telemetry.js bucketRefused).
+	refused_bucket: new Set(["0", "1-2", "gte3"]),
 	tool_category: new Set([...MCP_TOOL_CATEGORIES, ...AGENT_TOOL_CATEGORIES]),
 	tool_name: new Set(MCP_TOOL_NAMES),
 	outcome: new Set(["succeeded", "failed", "uncertain", "cancelled"]),
@@ -146,7 +148,7 @@ const SCULPT_RUN_MAX_ROUNDS = 10;
 const SCULPT_RUN_MAX_DURATION_MS = 86_400_000;
 const EXECUTION_FAILURE_CODES = Object.freeze({
 	workflow: new Set(["aborted", "capture_failed", "generation_failed", "unknown"]),
-	agent: new Set(["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown", "key_refused", "stale_scene", "capability_missing", "busy", "invalid_request"]),
+	agent: new Set(["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown", "key_refused", "stale_scene", "capability_missing", "busy", "invalid_request", "timeout", "truncated"]),
 });
 // Only a type label and a same-origin script location cross the boundary; the
 // error message, stack text, URLs and anything a user typed never do.
@@ -271,6 +273,8 @@ export function sanitizeProps(event, props) {
 			}
 			else if (key === "node_count_bucket" && !EXECUTION_TELEMETRY_VALUES.node_count_bucket.has(props[key])) continue;
 			else if (key === "duration_bucket" && !EXECUTION_TELEMETRY_VALUES.duration_bucket.has(props[key])) continue;
+			else if (key === "refused_bucket" && !EXECUTION_TELEMETRY_VALUES.refused_bucket.has(props[key])) continue;
+			else if (key === "authored" && typeof props[key] !== "boolean") continue;
 			else if (key === "tool_category") {
 				const categories = event.startsWith("agent:") ? AGENT_TOOL_CATEGORIES : MCP_TOOL_CATEGORIES;
 				if (!categories.includes(props[key])) continue;

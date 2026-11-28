@@ -252,7 +252,7 @@ export function createCommandBus({ registry, ports }) {
       const value = refusal(request, before, error, job ? applied : undefined);
       // Session friction and studio:refused, by who asked and what (command-bus-telemetry.js).
       // A bus control (job.await, edit.undo, agent.turn.*, task.*) is code-defined too, so it is reported by name (#1042).
-      noteRefusal(value, request.origin, action ?? id, registry.ids?.().includes(action ?? id) === true || (!action && Object.hasOwn(controls, id)), error);
+      noteRefusal(value, request.origin, action ?? id, registry.ids?.().includes(action ?? id) === true || (!action && Object.hasOwn(controls, id)), error); if (value.code === 'CONFIRMATION_REQUIRED' && request.origin === 'agent') emit({ type: 'confirmation.required', id, args, reason: value.message ?? null }); // the Agent panel's approval card (src/workflow/agent-confirm.js)
       const recorded = begun ? remember(value) : value;
       if (job && !job.completion) { job.outcome = recorded; job.completion = Promise.resolve(recorded); emit({ type: 'job.completed', jobId: job.id, receipt: recorded }); }
       return recorded;
@@ -371,8 +371,9 @@ export function createCommandBus({ registry, ports }) {
   }
   // noteUndone: edit:undone for the user's own undo (domains/scene-undo.js), which reaches it through the bus.
   return { run, noteUndone, uiGesture: () => uiTransactionOpen(transactions), // the user's own drag holds a transaction (studio-busy.js)
-    // Trusted UI adapter only: wire callers can consume, never mint a token.
-    confirm(id, args = {}) { const prepared = registry.prepare(id, args), token = crypto.randomUUID(); confirmations.set(token, { id, args: prepared.args, host: ports.read().host, expires: (ports.now ?? Date.now)() + 300_000 }); return token; },
+    // Trusted UI adapter only: wire callers can consume, never mint a token. runConfirmed is the user's yes on the Agent
+    // panel's approval card (src/workflow/agent-confirm.js): that exact agent request, run now against the live scene.
+    confirm(id, args = {}) { const prepared = registry.prepare(id, args), token = crypto.randomUUID(); confirmations.set(token, { id, args: prepared.args, host: ports.read().host, expires: (ports.now ?? Date.now)() + 300_000 }); return token; }, runConfirmed(id, args = {}) { const { host, revision } = ports.read(); return run(id, args, { origin: 'agent', host, expectedRevision: revision, confirmationToken: this.confirm(id, args) }); },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     dispose() { agentTurn?.session?.cancel(); agentTurn = null; tasks.dispose(); for (const tx of transactions.values()) cancelTransaction(tx); for (const job of jobs.values()) if (!job.outcome) job.controller.abort(new StudioProtocolError('CANCELLED', 'Studio closed.')); listeners.clear(); } };
 }

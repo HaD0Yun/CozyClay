@@ -32,13 +32,13 @@ import {
 	supervisorFollowUp,
 } from "./agent-client.js";
 import { TASK_MODE_ENABLED, TaskDetail, TaskRows, TaskStrip, readStoredTaskMode, storeTaskMode } from "./TaskInline.jsx";
-import { boardTurn } from "./task-board.js";
+import { boardTurn } from "./task-board.js"; import { FAILURE_HINT } from "./agent-failure-hints.js";
 import "./agent-panel.css";
 // The task board (task mode, parallel Studio tasks) loads only where it is used: the Studio, never the workflow page.
 const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
 import { AgentProgressCard } from "./AgentProgressCard.jsx";
-import { LoginPanel } from "./LoginPanel.jsx";
-import { PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
+import { LoginPanel } from "./LoginPanel.jsx"; import { PickedModelCheck } from "./ConnectCheck.jsx"; import { checkPickedModel } from "./connect-check.js";
+import { ConfirmCard, PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
 import { OfflineCard } from "./AgentOfflineCard.jsx";
 import { SIGN_IN_FAILURE_COPY, otherProviderModel, providerLabel } from "./agent-provider-help.js";
 import { TurnSteps } from "./AgentTurnSteps.jsx";
@@ -213,7 +213,7 @@ function FailureCard({ failure, onRetry, onFixKey }) {
 	return <div className="agent-card agent-failure-card" data-failure-code={failure.code} role="alert">
 		<div className="agent-failure-head"><FiAlertTriangle size={12} aria-hidden="true" /><span className="agent-failure-code">{failure.code}</span></div>
 		<p className="agent-failure-message">{(failure.message !== failure.code && failure.message) || "The command did not complete."}</p>
-		<p className="agent-failure-recovery">{RECOVERY_COPY[failure.recovery?.action] || RECOVERY_COPY.none}{failure.preserved?.authoredState === "unchanged" ? ko(" Nothing in the scene changed.", " 장면은 바뀌지 않았어요.", " 场景未改变。") : failure.preserved?.authoredState === "unknown" ? ko(" Whether the scene changed is unknown.", " 장면이 바뀌었는지는 알 수 없어요.", " 无法确定场景是否已改变。") : ""}</p>
+		<p className="agent-failure-recovery">{FAILURE_HINT[failure.code] ? `${FAILURE_HINT[failure.code]} ` : ""}{RECOVERY_COPY[failure.recovery?.action] || RECOVERY_COPY.none}{failure.preserved?.authoredState === "unchanged" ? ko(" Nothing in the scene changed.", " 장면은 바뀌지 않았어요.", " 场景未改变。") : failure.preserved?.authoredState === "unknown" ? ko(" Whether the scene changed is unknown.", " 장면이 바뀌었는지는 알 수 없어요.", " 无法确定场景是否已改变。") : ""}</p>
 		{failure.recovery?.retryAllowed && <div className="agent-error-actions">{failure.recovery.action === "fix_key" && onFixKey && <button type="button" className="agent-ghost-button agent-error-keys" onClick={onFixKey}>Log in again</button>}<button type="button" className="agent-ghost-button agent-error-retry" data-fid="agent_retry" onClick={onRetry}>Retry</button></div>}
 	</div>;
 }
@@ -278,7 +278,7 @@ export default function AgentPanel({
 	// Picking a model is a preference, not a per-session decision: the key is
 	// remembered so a reload does not quietly move the next turn to another
 	// provider's model.
-	const chooseModel = useCallback((id) => { setModel(id); setEffort(null); storeModel(id); modelChanged(id); }, []);
+	const chooseModel = useCallback((id) => { setModel(id); setEffort(null); storeModel(id); modelChanged(id); checkPickedModel(id); }, []);
 	// Task mode (parallel Studio tasks): the chat talks to the main agent, which answers at once and runs tasks on the board. Disabled (#1382, task-board.js).
 	const [taskMode, setTaskMode] = useState(() => surface === "studio" && readStoredTaskMode());
 	const toggleTaskMode = useCallback(() => setTaskMode((current) => { storeTaskMode(!current); return !current; }), []);
@@ -329,19 +329,20 @@ export default function AgentPanel({
 	// so a re-rendered host never rebuilds the conversation.
 	const buildContextRef = useRef(buildContext); buildContextRef.current = buildContext;
 	const imageActionRef = useRef(onImageAction); imageActionRef.current = onImageAction;
-	const receiptRef = useRef(onReceipt); receiptRef.current = onReceipt;
+	const receiptRef = useRef(onReceipt); receiptRef.current = onReceipt; const shellRef = useRef(shell); shellRef.current = shell;
 
 	const store = useMemo(() => createAgentChatStore({
-		transport,
-		surface,
-		buildContext: () => buildContextRef.current?.() ?? null,
+		transport, surface, buildContext: () => buildContextRef.current?.() ?? null,
 		// Host prop first, then the scripted mock host, then the live editor event.
 		requestImageAction: (request) => (imageActionRef.current ?? transport.applyImage?.bind(transport) ?? requestHostImageAction)(request),
 		onReceipt: (receipt) => receiptRef.current?.(receipt),
-		onAuthLost: () => setAuthState("signed-out"),
-		onSteer: (event) => queueRef.current?.steered(event),
+		onAuthLost: () => setAuthState("signed-out"), onSteer: (event) => queueRef.current?.steered(event),
+		// The user's yes on an approval card runs through the Studio's own command bus (command-bus.js runConfirmed).
+		runConfirmed: (action, args) => shellRef.current?.appContext?.bus?.runConfirmed?.(action, args),
 	}), [surface, transport]);
 	const chat = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+	// An agent request the Studio's bus refused for want of the user's yes (command-bus.js confirmation.required): its approval card.
+	useEffect(() => { const ask = (event) => { if (event.detail?.type === "confirmation.required") store.askConfirmation(event.detail); }; globalThis.addEventListener?.("cozyclay:command", ask); return () => globalThis.removeEventListener?.("cozyclay:command", ask); }, [store]);
 	// Messages typed while a turn runs (agent-queue.js): a row goes as the next turn through runTurn with what it was typed with.
 	const queueRef = useRef(null), queue = useMemo(() => createMessageQueue({ store }), [store]);
 	const queued = useSyncExternalStore(queue.subscribe, queue.getState, queue.getState);
@@ -895,6 +896,7 @@ export default function AgentPanel({
 				if (item.kind === "user") return <AgentUserBubble key={item.id} item={item} editable={item.id === editableId} running={streaming} steered={item.id === editableId && steeredAfter(items, item.id)} disabled={composerDisabled} onCheck={canEdit} onEdit={editMessage} onOpen={setLightbox} />;
 				if (item.kind === "assistant") return <Fragment key={item.id}><div className="agent-row assistant"><div className="agent-assistant-text"><ReplyText text={item.text} tail={streaming && <span className="agent-caret">▌</span>} /></div></div>{taskMode && layout[index - 1]?.type === "steps" && <TaskRows steps={layout[index - 1].steps} />}</Fragment>;
 				if (item.kind === "job") return <div className="agent-row" key={item.id}><JobCard job={item} onStop={stopTurn} onAccept={(job) => store.acceptJob(job.jobId)} /></div>;
+				if (item.kind === "confirm") return <div className="agent-row" key={item.id}><ConfirmCard item={item} onApprove={() => store.approveAction(item.id)} onDecline={() => store.declineAction(item.id)} /></div>;
 				if (item.kind === "receipt") return <div className="agent-row" key={item.id}><ReceiptCard item={item} /></div>;
 				if (item.kind === "failure") return <div className="agent-row" key={item.id}><FailureCard failure={item.failure} onRetry={() => runTurn(chat.lastPrompt, "retry_button")} onFixKey={() => openProviderKeys("failure_card")} /></div>;
 				if (item.kind === "supervisor") return <div className="agent-row" key={item.id}><SupervisorCard note={item} onSend={(text) => { store.setDraft(text); runTurn(text, "supervisor"); }} /></div>;
@@ -989,7 +991,7 @@ export default function AgentPanel({
 						</span>
 						: <button type="button" data-fid="agent_send" className="agent-send" aria-label="Send" title="Send (Enter)" disabled={composerDisabled || !draft.trim()} onClick={() => runTurn(draft)}><FiArrowUp size={14} aria-hidden="true" /></button>}
 				</div>
-				<ModelRolesLine model={model} roles={selectedModelRoles(modelRoles, model)} />
+				<ModelRolesLine model={model} roles={selectedModelRoles(modelRoles, model)} /><PickedModelCheck model={model} />
 			</div>
 		</div>}
 		{/* The hint exists to warn about image spend; a surface that cannot

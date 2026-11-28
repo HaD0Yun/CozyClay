@@ -7,6 +7,7 @@ export const SIGN_IN_FAILURE_COPY = Object.freeze({
 	timeout: "The sign-in page waited 10 minutes without an answer and stopped.",
 	callback_error: "The sign-in page came back without a session (declined, or the code could not be exchanged).",
 	port_busy: "Another program is using the sign-in ports (1455 and 1457). Close other sign-in windows or tools.",
+	expired: "Your ChatGPT sign-in has expired and could not be renewed. Sign in again to keep using it.",
 });
 
 /** "in 9 min" / "in 40 s" until `until` (an ISO time), or null when there is none. */

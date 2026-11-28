@@ -3,6 +3,8 @@ import { FiX } from "react-icons/fi";
 import { answerLogin, cancelLogin, fetchLogins, logoutProvider, readLogin, startLogin } from "./login-client.js";
 import { formatWaitLeft } from "./agent-provider-help.js";
 import { connectFinished, connectPanelClosed, connectStarted, connectStep } from "./connect-telemetry.js";
+import { isTestable } from "./connect-check.js";
+import { ConnectCheck } from "./ConnectCheck.jsx";
 
 // "Connect a model": pi's own login (the coding agent's /login) inside the agent panel (#pi-login). The list
 // is what pi ships: each provider with its subscription sign-in and/or api-key login; picking one runs pi's
@@ -138,6 +140,8 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 			{!flow.done && !flow.prompt && <p className="agent-key-note">Waiting for {flow.name}… Finish signing in on the page that opened, then come back here.</p>}
 			{!flow.done && formatWaitLeft(flow.waitUntil, now) && <p className="agent-key-note" data-login-wait="true">This sign-in stops waiting in {formatWaitLeft(flow.waitUntil, now)}.</p>}
 			{flow.done && <p className={flow.ok ? "agent-key-note" : "agent-key-error"} role={flow.ok ? "status" : "alert"}>{flow.ok ? `Connected to ${flow.name}.` : flow.message}</p>}
+			{/* a key or an address just saved: one small real request says whether it answers, before the first prompt does */}
+			{flow.done && flow.ok && flow.method?.type === "api_key" && isTestable(flow.provider?.id) && <ConnectCheck providerId={flow.provider.id} />}
 			<div className="agent-key-controls">
 				{flow.done && !flow.ok && flow.provider && <button type="button" className="agent-key-save" data-login-retry="true" onClick={() => begin(flow.provider, flow.method)}>Try again</button>}
 				<button type="button" className="agent-ghost-button" onClick={cancel}>{flow.done ? "Back to the list" : "Cancel"}</button>
@@ -156,6 +160,7 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 								? <button type="button" className="agent-ghost-button agent-key-remove" onClick={() => logout(provider)}>Log out</button>
 								: provider.methods.map((method) => <button key={method.type} type="button" className={method.subscription ? "agent-key-save" : "agent-ghost-button"} onClick={() => begin(provider, method)}>{method.label}</button>)}
 						</div>
+						{provider.connected && isTestable(provider.id) && <ConnectCheck providerId={provider.id} auto={false} />}
 					</div>)}
 				</div> : null;
 			})}

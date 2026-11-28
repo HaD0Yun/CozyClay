@@ -2,6 +2,7 @@
 //   GET    /agent/providers                 the curated providers' sign-in state (MCP and older panels)
 //   PUT    /agent/providers/:id             { key }: store a bare api key for a curated provider
 //   DELETE /agent/providers/:id             forget a curated provider's key
+//   POST   /agent/providers/:id/test        { model? }: one small real request on the stored connection (connect-test.mjs)
 // and pi's own login (#pi-login), which the panel uses for every provider pi ships:
 //   GET    /agent/logins                    each provider's login methods and whether it is connected
 //   POST   /agent/logins                    { providerId, type: "oauth" | "api_key" } -> { flowId }
@@ -15,6 +16,7 @@ import { createLoginFlows, loginOptions } from "./provider-login.mjs";
 const KEY_PATH = /^\/agent\/providers\/([^/]+)$/;
 const FLOW_PATH = /^\/agent\/logins\/([^/]+)(\/answer)?$/;
 const LOGOUT_PATH = /^\/agent\/logout\/([^/]+)$/;
+const TEST_PATH = /^\/agent\/providers\/([^/]+)\/test$/;
 
 /** Returns the route handler for one sidecar; `getModels` is its registry, `onChange` rebuilds it. */
 export function createProviderRoutes({ auth, getModels, onChange, json, readBody }) {
@@ -28,6 +30,18 @@ export function createProviderRoutes({ auth, getModels, onChange, json, readBody
 		}
 		const keyMatch = KEY_PATH.exec(path);
 		if (keyMatch && ["PUT", "DELETE"].includes(req.method)) return keyRoute(req, res, keyMatch[1]);
+		const testMatch = TEST_PATH.exec(path);
+		if (testMatch && req.method === "POST") {
+			const { TESTABLE_PROVIDERS, testConnection } = await import("./connect-test.mjs");
+			const id = decodeURIComponent(testMatch[1]);
+			if (!TESTABLE_PROVIDERS.includes(id)) { json(res, 404, { error: "That provider has no connection test." }); return true; }
+			let value;
+			try { value = await readBody(req); } catch { value = {}; }
+			const modelId = typeof value?.model === "string" && value.model.trim() ? value.model.trim() : undefined;
+			try { json(res, 200, { provider: id, ...await testConnection(await getModels(), id, { modelId }) }); }
+			catch { json(res, 200, { provider: id, result: "other", model: modelId ?? null }); }
+			return true;
+		}
 		if (path === "/agent/logins" && req.method === "GET") {
 			try { json(res, 200, { providers: await loginOptions(await getModels(), { chatgpt: () => !!auth.status?.().signedIn }) }); }
 			catch (error) { json(res, 502, { error: String(error?.message || error) }); }

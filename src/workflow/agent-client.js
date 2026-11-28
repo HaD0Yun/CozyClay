@@ -33,7 +33,7 @@ import { STUDIO_VARIANTS, validateReceipt } from "../studio-agent-protocol.js";
 import { refusalFailureCode, transportFailureCode } from "./agent-failure-codes.js";
 import { requestAgentImage, sidecarRequest, sidecarUrl } from "../agent-image-client.js"; import { clearSculptSketch, sculptSketchFrame } from "../sculpt-sketch-state.js"; import { attachStudioTurn, resumedItems } from "./agent-turn-attach.js";
 import { actionLabelsOf, changedLine, scriptNow, stepFields, thinkingLine, withCompose, withThinking, withToolStart, withTurnEnd } from "./agent-turn.js";
-import { isPlanFrame, restoredPlans, withPlanEnd, withPlanFrame } from "./agent-plan.js";
+import { isPlanFrame, restoredPlans, withPlanEnd, withPlanFrame } from "./agent-plan.js"; import { createConfirmControls, withoutConfirmNote } from "./agent-confirm.js";
 
 const AGENT_PANEL_WIDTH_KEY = "cozyclay.workflow.agentPanel.width";
 export const AGENT_PANEL_WIDTH_DEFAULT = 360;
@@ -381,7 +381,7 @@ export const ERROR_COPY = {
 	auth: "Your session expired. Sign in again to continue.",
 	entitlement: "This account cannot generate images.",
 	rate_limit: "The model provider's quota for your account is used up for now. It is the provider's limit, not CozyClay's.",
-	upstream: "The model service failed to answer.",
+	upstream: "The model service failed to answer.", timeout: "The model took too long to answer.", truncated: "The model used up its output before answering.",
 	overloaded: "The model service is overloaded right now. Try again in a moment.",
 	busy: "The agent is still answering. Try again in a moment.",
 };
@@ -401,7 +401,7 @@ const FAILURE_REASON = {
 	entitlement: "not on this plan",
 	rate_limit: "provider quota reached",
 	rate_limited: "provider quota reached",
-	overloaded: "service overloaded",
+	overloaded: "service overloaded", timeout: "model timed out", truncated: "output used up",
 	no_output: "no response",
 	busy: "agent still answering",
 };
@@ -488,7 +488,7 @@ export function parseSseChunk(buffer) {
 	return { events, tail };
 }
 
-const advisory = (read, fallback) => { try { return read(); } catch { return fallback; } };
+const advisory = (read, fallback) => { try { return read(); } catch { return fallback; } }, caughtCode = (error) => advisory(() => (typeof error?.code === "string" && error.code) || transportFailureCode(error), "unknown"); // a thrown turn: its own code, else network/timeout/unknown, never a made-up upstream (#1370)
 
 const UI_ERROR_CODES = new Set(["auth", "entitlement", "rate_limit", "overloaded", "upstream"]);
 
@@ -1111,7 +1111,8 @@ export function createAgentChatStore({
 	onReceipt = null,
 	// onSteer({ type: "steer.received" | "steer.dropped", id }): what became of a steer sent with an id (the queue's
 	// Send now, agent-queue.js). A turn that ends with a steer unanswered (Stop, a lost stream) reports it dropped.
-	onSteer = null,
+	// runConfirmed(action, args): the host's trusted run of a command the user approved on its card (agent-confirm.js).
+	onSteer = null, runConfirmed = null,
 	newId = createStudioSessionId,
 	clock = () => Date.now(),
 } = {}) {
@@ -1154,6 +1155,7 @@ export function createAgentChatStore({
 	};
 	const setItems = (update) => set({ items: update(state.items) });
 	const patchItem = (predicate, patch) => setItems((items) => items.map((item) => predicate(item) ? { ...item, ...patch } : item));
+	const confirm = createConfirmControls({ items: () => state.items, setItems, patch: patchItem, runConfirmed, context: () => (studio ? advisory(() => buildContext?.() ?? null, null) : null), newId });
 	const findJob = (jobId) => state.items.find((item) => item.kind === "job" && item.jobId === jobId);
 
 	function applyJobEvent(event) {
@@ -1288,7 +1290,7 @@ export function createAgentChatStore({
 		// A steer joins the transcript only once the model's context took it (here, between the steps it came between).
 		if (event?.type === "steer.received" || event?.type === "steer.dropped") { const sent = steering.get(event.id); steering.delete(event.id); if (sent && event.type === "steer.received") setItems((items) => [...items, { kind: "user", id: newId(), text: sent.text, steered: true, attachments: sent.attachments }]); if (sent) onSteer?.(event); return; }
 		if (event?.type !== "error") return;
-		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : (event.message !== event.code && event.message) || ERROR_COPY[event.code] || event.message || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
+		const failure = { code: event.code || "unknown", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : (event.message !== event.code && event.message) || ERROR_COPY[event.code] || event.message || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
 		if (activeTurn) activeTurn.failure = failure;
 		if (event.code === "rate_limit") { set({ rateLimit: { resetAt: event.resetAt || null, message: event.message || ERROR_COPY.rate_limit, provider: typeof event.provider === "string" ? event.provider : null } }); return; }
 		if (event.code === "auth") { onAuthLost?.(); return; }
@@ -1330,7 +1332,7 @@ export function createAgentChatStore({
 	}
 
 	const resetSession = () => {
-		abandonSupervisorNotes();
+		abandonSupervisorNotes(); confirm.clear();
 		seenReceipts.clear();
 		settledActions.clear(); steering.clear();
 		// Clearing the transcript also retires the server session: a cleared chat
@@ -1354,7 +1356,7 @@ export function createAgentChatStore({
 		const restored = restoredPlans((Array.isArray(transcript) ? transcript : []).flatMap((item) => {
 			if (item?.kind === "user" || item?.kind === "assistant") {
 				const attachments = Array.isArray(item.attachments) ? item.attachments.filter((entry) => typeof entry?.dataUrl === "string") : [];
-				return [{ kind: item.kind, id: newId(), text: String(item.text ?? ""), ...(attachments.length ? { attachments } : {}), ...(item.kind === "user" && typeof item.turnId === "string" ? { turnId: item.turnId } : {}) }];
+				return [{ kind: item.kind, id: newId(), text: item.kind === "user" ? withoutConfirmNote(item.text) : String(item.text ?? ""), ...(attachments.length ? { attachments } : {}), ...(item.kind === "user" && typeof item.turnId === "string" ? { turnId: item.turnId } : {}) }];
 			}
 			if (item?.kind === "tool") return [{ kind: "tool", id: newId(), callId: newId(), name: item.name || "tool", label: item.label, ok: item.ok, elapsedMs: item.elapsedMs, status: item.ok === false ? "failed" : "done" }];
 			if (item?.kind === "receipt") {
@@ -1362,7 +1364,7 @@ export function createAgentChatStore({
 				if (item.receiptId) { restoredReceiptIds.add(item.receiptId); seenReceipts.add(item.receiptId); }
 				return [{ kind: "receipt", id: `receipt:${item.receiptId || newId()}`, receiptId: item.receiptId, summary: item.summary || "Receipt", receipt: { status: "applied", warnings: [], verification: { status: "verified" } } }];
 			}
-			if (item?.kind === "failure") return [{ kind: "failure", id: newId(), failure: { code: item.code || "upstream", message: String(item.message || "The turn failed."), recovery: { action: "retry", retryAllowed: true } } }];
+			if (item?.kind === "failure") return [{ kind: "failure", id: newId(), failure: { code: item.code || "unknown", message: String(item.message || "The turn failed."), recovery: { action: "retry", retryAllowed: true } } }];
 			return item?.kind === "plan" ? [{ kind: "plan", id: newId(), steps: item.steps }] : [];
 		}));
 		const lastPrompt = [...restored].reverse().find((item) => item.kind === "user")?.text || "";
@@ -1427,8 +1429,7 @@ export function createAgentChatStore({
 				await transport.turn({
 					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => { turn.open(); set({ openSession: id }); },
 					...(studio ? { surface: "studio", turnId, context } : {}),
-					sessionId: state.sessionId,
-					text: trimmed,
+					sessionId: state.sessionId, text: trimmed + confirm.takeNote(),
 					...(attachments.length ? { attachments } : {}),
 					attachFrame: Boolean(options.attachFrame),
 					model: options.model,
@@ -1436,7 +1437,7 @@ export function createAgentChatStore({
 					...(typeof options.supervisor === "boolean" ? { supervisor: options.supervisor } : {}), ...(options.tasks ? { tasks: true } : {}),
 				}, (event) => { if (event?.type !== "done") turn.open(); sculptSketchFrame(event); applyEvent(event); }, signal);
 			} catch (error) {
-				if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) });
+				if (!signal.aborted) applyEvent({ type: "error", code: caughtCode(error), message: String(error?.message || error) });
 			} finally {
 				turn.open(); if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
 			}
@@ -1448,7 +1449,7 @@ export function createAgentChatStore({
 			activeTurn = turn; wireTurnId = turnId; controller = new AbortController(); const { signal } = controller;
 			set({ turnId, streaming: true, openSession: state.sessionId, turnStartedAt: startedAt, lastTurn: null, ...(shown ? { lastPrompt: shown } : {}), items: resumedItems(state.items, shown, newId, turnId) });
 			try { await transport.attach(turnId, (event) => { sculptSketchFrame(event); applyEvent(event); }, signal); }
-			catch (error) { if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) }); } finally { endTurn(turn, signal, startedAt); }
+			catch (error) { if (!signal.aborted) applyEvent({ type: "error", code: caughtCode(error), message: String(error?.message || error) }); } finally { endTurn(turn, signal, startedAt); }
 		},
 		/** Steering the turn that is ALREADY running (#379). `send()` deliberately
 		 * returns early while streaming — a second turn would authorize a second
@@ -1529,7 +1530,7 @@ export function createAgentChatStore({
 				patchItem((item) => item.kind === "job" && item.jobId === jobId, { acceptance: { status: "required", error: String(error?.message || error) } });
 			}
 		},
-		applyImage: (itemId) => runImageAction(itemId, "place"),
+		applyImage: (itemId) => runImageAction(itemId, "place"), askConfirmation: (request) => { if (studio) confirm.ask(request); }, approveAction: (itemId) => confirm.approve(itemId), declineAction: (itemId) => confirm.decline(itemId),
 		undoImage: (itemId) => runImageAction(itemId, "remove"),
 		acknowledgeImageAction: ({ requestId, ok, error, receiptId }) => {
 			const item = state.items.find((entry) => entry.kind === "image" && entry.apply?.requestId === requestId);

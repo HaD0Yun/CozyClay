@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The look rig characters are drawn in has one home (src/lowvis/studio/figure.js): nothing named at launch is the cube
-// look (scale 1 = the 1.70 m body, its body 0.943 of the rig's), "block" is the block figure, and the page and the agent
+// look (scale 1 = the 1.653 m body, its body 0.943 of the rig's), "block" is the block figure, and the page and the agent
 // sidecar always read the same look from the same launch value:
 // 1. figureOf (the sidecar: its environment) for each launch value
 // 2. the page's look for the same value as a page served by bin/cozyclay.mjs is handed it (window.__COZYCLAY_FIGURE__),
@@ -43,7 +43,7 @@ for (const [value, look, body] of [[undefined, "cube", CUBE], ["", "cube", CUBE]
 	// node with no page around (tests, the sidecar's own default arguments): the environment, as figureOf reads it
 	assert.deepEqual([sidecar.page, sidecar.body], [look, body], `launch ${named}: figure.js's own default in the sidecar`);
 }
-assert.equal(read().standing, 1.7, "nothing named: a character at scale 1 stands 1.70 m");
+assert.equal(read().standing, 1.653, "nothing named: a character at scale 1 stands 1.653 m");
 assert.equal(read({ env: "block" }).standing, 1.739, "the block figure: 1.739 m, as before");
 const HANDS = 'window.__COZYCLAY_FIGURE__ = ${JSON.stringify(process.env.COZYCLAY_FIGURE ?? "").replaceAll("<", "\\\\u003c")}; window.__COZYCLAY_MOTION_ENGINE__ = ${JSON.stringify(process.env.COZYCLAY_MOTION_ENGINE ?? "").replaceAll("<", "\\\\u003c")};';
 const baked = readFileSync(join(REPO, "vite.config.js"), "utf8");

@@ -13,9 +13,10 @@ import { join } from "node:path";
 import { createModels, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxThinking } from "@earendil-works/pi-ai/providers/faux";
 import { fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { createAgentRunner, classifyError, classifyProviderError } from "../bin/agent/agent-runner.mjs";
+import { createAgentRunner, classifyError } from "../bin/agent/agent-runner.mjs";
+import { classifyProviderError } from "../bin/agent/agent-failure-codes.mjs";
 import { headerRetryAfterMs, retryAfterMs, retryKind } from "../bin/agent/agent-stream.mjs";
-import { failureCodeOf } from "../bin/agent/agent-failure-codes.mjs";
+import { CODEX_SIGN_IN_EXPIRED, codexSignInLost, failureCodeOf } from "../bin/agent/agent-failure-codes.mjs";
 import * as piAi from "@earendil-works/pi-ai";
 import { createSessionStore, transcriptFromHistory } from "../bin/agent/session-store.mjs";
 import { createModels as createAgentModels, loadProvider } from "../bin/agent/providers.mjs";
@@ -256,7 +257,11 @@ function errorMessage(text) {
 		["404 model not found", "invalid_request"],
 		["413 Request Entity Too Large", "invalid_request"],
 		["502 Bad Gateway", "upstream"],
-		["Provider stopped with: SAFETY", "upstream"],
+		["Provider stopped with: SAFETY", "unknown"],
+		["Request timed out.", "timeout"],
+		["504 Gateway Timeout", "upstream"],
+		["500 Internal Server Error", "upstream"],
+		["connect ETIMEDOUT 10.0.0.2:443", "network"],
 		["429 Too Many Requests", "rate_limited"],
 		["You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min.", "rate_limited"],
 		["RESOURCE_EXHAUSTED: quota exceeded for model", "rate_limited"],
@@ -845,7 +850,14 @@ for (const via of ["session", "signal"]) {
 	expect("'429 too many requests' stays rate_limit", classifyError({ message: "429 too many requests" }).code === "rate_limit");
 	expect("'unauthorized' stays unauthorized", classifyProviderError("unauthorized") === "unauthorized");
 	expect("'unauthorized ... fetch failed' keeps the earlier patterns first", classifyProviderError("unauthorized: fetch failed") === "unauthorized");
-	expect("an unrelated errorCode does not decide", classifyError({ errorCode: "ERR_INVALID_ARG", message: "x" }).code === "upstream");
+	expect("an unrelated errorCode does not decide, and what nothing names is unknown, not upstream (#1370)", classifyError({ errorCode: "ERR_INVALID_ARG", message: "x" }).code === "unknown");
+	// #1370: timeout is its own code; a connect timeout never reached the server and stays network; a 5xx stays upstream.
+	expect("'Request timed out.' (the OpenAI SDK) classifies as timeout", classifyError({ message: "Request timed out." }).code === "timeout");
+	expect("'deadline exceeded' classifies as timeout", classifyProviderError("DEADLINE_EXCEEDED: deadline exceeded") === "timeout");
+	expect("{errorCode:'UND_ERR_HEADERS_TIMEOUT'} classifies as timeout from the structure", classifyError({ errorCode: "UND_ERR_HEADERS_TIMEOUT", message: "x" }).code === "timeout");
+	expect("{errorCode:'ETIMEDOUT'} stays network", classifyError({ errorCode: "ETIMEDOUT", message: "connect ETIMEDOUT" }).code === "network");
+	expect("{status:504, message:'timed out'}: the status wins, upstream", classifyError({ status: 504, message: "Request timed out." }).code === "upstream");
+	expect("'Internal Server Error' without a number is still the provider's trouble", classifyProviderError("Internal Server Error") === "upstream");
 }
 
 // --- a tool error containing a status-shaped substring in its own text must
@@ -909,6 +921,32 @@ for (const via of ["session", "signal"]) {
 	assert.equal(frames.at(-1)?.type, "done", JSON.stringify(frames));
 	assert.deepEqual(seen, [{ title: null, referer: null }], "one request, with no provider attribution header naming pi");
 	console.log("PASS the runner's provider requests carry no pi attribution headers");
+}
+
+// --- #1374: a ChatGPT (Codex) sign-in pi cannot refresh ends the turn as auth (the panel's sign-in card), not upstream ---
+{
+	const refusedText = 'OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (401): {"error":"refresh_token_reused"}';
+	const offlineText = "OAuth refresh failed for openai-codex: OpenAI Codex token refresh error: fetch failed";
+	const codexTurn = async (provider, text) => {
+		const models = createModels();
+		const faux = fauxProvider({ provider, models: [{ id: "scripted", name: "Scripted", input: ["text", "image"] }] });
+		models.setProvider(faux.provider);
+		installScripts(faux, Array.from({ length: 8 }, () => errorMessage(text)));
+		let marked = 0;
+		const runner = createAgentRunner({ models, tools: [], auth: { markSignInExpired: () => { marked += 1; } } });
+		const session = await runner.openSession(`codex-sign-in-${provider}-${marked}-${text.length}`, { surface: "studio" });
+		try { return { frames: await collect(session, { text: "hi", model: `${provider}/scripted` }), marked }; } finally { await runner.close(); }
+	};
+	const refused = await codexTurn("openai-codex", refusedText);
+	const error = refused.frames.find((frame) => frame.type === "error");
+	expect("a refused Codex refresh is an auth frame", error?.code === "auth" && failureCodeOf(error) === "auth", JSON.stringify(refused.frames));
+	expect("its message asks to sign in again and carries no status or provider text", error?.message === CODEX_SIGN_IN_EXPIRED && error.status === undefined, JSON.stringify(error));
+	expect("the runner marks the stored sign-in expired", refused.marked >= 1, String(refused.marked));
+	const offline = await codexTurn("openai-codex", offlineText);
+	expect("a Codex refresh with no answer stays network (a retry can work)", offline.frames.find((frame) => frame.type === "error")?.code === "network" && offline.marked === 0, JSON.stringify(offline.frames));
+	const other = await codexTurn("faux", "OAuth refresh failed for faux: refused");
+	expect("another provider's refresh failure is not the ChatGPT sign-in", other.frames.find((frame) => frame.type === "error")?.code !== "auth" && other.marked === 0, JSON.stringify(other.frames));
+	expect("pi's other setup errors for Codex read as the sign-in too", codexSignInLost("openai-codex", "Provider is not configured: openai-codex") && codexSignInLost("openai-codex", "No API key for provider: openai-codex") && !codexSignInLost("openai-codex", "502 Bad Gateway"));
 }
 
 process.exit(failures === 0 ? 0 : 1);

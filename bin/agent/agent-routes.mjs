@@ -713,7 +713,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				value = await readBody(req, IMAGE_BODY_LIMIT);
 				if (typeof value.prompt !== "string" || !value.prompt.trim() || typeof value.imageDataUrl !== "string" || !value.imageDataUrl.startsWith("data:image/") || (value.referenceDataUrl !== undefined && (typeof value.referenceDataUrl !== "string" || !value.referenceDataUrl.startsWith("data:image/"))) || !validReferences(value.references) || (value.composition !== undefined && !["frame", "sheet"].includes(value.composition)) || (value.quality !== undefined && !["auto", "low", "medium", "high"].includes(value.quality)) || (value.size !== undefined && !IMAGE_SIZES.includes(value.size))) throw new Error("Invalid request.");
 			} catch { json(res, 400, { error: "invalid request" }); return true; }
-			if (!await auth.getAccessToken()) { json(res, 401, { error: { code: "auth", message: "Sign in with ChatGPT in the Agent panel." } }); return true; }
+			if (!await auth.getAccessToken().catch(() => null)) { json(res, 401, { error: { code: "auth", message: "Sign in with ChatGPT in the Agent panel." } }); return true; }
 			try {
 				// Composition guidance (renderGuidance, FRAME_COMPOSITION_GUIDANCE): the
 				// node's prompt is intent only; camera, cast and set come from the scene.
