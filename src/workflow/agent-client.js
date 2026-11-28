@@ -33,7 +33,7 @@ import { STUDIO_VARIANTS, validateReceipt } from "../studio-agent-protocol.js";
 import { refusalFailureCode, transportFailureCode } from "./agent-failure-codes.js";
 import { requestAgentImage, sidecarRequest, sidecarUrl } from "../agent-image-client.js"; import { clearSculptSketch, sculptSketchFrame } from "../sculpt-sketch-state.js"; import { attachStudioTurn, resumedItems } from "./agent-turn-attach.js";
 import { actionLabelsOf, changedLine, scriptNow, stepFields, thinkingLine, withCompose, withThinking, withToolStart, withTurnEnd } from "./agent-turn.js";
-import { isPlanFrame, restoredPlans, withPlanEnd, withPlanFrame } from "./agent-plan.js";
+import { isPlanFrame, restoredPlans, withPlanEnd, withPlanFrame } from "./agent-plan.js"; import { createConfirmControls, withoutConfirmNote } from "./agent-confirm.js";
 
 const AGENT_PANEL_WIDTH_KEY = "cozyclay.workflow.agentPanel.width";
 export const AGENT_PANEL_WIDTH_DEFAULT = 360;
@@ -1111,7 +1111,8 @@ export function createAgentChatStore({
 	onReceipt = null,
 	// onSteer({ type: "steer.received" | "steer.dropped", id }): what became of a steer sent with an id (the queue's
 	// Send now, agent-queue.js). A turn that ends with a steer unanswered (Stop, a lost stream) reports it dropped.
-	onSteer = null,
+	// runConfirmed(action, args): the host's trusted run of a command the user approved on its card (agent-confirm.js).
+	onSteer = null, runConfirmed = null,
 	newId = createStudioSessionId,
 	clock = () => Date.now(),
 } = {}) {
@@ -1154,6 +1155,7 @@ export function createAgentChatStore({
 	};
 	const setItems = (update) => set({ items: update(state.items) });
 	const patchItem = (predicate, patch) => setItems((items) => items.map((item) => predicate(item) ? { ...item, ...patch } : item));
+	const confirm = createConfirmControls({ items: () => state.items, setItems, patch: patchItem, runConfirmed, context: () => (studio ? advisory(() => buildContext?.() ?? null, null) : null), newId });
 	const findJob = (jobId) => state.items.find((item) => item.kind === "job" && item.jobId === jobId);
 
 	function applyJobEvent(event) {
@@ -1330,7 +1332,7 @@ export function createAgentChatStore({
 	}
 
 	const resetSession = () => {
-		abandonSupervisorNotes();
+		abandonSupervisorNotes(); confirm.clear();
 		seenReceipts.clear();
 		settledActions.clear(); steering.clear();
 		// Clearing the transcript also retires the server session: a cleared chat
@@ -1354,7 +1356,7 @@ export function createAgentChatStore({
 		const restored = restoredPlans((Array.isArray(transcript) ? transcript : []).flatMap((item) => {
 			if (item?.kind === "user" || item?.kind === "assistant") {
 				const attachments = Array.isArray(item.attachments) ? item.attachments.filter((entry) => typeof entry?.dataUrl === "string") : [];
-				return [{ kind: item.kind, id: newId(), text: String(item.text ?? ""), ...(attachments.length ? { attachments } : {}), ...(item.kind === "user" && typeof item.turnId === "string" ? { turnId: item.turnId } : {}) }];
+				return [{ kind: item.kind, id: newId(), text: item.kind === "user" ? withoutConfirmNote(item.text) : String(item.text ?? ""), ...(attachments.length ? { attachments } : {}), ...(item.kind === "user" && typeof item.turnId === "string" ? { turnId: item.turnId } : {}) }];
 			}
 			if (item?.kind === "tool") return [{ kind: "tool", id: newId(), callId: newId(), name: item.name || "tool", label: item.label, ok: item.ok, elapsedMs: item.elapsedMs, status: item.ok === false ? "failed" : "done" }];
 			if (item?.kind === "receipt") {
@@ -1427,8 +1429,7 @@ export function createAgentChatStore({
 				await transport.turn({
 					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => { turn.open(); set({ openSession: id }); },
 					...(studio ? { surface: "studio", turnId, context } : {}),
-					sessionId: state.sessionId,
-					text: trimmed,
+					sessionId: state.sessionId, text: trimmed + confirm.takeNote(),
 					...(attachments.length ? { attachments } : {}),
 					attachFrame: Boolean(options.attachFrame),
 					model: options.model,
@@ -1529,7 +1530,7 @@ export function createAgentChatStore({
 				patchItem((item) => item.kind === "job" && item.jobId === jobId, { acceptance: { status: "required", error: String(error?.message || error) } });
 			}
 		},
-		applyImage: (itemId) => runImageAction(itemId, "place"),
+		applyImage: (itemId) => runImageAction(itemId, "place"), askConfirmation: (request) => { if (studio) confirm.ask(request); }, approveAction: (itemId) => confirm.approve(itemId), declineAction: (itemId) => confirm.decline(itemId),
 		undoImage: (itemId) => runImageAction(itemId, "remove"),
 		acknowledgeImageAction: ({ requestId, ok, error, receiptId }) => {
 			const item = state.items.find((entry) => entry.kind === "image" && entry.apply?.requestId === requestId);
