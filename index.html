@@ -14,23 +14,23 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CozyClay" />
     <meta property="og:title" content="CozyClay — open source 3D previs software, in your browser" />
-    <meta property="og:description" content="Block a scene, pose characters, author camera moves and cuts, and preview generated motion. Open source, runs in your browser." />
+    <meta property="og:description" content="Block a scene, pose characters, author camera moves and cuts, then export a reference an AI video model follows. Open source, runs in your browser." />
     <meta property="og:url" content="https://cozyclay.org/" />
-    <meta property="og:image" content="https://cozyclay.org/media/cozyclay-truck-demo-poster.jpg" />
-    <meta property="og:image:width" content="1920" />
-    <meta property="og:image:height" content="1080" />
-    <meta property="og:image:alt" content="A CozyClay shot mid-wipe: the clay greybox of a truck driver on one half, the Seedance 2.5 generation on the other." />
+    <meta property="og:image" content="https://cozyclay.org/media/cozyclay-33-og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A CozyClay 3.3 shot split down the middle: the toon-look cube-figure previs of a grandfather carrying a girl over stepping stones, and the Seedance 2.5 take made from it." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CozyClay — open source 3D previs software, in your browser" />
-    <meta name="twitter:description" content="Block a scene, pose characters, author camera moves and cuts, and preview generated motion. Open source, runs in your browser." />
-    <meta name="twitter:image" content="https://cozyclay.org/media/cozyclay-truck-demo-poster.jpg" />
+    <meta name="twitter:description" content="Block a scene, pose characters, author camera moves and cuts, then export a reference an AI video model follows. Open source, runs in your browser." />
+    <meta name="twitter:image" content="https://cozyclay.org/media/cozyclay-33-og.jpg" />
 
     <title>CozyClay — open source 3D previs software, in your browser</title>
 
-    <meta property="og:video" content="https://cozyclay.org/media/truck-seedance.mp4" />
+    <meta property="og:video" content="https://cozyclay.org/media/stones-take.mp4" />
     <meta property="og:video:type" content="video/mp4" />
-    <meta property="og:video:width" content="1920" />
-    <meta property="og:video:height" content="1080" />
+    <meta property="og:video:width" content="1280" />
+    <meta property="og:video:height" content="720" />
 
     <!-- Cloudflare Web Analytics. Cookie-less, so no consent banner. Installed by
          hand because cozyclay.org resolves straight to GitHub Pages (DNS-only),
@@ -49,8 +49,8 @@
         "operatingSystem": "Any (Chromium-based browser)",
         "softwareVersion": "%COZYCLAY_VERSION%",
         "description": "CozyClay is an open-source, browser-based 3D staging studio. Block a scene, pose characters, sequence motion prompts on a timeline, and preview generated motion in one local workspace that handles like the Unity Editor.",
-        "image": "https://cozyclay.org/media/cozyclay-truck-demo-poster.jpg",
-        "screenshot": "https://cozyclay.org/media/cozyclay-truck-demo-poster.jpg",
+        "image": "https://cozyclay.org/media/cozyclay-33-og.jpg",
+        "screenshot": "https://cozyclay.org/media/cozyclay-33-og.jpg",
         "logo": "https://cozyclay.org/media/cozyclay-logo.png",
         "license": "https://github.com/HaD0Yun/CozyClay/blob/main/LICENSE",
         "codeRepository": "https://github.com/HaD0Yun/CozyClay",
@@ -83,6 +83,7 @@
         --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         --header-h: 64px;
         --seq-h: 44px;
+        --scenes-h: 48px;
       }
       * { box-sizing: border-box; }
       html { background: var(--bg); scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 16px); }
@@ -180,7 +181,7 @@
          1080p takes are stretched as little as possible (at most 1.25x on a 2x
          screen), with the pitch on the frame's dark lower corner. */
       .hero { position: relative; padding: 24px 32px 32px; border-bottom: 1px solid var(--line); }
-      .stage { position: relative; display: flex; flex-direction: column; width: min(100%, 1200px, calc(max(100vh - var(--header-h) - var(--seq-h) - 58px, 400px) * 16 / 9)); width: min(100%, 1200px, calc(max(100svh - var(--header-h) - var(--seq-h) - 58px, 400px) * 16 / 9)); margin: 0 auto; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; }
+      .stage { position: relative; display: flex; flex-direction: column; width: min(100%, 1200px, calc(max(100vh - var(--header-h) - var(--seq-h) - var(--scenes-h) - 58px, 400px) * 16 / 9)); width: min(100%, 1200px, calc(max(100svh - var(--header-h) - var(--seq-h) - var(--scenes-h) - 58px, 400px) * 16 / 9)); margin: 0 auto; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; }
       .compare { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #000; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
       .compare video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
       /* Each video slides a little toward its outer side, so the middle of the shot
@@ -202,7 +203,33 @@
       .tag-l { left: 16px; }
       .tag-r { right: 16px; }
 
-      .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + 32px); width: min(500px, 42%); pointer-events: none; }
+      /* Scene picker under the shot: each button swaps both takes. */
+      .scenes { flex: none; display: flex; align-items: center; gap: 4px; height: var(--scenes-h); padding: 0 16px 8px; background: var(--bg); overflow-x: auto; }
+      .scenes span { margin-right: 8px; font: 400 13px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+      .scenes button { min-height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font: 400 14px/1 var(--sans); white-space: nowrap; cursor: pointer; }
+      .scenes button:hover { color: var(--ink); }
+      .scenes button[aria-pressed="true"] { border-color: var(--line-strong); color: var(--ink); }
+
+      .badge { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px; padding: 4px 10px 4px 4px; border: 1px solid var(--line-strong); border-radius: 999px; background: rgba(10, 9, 8, .6); color: var(--ink); font-size: 14px; text-decoration: none; pointer-events: auto; }
+      .badge b { padding: 2px 8px; border-radius: 999px; background: var(--clay); color: var(--on-clay); font: 500 12px/1.4 var(--mono); }
+      .badge:hover { border-color: var(--ink); }
+
+      /* New in 3.3: the three stages of one take, side by side. */
+      .trio { margin: 48px 0 0; }
+      .trio video { display: block; width: 100%; height: auto; aspect-ratio: 1920 / 360; border-radius: 4px; background: var(--raised); }
+      .trio ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 12px 0 0; padding: 0; list-style: none; counter-reset: trio; }
+      .trio li { color: var(--muted); font-size: 15px; }
+      .trio li b { display: block; color: var(--ink); font-weight: 500; }
+      .trio li b::before { counter-increment: trio; content: counter(trio) "  "; font: 400 13px/1 var(--mono); color: var(--clay); }
+      .news { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; margin: 64px 0 0; padding: 0; list-style: none; }
+      .news li { padding-top: 16px; border-top: 1px solid var(--line); }
+      .news span { display: block; margin-bottom: 8px; font: 400 13px/1 var(--mono); color: var(--clay); }
+      .news p { margin-top: 8px; color: var(--muted); font-size: 16px; }
+      .more { margin-top: 40px; }
+      .more a { color: var(--muted); text-underline-offset: 3px; }
+      .more a:hover { color: var(--ink); }
+
+      .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + var(--scenes-h) + 32px); width: min(500px, 42%); pointer-events: none; }
       .pitch h1 { font-size: clamp(40px, 4vw, 60px); line-height: 1.04; }
       .pitch p { margin-top: 16px; max-width: 30em; color: #d6d3cb; font-size: 18px; }
       /* phones and tablets (html[data-touch], set by src/install.js) cannot install: the page stays as it is, without Install */
@@ -303,7 +330,7 @@
       footer.site .legal a { display: inline; min-height: 0; text-decoration: underline; text-underline-offset: 2px; }
 
       @media (max-width: 960px) {
-        .why, .start, .step, .way { grid-template-columns: minmax(0, 1fr); }
+        .why, .start, .step, .way, .news { grid-template-columns: minmax(0, 1fr); }
         .reads a { grid-template-columns: minmax(0, 1fr) 24px; }
         .reads p { grid-row: 2; grid-column: 1 / -1; }
         .pitch { width: min(500px, 60%); }
@@ -333,6 +360,9 @@
         .steps { gap: 48px; margin-top: 48px; }
         .code { padding-left: 16px; }
         .exports li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+        .scenes { order: 1; padding: 0 8px 8px; }
+        .badge { margin-bottom: 12px; }
+        .trio ol { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       }
       @media (prefers-reduced-motion: reduce) {
         html { scroll-behavior: auto; }
@@ -345,6 +375,7 @@
       <div class="wrap">
         <a class="brand" href="/"><img src="/media/cozyclay-mark-dark.png" width="200" height="141" alt="" />CozyClay</a>
         <nav aria-label="Sections">
+          <a href="#new">New in 3.3</a>
           <a href="#how">How it works</a>
           <a href="#ai">AI agents</a>
           <a href="#start">Quick start</a>
@@ -362,11 +393,11 @@
       <section class="hero" id="stage">
         <div class="stage">
         <div class="compare" id="compare" style="--pos: 50%">
-          <video class="cmp-a" src="/media/truck-greybox.mp4" poster="/media/truck-greybox-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata"></video>
-          <div class="cmp-take"><video class="cmp-b" src="/media/truck-seedance.mp4" poster="/media/truck-seedance-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video></div>
+          <video class="cmp-a" src="/media/stones-previs.mp4" poster="/media/stones-previs-poster.jpg" width="1280" height="720" autoplay muted loop playsinline preload="metadata"></video>
+          <div class="cmp-take"><video class="cmp-b" src="/media/stones-take.mp4" poster="/media/stones-take-poster.jpg" width="1280" height="720" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video></div>
           <div class="cmp-line" aria-hidden="true"><span class="cmp-knob"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l-6 6 6 6M15 6l6 6-6 6"/></svg></span></div>
-          <input class="cmp-range" type="range" min="0" max="100" step="1" value="50" aria-label="Compare the CozyClay greybox with the Seedance 2.5 take" />
-          <span class="tag tag-l" aria-hidden="true">CozyClay greybox</span>
+          <input class="cmp-range" type="range" min="0" max="100" step="1" value="50" aria-label="Compare the CozyClay previs with the Seedance 2.5 take" />
+          <span class="tag tag-l" aria-hidden="true">CozyClay 3.3 previs</span>
           <span class="tag tag-r" aria-hidden="true">Seedance 2.5 take</span>
         </div>
         <div class="seq" id="seq">
@@ -374,16 +405,58 @@
             <svg class="ic-pause" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="2" y="1" width="3" height="12"/><rect x="9" y="1" width="3" height="12"/></svg>
             <svg class="ic-play" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M3 1l9 6-9 6z"/></svg>
           </button>
-          <span><b id="seq-frame">0000</b> / <span id="seq-total">0720</span> · 24fps</span>
+          <span><b id="seq-frame">0000</b> / <span id="seq-total">0240</span> · 24fps</span>
           <input class="seq-range" id="seq-range" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek the clip" />
         </div>
+        <div class="scenes" id="scenes" role="group" aria-label="Pick a scene">
+          <span>Scene</span>
+          <button type="button" aria-pressed="true" data-scene="stones">Stepping stones</button>
+          <button type="button" aria-pressed="false" data-scene="wheelbarrow">Wheelbarrow ramp</button>
+          <button type="button" aria-pressed="false" data-scene="subway">Subway breakdance</button>
+          <button type="button" aria-pressed="false" data-scene="chase">Night chase</button>
+        </div>
         <div class="pitch">
+          <a class="badge" href="#new"><b>3.3</b>New: AI video reference export</a>
           <h1>Block the shot in 3D, then generate it</h1>
-          <p>Free, open source previs in your browser. Stage the scene, pose characters, set the camera and cuts, then hand the same shot to an AI video model.</p>
+          <p>Free, open source previs. Tell the agent the scene, set the camera and cuts, then export a reference the AI video model follows.</p>
           <div class="pitch-actions">
             <button type="button" class="btn primary install-open" data-install-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg><span>Install CozyClay</span></button>
           </div>
         </div>
+        </div>
+      </section>
+
+      <section id="new">
+        <div class="wrap">
+          <span class="label">New in 3.3</span>
+          <h2>Your camera and cuts, a person's own motion</h2>
+          <p class="lead">A video model copies whatever the reference shows, stiff cube-figure poses included. The AI video reference export hides the figure and keeps the camera, the cuts and the blocking, so the model acts the scene in its own natural motion.</p>
+          <figure class="trio">
+            <video src="/media/stones-3way.mp4" poster="/media/stones-3way-poster.jpg" width="1920" height="360" muted loop playsinline preload="none" aria-label="The same 10-second scene three times: the CozyClay previs, its mosaic-and-blur AI video reference, and the Seedance 2.5 take made from it."></video>
+            <ol>
+              <li><b>Previs</b>Staged, moved and shot in CozyClay.</li>
+              <li><b>AI video reference</b>One light mosaic frame in four, a moving blur between. Each shot restarts the pattern.</li>
+              <li><b>Seedance 2.5 take</b>Same camera, same cuts, a person instead of a mannequin.</li>
+            </ol>
+          </figure>
+          <ul class="news">
+            <li>
+              <span>Export</span>
+              <h3>AI video reference (zip)</h3>
+              <p>The reference video, a prompt.txt with each shot's camera move and cuts, and the scene as data. The agent that built the scene writes what happens in each shot and when.</p>
+            </li>
+            <li>
+              <span>Motion</span>
+              <h3>Written by a model, built by an engine</h3>
+              <p>Describe the action. A motion writer plans it, a deterministic engine makes every frame and checks foot slide, contacts and balance. Runs follow captured runners; jumps follow gravity.</p>
+            </li>
+            <li>
+              <span>Studio</span>
+              <h3>Cube figures in a toon look</h3>
+              <p>Characters are cube figures, drawn flat with black lines. The Studio opens on the stage with the agent beside it, and you bring your own ChatGPT, Claude or API key.</p>
+            </li>
+          </ul>
+          <p class="more"><a href="https://github.com/HaD0Yun/CozyClay/blob/main/CHANGELOG.md">Everything in 3.3, in the changelog →</a></p>
         </div>
       </section>
 
@@ -393,7 +466,7 @@
             <span class="label">Why</span>
             <h2>A text prompt cannot hold a whole scene</h2>
             <p class="lead">AI video costs money per take, and one miss means paying again.</p>
-            <p class="lead"><strong>Make those decisions first, in 3D, where they are cheap to change.</strong> The video model then gets the shot as a first frame, a greybox reference clip and a prompt that describes the real framing. It follows the blocking instead of guessing.</p>
+            <p class="lead"><strong>Make those decisions first, in 3D, where they are cheap to change.</strong> The video model then gets the shot as a reference video and a prompt read from the scene. It follows your blocking instead of guessing.</p>
           </div>
           <ul class="asks" aria-label="What a prompt cannot say">
             <li>Where everyone stands <span>Stage</span></li>
@@ -417,8 +490,8 @@
                 <p>Build the set from primitives and lights. Add rigged characters, drawn as cube figures, or capsule stand-ins.</p>
               </div>
               <figure>
-                <video src="/media/step-stage.mp4" poster="/media/step-stage-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A whole street built from cubes and cylinders in CozyClay."></video>
-                <figcaption>A whole street from cubes and cylinders, railings and lamps included.</figcaption>
+                <video src="/media/step-stage.mp4" poster="/media/step-stage-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A subway entrance, a bench, a lamp post and a boombox, with two cube figures; one breakdances while the other watches."></video>
+                <figcaption>A subway entrance, a bench and a boombox, with two cube figures in the toon look.</figcaption>
               </figure>
             </article>
             <article class="step">
@@ -428,8 +501,8 @@
                 <p>Describe the action. A second model writes the motion, a deterministic engine makes every frame, and the writer reads its measures of foot slide, contacts and balance before the take goes in. A motion can move props too.</p>
               </div>
               <figure>
-                <video src="/media/step-move.mp4" poster="/media/step-move-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A request to the agent, then the clay character walks to a ball and pushes it with both hands."></video>
-                <figcaption>Ask the agent; the character walks to the ball and pushes it with both hands.</figcaption>
+                <video src="/media/step-move.mp4" poster="/media/step-move-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A cube figure pushes a wheelbarrow of bricks up a plank ramp onto a platform and tips it."></video>
+                <figcaption>A worker pushes a wheelbarrow of bricks up the ramp and tips it out.</figcaption>
               </figure>
             </article>
             <article class="step">
@@ -439,23 +512,20 @@
                 <p>Shots on a timeline, dolly rails and cranes, a look through the lens. Turn a rail camera by hand and pick who it follows.</p>
               </div>
               <figure>
-                <video src="/media/step-shoot.mp4" poster="/media/step-shoot-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="The shot camera riding a four-point rail while the crane rises, with its live preview."></video>
-                <figcaption>The camera rides a rail while the crane takes it up, previewed live.</figcaption>
+                <video src="/media/step-shoot.mp4" poster="/media/step-shoot-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A 30-second night chase on a city street, cut into shots on one timeline."></video>
+                <figcaption>A 30-second night chase, cut into shots on one timeline.</figcaption>
               </figure>
             </article>
             <article class="step">
               <div>
                 <span class="label">Step 4</span>
                 <h3>Export</h3>
-                <p>Everything the video model needs, in one pack. Every edit is one undo step.</p>
+                <p>File › Export has three items. Hold Alt (⌥ Option on Mac) for the rest: the keyframe pack, depth and normal stills, a storyboard sheet and an OTIO cut list.</p>
               </div>
               <ul class="exports" aria-label="Export formats">
-                <li><b>Keyframe pack</b><span>First and last frame, greybox clip, camera, prompt</span></li>
-                <li><b>AI video reference</b><span>A mosaic-and-blur reference video and a prompt, in one zip</span></li>
-                <li><b>Video</b><span>The shot as an mp4</span></li>
-                <li><b>Passes</b><span>Depth and normal</span></li>
-                <li><b>Contact sheet</b><span>The shots side by side</span></li>
-                <li><b>OTIO cut list</b><span>The edit, for your editing software</span></li>
+                <li><b>AI video reference</b><span>A mosaic-and-blur reference video and a prompt with each shot's action, in one zip</span></li>
+                <li><b>Depth</b><span>The whole timeline as a depth video, smoke and glass included</span></li>
+                <li><b>Video</b><span>The whole timeline as an mp4</span></li>
               </ul>
             </article>
           </div>
@@ -703,6 +773,27 @@ npm run dev</code></pre>
           }
         };
 
+        // Scene picker: swap both takes, keep the divider where it is.
+        const SCENES = {
+          stones: ["stones-previs", "stones-take"],
+          wheelbarrow: ["wheelbarrow-previs", "wheelbarrow-take"],
+          subway: ["subway-previs", "subway-take"],
+          chase: ["chase-previs", "chase-take"],
+        };
+        const sceneButtons = document.querySelectorAll("#scenes button");
+        sceneButtons.forEach((button) => button.addEventListener("click", () => {
+          const pair = SCENES[button.dataset.scene];
+          if (!pair || button.getAttribute("aria-pressed") === "true") return;
+          sceneButtons.forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
+          const wasPaused = greybox.paused;
+          [[greybox, pair[0]], [take, pair[1]]].forEach(([clip, name]) => {
+            clip.poster = `/media/${name}-poster.jpg`;
+            clip.src = `/media/${name}.mp4`;
+            clip.load();
+          });
+          if (!wasPaused && !still) { greybox.play().catch(() => {}); take.play().catch(() => {}); }
+        }));
+
         // Sequencer strip: transport, frame number and playhead, read from the clip.
         const FPS = 24;
         const toggle = document.getElementById("seq-toggle");
@@ -755,7 +846,7 @@ npm run dev</code></pre>
             if (entry.isIntersecting) entry.target.play().catch(() => {});
             else entry.target.pause();
           }), { threshold: 0.4 });
-          document.querySelectorAll(".step video").forEach((clip) => clips.observe(clip));
+          document.querySelectorAll(".step video, .trio video").forEach((clip) => clips.observe(clip));
         }
       })();
     </script>
