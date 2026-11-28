@@ -43,14 +43,15 @@ const run = (...args) => JSON.parse(execFileSync(process.execPath, [fileURLToPat
 // The room is the studio as it was: every number below predates the setting.
 const room = run();
 assert.equal(room.scale, "room", "no stored choice and no query is the room");
-assert.deepEqual(room.world, { position: 240, scale: 100, pathHeight: 60, railHeight: 30, cameraFar: 100, horizon: { near: 55, far: 95 }, dollySpeed: 40 });
+assert.deepEqual(room.world, { position: 240, scale: 100, pathHeight: 60, railHeight: 240, cameraFar: 100, horizon: { near: 55, far: 95 }, dollySpeed: 40 });
 assert.deepEqual(room.character, { x: 240, y: 240, z: 240 });
 assert.deepEqual(room.objectMax, { x: 240, y: 240, z: 240 });
 assert.equal(room.scaleMax, 100);
 assert.deepEqual(room.object, { x: 240, y: 240, z: -240, scaleX: 100 }, "an object past the room is clamped back into it");
 assert.deepEqual(room.path, [{ x: -240, y: 60 }, { x: 240, y: 0 }], "a travel path stays on the 240 m floor, 60 m up at most");
 assert.equal(room.dolly, 40, "the rail dolly tops out at 40 m/s");
-assert.deepEqual(room.railAt, [true, false], "a rail rides 30 m high at most");
+assert.deepEqual(room.railAt, [true, false], "a rail rides 240 m high at most");
+assert.equal(room.world.railHeight, room.world.position, "a rail reaches as high as anything the room can hold (#1391)");
 console.log("PASS the room scale keeps every bound the studio had");
 
 // Large widens every bound at once, so one scene can hold an exterior at full size.
@@ -59,8 +60,8 @@ assert.equal(large.scale, "large");
 assert.deepEqual(large.object, { x: 3000, y: 3000, z: -3000, scaleX: 3000 });
 assert.deepEqual(large.path, [{ x: -3000, y: 3000 }, { x: 3000, y: 0 }]);
 assert.equal(large.dolly, 1000);
-assert.deepEqual(large.railAt, [true, false], "a rail rides 600 m high at most");
-assert.equal(large.world.railHeight, 600);
+assert.deepEqual(large.railAt, [true, false], "a rail rides 3000 m high at most");
+assert.equal(large.world.railHeight, large.world.position, "a rail reaches as high as anything the large scale can hold");
 assert.ok(large.world.horizon.far < large.world.cameraFar, "the export horizon stays inside the far plane");
 console.log("PASS the large scale widens position, scale, path, rail, lens and dolly bounds together");
 
