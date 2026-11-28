@@ -2,7 +2,8 @@
 // block; the torso as three stacked boxes with gaps between them (chest, belly, pelvis); thin straight arms and legs;
 // forearms and shins that widen toward the hand and the foot; the block look's two hands (a half-closed hand, and a fist
 // for a hand that holds something); a wedge foot on a dark sole; two upright black bar eyes on the face (the owner's
-// second reference). Parts do not touch: at every joint there is an empty gap between the two parts.
+// second reference). Parts do not touch: at every joint there is an empty gap between the two parts, but the neck,
+// which sits on the chest and carries the head with no gap.
 //
 // Most sizes come from the drawing, measured in pixels and turned into metres with one rule: the drawing's leg (top of
 // the thigh to the floor, 700 px) is the rig's leg (0.975 m), so 1 px = 1.39 mm. The joints stay the rig's (rig17.js),
@@ -12,7 +13,10 @@
 // shoulder joint instead of at the chest's corner, with a narrower chest (0.28 m) to make room for it; the gaps at the
 // elbow and the wrist are 15 mm instead of 25. The joints did not move: the drawn arm is 34 mm longer from its shoulder
 // end to its wrist end, and the hand hangs no lower. Again on the owner's word (2026-11-23, the smallest of a sheet of
-// four head sizes): the head is 0.85 of that in all three directions (0.7225 of the drawing's), on the same neck.
+// four head sizes): the head is 0.85 of that in all three directions (0.7225 of the drawing's), on the same neck. On the
+// owner's word again (2026-11-27, the last of a sheet of four gaps): beside the smaller head the gaps over and under the
+// neck read as a head that floats, so the neck (its length kept) sits on the chest and the head on the neck; the head is
+// 50 mm lower and the joints did not move.
 //
 // Plain stock parts, as the block look: a matte white, a navy sole, black eyes and a navy line on every edge. How
 // they are shaded is the stage's business (the Studio's toon finish, src/stage-finish.js, shades stock materials).
@@ -29,6 +33,7 @@ const ORIGIN = [0, 0, 0], UP = [0, 1, 0], OUT = [1, 0, 0];
  * The proportions the look draws with, metres at character scale 1, all in one place. The joints are the rig's and
  * never move; these numbers only say where the parts sit about them.
  *   head: [w, h, d] of the head cube, its bottom at headBottom (on the neck); the eyes keep their shares of the face
+ *   neck: [bottom, top] heights of the neck block (the chest ends at 1.48 below it, the head starts at headBottom)
  *   chest: [w, h, d] of the top torso box
  *   armTopX: how far from the middle the upper arm starts in the T-pose (0.152: the shoulder joint); armLift: how far
  *     over the joint its top end sits in the T-pose
@@ -36,7 +41,8 @@ const ORIGIN = [0, 0, 0], UP = [0, 1, 0], OUT = [1, 0, 0];
  *   elbowGap, wristGap: metres from the elbow / wrist joint to each part it joins; gap: the same at every other joint
  */
 export const CUBE_SHAPE = Object.freeze({
-	head: [0.2095, 0.224, 0.2023], headBottom: 1.585,
+	head: [0.2095, 0.224, 0.2023], headBottom: 1.535,
+	neck: [1.48, 1.535],
 	chest: [0.28, 0.21, 0.2],
 	armTopX: 0.152, armLift: 0.04,
 	upperArm: [[0.07, 0.07], [0.062, 0.064]], foreArm: [[0.058, 0.06], [0.085, 0.082]],
@@ -76,7 +82,7 @@ function layout(S) {
 	const r = EYE_W / 2, h = EYE_L / 2 - r, bar = new THREE.Shape().moveTo(-r, -h).lineTo(-r, h);
 	bar.absarc(0, h, r, Math.PI, 0, true).lineTo(r, -h).absarc(0, -h, r, 0, Math.PI, true);
 	for (const i of [-1, 1]) add("Head", new THREE.ShapeGeometry(bar, 24).translate(i * 0.29 * HEAD[0], eyeY, HEAD[2] / 2 + 0.002), "eye");
-	add("Neck", block([0, 1.53, -0.03], [0.1, 0.055, 0.1]));
+	add("Neck", block([0, (S.neck[0] + S.neck[1]) / 2, -0.03], [0.1, S.neck[1] - S.neck[0], 0.1]));
 	const CHEST = S.chest;
 	add("Spine2", block([0, 1.375, -0.02], CHEST));
 	add("Spine", block([0, 1.195, 0], [0.26, 0.11, 0.17]));
