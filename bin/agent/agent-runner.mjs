@@ -3,7 +3,7 @@ import { createReasoningFrames } from "./turn-frames.mjs";
 import { sanitizeUpstreamDetail } from "./agent-routes.mjs";
 import { budgetStudioRequest } from "./studio-context-budget.mjs";
 import { createRetryingStream, retryAfterMs } from "./agent-stream.mjs";
-import { classifyProviderError, frameCodeOf } from "./agent-failure-codes.mjs";
+import { CODEX_SIGN_IN_EXPIRED, classifyProviderError, codexSignInLost, frameCodeOf } from "./agent-failure-codes.mjs";
 import { withAnthropicCacheBreakpoints } from "./anthropic-cache.mjs";
 import { createSteerInbox } from "./steer-inbox.mjs";
 
@@ -476,14 +476,14 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				const quiet = status === "aborted" && state.active?.quietAbort;
 				if (status !== "completed" && !quiet) {
 					const rawMessage = last?.errorMessage || (status === "aborted" ? "The turn was aborted." : "The model or live editor could not complete this turn.");
-					const truncated = /ended before a terminal response event/i.test(rawMessage);
+					const truncated = /ended before a terminal response event/i.test(rawMessage), signInLost = status !== "aborted" && codexSignInLost(last?.provider ?? state.provider, rawMessage);
 					const classified = status === "aborted" ? { code: "aborted", status: undefined } : classifyError({ message: rawMessage, errorCode: last?.errorCode });
-					const code = status === "aborted" ? "aborted" : truncated || outOfTokens ? "truncated" : classified.code;
+					if (signInLost) auth?.markSignInExpired?.(); const code = status === "aborted" ? "aborted" : signInLost ? "auth" : truncated || outOfTokens ? "truncated" : classified.code;
 					const detail = sanitizeUpstreamDetail(JSON.stringify({ message: rawMessage }));
 					const fallback = code === "aborted" ? "The turn was aborted." : code === "truncated" ? "The model stream ended before a terminal response event." : "The model or live editor could not complete this turn.";
 					// A rate limit names its provider and, when the provider said, how long to wait (#1043): the panel's paused card.
 					const wait = code === "rate_limit" ? retryAfterMs(last) : 0, limited = code === "rate_limit" ? { provider: state.provider, ...(wait > 0 ? { retryAfterMs: wait, resetAt: new Date(Date.now() + wait).toISOString() } : {}) } : {};
-					queue.push({ type: "error", code, message: outOfTokens || detail || fallback, ...(classified.status ? { status: classified.status } : {}), ...limited });
+					queue.push({ type: "error", code, message: signInLost ? CODEX_SIGN_IN_EXPIRED : outOfTokens || detail || fallback, ...(classified.status && !signInLost ? { status: classified.status } : {}), ...limited });
 				}
 				// a steer the run ended before reading is taken back out of its queue and reported, before done (steer-inbox.mjs)
 				state.active.inbox.close(); if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });

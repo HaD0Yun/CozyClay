@@ -94,3 +94,13 @@ export function classifyProviderError(message, errorCode) {
 	if (TIMEOUT_PATTERN.test(message)) return "timeout";
 	return NETWORK_PATTERN.test(message) ? "network" : "unknown";
 }
+
+// pi resolves the ChatGPT (Codex) token itself before each request; a stored sign-in it cannot refresh, or one that is
+// gone, ends the request with one of these setup errors (pi-ai auth/resolve.js, models.js applyAuth, the Codex adapter).
+// They are the panel's "sign in again" (`auth`), not the provider's trouble: before #1374 they read as upstream with a
+// Retry that could not work (26 failed turns in 4 min on one install, until it signed in again). A refresh that got no
+// answer at all (pi's "token refresh error: fetch failed") stays with the runner's own classification: a retry can work.
+const CODEX_SIGN_IN_PATTERN = /OAuth refresh failed for openai-codex|Provider is not configured: openai-codex|No API key for provider:? "?openai-codex|Credential store (?:read|modify) failed for openai-codex/;
+export const CODEX_SIGN_IN_EXPIRED = "Your ChatGPT sign-in has expired. Sign in with ChatGPT again.";
+/** Whether a failed request's message says its ChatGPT (Codex) sign-in could not give a token. */
+export const codexSignInLost = (provider, message) => provider === "openai-codex" && CODEX_SIGN_IN_PATTERN.test(String(message ?? "")) && !/token refresh error:/i.test(String(message));
