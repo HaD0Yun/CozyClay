@@ -212,7 +212,7 @@ function studioObservationMessage(observation) {
  * and tool declarations ride in its system messages), its model and thinking
  * level, and its steering queue. Each turn is one `agent.prompt()`.
  */
-export function createAgentRunner({ models: suppliedModels, sessionStore, tools = [], systemPrompt = "", clock = () => performance.now(), fauxProvider, codexBaseUrl, cliproxyBaseUrl, auth, credentials, keys, env } = {}) {
+export function createAgentRunner({ models: suppliedModels, sessionStore, tools = [], systemPrompt = "", clock = () => performance.now(), fauxProvider, codexBaseUrl, cliproxyBaseUrl, auth, credentials, keys, env, answerDeadlineMs } = {}) {
 	const openSessions = new Map();
 	let models = suppliedModels;
 	let piModules;
@@ -383,7 +383,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				const restored = sessionStore?.read?.(sessionId);
 				state.agent = new pi.Agent({
 					initialState: { systemPrompt: activePrompt, model: selected.model, thinkingLevel: thinkingLevel ?? "off", tools: await adapters(input), messages: restored?.history ?? [] },
-					streamFn: createRetryingStream({ ai: pi.ai, models: registry, refreshAuth, onAttempt: (message) => { countAttempt(message); emitQuota(state.active?.queue, state.lastInput); } }),
+					streamFn: createRetryingStream({ ai: pi.ai, models: registry, refreshAuth, ...(answerDeadlineMs ? { answerDeadlineMs } : {}), onAttempt: (message) => { countAttempt(message); emitQuota(state.active?.queue, state.lastInput); } }),
 					transformContext: studioView,
 					// keeps the output limit this request really sent, for a turn that runs out of it (finish)
 					onPayload: (payload, model) => { if (state.active) state.active.maxTokens = payload?.max_tokens ?? payload?.max_completion_tokens ?? payload?.max_output_tokens; return model?.api === "anthropic-messages" ? withAnthropicCacheBreakpoints(payload, model) : undefined; },
