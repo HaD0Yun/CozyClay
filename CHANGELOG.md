@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.3.5 - 2026-11-28
+
+The AI video reference prompt now says what happens in each shot and when, written by the agent that built the scene.
+
+Export
+
+- Export → AI video reference has a box per shot for what happens and
+  when, and a Write with the agent button: the agent of the conversation
+  that built the scene fills each box from that conversation and the shot
+  camera's pictures ("At 4 s Mira leaps the gap..."), and you can edit it
+  before you export. The prompt carries it as each shot's action. (#1395)
+- The prompt gives each shot its span in seconds and says who and what is
+  in frame, on which side, and when they enter or leave, read from the
+  scene. (#1395)
+
 ## 3.3.4 - 2026-11-28
 
 The Studio agent tells you sooner and more plainly why a turn failed, tests a key or server the moment you add it, asks before it exports, and runs one turn at a time again.
