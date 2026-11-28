@@ -54,6 +54,8 @@ export function createCodexClient({
 
 	async function requestHeaders(extra = {}) {
 		const [accessToken, accountId] = await Promise.all([getAccessToken(), getAccountId()]);
+		// never "Bearer null": no token is the panel's sign-in, not a backend error (#1374)
+		if (!accessToken) throw Object.assign(new Error("Sign in with ChatGPT in the Agent panel."), { code: "auth", status: 401 });
 		return {
 			authorization: `Bearer ${accessToken}`,
 			"chatgpt-account-id": accountId,
