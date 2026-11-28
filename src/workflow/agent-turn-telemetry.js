@@ -14,6 +14,8 @@ import { notePromptTurnEnded, takePrompt } from "./prompt-telemetry.js";
 const validTelemetryId = (value) => typeof value === "string" && /^[a-f0-9]{32}$/.test(value);
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
 	&& Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+// agent:turn_succeeded's refused_bucket: a "success" after refusals is often a turn that changed nothing.
+const bucketRefused = (n) => (n <= 0 ? "0" : n <= 2 ? "1-2" : "gte3");
 const advisory = (read, fallback) => { try { return read(); } catch { return fallback; } };
 
 // motion.compile drafts per turn correlation id (src/commands/motion3.js). A turn that never finishes must not leak:
@@ -79,6 +81,8 @@ function createToolTally(clock, startedAt) {
 			if (code) { refused += 1; const key = refusalCodeOf(code); refusals.set(key, (refusals.get(key) ?? 0) + 1); }
 		},
 		applied() { authored = true; },
+		/** agent:turn_succeeded's part: did the turn change the scene, and how often was it refused. */
+		outcome: () => ({ authored, refused_bucket: bucketRefused(refused) }),
 		props(outcome) {
 			let top = "none", most = 0;
 			for (const [code, n] of refusals) if (n > most) { top = code; most = n; }
@@ -129,7 +133,7 @@ export function startAgentTurn({ surface, capture, now, correlationId = null }) 
 			}
 		}
 		tools.clear();
-		emit(`agent:turn_${outcome}`, { turn_id: turnId, duration_bucket: bucketMs(clock() - startedAt), ...(outcome !== "succeeded" ? { failure_code: failureCode } : {}), ...(outcome === "failed" ? origin : {}) });
+		emit(`agent:turn_${outcome}`, { turn_id: turnId, duration_bucket: bucketMs(clock() - startedAt), ...(outcome !== "succeeded" ? { failure_code: failureCode } : advisory(() => tally.outcome(), {})), ...(outcome === "failed" ? origin : {}) });
 		const summary = advisory(() => ({ turn_id: turnId, outcome, wall: bucketLong(clock() - startedAt), ...tally.props(outcome), ...takeDrafts(matchId) }), null);
 		if (summary) emit("agent:turn_summary", summary);
 		// Only a Studio turn is followed by Studio edits; the Workflow canvas has no edit groups to count.

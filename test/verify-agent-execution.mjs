@@ -47,7 +47,7 @@ const close = async (server) => { const closed = bounded(server, "close"); serve
 	assert.deepEqual(names(captured), ["agent:turn_requested", "agent:turn_succeeded"], "real transport owns requested and terminal");
 	assert.deepEqual(captured[0].props, { surface: "studio", turn_id: bodies[0].turn_id });
 	assert.match(bodies[0].turn_id, /^[a-f0-9]{32}$/);
-	assert.deepEqual(captured[1].props, { turn_id: bodies[0].turn_id, duration_bucket: "lt1s" }, "browser measures the entire request, not server time");
+	assert.deepEqual(captured[1].props, { turn_id: bodies[0].turn_id, duration_bucket: "lt1s", authored: false, refused_bucket: "0" }, "browser measures the entire request, not server time");
 	await transport.turn(request, () => {});
 	assert.notEqual(bodies[0].turn_id, bodies[1].turn_id, "retry gets a fresh ID despite reusing session, prompt and model");
 	assert.ok(!JSON.stringify(captured).includes("private"));
@@ -847,6 +847,21 @@ async function runTimedTurn(steps, options = {}) {
 	assert.equal(Object.hasOwn(bare.summaries[0], "first_tool"), false, "no tool ran: no first_tool");
 	assert.equal(bare.summaries[0].authored, true, "the turn's agent:result_applied marks it authored");
 	closePostTurnWindow();
+}
+
+// agent:turn_succeeded says whether a "success" changed the scene and how often the Studio refused it.
+{
+	const succeeded = ({ captured }) => captured.find(({ event }) => event === "agent:turn_succeeded").props;
+	const nothing = await runTurn((id) => [start("a"), refusedDone("a", "TARGET_BUSY"), start("b"), done("b"), terminal(id)]);
+	assert.deepEqual(succeeded(nothing), { turn_id: nothing.summaries[0].turn_id, duration_bucket: "lt1s", authored: false, refused_bucket: "1-2" });
+	assert.deepEqual(sanitizeProps("agent:turn_succeeded", succeeded(nothing)), succeeded(nothing));
+	const many = await runTurn((id) => [..."abc".split("").flatMap((c) => [start(c), refusedDone(c, "STALE_SCENE")]), start("d"), done("d", { result: { ok: true, authored: true } }), terminal(id)]);
+	assert.deepEqual([succeeded(many).authored, succeeded(many).refused_bucket], [true, "gte3"]);
+	const failed = await runTurn((id) => [start("a"), refusedDone("a", "TARGET_BUSY"), terminal(id, "failed", "tool_failed")]);
+	const failedProps = failed.captured.find(({ event }) => event === "agent:turn_failed").props;
+	assert.equal(Object.hasOwn(failedProps, "authored") || Object.hasOwn(failedProps, "refused_bucket"), false, "only a success carries them");
+	closePostTurnWindow();
+	console.log("PASS agent:turn_succeeded authored and refused_bucket");
 }
 
 // cancel_phase: before_tool, during_tool, after_tool.

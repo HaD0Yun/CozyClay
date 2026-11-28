@@ -877,7 +877,7 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
 | `workflow:result_applied` | `run_id` |
 | `agent:turn_requested` | `surface`, `turn_id` |
 | `agent:tool_executed` | `turn_id`, `tool_category`, `outcome`, `duration_bucket` |
-| `agent:turn_succeeded` | `turn_id`, `duration_bucket` |
+| `agent:turn_succeeded` | `turn_id`, `duration_bucket`, `authored`, `refused_bucket` |
 | `agent:turn_failed` | `turn_id`, `duration_bucket`, `failure_code`, `provider`, `endpoint` (openai-compatible only) |
 | `agent:turn_cancelled` | `turn_id`, `duration_bucket`, `failure_code` |
 | `agent:result_applied` | `turn_id` |
@@ -1684,6 +1684,11 @@ Caveats:
 - `outcome` is the sidecar's verdict. A turn in which a tool call was refused but
   the model then answered can read `succeeded`; use `refused` and
   `tool_failed` for the refusal itself.
+  From this release `agent:turn_succeeded` itself carries `authored` (bool:
+  the turn changed the scene) and `refused_bucket` (`0`, `1-2`, `gte3`: tool
+  calls the Studio refused), so a success that changed nothing after refusals
+  can be split out without a join (2.10). Older builds send neither: unknown,
+  not "changed".
 - `agent:post_turn_edit` counts the user's edits as the command bus records
   them: UI-origin commands that changed the scene, one receipt each (a drag
   commits once). The live bone-drag preview is not a receipt; its commit is.
@@ -1877,6 +1882,28 @@ For `first_tool`, swap `wall` for `first_tool` and add
 `first_tool`, and counting them as `lt10s` would hide them. Read
 `cancel_phase` beside the `cancelled` rows to see whether people gave up
 waiting for the first tool (`before_tool`) or mid-run.
+
+## 2.10 Successes that changed nothing (90 days)
+
+A `succeeded` turn with `authored = false` after at least one refusal is a
+turn that told the user "done" and left the scene as it was. Before this
+field, 67 of 119 such successes (56%) were this kind and still counted as
+success.
+
+```sql
+SELECT
+    properties.refused_bucket AS refused_bucket,
+    countIf(JSONExtractRaw(properties, 'authored') = 'false') AS changed_nothing,
+    count() AS succeeded,
+    round(changed_nothing / succeeded, 3) AS changed_nothing_share
+FROM events
+WHERE event = 'agent:turn_succeeded'
+  AND JSONHas(properties, 'refused_bucket')
+  AND JSONExtractRaw(properties, 'internal_qa') != 'true'
+  AND timestamp >= now() - INTERVAL 90 DAY
+GROUP BY refused_bucket
+ORDER BY indexOf(['0', '1-2', 'gte3'], refused_bucket)
+```
 
 # Click friction (ui:rage_click, ui:dead_click)
 
