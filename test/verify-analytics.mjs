@@ -1482,7 +1482,7 @@ const executionEnums = [
 	["agent:turn_requested", "surface", ["studio", "workflow"]],
 	["workflow:run_requested", "node_count_bucket", ["0", "1-3", "4-10", "gte11"]],
 	["workflow:run_failed", "failure_code", ["aborted", "capture_failed", "generation_failed", "unknown"]],
-	["agent:turn_failed", "failure_code", ["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown"]],
+	["agent:turn_failed", "failure_code", ["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown", "timeout", "truncated"]],
 	["agent:turn_failed", "endpoint", ["local", "lan", "hosted", "unknown"]],
 	["agent:tool_executed", "tool_category", ["workflow_read", "workflow_write", "workflow_run", "frame_capture", "image_generate", "scene_write", "scene_read", "view", "motion", "planning", "scripting", "other"]],
 	["mcp:tool_executed", "tool_category", ["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]],

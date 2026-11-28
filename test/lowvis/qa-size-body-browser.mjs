@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser check in the Studio of the cube look (COZYCLAY_FIGURE=cube): a character at scale 1 is the 1.70 m body; a
+// Browser check in the Studio of the cube look (COZYCLAY_FIGURE=cube): a character at scale 1 is the 1.653 m body; a
 // scene stored by an earlier build (a cube figure of world size 0.81 with a lowvis take of that size, a cup on its hand, a
 // tracked box) opens at the same world size and playing as before (the same picture while the look's head is the same); the writer's scene and spec go with the take (reload, undo,
 // duplicate, the describe answer the sidecar reads); a scale change is refit without a model (bin/agent/motion-refit.mjs).
@@ -158,7 +158,7 @@ const report = {};
 	report.saved = { figureBody: stage.figureBody };
 }
 
-// --- a new character at scale 1 is the 1.70 m body ---
+// --- a new character at scale 1 is the 1.653 m body ---
 {
 	const had = await evaluate("window.__cozyclay.characters.map(c => c.id)"), added = (await act("character.add", { character: { x: 2, z: 0 } })).affectedIds;
 	const id = added.find(a => !had.includes(a)); // the receipt names the cast it touched, the new one among them
@@ -167,8 +167,8 @@ const report = {};
 	assert.equal(row.scale, 1, "a new figure starts at scale 1");
 	const [d] = await look("new", [0], id);
 	report.newFigure = { top: d.skinTop, bottom: d.skinBottom };
-	// with no take it stands in the rig's T-pose, which the cube look draws 6 mm over its 1.70 m with the arms down (verify-look-body)
-	assert.ok(Math.abs(d.skinTop - d.skinBottom - 1.706) < 0.005, `in the T-pose it is 1.706 m tall (${(d.skinTop - d.skinBottom).toFixed(3)} m)`);
+	// with no take it stands in the rig's T-pose, which the cube look draws 6 mm over its 1.653 m with the arms down (verify-look-body)
+	assert.ok(Math.abs(d.skinTop - d.skinBottom - 1.659) < 0.005, `in the T-pose it is 1.659 m tall (${(d.skinTop - d.skinBottom).toFixed(3)} m)`);
 	console.log(`new figure at scale 1: ${(d.skinTop - d.skinBottom).toFixed(3)} m in the T-pose`);
 	// the scale knob of its gizmo reads and writes the character's scale: a small pull outwards makes it a little larger
 	await act("view.select", { selection: { kind: "character", id } });
