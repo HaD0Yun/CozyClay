@@ -680,7 +680,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		// The edit on the last message: that turn leaves the conversation the model is given and the panel restores (session-rewind.mjs).
 		if (path.startsWith("/agent/sessions/") && path.endsWith("/rewind") && req.method === "POST") return handleRewind(req, res, decodeURIComponent(path.slice("/agent/sessions/".length, -"/rewind".length)), { studioSessions, studioRunners, sessionStore, edits, parseCookies, json, readBody: request => readBody(request) });
-		if (await providerRoutes(req, res, path)) return true;
+		if (await providerRoutes(req, res, path)) return true; if (path === "/agent/beats" && req.method === "POST") return /* Export → AI video reference: the session's agent writes each shot's timed beats */ (await import("./shot-beats.mjs")).handleBeats(req, res, { readBody: request => readBody(request, IMAGE_BODY_LIMIT), json, sessionStore, transcriptFromHistory, models: ensureWorkflowModels });
 		if (path === "/agent/sessions" && req.method === "GET") {
 			const surface = new URL(req.url, "http://127.0.0.1").searchParams.get("surface") || undefined;
 			try { json(res, 200, { sessions: sessionStore.list({ surface }) }); }

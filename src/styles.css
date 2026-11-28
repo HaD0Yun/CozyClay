@@ -8409,6 +8409,11 @@ input[type=range] {
 .ai-reference-ask-label { display: block; margin-bottom: 4px; color: var(--fg); }
 .ai-reference-ask textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 4px; background: transparent; color: var(--fg); font: inherit; }
 .ai-reference-ask-note { margin: 8px 0; opacity: 0.75; line-height: 1.4; }
+.ai-reference-ask-beats { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; max-height: 40vh; overflow-y: auto; }
+.ai-reference-ask-beats-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-reference-ask-beats-head .ai-reference-ask-label { margin-bottom: 0; }
+.ai-reference-ask-beats-head button { padding: 3px 8px; border: 1px solid var(--line2); border-radius: 4px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+.ai-reference-ask-beats-head button:disabled { opacity: 0.6; cursor: progress; }
 .ai-reference-ask-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .ai-reference-ask-actions button { padding: 4px 10px; border: 1px solid var(--line2); border-radius: 4px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
 .ai-reference-ask-actions button.primary { background: var(--fg); color: var(--panel); border-color: var(--fg); }

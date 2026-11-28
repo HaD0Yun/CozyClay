@@ -12,7 +12,8 @@ import { aiReferenceFacts, buildAiReferencePrompt } from "./ai-reference-prompt.
 import { classifyMove, moveSequencePhrase } from "./camera-move.js";
 import { subjectsCenter } from "./shot-subjects.js";
 import { SUBJECT_HEIGHT_M, fovToFocalMm } from "./shot.js";
-import { shotScene } from "./ai-reference-scene.js";
+import { shotScene, shotSceneText } from "./ai-reference-scene.js";
+import { requestShotBeats } from "./ai-reference-beats.js";
 import { castAimPoint, castBodyPoints } from "./camera-direction.js";
 import { bodyScale } from "./lowvis/studio/figure.js";
 import { objectSize } from "./object-size.js";
@@ -151,8 +152,9 @@ function shotScenesForPrompt(app, contextShots, output) {
 
 // prompt.txt and scene-facts.json for the pack, from the export's own
 // snapshot of the shots and cast.
-function promptEntries(app, job, setting) {
-	const contextShots = job.request.context.shots;
+function promptEntries(app, job, setting, actions = []) {
+	// A shot's action the operator kept in the dialog (written there or by the agent) stands in for its caption.
+	const contextShots = job.request.context.shots.map((entry, index) => (actions[index]?.trim() ? { ...entry, caption: actions[index].trim() } : entry));
 	const facts = aiReferenceFacts({
 		shots: contextShots, fps: app.tlFps, setting,
 		// The name the operator typed (its subject), else the Outliner's "Character N".
@@ -177,11 +179,23 @@ export function openAiReferenceDialog(app) {
 	}
 	setAiReferenceAsk({
 		shotCount: shots.length,
+		shotNames: shots.map((entry, index) => entry.name || `Shot ${index + 1}`),
 		captionCount: shots.filter((entry) => (entry.caption ?? "").trim()).length,
 		onCancel: () => setAiReferenceAsk(null),
-		onExport: (setting) => {
+		onExport: (setting, actions) => {
 			setAiReferenceAsk(null);
-			void runAiReferenceExport(app, (job) => promptEntries(app, job, setting));
+			void runAiReferenceExport(app, (job) => promptEntries(app, job, setting, actions));
+		},
+		// The agent of this Studio's conversation writes each shot's timed beats from the shot camera's pictures
+		// and the scene's own measurements (ai-reference-beats.js); the dialog shows them to edit.
+		onWriteBeats: async (setting) => {
+			const scenes = shotScenesForPrompt(app, shots, app.shotOutput);
+			const { actions } = await requestShotBeats({
+				shots, fps: app.tlFps, capture: app.captureShotFramePng, setting,
+				cast: app.characters.map(castName),
+				shotFacts: shots.map((entry, index) => ({ camera: shotCameraForPrompt(app, entry).phrase, inFrame: shotSceneText(scenes[index]) })),
+			});
+			return actions;
 		},
 	});
 }

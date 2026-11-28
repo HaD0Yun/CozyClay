@@ -4325,7 +4325,7 @@ export default function App() {
 		setProjectStartupOpen, setProjectBrowserOpen, runStudioAction,
 		projectManifest, projectSaveState, recState, exportMenuTriggerRef, exportMenuOpen,
 		exportShotIdRef, setExportMenuOpen, exportPhaseLabel,
-		resultOpen, shots, exportKeyframePacks, exportAiReference: () => openAiReferenceDialog({ shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport, setAiReferenceAsk, characters, shotFramingAtFrame, cameraSubjectsAt, filmback, sceneCast: cameraSubjects.cast }),
+		resultOpen, shots, exportKeyframePacks, exportAiReference: () => openAiReferenceDialog({ shots, shotOutput, recRef, setToast, ko, tlFps, executeExportRequest, exportRequest, runShotExport, updateExportStatus, exportBoundary, saveExport, setAiReferenceAsk, characters, shotFramingAtFrame, cameraSubjectsAt, filmback, sceneCast: cameraSubjects.cast, captureShotFramePng }),
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		downloadOtioCutList, projectStatus, liveWorkspaceHandle, selectedHierarchyId, selectHierarchy,
 		aimEditorAtKeyLight, characters, ikFrames, ikMode,
