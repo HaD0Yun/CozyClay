@@ -896,8 +896,9 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
   execution start. No raw duration reaches analytics.
 - Workflow `failure_code`: `aborted`, `capture_failed`, `generation_failed`,
   `unknown` (including missing node input). Agent: `aborted`, `auth`,
-  `rate_limited`, `tool_failed`, `upstream`, `network`, `key_refused`,
-  `stale_scene`, `capability_missing`, `busy`, `invalid_request`, `unknown`.
+  `rate_limited`, `tool_failed`, `upstream`, `network`, `timeout`,
+  `truncated`, `key_refused`, `stale_scene`, `capability_missing`, `busy`,
+  `invalid_request`, `unknown`.
   Never raw error
   prose.
 - `agent:turn_failed` `provider`: the `agent:prompt_sent` provider of the same
@@ -918,8 +919,20 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
   - `invalid_request`: `INVALID_*`, HTTP 400, or another 4xx refusal such as
     409 `AMBIGUOUS_TARGET`.
   - `upstream`: provider trouble only, an HTTP 5xx or the runner's
-    `overloaded`, `upstream` or `truncated` (or the provider's `server_error`).
-    A 4xx status beside one of those codes reads by the status.
+    `overloaded` or `upstream` (or the provider's `server_error`). The runner
+    says `upstream` only for a 5xx status or the provider's own 5xx words; a
+    failure it cannot name is `unknown` (#1370). A 4xx status beside one of
+    those codes reads by the status.
+  - `timeout` (#1370): the provider took the request but its answer did not
+    come in time. The runner's `timeout` (a message that says it timed out,
+    such as the OpenAI SDK's `Request timed out.`, or a deadline exceeded), a
+    headers/body timeout code (`UND_ERR_HEADERS_TIMEOUT`,
+    `UND_ERR_BODY_TIMEOUT`) or a `TimeoutError`. A connect timeout
+    (`ETIMEDOUT`, `UND_ERR_CONNECT_TIMEOUT`) never reached the server and
+    stays `network`; a 504 status stays `upstream`.
+  - `truncated` (#1370): the model's answer ended early, the runner's
+    `truncated`: it used its whole output before any answer or tool call (an
+    empty `length` stop), or its stream ended before the terminal event.
   - `network`: the request never got an HTTP answer. A fetch `TypeError`
     (offline, refused, DNS) or a socket code such as `ECONNRESET`, `ENOTFOUND`
     or `ETIMEDOUT` on the error or its `cause`. Read from `name`, `code` and
@@ -934,7 +947,8 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
   - `unknown`: anything else, including a code outside this set and an error
     whose fields throw.
   - Rows before the `network`/`unknown` split carry `upstream` for all three;
-    compare by `app_version`.
+    rows before #1370 carry `upstream` for `timeout`, `truncated` and most of
+    the runner's `unknown`; compare by `app_version`.
   Source tables: `src/workflow/agent-failure-codes.js` and
   `bin/agent/agent-failure-codes.mjs` (kept identical by
   `test/verify-agent-execution.mjs`).
@@ -2039,6 +2053,7 @@ Builds before this release have no rows (**unknown, not 0**).
 | `agent:connect_started` | `provider`, `method` (`oauth`, `api_key`, `chatgpt`) | A provider's login button, or Sign in with ChatGPT. One per attempt |
 | `agent:connect_finished` | `provider`, `method`, `outcome`, `step`, `duration` (lt10s … gte5m), `reason` (not-ok only, when known) | One per attempt, see below |
 | `agent:model_changed` | `provider`, `after_failure` (bool) | The model list. 10 per session |
+| `agent:connect_tested` | `provider`, `result` (`ok`, `key_rejected`, `unreachable`, `model_not_found`, `rate_limited`, `timeout`, `other`) | The automatic test after a key or address login finishes, a model picked for a key/address provider, or Test connection on a connected row. 20 per session |
 
 `provider` is one of the ten providers CozyClay configures itself
 (`bin/agent/providers.mjs` `PROVIDERS`) or `other`. The login list offers
@@ -2063,6 +2078,23 @@ Split `failed`/`waiting` by it to see which one to fix.
 `step` is how far the attempt got: `list` (it never started a flow),
 `waiting` (the flow ran), `prompt` (it was asking for a key, an address or a
 code), `done`.
+
+`agent:connect_tested.result` is what one small real request on a key or
+address connection came back with (list the models, then one token, 15 s):
+`ok`, `key_rejected` (401/403, or an invalid-key 400), `unreachable` (no
+answer, or the address has no models list), `model_not_found` (the server
+does not serve that model), `rate_limited` (429, 402 or a quota refusal),
+`timeout`, `other`. Unexecuted sketch, the share of tests that fail by
+provider and reason:
+
+```sql
+SELECT properties.provider AS provider, properties.result AS result, count() AS tests,
+    uniq(distinct_id) AS users
+FROM events
+WHERE event = 'agent:connect_tested' AND timestamp > now() - INTERVAL 30 DAY
+GROUP BY provider, result
+ORDER BY provider, tests DESC
+```
 
 ## 4.1 Connect funnel by provider (30 days)
 

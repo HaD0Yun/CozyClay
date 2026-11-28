@@ -11,7 +11,11 @@
 //     pi-ai reads it as a final error, so it ended the turn as "upstream" (#1043);
 //   - a quota refusal pi-ai will not retry (its "quota exceeded" / "billing" words) that names a short wait, e.g.
 //     Gemini's per-minute free tier ("Please retry in 37s"): once, after that wait (#1043);
-//   - an expired Codex sign-in (401), once per turn, after a forced credential refresh (refreshAuth, the runner's).
+//   - an expired Codex sign-in (401), once per turn, after a forced credential refresh (refreshAuth, the runner's);
+//   - a server that took the request and sent no answer (no response headers) within ANSWER_DEADLINE_MS: that attempt is
+//     cut and tried TIMEOUT_RETRIES more time, then the request fails as a timeout with TIMEOUT_MESSAGE (#1388: Node's
+//     own 300 s headers timeout, retried as a network failure, kept the user waiting about 25 minutes). Only the wait
+//     for the headers is timed: a streaming answer that has begun, long reasoning included, is never cut.
 // An attempt is retried only while no answer of it reached the Agent: its events are held until its first content
 // event, so the transcript and the panel only ever see the attempt that answered. Reasoning is forwarded as it streams
 // and does not commit the attempt (#1043: a stream that dropped after its reasoning ended the turn); the retried
@@ -24,6 +28,12 @@ const RETRY_POLICY = Object.freeze({ maxRetries: 4, baseDelayMs: 1000 });
 const RATE_LIMIT_RETRIES = 3;
 const RETRY_HINT_CAP_MS = 20_000;
 const QUOTA_WAIT_MAX_MS = 60_000;
+// How long one attempt waits for its server to start answering (response headers), and how many more tries a request
+// that got none gets: about 2 minutes in all before the turn fails (#1388). A model still loading on a local server
+// usually answers the second try.
+export const ANSWER_DEADLINE_MS = 60_000;
+const TIMEOUT_RETRIES = 1;
+export const TIMEOUT_MESSAGE = "The model did not answer. Try again or pick another model.";
 // "retry in 37.5s", "try again in 750ms", and the ChatGPT usage limit's "Try again in ~38 min." (pi-ai's Codex adapter).
 const RETRY_HINT = /(?:retry|try again)\D{0,12}?(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)\b/i;
 const UNIT_MS = (unit) => (/^ms|^milli/i.test(unit) ? 1 : /^s/i.test(unit) ? 1000 : /^m/i.test(unit) ? 60_000 : 3_600_000);
@@ -133,17 +143,17 @@ function failedMessage(model, error, signal) {
  * message)` decides whether a failed attempt earns a credential refresh and one more try (it refreshes before answering
  * true); `onAttempt(message)` sees every attempt's final message, failed ones included.
  */
-export function createRetryingStream({ ai, models, refreshAuth = async () => false, onAttempt = () => {} }) {
+export function createRetryingStream({ ai, models, refreshAuth = async () => false, onAttempt = () => {}, answerDeadlineMs = ANSWER_DEADLINE_MS }) {
 	return (model, context, options = {}) => {
 		const { signal } = options;
 		const out = ai.createAssistantMessageEventStream();
 		// A quota wait, or any wait longer than RETRY_HINT_CAP_MS (a rate limit's own), is taken once per request: a second
 		// refusal is the quota's answer.
 		let longWaited = false;
-		const shouldRetry = async (message, retries) => {
-			const limit = RATE_LIMITED.test(String(message?.errorMessage ?? "")) ? RATE_LIMIT_RETRIES : RETRY_POLICY.maxRetries;
+		const shouldRetry = async (message, retries, timedOut) => {
+			const limit = timedOut ? TIMEOUT_RETRIES : RATE_LIMITED.test(String(message?.errorMessage ?? "")) ? RATE_LIMIT_RETRIES : RETRY_POLICY.maxRetries;
 			if (retries >= limit || signal?.aborted) return false;
-			const kind = retryKind(ai, message);
+			const kind = timedOut ? "transient" : retryKind(ai, message);
 			if (kind) {
 				const wait = retryWaitMs(ai, kind, message, retries);
 				if (kind === "quota_wait" || wait > RETRY_HINT_CAP_MS) { if (longWaited) return false; longWaited = true; }
@@ -173,11 +183,22 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 				let answered = false;
 				let message;
 				let serverWait;
-				// globalThis.fetch is read per call: the Codex response observer (providers.mjs) wraps it.
-				const fetch = async (input, init) => {
-					const response = await globalThis.fetch(input, init);
-					if (!response.ok) serverWait = headerRetryAfterMs(response.headers);
-					return response;
+				let timedOut = false;
+				// globalThis.fetch is read per call: the Codex response observer (providers.mjs) wraps it. The wait for the
+				// response headers is cut at answerDeadlineMs; once they arrive the timer is gone and the body streams as long
+				// as it takes.
+				const fetch = async (input, init = {}) => {
+					const deadline = new AbortController();
+					const timer = setTimeout(() => { timedOut = true; deadline.abort(new DOMException(TIMEOUT_MESSAGE, "TimeoutError")); }, answerDeadlineMs);
+					try {
+						const response = await globalThis.fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal });
+						if (!response.ok) serverWait = headerRetryAfterMs(response.headers);
+						return response;
+					} catch (error) {
+						// A cancel that landed with the deadline is the user's, not a timeout.
+						if (init.signal?.aborted || signal?.aborted) timedOut = false;
+						throw error;
+					} finally { clearTimeout(timer); }
 				};
 				try {
 					const response = await models.streamSimple(model, context, FETCH_APIS.has(model?.api) && !options.fetch ? { ...options, fetch } : options);
@@ -193,8 +214,12 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 					message = failedMessage(model, error, signal);
 				}
 				if (message.stopReason === "error" && serverWait !== undefined) message = { ...message, serverRetryAfterMs: serverWait };
+				// However the adapter worded the cut request ("Request timed out.", "Connection error.", an undici message),
+				// it reads as a timeout with a plain message.
+				const cut = timedOut && !answered && message.stopReason === "error" && !signal?.aborted;
+				if (cut) message = { ...message, errorMessage: TIMEOUT_MESSAGE, errorCode: "TimeoutError" };
 				onAttempt(message);
-				if (!answered && message.stopReason === "error" && await shouldRetry(message, retries)) continue;
+				if (!answered && message.stopReason === "error" && await shouldRetry(message, retries, cut)) continue;
 				// An abort that landed during a backoff ends the request as aborted, like any other cancellation.
 				finish(message.stopReason === "error" && signal?.aborted ? { ...message, stopReason: "aborted" } : message, held);
 				return;

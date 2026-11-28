@@ -4,6 +4,7 @@
 // route sends that key here and every other key on (agent-routes.mjs). The default agent reaches the same flow
 // through its motion tool (motion-door.mjs). motion-run.mjs is loaded on a turn only: it reads src/.
 import { createSteerInbox } from "./steer-inbox.mjs";
+import { frameCodeOf } from "./agent-failure-codes.mjs";
 
 export const LOWVIS_MODEL_KEY = "lowvis/claude-opus-5-5";
 const MODEL = { id: "claude-opus-5-5", key: LOWVIS_MODEL_KEY, label: "Opus 5.5 (lowvis motion)", efforts: ["medium", "high", "low"], defaultEffort: "medium", input: ["text"] };
@@ -64,7 +65,7 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 			// what was not installed is said (motion-run.mjs notInstalled); this key has no way to install it later
 			send({ type: "text.delta", text: `${done.report ?? (done.installed === false ? "" : "The motion is installed.")}${done.notInstalled ? `\n\n${done.notInstalled}` : ""}\n\n(${done.frames} frames = ${done.clipSeconds} s of motion, ${done.characterIds.length} character(s), ${done.objectIds.length} object(s), made in ${done.tookSeconds} s, ${done.compiles} compile(s)${done.writer ? `; written by ${done.writer}` : ""})` });
 		} catch (error) {
-			if (!signal.aborted) send({ type: "error", code: typeof error?.code === "string" && error.code ? error.code : "upstream", message: String(error?.message ?? error) });
+			if (!signal.aborted) send({ type: "error", code: frameCodeOf(error), message: String(error?.message ?? error) });
 		}
 		if (signal.aborted) send({ type: "error", code: "aborted", message: "The turn was stopped." });
 		session.turnSteer = null; inbox.close(); // a message the writer never read is reported dropped before done

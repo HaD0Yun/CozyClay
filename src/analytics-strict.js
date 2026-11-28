@@ -129,6 +129,8 @@ const SCHEMAS = Object.freeze({
 		reason: oneOf("timeout", "callback_error", "port_busy", "user_closed", "other"),
 	},
 	"agent:model_changed": { provider: oneOf(...CONNECT_PROVIDERS, "other"), after_failure: bool },
+	// A connection test right after a key, address or model changed (bin/agent/connect-test.mjs): the closed result only.
+	"agent:connect_tested": { provider: oneOf(...CONNECT_PROVIDERS, "other"), result: oneOf("ok", "key_rejected", "unreachable", "model_not_found", "rate_limited", "timeout", "other") },
 	"agent:prompt_sent": {
 		turn_id: turnId, provider: oneOf(...CONNECT_PROVIDERS, "other"), via: oneOf("typed", "retry_button", "regenerate", "chip", "supervisor"),
 		prompt_len: oneOf("1-20", "21-80", "81-240", "gte241"), compose_ms: long, similarity: oneOf("first", "same", "near", "different"),

@@ -718,9 +718,12 @@ for (const count of [2, 5]) {
 		[{ code: "CAPABILITY_MISSING", status: 409 }, "capability_missing"], [{ code: "LIVE_HUB_UNAVAILABLE", status: 409 }, "capability_missing"],
 		[{ code: "busy" }, "busy"], [{ code: "TARGET_BUSY", status: 409 }, "busy"],
 		[{ status: 400 }, "invalid_request"], [{ code: "INVALID_CONTEXT", status: 400 }, "invalid_request"], [{ code: "AMBIGUOUS_TARGET", status: 409 }, "invalid_request"],
-		[{ code: "overloaded", status: 529 }, "upstream"], [{ code: "upstream", status: 502 }, "upstream"], [{ code: "truncated" }, "upstream"], [{ status: 500 }, "upstream"], [{ code: "server_error" }, "upstream"],
+		[{ code: "overloaded", status: 529 }, "upstream"], [{ code: "upstream", status: 502 }, "upstream"], [{ code: "truncated" }, "truncated"], [{ code: "truncated", status: 400 }, "invalid_request"], [{ status: 500 }, "upstream"], [{ code: "server_error" }, "upstream"],
 		[new TypeError("offline"), "network"], [{ code: "ECONNRESET" }, "network"], [{ code: "ENOTFOUND" }, "network"],
 		[Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }), "network"], [{ name: "TypeError", status: 502 }, "upstream"],
+		[{ code: "timeout" }, "timeout"], [{ code: "timeout", status: 504 }, "upstream"], [{ code: "UND_ERR_HEADERS_TIMEOUT" }, "timeout"], [{ code: "UND_ERR_BODY_TIMEOUT" }, "timeout"],
+		[{ name: "TimeoutError" }, "timeout"], [Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_HEADERS_TIMEOUT" } }), "timeout"], [{ code: "ETIMEDOUT" }, "network"], [{ code: "UND_ERR_CONNECT_TIMEOUT" }, "network"],
+		[{ code: "unknown", status: 400 }, "invalid_request"], [{ code: "unknown", status: 502 }, "upstream"],
 		[{ code: "network" }, "network"], [{ code: "unknown" }, "unknown"], [{ code: "upstream", status: 400 }, "invalid_request"], [{ code: "overloaded", status: 429 }, "rate_limited"],
 		[{ code: "constructor" }, "unknown"], [{ code: "entitlement" }, "unknown"], [{ message: "401 Unauthorized" }, "unknown"], [new Error("network down"), "unknown"], [{}, "unknown"],
 	];

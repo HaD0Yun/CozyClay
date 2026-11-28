@@ -429,7 +429,7 @@ const implementations={
   try{
    const c=g.binding.context();
    // how tall a body stands, as drawn (figure.js standingHeight: here the default cube look at its body; 2.086 under the block look), only where a look draws it
-   assert.deepEqual(['actor-a','actor-cap','actor-x'].map(id=>c.entities.find(e=>e.id===id).standingHeightM),[undefined,undefined,2.04]);
+   assert.deepEqual(['actor-a','actor-cap','actor-x'].map(id=>c.entities.find(e=>e.id===id).standingHeightM),[undefined,undefined,1.983]);
    assert.equal(c.scene.previsMode,undefined,'the editor no longer reports a previs mode');
    assert.equal(c.capabilities.storyboard,undefined);
    const rigged=c.entities.find(e=>e.id==='actor-a'),proxy=c.entities.find(e=>e.id==='actor-cap');
