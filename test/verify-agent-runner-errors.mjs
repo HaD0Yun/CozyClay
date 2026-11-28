@@ -13,7 +13,8 @@ import { join } from "node:path";
 import { createModels, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxThinking } from "@earendil-works/pi-ai/providers/faux";
 import { fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { createAgentRunner, classifyError, classifyProviderError } from "../bin/agent/agent-runner.mjs";
+import { createAgentRunner, classifyError } from "../bin/agent/agent-runner.mjs";
+import { classifyProviderError } from "../bin/agent/agent-failure-codes.mjs";
 import { headerRetryAfterMs, retryAfterMs, retryKind } from "../bin/agent/agent-stream.mjs";
 import { failureCodeOf } from "../bin/agent/agent-failure-codes.mjs";
 import * as piAi from "@earendil-works/pi-ai";
@@ -256,7 +257,11 @@ function errorMessage(text) {
 		["404 model not found", "invalid_request"],
 		["413 Request Entity Too Large", "invalid_request"],
 		["502 Bad Gateway", "upstream"],
-		["Provider stopped with: SAFETY", "upstream"],
+		["Provider stopped with: SAFETY", "unknown"],
+		["Request timed out.", "timeout"],
+		["504 Gateway Timeout", "upstream"],
+		["500 Internal Server Error", "upstream"],
+		["connect ETIMEDOUT 10.0.0.2:443", "network"],
 		["429 Too Many Requests", "rate_limited"],
 		["You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min.", "rate_limited"],
 		["RESOURCE_EXHAUSTED: quota exceeded for model", "rate_limited"],
@@ -845,7 +850,14 @@ for (const via of ["session", "signal"]) {
 	expect("'429 too many requests' stays rate_limit", classifyError({ message: "429 too many requests" }).code === "rate_limit");
 	expect("'unauthorized' stays unauthorized", classifyProviderError("unauthorized") === "unauthorized");
 	expect("'unauthorized ... fetch failed' keeps the earlier patterns first", classifyProviderError("unauthorized: fetch failed") === "unauthorized");
-	expect("an unrelated errorCode does not decide", classifyError({ errorCode: "ERR_INVALID_ARG", message: "x" }).code === "upstream");
+	expect("an unrelated errorCode does not decide, and what nothing names is unknown, not upstream (#1370)", classifyError({ errorCode: "ERR_INVALID_ARG", message: "x" }).code === "unknown");
+	// #1370: timeout is its own code; a connect timeout never reached the server and stays network; a 5xx stays upstream.
+	expect("'Request timed out.' (the OpenAI SDK) classifies as timeout", classifyError({ message: "Request timed out." }).code === "timeout");
+	expect("'deadline exceeded' classifies as timeout", classifyProviderError("DEADLINE_EXCEEDED: deadline exceeded") === "timeout");
+	expect("{errorCode:'UND_ERR_HEADERS_TIMEOUT'} classifies as timeout from the structure", classifyError({ errorCode: "UND_ERR_HEADERS_TIMEOUT", message: "x" }).code === "timeout");
+	expect("{errorCode:'ETIMEDOUT'} stays network", classifyError({ errorCode: "ETIMEDOUT", message: "connect ETIMEDOUT" }).code === "network");
+	expect("{status:504, message:'timed out'}: the status wins, upstream", classifyError({ status: 504, message: "Request timed out." }).code === "upstream");
+	expect("'Internal Server Error' without a number is still the provider's trouble", classifyProviderError("Internal Server Error") === "upstream");
 }
 
 // --- a tool error containing a status-shaped substring in its own text must

@@ -99,7 +99,7 @@ expect("later turn after a scene change: the state line says rig.scene is curren
 
 const t3 = turn({ sessionId: "s3", runnerFor: async () => { throw new Error("no proxy"); } });
 await t3.run;
-expect("runner failure: error then done", same(t3.frames, [{ type: "error", code: "upstream", message: "no proxy" }, { type: "done" }]), show(t3.frames));
+expect("runner failure: error then done", same(t3.frames, [{ type: "error", code: "unknown", message: "no proxy" }, { type: "done" }]), show(t3.frames));
 expect("runner failure: res ended", t3.res.writableEnded === true);
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1); }

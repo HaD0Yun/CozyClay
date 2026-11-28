@@ -146,7 +146,7 @@ const SCULPT_RUN_MAX_ROUNDS = 10;
 const SCULPT_RUN_MAX_DURATION_MS = 86_400_000;
 const EXECUTION_FAILURE_CODES = Object.freeze({
 	workflow: new Set(["aborted", "capture_failed", "generation_failed", "unknown"]),
-	agent: new Set(["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown", "key_refused", "stale_scene", "capability_missing", "busy", "invalid_request"]),
+	agent: new Set(["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown", "key_refused", "stale_scene", "capability_missing", "busy", "invalid_request", "timeout", "truncated"]),
 });
 // Only a type label and a same-origin script location cross the boundary; the
 // error message, stack text, URLs and anything a user typed never do.
