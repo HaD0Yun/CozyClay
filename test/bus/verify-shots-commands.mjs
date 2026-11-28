@@ -191,3 +191,13 @@ test('camera key easing sets, clears, validates and undoes', () => {
     assert.equal(f.shots.read()[0].cameraKeys[0].ease, 'linear');
   } finally { f.dispose(); }
 });
+
+test('a rail lands at roof height: height and aimHeight are world heights as high as the stage holds (#1391)', () => {
+  const f = shotsFixture();
+  seed(f, 'shot.setCameraRail');
+  const receipt = f.run('shot.setCameraRail', { shotId: 'shot-a', points: [{ x: -16, z: -15 }, { x: -5, z: -14 }], height: 46.6, aim: { x: -10, y: 45.9, z: 0 } }, 'agent');
+  assert.equal(receipt.ok, true, JSON.stringify(receipt));
+  const camera = f.shots.read().find(row => row.id === 'shot-a').camera;
+  assert.equal(camera.mode, 'rail');
+  assert.deepEqual(camera.craneHeight.points.map(point => point.height), [46.6, 46.6], 'a 46.6 m lens on a 45 m roof is kept, not refused at 30 m');
+});

@@ -1,5 +1,5 @@
 // How big a scene may be. "room" is the stage as it has always been: a 480 m
-// floor, props up to 100x, a 30 m crane and a 100 m lens. "large" holds an
+// floor, props up to 100x, a crane as high as the stage and a 100 m lens. "large" holds an
 // exterior at full size (a tower, a riverbank, a long drone move) in one scene.
 //
 // Like the locale, the scale is fixed for the lifetime of the page: the bounds
@@ -16,7 +16,7 @@ export const WORLD_SCALES = Object.freeze({
 		position: 240, // |x|, |z| and height of a character or object, metres
 		scale: 100, // largest object scale on any axis
 		pathHeight: 60, // highest point of an object's travel path
-		railHeight: 30, // highest camera rail height and aim height
+		railHeight: 240, // highest camera rail height and aim height: as high as anything in the scene can stand (position), so a roof the scene holds can be shot from a rail (#1391)
 		cameraFar: 100, // far clipping plane of the shot, editor and poser cameras
 		horizon: Object.freeze({ near: 55, far: 95 }), // fog an exported frame fades its horizon into
 		dollySpeed: 40, // top of a rail dolly's speed cap, m/s; a cap at the top is no cap (dolly-spring.js)
@@ -25,7 +25,7 @@ export const WORLD_SCALES = Object.freeze({
 		position: 3000,
 		scale: 3000,
 		pathHeight: 3000,
-		railHeight: 600,
+		railHeight: 3000,
 		cameraFar: 6000,
 		horizon: Object.freeze({ near: 3300, far: 5700 }),
 		dollySpeed: 1000,
